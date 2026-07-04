@@ -1,0 +1,32 @@
+# Supabase 接入状态
+
+项目地址已经写入本机 `.env.local`，Publishable key 仅用于浏览器客户端。八张业务表、同步触发器和 RLS 已在 Supabase 执行。
+
+## Auth URL 配置
+
+在 Supabase Dashboard 打开 `Authentication → URL Configuration`：
+
+- 本地测试 Site URL：`http://127.0.0.1:5173`
+- Redirect URLs：
+  - `http://127.0.0.1:5173/**`
+  - `http://localhost:5173/**`
+
+部署后把 Site URL 改为正式 HTTPS 地址，并将该地址加入 Redirect URLs。
+
+## 首次账号测试
+
+1. 双击 `启动日程.cmd`。
+2. 点击右上角“登录并同步”。
+3. 选择“注册账号”，填写真实邮箱和至少六位密码。
+4. 打开验证邮件并完成确认。
+5. 返回应用登录，点击“立即同步”。
+6. 右上角待同步数量应归零。
+
+首次登录会把现有 `user_id = local` 的 IndexedDB 数据归属到登录账号并上传。退出登录后，界面不会显示该账号的缓存数据；重新登录后恢复。
+
+## 安全规则
+
+- 网页中只能使用 Publishable key。
+- 不要把 Secret key、`service_role`、数据库密码放入 `.env.local` 或发给他人。
+- 所有业务表启用 RLS，策略限定 `auth.uid() = user_id`。
+- 删除采用 `deleted_at` 软删除，云端触发器拒绝较旧的 `updated_at` 覆盖较新记录。

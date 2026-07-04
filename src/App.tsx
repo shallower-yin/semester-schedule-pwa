@@ -1,0 +1,416 @@
+import { useLiveQuery } from "dexie-react-hooks";
+import {
+  BookOpen,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Cloud,
+  Database,
+  Download,
+  GraduationCap,
+  LogIn,
+  Menu,
+  Plus,
+  RefreshCw,
+  Settings,
+  SlidersHorizontal,
+  UserRound,
+  WifiOff,
+  X
+} from "lucide-react";
+import type { User } from "@supabase/supabase-js";
+import { useEffect, useMemo, useState } from "react";
+import { useRegisterSW } from "virtual:pwa-register/react";
+import { AccountDialog } from "./components/AccountDialog";
+import { AuthDialog } from "./components/AuthDialog";
+import { BackupDialog } from "./components/BackupDialog";
+import { CourseDialog } from "./components/CourseDialog";
+import { EventDialog } from "./components/EventDialog";
+import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
+import { SemesterDialog } from "./components/SemesterDialog";
+import { WeekCalendar } from "./components/WeekCalendar";
+import { db, queueChange } from "./db";
+import {
+  addDays,
+  formatWeekRange,
+  semesterWeekForDate,
+  startOfWeek,
+  toISODate,
+  weekDates
+} from "./lib/date";
+import { setCurrentUserId, syncFields } from "./lib/identity";
+import { supabase, supabaseConfigured } from "./lib/supabase";
+import { adoptAnonymousData, getLastSync, syncNow, type SyncResult } from "./lib/sync";
+import type { Course, EventItem, Semester } from "./types";
+
+type Page = "calendar" | "courses" | "settings";
+
+interface EventDraft {
+  date: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+}
+
+export default function App() {
+  const [page, setPage] = useState<Page>("calendar");
+  const [anchorDate, setAnchorDate] = useState(() => new Date());
+  const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [semesterToEdit, setSemesterToEdit] = useState<Semester | null | undefined>(undefined);
+  const [showPeriodSettings, setShowPeriodSettings] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
+  const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
+  const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
+  const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authDialogMode, setAuthDialogMode] = useState<"login" | "recovery" | null>(null);
+  const [showAccount, setShowAccount] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const ownerId = user?.id ?? "local";
+
+  const semester = useLiveQuery(
+    () => db.semesters.filter((item) => item.user_id === ownerId && item.is_current && !item.deleted_at).first(),
+    [ownerId]
+  );
+  const semesters = useLiveQuery(
+    () => db.semesters.filter((item) => item.user_id === ownerId && !item.deleted_at).reverse().sortBy("start_date"),
+    [ownerId]
+  ) ?? [];
+  const courses = useLiveQuery(
+    () => (semester ? db.courses.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
+    [semester?.id, ownerId]
+  ) ?? [];
+  const schedules = useLiveQuery(
+    async () => {
+      if (!courses.length) return [];
+      const courseIds = new Set(courses.map((course) => course.id));
+      return db.courseSchedules.filter((item) => item.user_id === ownerId && courseIds.has(item.course_id) && !item.deleted_at).toArray();
+    },
+    [courses.map((course) => course.id).join(","), ownerId]
+  ) ?? [];
+  const cancellations = useLiveQuery(() => db.courseCancellations.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const events = useLiveQuery(() => db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const categories = useLiveQuery(() => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const occurrenceStates = useLiveQuery(() => db.eventOccurrenceStates.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const periods = useLiveQuery(
+    () => (semester ? db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
+    [semester?.id, ownerId]
+  ) ?? [];
+  const pendingChanges = useLiveQuery(() => db.syncQueue.count(), []) ?? 0;
+
+  const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
+  const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
+
+  const {
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker
+  } = useRegisterSW();
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthReady(true);
+      return;
+    }
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setCurrentUserId(data.session?.user.id ?? null);
+      setUser(data.session?.user ?? null);
+      setAuthReady(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      setCurrentUserId(session?.user.id ?? null);
+      setUser(session?.user ?? null);
+      setAuthReady(true);
+      if (event === "PASSWORD_RECOVERY") setAuthDialogMode("recovery");
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setLastSync(null);
+      return;
+    }
+    let active = true;
+    setLastSync(getLastSync(user.id));
+    async function bootstrapSync() {
+      setSyncing(true);
+      try {
+        const adopted = await adoptAnonymousData(user!.id);
+        const result = await syncNow(user!.id);
+        if (!active) return;
+        setLastSync(result.completed_at);
+        setSyncMessage(adopted ? `已接管 ${adopted} 条本地数据并完成同步。` : "同步完成。");
+      } catch (error) {
+        if (active) setSyncMessage(error instanceof Error ? error.message : "同步失败");
+      } finally {
+        if (active) setSyncing(false);
+      }
+    }
+    void bootstrapSync();
+    const syncWhenOnline = () => void handleSync();
+    window.addEventListener("online", syncWhenOnline);
+    return () => {
+      active = false;
+      window.removeEventListener("online", syncWhenOnline);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user || pendingChanges === 0 || !navigator.onLine) return;
+    const timer = window.setTimeout(() => void handleSync(), 1500);
+    return () => window.clearTimeout(timer);
+  }, [user?.id, pendingChanges]);
+
+  async function handleSync(): Promise<SyncResult | void> {
+    if (!user) {
+      setAuthDialogMode("login");
+      return;
+    }
+    setSyncing(true);
+    setSyncMessage("");
+    try {
+      const result = await syncNow(user.id);
+      setLastSync(result.completed_at);
+      setSyncMessage(`同步完成：上传 ${result.uploaded} 条，下载 ${result.downloaded} 条。`);
+      return result;
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : "同步失败");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function navigate(nextPage: Page) {
+    setPage(nextPage);
+    setSidebarOpen(false);
+  }
+
+  function moveWeek(amount: number) {
+    setAnchorDate((current) => addDays(current, amount * 7));
+  }
+
+  function goToday() {
+    setAnchorDate(new Date());
+    setSelectedDay((new Date().getDay() + 6) % 7);
+  }
+
+  function openNewEvent(date: string, start: string, end: string, allDay = false) {
+    setEventDraft({ date, start, end, allDay });
+    setEventToEdit(null);
+  }
+
+  async function activateSemester(target: Semester) {
+    if (target.is_current) return;
+    await db.transaction("rw", db.semesters, db.syncQueue, async () => {
+      for (const item of semesters) {
+        const shouldBeCurrent = item.id === target.id;
+        if (item.is_current === shouldBeCurrent) continue;
+        const updated = { ...item, ...syncFields(item), is_current: shouldBeCurrent };
+        await db.semesters.put(updated);
+        await queueChange("semesters", updated.id);
+      }
+    });
+    setPage("calendar");
+    setAnchorDate(new Date());
+  }
+
+  const navigation = (
+    <>
+      <button className={page === "calendar" ? "active" : ""} onClick={() => navigate("calendar")}><CalendarDays size={19} />日程</button>
+      <button className={page === "courses" ? "active" : ""} onClick={() => navigate("courses")}><BookOpen size={19} />课程</button>
+      <button className={page === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Settings size={19} />设置</button>
+    </>
+  );
+
+  return (
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="brand">
+          <button className="mobile-menu-button" onClick={() => setSidebarOpen(true)} aria-label="打开菜单"><Menu /></button>
+          <div className="brand-mark"><CalendarDays size={23} /></div>
+          <div>
+            <strong>轻量学期日程</strong>
+            <span>{semester?.name ?? "尚未创建学期"}</span>
+          </div>
+        </div>
+        <nav className="desktop-nav">{navigation}</nav>
+        <div className="header-status">
+          <button className={`sync-status ${user ? "connected" : ""}`} onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
+            {user ? <Cloud size={16} /> : <LogIn size={16} />}
+            <span>
+              {!authReady ? "正在检查账号…" :
+                syncing ? "正在同步…" :
+                user ? `${user.email} · ${pendingChanges} 项待同步` :
+                supabaseConfigured ? "登录并同步" :
+                `仅本地 · ${pendingChanges} 项待同步`}
+            </span>
+          </button>
+        </div>
+      </header>
+
+      {sidebarOpen && (
+        <div className="mobile-sidebar-backdrop" onClick={() => setSidebarOpen(false)}>
+          <aside className="mobile-sidebar" onClick={(event) => event.stopPropagation()}>
+            <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={() => setSidebarOpen(false)}><X /></button></div>
+            <nav>{navigation}</nav>
+          </aside>
+        </div>
+      )}
+
+      <main>
+        {!semester ? (
+          <section className="empty-state welcome-state">
+            <div className="empty-icon"><GraduationCap size={34} /></div>
+            <h1>先建立你的学期</h1>
+            <p>设置开学日期和周数后，就能添加课程、每日节次和普通事项。</p>
+            <button className="button primary" onClick={() => setSemesterToEdit(null)}><Plus size={18} />创建学期</button>
+          </section>
+        ) : page === "calendar" ? (
+          <>
+            <section className="calendar-toolbar">
+              <div>
+                <div className="week-title">
+                  <h1>{weekNumber ? `第 ${weekNumber} 周` : "学期外日期"}</h1>
+                  <span>{formatWeekRange(dates)}</span>
+                </div>
+              </div>
+              <div className="toolbar-actions">
+                <button className="button secondary compact" onClick={() => moveWeek(-1)} aria-label="上一周"><ChevronLeft size={18} /><span>上一周</span></button>
+                <button className="button secondary compact" onClick={goToday}>回到本周</button>
+                <button className="button secondary compact" onClick={() => moveWeek(1)} aria-label="下一周"><span>下一周</span><ChevronRight size={18} /></button>
+                <button className="button primary compact" onClick={() => openNewEvent(toISODate(dates[selectedDay]), "09:00", "10:00")}><Plus size={18} />新增事项</button>
+              </div>
+            </section>
+            <WeekCalendar
+              dates={dates}
+              semester={semester}
+              courses={courses}
+              schedules={schedules}
+              cancellations={cancellations}
+              events={events}
+              categories={categories}
+              occurrenceStates={occurrenceStates}
+              periods={periods}
+              selectedDay={selectedDay}
+              onSelectedDayChange={setSelectedDay}
+              onAddEvent={openNewEvent}
+              onEditEvent={(item) => setEventToEdit(item)}
+              onEditCourse={(item) => setCourseToEdit(item)}
+            />
+          </>
+        ) : page === "courses" ? (
+          <section className="content-page">
+            <div className="page-heading">
+              <div><h1>课程</h1><p>课程周数以数字数组保存，一个课程可以包含多个上课安排。</p></div>
+              <button className="button primary" onClick={() => setCourseToEdit(null)}><Plus size={18} />新增课程</button>
+            </div>
+            {courses.length ? (
+              <div className="course-list">
+                {courses.map((course) => {
+                  const courseSchedules = schedules.filter((schedule) => schedule.course_id === course.id);
+                  return (
+                    <button className="course-list-item" key={course.id} onClick={() => setCourseToEdit(course)}>
+                      <span className="course-color" style={{ background: course.color }} />
+                      <span className="course-main">
+                        <strong>{course.name}</strong>
+                        <small>{[course.teacher, course.classroom].filter(Boolean).join(" · ") || "未填写教师和教室"}</small>
+                      </span>
+                      <span className="course-count">{courseSchedules.length} 个安排</span>
+                      <ChevronRight size={18} />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="empty-state compact-empty"><BookOpen size={30} /><h2>还没有课程</h2><p>创建课程并选择星期、节次与上课周数。</p></div>
+            )}
+          </section>
+        ) : (
+          <section className="content-page">
+            <div className="page-heading"><div><h1>设置</h1><p>管理学期作息、本地数据和同步准备状态。</p></div></div>
+            <div className="settings-grid">
+              <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
+                <GraduationCap /><span><strong>当前学期</strong><small>{semester.name} · {semester.total_weeks} 周</small></span><ChevronRight />
+              </button>
+              <button className="setting-card" onClick={() => setShowPeriodSettings(true)}>
+                <SlidersHorizontal /><span><strong>每日节次设置</strong><small>分别调整周一至周日的实际作息</small></span><ChevronRight />
+              </button>
+              <button className="setting-card" onClick={() => setShowBackup(true)}>
+                <Database /><span><strong>JSON 数据备份</strong><small>导入或导出本地数据</small></span><ChevronRight />
+              </button>
+              <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
+                {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
+              </button>
+            </div>
+            <div className="local-data-card">
+              <Download size={22} />
+              <div><strong>本地优先已启用</strong><p>课程和事项会立即保存到 IndexedDB。当前有 {pendingChanges} 条本地变更{user ? "等待上传" : "，登录后可上传"}。</p></div>
+            </div>
+            <section className="semester-manager">
+              <div className="section-heading">
+                <div><h3>学期列表</h3><p>切换学期不会删除其他学期的数据。</p></div>
+                <button className="button secondary compact" onClick={() => setSemesterToEdit(null)}><Plus size={16} />新建学期</button>
+              </div>
+              <div className="semester-list">
+                {semesters.map((item) => (
+                  <button key={item.id} className={item.is_current ? "active" : ""} onClick={() => void activateSemester(item)}>
+                    <span><strong>{item.name}</strong><small>{item.start_date} · {item.total_weeks} 周</small></span>
+                    <span>{item.is_current ? "当前" : "切换"}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </section>
+        )}
+      </main>
+
+      {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
+      {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
+      {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
+      {authDialogMode && <AuthDialog initialMode={authDialogMode} onClose={() => setAuthDialogMode(null)} />}
+      {showAccount && user && (
+        <AccountDialog
+          user={user}
+          pendingChanges={pendingChanges}
+          lastSync={lastSync}
+          syncing={syncing}
+          message={syncMessage}
+          onSync={handleSync}
+          onClose={() => setShowAccount(false)}
+        />
+      )}
+      {courseToEdit !== undefined && <CourseDialog semester={semester!} course={courseToEdit ?? undefined} onClose={() => setCourseToEdit(undefined)} />}
+      {(eventDraft || eventToEdit !== undefined) && (
+        <EventDialog
+          eventItem={eventToEdit ?? undefined}
+          initialDate={eventToEdit?.start_date ?? eventDraft?.date ?? toISODate(new Date())}
+          initialStartTime={eventDraft?.start}
+          initialEndTime={eventDraft?.end}
+          initialAllDay={eventDraft?.allDay}
+          onClose={() => {
+            setEventDraft(null);
+            setEventToEdit(undefined);
+          }}
+        />
+      )}
+
+      {needRefresh && (
+        <div className="update-toast">
+          <RefreshCw size={18} />
+          <span>新版本已准备好</span>
+          <button onClick={() => updateServiceWorker(true)}>立即更新</button>
+          <button className="icon-button" onClick={() => setNeedRefresh(false)}><X size={16} /></button>
+        </div>
+      )}
+    </div>
+  );
+}

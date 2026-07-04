@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import type { CourseSchedule, Semester } from "../types";
+import {
+  courseScheduleOccursOn,
+  eventOccursOn,
+  semesterWeekForDate,
+  startOfWeek,
+  toISODate,
+  weekDates
+} from "./date";
+
+const baseFields = {
+  id: "id",
+  user_id: "local",
+  created_at: "2026-01-01T00:00:00.000Z",
+  updated_at: "2026-01-01T00:00:00.000Z",
+  deleted_at: null,
+  version: 1,
+  device_id: "test-device"
+};
+
+const semester: Semester = {
+  ...baseFields,
+  name: "测试学期",
+  start_date: "2026-03-02",
+  total_weeks: 18,
+  is_current: true
+};
+
+const schedule: CourseSchedule = {
+  ...baseFields,
+  id: "schedule",
+  course_id: "course",
+  weekday: 1,
+  start_period: 1,
+  end_period: 2,
+  weeks: [1, 2, 4, 8, 18]
+};
+
+describe("周日期计算", () => {
+  it("以星期一作为每周第一天", () => {
+    expect(toISODate(startOfWeek(new Date(2026, 2, 8)))).toBe("2026-03-02");
+    expect(weekDates(new Date(2026, 2, 8)).map(toISODate)).toEqual([
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08"
+    ]);
+  });
+
+  it("正确计算学期周数和学期外日期", () => {
+    expect(semesterWeekForDate(semester, new Date(2026, 2, 2))).toBe(1);
+    expect(semesterWeekForDate(semester, new Date(2026, 2, 30))).toBe(5);
+    expect(semesterWeekForDate(semester, new Date(2026, 1, 28))).toBeNull();
+    expect(semesterWeekForDate(semester, new Date(2026, 6, 6))).toBeNull();
+  });
+});
+
+describe("课程任意周数", () => {
+  it("只在指定周的指定星期出现", () => {
+    expect(courseScheduleOccursOn(schedule, semester, new Date(2026, 2, 2))).toBe(true);
+    expect(courseScheduleOccursOn(schedule, semester, new Date(2026, 2, 9))).toBe(true);
+    expect(courseScheduleOccursOn(schedule, semester, new Date(2026, 2, 16))).toBe(false);
+    expect(courseScheduleOccursOn(schedule, semester, new Date(2026, 2, 23))).toBe(true);
+    expect(courseScheduleOccursOn(schedule, semester, new Date(2026, 2, 24))).toBe(false);
+  });
+});
+
+describe("事项重复", () => {
+  it("每周事项按开始日期的星期重复，并遵守截止日期", () => {
+    const event = {
+      start_date: "2026-03-04",
+      end_date: "2026-03-04",
+      recurrence_type: "weekly" as const,
+      recurrence_until: "2026-03-25"
+    };
+    expect(eventOccursOn(event, new Date(2026, 2, 4))).toBe(true);
+    expect(eventOccursOn(event, new Date(2026, 2, 11))).toBe(true);
+    expect(eventOccursOn(event, new Date(2026, 2, 12))).toBe(false);
+    expect(eventOccursOn(event, new Date(2026, 3, 1))).toBe(false);
+  });
+});
