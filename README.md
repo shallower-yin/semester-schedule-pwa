@@ -2,6 +2,12 @@
 
 面向 Android Chrome、Windows Edge/Chrome 和普通网页浏览器的响应式 PWA。数据优先保存在浏览器 IndexedDB 中，登录后通过 Supabase 在设备间同步。
 
+## 在线使用
+
+[打开轻量学期日程](https://shallower-yin.github.io/semester-schedule-pwa/)
+
+在 Android Chrome 或 Windows Edge/Chrome 打开后，可通过浏览器菜单安装到主屏幕或桌面。
+
 ## 已实现
 
 - 学期名称、开学日期、总周数和当前周计算

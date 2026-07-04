@@ -10,8 +10,9 @@
 - Redirect URLs：
   - `http://127.0.0.1:5173/**`
   - `http://localhost:5173/**`
+  - `https://shallower-yin.github.io/semester-schedule-pwa/**`
 
-部署后把 Site URL 改为正式 HTTPS 地址，并将该地址加入 Redirect URLs。
+正式 Site URL：`https://shallower-yin.github.io/semester-schedule-pwa/`
 
 ## 首次账号测试
 
