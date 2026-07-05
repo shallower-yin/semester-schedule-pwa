@@ -21,7 +21,7 @@ export default defineConfig(() => {
     react(),
     VitePWA({
       registerType: "prompt",
-      includeAssets: ["favicon.svg", "app-icon-192.png", "app-icon-512.png"],
+      includeAssets: ["favicon.svg", "app-icon-192.png", "app-icon-512.png", "push-sw.js"],
       manifest: {
         name: "轻量学期日程",
         short_name: "学期日程",
@@ -49,7 +49,8 @@ export default defineConfig(() => {
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png}"],
-        navigateFallback: "index.html"
+        navigateFallback: "index.html",
+        importScripts: ["push-sw.js"]
       },
       devOptions: {
         enabled: true

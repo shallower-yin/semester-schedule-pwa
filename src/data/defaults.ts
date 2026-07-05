@@ -5,7 +5,7 @@ export const WEEKDAY_SHORT_NAMES = ["一", "二", "三", "四", "五", "六", "�
 
 export interface VisualTimeRow {
   key: string;
-  periodNumber: number | null;
+  periodNumber: number;
   name: string;
   startTime: string;
   endTime: string;
@@ -17,7 +17,7 @@ export const DEFAULT_TIME_ROWS: VisualTimeRow[] = [
   { key: "p2", periodNumber: 2, name: "第二节", startTime: "09:20", endTime: "10:05", kind: "period" },
   { key: "p3", periodNumber: 3, name: "第三节", startTime: "10:25", endTime: "11:10", kind: "period" },
   { key: "p4", periodNumber: 4, name: "第四节", startTime: "11:15", endTime: "12:00", kind: "period" },
-  { key: "lunch", periodNumber: null, name: "午休", startTime: "12:00", endTime: "13:30", kind: "break" },
+  { key: "lunch", periodNumber: 0, name: "午休", startTime: "12:00", endTime: "13:30", kind: "break" },
   { key: "p5", periodNumber: 5, name: "第五节", startTime: "13:30", endTime: "14:15", kind: "period" },
   { key: "p6", periodNumber: 6, name: "第六节", startTime: "14:20", endTime: "15:05", kind: "period" },
   { key: "p7", periodNumber: 7, name: "第七节", startTime: "15:25", endTime: "16:10", kind: "period" },
@@ -36,9 +36,11 @@ export const DEFAULT_CATEGORIES = [
 ];
 
 export function defaultPeriodsForWeekday(weekday: Weekday) {
-  return DEFAULT_TIME_ROWS.filter((row) => row.periodNumber !== null).map((row) => ({
+  return DEFAULT_TIME_ROWS.map((row, index) => ({
     weekday,
-    period_number: row.periodNumber!,
+    period_number: row.periodNumber,
+    kind: row.kind,
+    sort_order: index + 1,
     name: row.name,
     start_time: row.startTime,
     end_time: row.endTime

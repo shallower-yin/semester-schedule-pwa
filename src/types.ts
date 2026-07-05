@@ -23,6 +23,8 @@ export interface ClassPeriod extends SyncFields {
   semester_id: string;
   weekday: Weekday;
   period_number: number;
+  kind: "period" | "break";
+  sort_order: number;
   name: string;
   start_time: string;
   end_time: string;
@@ -69,12 +71,16 @@ export interface EventItem extends SyncFields {
   note: string;
   recurrence_type: "none" | "weekly";
   recurrence_until: ISODate | null;
+  reminder_enabled: boolean;
+  reminder_minutes_before: number;
+  timezone: string;
 }
 
 export interface EventOccurrenceState extends SyncFields {
   event_id: string;
   occurrence_date: ISODate;
   completed: boolean;
+  reminder_sent_at: ISODateTime | null;
 }
 
 export interface SyncQueueItem {

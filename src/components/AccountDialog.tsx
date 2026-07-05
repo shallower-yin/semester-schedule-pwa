@@ -1,6 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { CheckCircle2, Cloud, LogOut } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { disableNotificationsForCurrentDevice } from "../lib/notifications";
 import type { SyncResult } from "../lib/sync";
 import { Modal } from "./Modal";
 
@@ -16,6 +17,7 @@ interface AccountDialogProps {
 
 export function AccountDialog({ user, pendingChanges, lastSync, syncing, message, onSync, onClose }: AccountDialogProps) {
   async function logout() {
+    await disableNotificationsForCurrentDevice();
     await supabase?.auth.signOut();
     onClose();
   }

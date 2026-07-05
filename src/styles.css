@@ -452,7 +452,8 @@ main {
 
 .entry-meta,
 .entry-time,
-.entry-category {
+.entry-category,
+.entry-reminder {
   margin-top: 4px;
   overflow: hidden;
   font-size: 11px;
@@ -460,6 +461,12 @@ main {
   opacity: 0.9;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.entry-reminder {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .entry-category {
@@ -507,6 +514,64 @@ main {
   border-radius: 14px;
   background: white;
   box-shadow: 0 6px 20px rgb(30 48 88 / 6%);
+}
+
+.course-manager-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.course-manager-toolbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.add-type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.add-type-grid > button {
+  display: flex;
+  min-height: 132px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  text-align: left;
+  background: white;
+  cursor: pointer;
+}
+
+.add-type-grid > button:hover {
+  border-color: #b7c6f4;
+  background: #f8faff;
+}
+
+.add-type-grid svg {
+  box-sizing: content-box;
+  padding: 10px;
+  border-radius: 11px;
+  color: var(--primary);
+  background: #edf2ff;
+}
+
+.add-type-grid span {
+  display: flex;
+  flex-direction: column;
+}
+
+.add-type-grid small {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .course-list-item {
@@ -855,6 +920,25 @@ textarea {
   min-height: 18px;
 }
 
+.reminder-editor {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  align-items: end;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid #dce4f5;
+  border-radius: 11px;
+  background: #f7f9ff;
+}
+
+.reminder-editor > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #52637e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .form-hint {
   margin: 0;
   color: var(--muted);
@@ -975,6 +1059,59 @@ textarea {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 10px;
+}
+
+.period-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.period-toolbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.period-toolbar > div,
+.period-order-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.flexible-period-table .period-table-head,
+.flexible-period-table .period-table-row {
+  grid-template-columns: 76px 105px minmax(130px, 1fr) 112px 112px 38px;
+}
+
+.period-order-buttons .icon-button {
+  width: 32px;
+  height: 32px;
+}
+
+.period-order-buttons .icon-button:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.period-table-row.break-row {
+  color: #80551f;
+  background: #fff8eb;
+}
+
+.time-block-kind {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.period-empty {
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
 }
 
 .period-table-head,
@@ -1393,12 +1530,27 @@ textarea {
 
   .period-table-head,
   .period-table-row {
-    grid-template-columns: 38px 1fr 92px 92px;
     min-width: 480px;
+  }
+
+  .flexible-period-table .period-table-head,
+  .flexible-period-table .period-table-row {
+    grid-template-columns: 76px 105px 150px 108px 108px 38px;
+    min-width: 650px;
   }
 
   .period-table {
     overflow-x: auto;
+  }
+
+  .period-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .period-toolbar > div {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .form-actions.split {
@@ -1413,5 +1565,13 @@ textarea {
 
   .course-count {
     display: none;
+  }
+
+  .add-type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .add-type-grid > button {
+    min-height: 110px;
   }
 }

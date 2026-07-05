@@ -60,6 +60,8 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
   if (table === "classPeriods") {
     return {
       ...record,
+      kind: record.kind ?? "period",
+      sort_order: Number(record.sort_order ?? record.period_number ?? 0),
       start_time: String(record.start_time).slice(0, 5),
       end_time: String(record.end_time).slice(0, 5)
     };
@@ -68,8 +70,14 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
     return {
       ...record,
       start_time: record.start_time ? String(record.start_time).slice(0, 5) : null,
-      end_time: record.end_time ? String(record.end_time).slice(0, 5) : null
+      end_time: record.end_time ? String(record.end_time).slice(0, 5) : null,
+      reminder_enabled: Boolean(record.reminder_enabled),
+      reminder_minutes_before: Number(record.reminder_minutes_before ?? 10),
+      timezone: String(record.timezone ?? "Asia/Shanghai")
     };
+  }
+  if (table === "eventOccurrenceStates") {
+    return { ...record, reminder_sent_at: record.reminder_sent_at ?? null };
   }
   return record;
 }
