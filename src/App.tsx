@@ -22,9 +22,11 @@ import type { User } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
+import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AuthDialog } from "./components/AuthDialog";
 import { BackupDialog } from "./components/BackupDialog";
 import { CourseDialog } from "./components/CourseDialog";
+import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { EventDialog } from "./components/EventDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
@@ -39,17 +41,23 @@ import {
   weekDates
 } from "./lib/date";
 import { setCurrentUserId, syncFields } from "./lib/identity";
+import { checkDueLocalReminders } from "./lib/notifications";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, syncNow, type SyncResult } from "./lib/sync";
 import type { Course, EventItem, Semester } from "./types";
 
-type Page = "calendar" | "courses" | "settings";
+type Page = "calendar" | "settings";
 
 interface EventDraft {
   date: string;
   start: string;
   end: string;
   allDay: boolean;
+}
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
 export default function App() {
@@ -63,6 +71,8 @@ export default function App() {
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
+  const [showAddSchedule, setShowAddSchedule] = useState(false);
+  const [showCourseManager, setShowCourseManager] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authDialogMode, setAuthDialogMode] = useState<"login" | "recovery" | null>(null);
@@ -70,6 +80,8 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const ownerId = user?.id ?? "local";
 
   const semester = useLiveQuery(
@@ -135,6 +147,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const markInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    window.addEventListener("appinstalled", markInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", markInstalled);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       setLastSync(null);
       return;
@@ -170,6 +199,20 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [user?.id, pendingChanges]);
 
+  useEffect(() => {
+    const check = () => void checkDueLocalReminders(ownerId);
+    check();
+    const timer = window.setInterval(check, 30_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [ownerId]);
+
   async function handleSync(): Promise<SyncResult | void> {
     if (!user) {
       setAuthDialogMode("login");
@@ -187,6 +230,20 @@ export default function App() {
     } finally {
       setSyncing(false);
     }
+  }
+
+  async function installApp() {
+    if (installed) {
+      window.alert("应用已经安装，可从桌面、开始菜单或主屏幕打开。");
+      return;
+    }
+    if (installPrompt) {
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome === "accepted") setInstallPrompt(null);
+      return;
+    }
+    window.alert("请用 Android Chrome 或 Windows Edge/Chrome 打开本页，再从浏览器菜单选择“安装应用”或“添加到主屏幕”。");
   }
 
   function navigate(nextPage: Page) {
@@ -226,7 +283,6 @@ export default function App() {
   const navigation = (
     <>
       <button className={page === "calendar" ? "active" : ""} onClick={() => navigate("calendar")}><CalendarDays size={19} />日程</button>
-      <button className={page === "courses" ? "active" : ""} onClick={() => navigate("courses")}><BookOpen size={19} />课程</button>
       <button className={page === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Settings size={19} />设置</button>
     </>
   );
@@ -287,7 +343,8 @@ export default function App() {
                 <button className="button secondary compact" onClick={() => moveWeek(-1)} aria-label="上一周"><ChevronLeft size={18} /><span>上一周</span></button>
                 <button className="button secondary compact" onClick={goToday}>回到本周</button>
                 <button className="button secondary compact" onClick={() => moveWeek(1)} aria-label="下一周"><span>下一周</span><ChevronRight size={18} /></button>
-                <button className="button primary compact" onClick={() => openNewEvent(toISODate(dates[selectedDay]), "09:00", "10:00")}><Plus size={18} />新增事项</button>
+                <button className="button secondary compact" onClick={() => setShowCourseManager(true)}><BookOpen size={18} />课程管理</button>
+                <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
             <WeekCalendar
@@ -307,42 +364,18 @@ export default function App() {
               onEditCourse={(item) => setCourseToEdit(item)}
             />
           </>
-        ) : page === "courses" ? (
-          <section className="content-page">
-            <div className="page-heading">
-              <div><h1>课程</h1><p>课程周数以数字数组保存，一个课程可以包含多个上课安排。</p></div>
-              <button className="button primary" onClick={() => setCourseToEdit(null)}><Plus size={18} />新增课程</button>
-            </div>
-            {courses.length ? (
-              <div className="course-list">
-                {courses.map((course) => {
-                  const courseSchedules = schedules.filter((schedule) => schedule.course_id === course.id);
-                  return (
-                    <button className="course-list-item" key={course.id} onClick={() => setCourseToEdit(course)}>
-                      <span className="course-color" style={{ background: course.color }} />
-                      <span className="course-main">
-                        <strong>{course.name}</strong>
-                        <small>{[course.teacher, course.classroom].filter(Boolean).join(" · ") || "未填写教师和教室"}</small>
-                      </span>
-                      <span className="course-count">{courseSchedules.length} 个安排</span>
-                      <ChevronRight size={18} />
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="empty-state compact-empty"><BookOpen size={30} /><h2>还没有课程</h2><p>创建课程并选择星期、节次与上课周数。</p></div>
-            )}
-          </section>
         ) : (
           <section className="content-page">
             <div className="page-heading"><div><h1>设置</h1><p>管理学期作息、本地数据和同步准备状态。</p></div></div>
             <div className="settings-grid">
+              <button className="setting-card" onClick={() => void installApp()}>
+                <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "创建桌面图标或主屏幕快捷方式"}</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
                 <GraduationCap /><span><strong>当前学期</strong><small>{semester.name} · {semester.total_weeks} 周</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowPeriodSettings(true)}>
-                <SlidersHorizontal /><span><strong>每日节次设置</strong><small>分别调整周一至周日的实际作息</small></span><ChevronRight />
+                <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>自由添加、删除和排序节次或午休</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowBackup(true)}>
                 <Database /><span><strong>JSON 数据备份</strong><small>导入或导出本地数据</small></span><ChevronRight />
@@ -376,6 +409,34 @@ export default function App() {
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
+      {showAddSchedule && (
+        <AddScheduleDialog
+          onAddCourse={() => {
+            setShowAddSchedule(false);
+            setCourseToEdit(null);
+          }}
+          onAddEvent={() => {
+            setShowAddSchedule(false);
+            openNewEvent(toISODate(dates[selectedDay]), "09:00", "10:00");
+          }}
+          onClose={() => setShowAddSchedule(false)}
+        />
+      )}
+      {showCourseManager && (
+        <CourseManagerDialog
+          courses={courses}
+          schedules={schedules}
+          onAdd={() => {
+            setShowCourseManager(false);
+            setCourseToEdit(null);
+          }}
+          onEdit={(course) => {
+            setShowCourseManager(false);
+            setCourseToEdit(course);
+          }}
+          onClose={() => setShowCourseManager(false)}
+        />
+      )}
       {authDialogMode && <AuthDialog initialMode={authDialogMode} onClose={() => setAuthDialogMode(null)} />}
       {showAccount && user && (
         <AccountDialog

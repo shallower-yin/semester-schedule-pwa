@@ -1,7 +1,9 @@
 import { useLiveQuery } from "dexie-react-hooks";
+import { BellRing } from "lucide-react";
 import { useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
+import { enableNotifications } from "../lib/notifications";
 import type { EventItem } from "../types";
 import { Modal } from "./Modal";
 
@@ -26,7 +28,35 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [note, setNote] = useState(eventItem?.note ?? "");
   const [recurrence, setRecurrence] = useState<"none" | "weekly">(eventItem?.recurrence_type ?? "none");
   const [recurrenceUntil, setRecurrenceUntil] = useState(eventItem?.recurrence_until ?? initialDate);
+  const [reminderEnabled, setReminderEnabled] = useState(eventItem?.reminder_enabled ?? false);
+  const [reminderMinutes, setReminderMinutes] = useState(eventItem?.reminder_minutes_before ?? 10);
+  const [reminderMessage, setReminderMessage] = useState("");
   const [saving, setSaving] = useState(false);
+
+  async function toggleReminder(enabled: boolean) {
+    setReminderMessage("");
+    if (!enabled) {
+      setReminderEnabled(false);
+      return;
+    }
+    setReminderEnabled(true);
+    try {
+      const result = await enableNotifications();
+      if (result === "denied") {
+        setReminderEnabled(false);
+        setReminderMessage("浏览器未允许通知，请在网站权限中开启后重试。");
+      } else if (result === "unsupported") {
+        setReminderEnabled(false);
+        setReminderMessage("当前浏览器不支持系统通知。请使用 Android Chrome 或 Windows Edge/Chrome。");
+      } else if (result === "local-only") {
+        setReminderMessage("已启用提醒；登录并完成云端通知配置后，可在应用关闭时接收。");
+      } else {
+        setReminderMessage("系统提醒已启用。");
+      }
+    } catch (error) {
+      setReminderMessage(error instanceof Error ? error.message : "通知订阅失败，已保留应用内提醒。");
+    }
+  }
 
   async function save(formEvent: React.FormEvent) {
     formEvent.preventDefault();
@@ -44,7 +74,10 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       color,
       note: note.trim(),
       recurrence_type: recurrence,
-      recurrence_until: recurrence === "weekly" ? recurrenceUntil : null
+      recurrence_until: recurrence === "weekly" ? recurrenceUntil : null,
+      reminder_enabled: reminderEnabled,
+      reminder_minutes_before: reminderMinutes,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
     };
     await db.events.put(record);
     await queueChange("events", record.id);
@@ -87,6 +120,27 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </select>
         </label>
         {recurrence === "weekly" && <label>重复截止日期<input type="date" min={date} value={recurrenceUntil} onChange={(event) => setRecurrenceUntil(event.target.value)} /></label>}
+        <section className="reminder-editor">
+          <label className="checkbox-label">
+            <input type="checkbox" checked={reminderEnabled} onChange={(event) => void toggleReminder(event.target.checked)} />
+            <BellRing size={17} />提醒我
+          </label>
+          {reminderEnabled && (
+            <label>
+              提前时间
+              <select value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))}>
+                <option value={0}>开始时</option>
+                <option value={5}>提前 5 分钟</option>
+                <option value={10}>提前 10 分钟</option>
+                <option value={15}>提前 15 分钟</option>
+                <option value={30}>提前 30 分钟</option>
+                <option value={60}>提前 1 小时</option>
+                <option value={1440}>提前 1 天</option>
+              </select>
+            </label>
+          )}
+          {reminderMessage && <p>{reminderMessage}</p>}
+        </section>
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         <div className="form-actions split">
           <div>{eventItem && <button type="button" className="button danger-button" onClick={remove}>删除事项</button>}</div>

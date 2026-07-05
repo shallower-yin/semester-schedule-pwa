@@ -1,5 +1,6 @@
 import { Ban, Bell, BookOpen, Check, Coffee, Users } from "lucide-react";
-import { DEFAULT_TIME_ROWS, WEEKDAY_NAMES } from "../data/defaults";
+import { useEffect, useState } from "react";
+import { WEEKDAY_NAMES } from "../data/defaults";
 import { db, queueChange } from "../db";
 import {
   courseScheduleOccursOn,
@@ -9,6 +10,7 @@ import {
   toISODate
 } from "../lib/date";
 import { syncFields } from "../lib/identity";
+import { buildDisplayRows, rowRangeForTime } from "../lib/timeBlocks";
 import type {
   Category,
   ClassPeriod,
@@ -44,25 +46,22 @@ const CATEGORY_ICONS = {
   bell: Bell
 };
 
-function rowIndexForPeriod(period: number): number {
-  return DEFAULT_TIME_ROWS.findIndex((row) => row.periodNumber === period);
-}
-
-function rowRangeForTime(start: string | null, end: string | null): [number, number] {
-  if (!start || !end) return [0, 1];
-  let first = DEFAULT_TIME_ROWS.findIndex((row) => end > row.startTime && start < row.endTime);
-  if (first < 0) first = DEFAULT_TIME_ROWS.findIndex((row) => start < row.startTime);
-  if (first < 0) first = DEFAULT_TIME_ROWS.length - 1;
-  let last = first;
-  DEFAULT_TIME_ROWS.forEach((row, index) => {
-    if (end > row.startTime && start < row.endTime) last = index;
-  });
-  return [first, Math.max(first + 1, last + 1)];
-}
-
 export function WeekCalendar(props: WeekCalendarProps) {
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const courseMap = new Map(props.courses.map((course) => [course.id, course]));
   const categoryMap = new Map(props.categories.map((category) => [category.id, category]));
+  const displayRows = buildDisplayRows(
+    isMobile
+      ? props.periods.filter((period) => period.weekday === props.selectedDay + 1)
+      : props.periods
+  );
 
   async function toggleClassCancellation(schedule: CourseSchedule, date: Date, courseName: string) {
     const occurrenceDate = toISODate(date);
@@ -95,7 +94,8 @@ export function WeekCalendar(props: WeekCalendarProps) {
       ...syncFields(existing),
       event_id: eventItem.id,
       occurrence_date: occurrenceDate,
-      completed: !existing?.completed
+      completed: !existing?.completed,
+      reminder_sent_at: existing?.reminder_sent_at ?? null
     };
     await db.eventOccurrenceStates.put(record);
     await queueChange("eventOccurrenceStates", record.id);
@@ -116,8 +116,11 @@ export function WeekCalendar(props: WeekCalendarProps) {
         ))}
       </div>
 
-      <div className="week-grid">
-        <div className="corner-header">节次 / 周次</div>
+      <div
+        className="week-grid"
+        style={{ gridTemplateRows: `64px 44px ${displayRows.map((row) => row.kind === "break" ? "96px" : "76px").join(" ")}` }}
+      >
+        <div className="corner-header">时间 / 周次</div>
         {props.dates.map((date, dayIndex) => (
           <div
             key={`header-${toISODate(date)}`}
@@ -140,7 +143,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
           />
         ))}
 
-        {DEFAULT_TIME_ROWS.map((row, rowIndex) => (
+        {displayRows.map((row, rowIndex) => (
           <div key={`label-${row.key}`} className={`time-label ${row.kind === "break" ? "break-label" : ""}`} style={{ gridColumn: 1, gridRow: rowIndex + 3 }}>
             <strong>{row.name}</strong>
             <span>{row.startTime}–{row.endTime}</span>
@@ -148,7 +151,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
         ))}
 
         {props.dates.flatMap((date, dayIndex) =>
-          DEFAULT_TIME_ROWS.map((row, rowIndex) => (
+          displayRows.map((row, rowIndex) => (
             <button
               key={`${toISODate(date)}-${row.key}`}
               className={`calendar-cell day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${row.kind === "break" ? "break-cell" : ""} ${dateIsToday(date) ? "today" : ""}`}
@@ -167,22 +170,21 @@ export function WeekCalendar(props: WeekCalendarProps) {
             const canceled = props.cancellations.some(
               (item) => item.course_schedule_id === schedule.id && item.occurrence_date === toISODate(date) && !item.deleted_at
             );
-            const firstRow = rowIndexForPeriod(schedule.start_period);
-            const lastRow = rowIndexForPeriod(schedule.end_period);
-            if (firstRow < 0 || lastRow < 0) return [];
             const startPeriod = props.periods.find(
               (period) => period.weekday === schedule.weekday && period.period_number === schedule.start_period && !period.deleted_at
             );
             const endPeriod = props.periods.find(
               (period) => period.weekday === schedule.weekday && period.period_number === schedule.end_period && !period.deleted_at
             );
+            if (!startPeriod || !endPeriod) return [];
+            const [firstRow, endRow] = rowRangeForTime(displayRows, startPeriod.start_time, endPeriod.end_time);
             return (
               <article
                 key={`${schedule.id}-${toISODate(date)}`}
                 className={`calendar-entry course-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${canceled ? "canceled" : ""}`}
                 style={{
                   gridColumn: dayIndex + 2,
-                  gridRow: `${firstRow + 3} / ${lastRow + 4}`,
+                  gridRow: `${firstRow + 3} / ${endRow + 3}`,
                   backgroundColor: course.color
                 }}
                 onClick={() => props.onEditCourse(course)}
@@ -215,7 +217,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
               (state) => state.event_id === eventItem.id && state.occurrence_date === toISODate(date) && !state.deleted_at
             );
             const completed = occurrenceState?.completed ?? false;
-            const [firstRow, endRow] = rowRangeForTime(eventItem.start_time, eventItem.end_time);
+            const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
             return (
               <article
                 key={`${eventItem.id}-${toISODate(date)}`}
@@ -230,6 +232,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
                 <div className="entry-title"><Icon size={14} />{eventItem.title}</div>
                 {!eventItem.all_day && <div className="entry-time">{eventItem.start_time}–{eventItem.end_time}</div>}
                 {category && <div className="entry-category">{category.name}</div>}
+                {eventItem.reminder_enabled && <div className="entry-reminder"><Bell size={11} />提前 {eventItem.reminder_minutes_before} 分钟</div>}
                 <button
                   className="entry-icon-button"
                   onClick={(event) => {

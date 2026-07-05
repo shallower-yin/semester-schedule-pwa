@@ -1,3 +1,4 @@
+import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db, queueChange } from "../db";
@@ -21,6 +22,10 @@ interface CourseDialogProps {
 }
 
 export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
+  const periods = useLiveQuery(
+    () => db.classPeriods.where("semester_id").equals(semester.id).filter((item) => !item.deleted_at && item.kind !== "break").toArray(),
+    [semester.id]
+  ) ?? [];
   const [name, setName] = useState(course?.name ?? "");
   const [teacher, setTeacher] = useState(course?.teacher ?? "");
   const [classroom, setClassroom] = useState(course?.classroom ?? "");
@@ -53,6 +58,23 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
       });
   }, [course]);
 
+  useEffect(() => {
+    if (course || !periods.length) return;
+    setSchedules((current) =>
+      current.map((schedule) => {
+        const available = periods
+          .filter((period) => period.weekday === schedule.weekday && period.kind !== "break")
+          .sort((left, right) => left.sort_order - right.sort_order);
+        if (available.some((period) => period.period_number === schedule.start_period)) return schedule;
+        return {
+          ...schedule,
+          start_period: available[0]?.period_number ?? schedule.start_period,
+          end_period: available[1]?.period_number ?? available[0]?.period_number ?? schedule.end_period
+        };
+      })
+    );
+  }, [course, periods]);
+
   function updateSchedule(index: number, patch: Partial<ScheduleDraft>) {
     setSchedules((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
   }
@@ -62,9 +84,44 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
     updateSchedule(index, { weeks: current.includes(week) ? current.filter((value) => value !== week) : [...current, week].sort((a, b) => a - b) });
   }
 
+  function periodsForWeekday(weekday: Weekday) {
+    return periods
+      .filter((period) => period.weekday === weekday && period.kind !== "break")
+      .sort((left, right) => left.sort_order - right.sort_order);
+  }
+
+  function addSchedule() {
+    const weekday: Weekday = 1;
+    const dayPeriods = periodsForWeekday(weekday);
+    setSchedules((current) => [
+      ...current,
+      {
+        weekday,
+        start_period: dayPeriods[0]?.period_number ?? 1,
+        end_period: dayPeriods[1]?.period_number ?? dayPeriods[0]?.period_number ?? 1,
+        weeks: []
+      }
+    ]);
+  }
+
+  function changeWeekday(index: number, weekday: Weekday) {
+    const dayPeriods = periodsForWeekday(weekday);
+    updateSchedule(index, {
+      weekday,
+      start_period: dayPeriods[0]?.period_number ?? 1,
+      end_period: dayPeriods[1]?.period_number ?? dayPeriods[0]?.period_number ?? 1
+    });
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (!name.trim() || schedules.some((item) => item.weeks.length === 0 || item.end_period < item.start_period)) return;
+    const invalidSchedule = schedules.some((item) => {
+      const dayPeriods = periodsForWeekday(item.weekday);
+      const startIndex = dayPeriods.findIndex((period) => period.period_number === item.start_period);
+      const endIndex = dayPeriods.findIndex((period) => period.period_number === item.end_period);
+      return item.weeks.length === 0 || startIndex < 0 || endIndex < startIndex;
+    });
+    if (!name.trim() || invalidSchedule) return;
     setSaving(true);
     const courseRecord: Course = {
       ...syncFields(course),
@@ -133,7 +190,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
           <button
             type="button"
             className="button secondary compact"
-            onClick={() => setSchedules((current) => [...current, { weekday: 1, start_period: 1, end_period: 2, weeks: [] }])}
+            onClick={addSchedule}
           >
             <Plus size={16} /> 添加
           </button>
@@ -143,18 +200,18 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
           <div className="schedule-editor" key={schedule.id ?? index}>
             <div className="schedule-row">
               <label>星期
-                <select value={schedule.weekday} onChange={(event) => updateSchedule(index, { weekday: Number(event.target.value) as Weekday })}>
+                <select value={schedule.weekday} onChange={(event) => changeWeekday(index, Number(event.target.value) as Weekday)}>
                   {WEEKDAY_NAMES.map((day, dayIndex) => <option key={day} value={dayIndex + 1}>{day}</option>)}
                 </select>
               </label>
               <label>开始节次
                 <select value={schedule.start_period} onChange={(event) => updateSchedule(index, { start_period: Number(event.target.value) })}>
-                  {Array.from({ length: 12 }, (_, period) => <option key={period + 1} value={period + 1}>第 {period + 1} 节</option>)}
+                  {periodsForWeekday(schedule.weekday).map((period) => <option key={period.id} value={period.period_number}>{period.name}（{period.start_time}）</option>)}
                 </select>
               </label>
               <label>结束节次
                 <select value={schedule.end_period} onChange={(event) => updateSchedule(index, { end_period: Number(event.target.value) })}>
-                  {Array.from({ length: 12 }, (_, period) => <option key={period + 1} value={period + 1}>第 {period + 1} 节</option>)}
+                  {periodsForWeekday(schedule.weekday).map((period) => <option key={period.id} value={period.period_number}>{period.name}（{period.end_time}）</option>)}
                 </select>
               </label>
               {schedules.length > 1 && (
