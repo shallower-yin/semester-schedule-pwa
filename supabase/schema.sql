@@ -1,4 +1,4 @@
--- 轻量学期日程：Supabase PostgreSQL schema
+-- 日程计划表：Supabase PostgreSQL schema
 -- 在 Supabase Dashboard -> SQL Editor 中完整执行一次。
 
 create extension if not exists pgcrypto;

@@ -23,8 +23,8 @@ export default defineConfig(() => {
       registerType: "prompt",
       includeAssets: ["favicon.svg", "app-icon-192.png", "app-icon-512.png", "push-sw.js"],
       manifest: {
-        name: "轻量学期日程",
-        short_name: "学期日程",
+        name: "日程计划表",
+        short_name: "日程计划表",
         description: "本地优先、可离线使用的学期课程与事项日程",
         theme_color: "#3157d5",
         background_color: "#f7f8fc",

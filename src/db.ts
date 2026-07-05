@@ -172,7 +172,11 @@ export async function initializeDatabase(): Promise<void> {
 }
 
 export async function queueChange(table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert") {
-  const existing = await db.syncQueue.where({ table_name, record_id }).first();
+  const existing = await db.syncQueue
+    .where("table_name")
+    .equals(table_name)
+    .and((item) => item.record_id === record_id)
+    .first();
   await db.syncQueue.put({
     id: existing?.id ?? crypto.randomUUID(),
     table_name,

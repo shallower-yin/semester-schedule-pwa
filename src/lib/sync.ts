@@ -1,5 +1,6 @@
 import { db } from "../db";
 import type { SyncQueueItem, SyncTableName } from "../types";
+import { deduplicateCategories } from "./categories";
 import { supabase } from "./supabase";
 
 const TABLES: Array<{ local: SyncTableName; remote: string }> = [
@@ -47,7 +48,11 @@ export async function adoptAnonymousData(userId: string): Promise<number> {
           version: Number(record.version ?? 0) + 1
         };
         await db.table(local).put(updated);
-        const existingQueue = await db.syncQueue.where({ table_name: local, record_id: record.id }).first();
+        const existingQueue = await db.syncQueue
+          .where("table_name")
+          .equals(local)
+          .and((item) => item.record_id === record.id)
+          .first();
         await db.syncQueue.put(existingQueue ? { ...existingQueue, queued_at: new Date().toISOString() } : queueRecord(local, record.id));
         adopted += 1;
       }
@@ -133,6 +138,8 @@ async function runSync(userId: string): Promise<SyncResult> {
       downloaded += records.length;
     }
   }
+
+  await deduplicateCategories(userId);
 
   const completedAt = new Date().toISOString();
   localStorage.setItem(`semester-schedule-last-sync:${userId}`, completedAt);

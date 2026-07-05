@@ -40,8 +40,9 @@ import {
   toISODate,
   weekDates
 } from "./lib/date";
+import { uniqueCategoriesByName } from "./lib/categories";
 import { setCurrentUserId, syncFields } from "./lib/identity";
-import { checkDueLocalReminders } from "./lib/notifications";
+import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, syncNow, type SyncResult } from "./lib/sync";
 import type { Course, EventItem, Semester } from "./types";
@@ -106,7 +107,12 @@ export default function App() {
   ) ?? [];
   const cancellations = useLiveQuery(() => db.courseCancellations.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
   const events = useLiveQuery(() => db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
-  const categories = useLiveQuery(() => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const categories = uniqueCategoriesByName(
+    useLiveQuery(
+      () => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
+      [ownerId]
+    ) ?? []
+  );
   const occurrenceStates = useLiveQuery(() => db.eventOccurrenceStates.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
   const periods = useLiveQuery(
     () => (semester ? db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
@@ -213,6 +219,13 @@ export default function App() {
     };
   }, [ownerId]);
 
+  useEffect(() => {
+    if (!user || !("Notification" in window) || Notification.permission !== "granted") return;
+    void enableNotifications().catch(() => {
+      // “账号与同步”窗口会显示可操作的通知诊断信息。
+    });
+  }, [user?.id]);
+
   async function handleSync(): Promise<SyncResult | void> {
     if (!user) {
       setAuthDialogMode("login");
@@ -294,7 +307,7 @@ export default function App() {
           <button className="mobile-menu-button" onClick={() => setSidebarOpen(true)} aria-label="打开菜单"><Menu /></button>
           <div className="brand-mark"><CalendarDays size={23} /></div>
           <div>
-            <strong>轻量学期日程</strong>
+            <strong>日程计划表</strong>
             <span>{semester?.name ?? "尚未创建学期"}</span>
           </div>
         </div>
@@ -457,6 +470,7 @@ export default function App() {
           initialStartTime={eventDraft?.start}
           initialEndTime={eventDraft?.end}
           initialAllDay={eventDraft?.allDay}
+          ownerId={ownerId}
           onClose={() => {
             setEventDraft(null);
             setEventToEdit(undefined);

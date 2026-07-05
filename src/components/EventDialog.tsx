@@ -2,6 +2,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { BellRing } from "lucide-react";
 import { useState } from "react";
 import { db, queueChange } from "../db";
+import { uniqueCategoriesByName } from "../lib/categories";
 import { syncFields } from "../lib/identity";
 import { enableNotifications } from "../lib/notifications";
 import type { EventItem } from "../types";
@@ -13,11 +14,17 @@ interface EventDialogProps {
   initialStartTime?: string;
   initialEndTime?: string;
   initialAllDay?: boolean;
+  ownerId: string;
   onClose: () => void;
 }
 
-export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, onClose }: EventDialogProps) {
-  const categories = useLiveQuery(() => db.categories.filter((item) => !item.deleted_at).toArray(), []) ?? [];
+export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, ownerId, onClose }: EventDialogProps) {
+  const categories = uniqueCategoriesByName(
+    useLiveQuery(
+      () => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
+      [ownerId]
+    ) ?? []
+  );
   const [title, setTitle] = useState(eventItem?.title ?? "");
   const [date, setDate] = useState(eventItem?.start_date ?? initialDate);
   const [startTime, setStartTime] = useState(eventItem?.start_time ?? initialStartTime);
@@ -31,6 +38,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [reminderEnabled, setReminderEnabled] = useState(eventItem?.reminder_enabled ?? false);
   const [reminderMinutes, setReminderMinutes] = useState(eventItem?.reminder_minutes_before ?? 10);
   const [reminderMessage, setReminderMessage] = useState("");
+  const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
 
   async function toggleReminder(enabled: boolean) {
@@ -40,6 +48,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       return;
     }
     setReminderEnabled(true);
+    setEnablingReminder(true);
     try {
       const result = await enableNotifications();
       if (result === "denied") {
@@ -55,6 +64,8 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       }
     } catch (error) {
       setReminderMessage(error instanceof Error ? error.message : "通知订阅失败，已保留应用内提醒。");
+    } finally {
+      setEnablingReminder(false);
     }
   }
 
@@ -139,6 +150,9 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
               </select>
             </label>
           )}
+          {reminderEnabled && !reminderMessage && (
+            <p>应用打开时每 30 秒检查；应用关闭后由云端约每 5 分钟检查一次。</p>
+          )}
           {reminderMessage && <p>{reminderMessage}</p>}
         </section>
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
@@ -146,7 +160,9 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           <div>{eventItem && <button type="button" className="button danger-button" onClick={remove}>删除事项</button>}</div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>
-            <button className="button primary" disabled={saving}>{saving ? "保存中…" : "保存事项"}</button>
+            <button className="button primary" disabled={saving || enablingReminder}>
+              {saving ? "保存中…" : enablingReminder ? "正在启用提醒…" : "保存事项"}
+            </button>
           </div>
         </div>
       </form>
