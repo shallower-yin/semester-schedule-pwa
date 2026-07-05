@@ -1282,6 +1282,34 @@ textarea {
   font-size: 13px;
 }
 
+.notification-status-card {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #fafbfe;
+}
+
+.notification-status-card > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.notification-status-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notification-status-card strong {
+  margin-top: 3px;
+  font-size: 13px;
+}
+
 .update-toast {
   position: fixed;
   z-index: 80;

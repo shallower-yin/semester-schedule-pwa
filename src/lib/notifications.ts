@@ -6,6 +6,14 @@ import { supabase } from "./supabase";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 
+export type NotificationStatus =
+  | "unsupported"
+  | "not-allowed"
+  | "blocked"
+  | "local-only"
+  | "permission-only"
+  | "subscribed";
+
 function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -15,6 +23,17 @@ function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
 
 export function notificationsSupported(): boolean {
   return "Notification" in window && "serviceWorker" in navigator;
+}
+
+export async function getNotificationStatus(): Promise<NotificationStatus> {
+  if (!notificationsSupported()) return "unsupported";
+  if (Notification.permission === "default") return "not-allowed";
+  if (Notification.permission === "denied") return "blocked";
+  if (!("PushManager" in window) || !supabase || getCurrentUserId() === "local" || !vapidPublicKey) {
+    return "local-only";
+  }
+  const registration = await navigator.serviceWorker.ready;
+  return (await registration.pushManager.getSubscription()) ? "subscribed" : "permission-only";
 }
 
 export async function enableNotifications(): Promise<"enabled" | "local-only" | "denied" | "unsupported"> {
