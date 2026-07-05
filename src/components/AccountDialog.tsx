@@ -34,7 +34,14 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     setEnablingNotifications(true);
     setNotificationMessage("");
     try {
-      const result = await enableNotifications();
+      const result = await enableNotifications((stage) => {
+        setNotificationMessage({
+          permission: "正在检查浏览器通知权限…",
+          "service-worker": "正在启动应用后台服务…",
+          "push-service": "正在连接手机系统推送服务…",
+          cloud: "正在保存云端推送订阅…"
+        }[stage]);
+      });
       setNotificationStatus(await getNotificationStatus());
       if (result === "denied") setNotificationMessage("浏览器已阻止通知，请在网站权限中改为允许。");
       else if (result === "unsupported") setNotificationMessage("当前浏览器不支持系统通知。");

@@ -26,6 +26,7 @@ export default defineConfig(() => {
         name: "日程计划表",
         short_name: "日程计划表",
         description: "本地优先、可离线使用的学期课程与事项日程",
+        id: base,
         theme_color: "#3157d5",
         background_color: "#f7f8fc",
         lang: "zh-CN",
