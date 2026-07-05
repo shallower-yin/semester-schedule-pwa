@@ -12,6 +12,12 @@
 
 该迁移保留已有学期、课程和事项，增加灵活时间块、提醒字段、推送订阅表及受令牌保护的后台提醒函数。
 
+如果主迁移在 2026-07-05 早期版本中已经执行，还需补充执行：
+
+`supabase/migrations/20260705_fix_reminder_token_digest.sql`
+
+该修复只调整提醒函数访问 `pgcrypto` 的搜索路径，不修改业务数据。
+
 ## Auth URL 配置
 
 在 Supabase Dashboard 打开 `Authentication → URL Configuration`：
