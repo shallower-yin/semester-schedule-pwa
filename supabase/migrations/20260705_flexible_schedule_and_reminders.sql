@@ -213,7 +213,7 @@ begin
       now(),
       'claimed'
     from due
-    on conflict (event_id, occurrence_date, reminder_at) do nothing
+    on conflict on constraint reminder_deliveries_event_id_occurrence_date_reminder_at_key do nothing
     returning
       reminder_deliveries.id,
       reminder_deliveries.user_id,

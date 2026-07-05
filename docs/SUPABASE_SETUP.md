@@ -18,6 +18,12 @@
 
 该修复只调整提醒函数访问 `pgcrypto` 的搜索路径，不修改业务数据。
 
+如果后台工作流提示 `event_id is ambiguous`，再执行：
+
+`supabase/migrations/20260705_fix_reminder_claim_conflict.sql`
+
+该修复仅替换提醒领取函数，改用唯一约束名称处理重复提醒。
+
 ## Auth URL 配置
 
 在 Supabase Dashboard 打开 `Authentication → URL Configuration`：
