@@ -50,7 +50,14 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     setReminderEnabled(true);
     setEnablingReminder(true);
     try {
-      const result = await enableNotifications();
+      const result = await enableNotifications((stage) => {
+        setReminderMessage({
+          permission: "正在检查浏览器通知权限…",
+          "service-worker": "正在启动应用后台服务…",
+          "push-service": "正在连接手机系统推送服务…",
+          cloud: "正在保存云端推送订阅…"
+        }[stage]);
+      });
       if (result === "denied") {
         setReminderEnabled(false);
         setReminderMessage("浏览器未允许通知，请在网站权限中开启后重试。");
@@ -63,7 +70,14 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         setReminderMessage("系统提醒已启用。");
       }
     } catch (error) {
-      setReminderMessage(error instanceof Error ? error.message : "通知订阅失败，已保留应用内提醒。");
+      const permissionGranted = "Notification" in window && Notification.permission === "granted";
+      if (!permissionGranted) setReminderEnabled(false);
+      const detail = error instanceof Error ? error.message : "通知订阅失败";
+      setReminderMessage(
+        permissionGranted
+          ? `${detail}。事项仍可保存；应用打开时会进行本地提醒。`
+          : `${detail}。请重新启用提醒。`
+      );
     } finally {
       setEnablingReminder(false);
     }

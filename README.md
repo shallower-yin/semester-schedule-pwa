@@ -6,7 +6,7 @@
 
 [打开日程计划表](https://shallower-yin.github.io/semester-schedule-pwa/)
 
-在 Android Chrome 或 Windows Edge/Chrome 打开后，可通过浏览器菜单安装到主屏幕或桌面。
+在 Android Chrome 或 Windows Edge/Chrome 打开后，可通过“设置 → 安装到设备”或浏览器菜单安装。Windows 安装后一定会出现在开始菜单，但浏览器不一定自动创建桌面图标；应用内安装引导说明了手动创建快捷方式的方法。
 
 ## 已实现
 

@@ -1310,6 +1310,67 @@ textarea {
   font-size: 13px;
 }
 
+.install-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.install-primary-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.install-result,
+.install-note {
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: 10px;
+  color: #4a5568;
+  background: #f4f6fb;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.install-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.install-result.success {
+  color: #246443;
+  background: #edf8f2;
+}
+
+.install-platform {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.install-platform h3 {
+  margin: 0 0 7px;
+  font-size: 14px;
+}
+
+.install-platform ol {
+  margin: 0;
+  padding-left: 20px;
+  color: #586174;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.install-platform code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #eef1f7;
+}
+
 .update-toast {
   position: fixed;
   z-index: 80;

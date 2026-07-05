@@ -7,6 +7,17 @@
     <meta name="description" content="本地优先、可离线使用的日程计划表" />
     <link rel="icon" href="%BASE_URL%favicon.svg" />
     <title>日程计划表</title>
+    <script>
+      window.__pwaInstallPrompt = null;
+      window.addEventListener("beforeinstallprompt", function (event) {
+        event.preventDefault();
+        window.__pwaInstallPrompt = event;
+        window.dispatchEvent(new Event("pwa-install-available"));
+      });
+      window.addEventListener("appinstalled", function () {
+        window.__pwaInstallPrompt = null;
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

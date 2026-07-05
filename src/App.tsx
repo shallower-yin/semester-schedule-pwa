@@ -28,6 +28,7 @@ import { BackupDialog } from "./components/BackupDialog";
 import { CourseDialog } from "./components/CourseDialog";
 import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { EventDialog } from "./components/EventDialog";
+import { InstallDialog } from "./components/InstallDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { WeekCalendar } from "./components/WeekCalendar";
@@ -43,6 +44,12 @@ import {
 import { uniqueCategoriesByName } from "./lib/categories";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
+import {
+  clearCapturedInstallPrompt,
+  getCapturedInstallPrompt,
+  PWA_INSTALL_AVAILABLE_EVENT,
+  type BeforeInstallPromptEvent
+} from "./lib/pwaInstall";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, syncNow, type SyncResult } from "./lib/sync";
 import type { Course, EventItem, Semester } from "./types";
@@ -54,11 +61,6 @@ interface EventDraft {
   start: string;
   end: string;
   allDay: boolean;
-}
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
 export default function App() {
@@ -81,8 +83,11 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [lastSync, setLastSync] = useState<string | null>(null);
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() => getCapturedInstallPrompt());
   const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
+  const [showInstallDialog, setShowInstallDialog] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [installMessage, setInstallMessage] = useState("");
   const ownerId = user?.id ?? "local";
 
   const semester = useLiveQuery(
@@ -153,18 +158,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const captureInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
+    const captureInstallPrompt = () => setInstallPrompt(getCapturedInstallPrompt());
     const markInstalled = () => {
       setInstalled(true);
       setInstallPrompt(null);
+      setInstallMessage("安装完成。Windows 通常会把应用加入开始菜单；桌面图标是否自动创建由浏览器设置决定。");
     };
-    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    captureInstallPrompt();
+    window.addEventListener(PWA_INSTALL_AVAILABLE_EVENT, captureInstallPrompt);
     window.addEventListener("appinstalled", markInstalled);
     return () => {
-      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener(PWA_INSTALL_AVAILABLE_EVENT, captureInstallPrompt);
       window.removeEventListener("appinstalled", markInstalled);
     };
   }, []);
@@ -245,18 +249,23 @@ export default function App() {
     }
   }
 
-  async function installApp() {
-    if (installed) {
-      window.alert("应用已经安装，可从桌面、开始菜单或主屏幕打开。");
-      return;
-    }
-    if (installPrompt) {
+  async function requestInstall() {
+    if (!installPrompt || installing) return;
+    setInstalling(true);
+    setInstallMessage("");
+    try {
       await installPrompt.prompt();
       const choice = await installPrompt.userChoice;
-      if (choice.outcome === "accepted") setInstallPrompt(null);
-      return;
+      clearCapturedInstallPrompt();
+      setInstallPrompt(null);
+      setInstallMessage(
+        choice.outcome === "accepted"
+          ? "已确认安装。请在 Windows 开始菜单或手机桌面查找“日程计划表”；Windows 不一定自动创建桌面图标。"
+          : "安装已取消。可以再次打开本窗口，按照下方浏览器菜单步骤安装。"
+      );
+    } finally {
+      setInstalling(false);
     }
-    window.alert("请用 Android Chrome 或 Windows Edge/Chrome 打开本页，再从浏览器菜单选择“安装应用”或“添加到主屏幕”。");
   }
 
   function navigate(nextPage: Page) {
@@ -381,8 +390,8 @@ export default function App() {
           <section className="content-page">
             <div className="page-heading"><div><h1>设置</h1><p>管理学期作息、本地数据和同步准备状态。</p></div></div>
             <div className="settings-grid">
-              <button className="setting-card" onClick={() => void installApp()}>
-                <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "创建桌面图标或主屏幕快捷方式"}</small></span><ChevronRight />
+              <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
+                <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
                 <GraduationCap /><span><strong>当前学期</strong><small>{semester.name} · {semester.total_weeks} 周</small></span><ChevronRight />
@@ -422,6 +431,16 @@ export default function App() {
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
+      {showInstallDialog && (
+        <InstallDialog
+          installed={installed}
+          promptAvailable={Boolean(installPrompt)}
+          message={installMessage}
+          installing={installing}
+          onInstall={requestInstall}
+          onClose={() => setShowInstallDialog(false)}
+        />
+      )}
       {showAddSchedule && (
         <AddScheduleDialog
           onAddCourse={() => {

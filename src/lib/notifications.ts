@@ -14,6 +14,21 @@ export type NotificationStatus =
   | "permission-only"
   | "subscribed";
 
+export type NotificationEnableResult = "enabled" | "local-only" | "denied" | "unsupported";
+export type NotificationSetupStage = "permission" | "service-worker" | "push-service" | "cloud";
+
+export async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer = 0;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.resolve(operation), timeout]);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -32,14 +47,34 @@ export async function getNotificationStatus(): Promise<NotificationStatus> {
   if (!("PushManager" in window) || !supabase || getCurrentUserId() === "local" || !vapidPublicKey) {
     return "local-only";
   }
-  const registration = await navigator.serviceWorker.ready;
-  return (await registration.pushManager.getSubscription()) ? "subscribed" : "permission-only";
+  try {
+    const registration = await withTimeout(
+      navigator.serviceWorker.ready,
+      6_000,
+      "等待 Service Worker 超时"
+    );
+    const subscription = await withTimeout(
+      registration.pushManager.getSubscription(),
+      6_000,
+      "读取系统推送订阅超时"
+    );
+    return subscription ? "subscribed" : "permission-only";
+  } catch {
+    return "permission-only";
+  }
 }
 
-export async function enableNotifications(): Promise<"enabled" | "local-only" | "denied" | "unsupported"> {
+export async function enableNotifications(
+  onStage?: (stage: NotificationSetupStage) => void
+): Promise<NotificationEnableResult> {
   if (!notificationsSupported()) return "unsupported";
+  onStage?.("permission");
   const permission = Notification.permission === "default"
-    ? await Notification.requestPermission()
+    ? await withTimeout(
+      Notification.requestPermission(),
+      30_000,
+      "通知授权未完成，请重新点击并允许浏览器通知"
+    )
     : Notification.permission;
   if (permission !== "granted") return "denied";
 
@@ -48,20 +83,39 @@ export async function enableNotifications(): Promise<"enabled" | "local-only" | 
     return "local-only";
   }
 
-  const registration = await navigator.serviceWorker.ready;
-  const existing = await registration.pushManager.getSubscription();
-  const subscription = existing ?? await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-  });
+  onStage?.("service-worker");
+  const registration = await withTimeout(
+    navigator.serviceWorker.ready,
+    8_000,
+    "等待应用后台服务超时，请刷新页面后重试"
+  );
+  onStage?.("push-service");
+  const existing = await withTimeout(
+    registration.pushManager.getSubscription(),
+    6_000,
+    "读取手机推送状态超时"
+  );
+  const subscription = existing ?? await withTimeout(
+    registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+    }),
+    15_000,
+    "连接手机系统推送服务超时。请检查 Chrome 通知权限、VPN/网络和 Google 推送服务"
+  );
   const json = subscription.toJSON();
-  const { error } = await supabase.rpc("register_push_subscription", {
-    target_endpoint: subscription.endpoint,
-    target_p256dh: json.keys?.p256dh,
-    target_auth: json.keys?.auth,
-    target_device_id: getDeviceId(),
-    target_user_agent: navigator.userAgent
-  });
+  onStage?.("cloud");
+  const { error } = await withTimeout(
+    supabase.rpc("register_push_subscription", {
+      target_endpoint: subscription.endpoint,
+      target_p256dh: json.keys?.p256dh,
+      target_auth: json.keys?.auth,
+      target_device_id: getDeviceId(),
+      target_user_agent: navigator.userAgent
+    }),
+    12_000,
+    "保存云端推送订阅超时，请检查当前网络后重试"
+  );
   if (error) throw new Error(`通知订阅失败：${error.message}`);
   return "enabled";
 }
