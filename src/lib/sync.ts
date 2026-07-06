@@ -1,6 +1,7 @@
 import { db } from "../db";
-import type { SyncQueueItem, SyncTableName } from "../types";
+import type { EventOccurrenceState, SyncQueueItem, SyncTableName } from "../types";
 import { deduplicateCategories } from "./categories";
+import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
 import { supabase } from "./supabase";
 
 const TABLES: Array<{ local: SyncTableName; remote: string }> = [
@@ -94,6 +95,8 @@ async function runSync(userId: string): Promise<SyncResult> {
   let uploaded = 0;
   let downloaded = 0;
 
+  await deduplicateLocalOccurrenceStates(userId);
+
   const queued = await db.syncQueue.orderBy("queued_at").toArray();
   const queueByTable = new Map<SyncTableName, SyncQueueItem[]>();
   for (const item of queued) {
@@ -111,13 +114,55 @@ async function runSync(userId: string): Promise<SyncResult> {
         continue;
       }
       const { server_updated_at: _serverUpdatedAt, ...payload } = localRecord;
-      const { error } = await supabase.from(config.remote).upsert(payload, { onConflict: "id" });
+      let savedRecord: Record<string, unknown> | null = null;
+      let error;
+      if (config.local === "eventOccurrenceStates") {
+        const { data: existing, error: lookupError } = await supabase
+          .from(config.remote)
+          .select("id")
+          .eq("user_id", userId)
+          .eq("event_id", localRecord.event_id)
+          .eq("occurrence_date", localRecord.occurrence_date)
+          .maybeSingle();
+        if (lookupError) error = lookupError;
+        else {
+          const canonicalPayload = {
+            ...payload,
+            id: existing?.id ?? localRecord.id
+          };
+          const result = await supabase
+            .from(config.remote)
+            .upsert(canonicalPayload, { onConflict: "id" })
+            .select("*")
+            .single();
+          error = result.error;
+          savedRecord = result.data;
+        }
+      } else {
+        const result = await supabase.from(config.remote).upsert(payload, { onConflict: "id" });
+        error = result.error;
+      }
       if (error) {
         await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: error.message });
         if (error.code === "PGRST205" || error.message.includes("schema cache")) {
           throw new Error("Supabase 数据表尚未初始化，请先执行 schema.sql");
         }
         throw new Error(`${config.remote} 上传失败：${error.message}`);
+      }
+      if (config.local === "eventOccurrenceStates" && savedRecord) {
+        const normalized = normalizeRemoteRecord(config.local, savedRecord) as unknown as EventOccurrenceState;
+        await db.transaction("rw", db.eventOccurrenceStates, db.syncQueue, async () => {
+          if (savedRecord.id !== localRecord.id) {
+            await db.eventOccurrenceStates.delete(localRecord.id);
+            const duplicateQueueItems = await db.syncQueue
+              .where("table_name")
+              .equals("eventOccurrenceStates")
+              .and((queuedItem) => queuedItem.record_id === localRecord.id)
+              .toArray();
+            await db.syncQueue.bulkDelete(duplicateQueueItems.map((queuedItem) => queuedItem.id));
+          }
+          await db.eventOccurrenceStates.put(normalized);
+        });
       }
       await db.syncQueue.delete(item.id);
       uploaded += 1;
@@ -134,7 +179,30 @@ async function runSync(userId: string): Promise<SyncResult> {
     }
     const records = (data ?? []).map((record) => normalizeRemoteRecord(config.local, record));
     if (records.length) {
-      await db.table(config.local).bulkPut(records);
+      if (config.local === "eventOccurrenceStates") {
+        const occurrenceRecords = records as unknown as EventOccurrenceState[];
+        await db.transaction("rw", db.eventOccurrenceStates, db.syncQueue, async () => {
+          for (const record of occurrenceRecords) {
+            const localMatches = await db.eventOccurrenceStates
+              .where("[event_id+occurrence_date]")
+              .equals([record.event_id, record.occurrence_date])
+              .filter((state) => state.user_id === userId)
+              .toArray();
+            for (const local of localMatches) {
+              if (local.id === record.id) continue;
+              const pending = await db.syncQueue
+                .where("table_name")
+                .equals("eventOccurrenceStates")
+                .and((queuedItem) => queuedItem.record_id === local.id)
+                .first();
+              if (!pending) await db.eventOccurrenceStates.delete(local.id);
+            }
+            await db.eventOccurrenceStates.put(record);
+          }
+        });
+      } else {
+        await db.table(config.local).bulkPut(records);
+      }
       downloaded += records.length;
     }
   }
