@@ -63,3 +63,26 @@ jobs:
             --header "Content-Type: application/json" \
             --data '{"source":"deployment-check"}')"
           echo "$response"
+
+      - name: Verify cron runs automatically
+        run: |
+          sleep 70
+          query="select job.jobname, job.schedule, job.active, run.status, run.return_message, run.start_time, run.end_time
+          from cron.job as job
+          left join lateral (
+            select status, return_message, start_time, end_time
+            from cron.job_run_details
+            where jobid = job.jobid
+            order by start_time desc
+            limit 1
+          ) as run on true
+          where job.jobname = 'dispatch-schedule-reminders';"
+          jq -n --arg query "$query" '{query: $query}' > /tmp/reminder-cron-status.json
+          response="$(curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/reminder-cron-status.json)"
+          echo "$response"
+          echo "$response" | jq -e 'length == 1 and .[0].active == true and .[0].status == "succeeded"'
