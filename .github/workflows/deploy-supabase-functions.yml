@@ -67,7 +67,8 @@ jobs:
       - name: Verify cron runs automatically
         run: |
           sleep 70
-          query="select job.jobname, job.schedule, job.active, run.status, run.return_message, run.start_time, run.end_time
+          query="select job.jobname, job.schedule, job.active, run.status, run.return_message, run.start_time, run.end_time,
+            response.status_code as function_status_code, response.error_msg as function_error, response.content as function_response
           from cron.job as job
           left join lateral (
             select status, return_message, start_time, end_time
@@ -76,6 +77,12 @@ jobs:
             order by start_time desc
             limit 1
           ) as run on true
+          left join lateral (
+            select status_code, error_msg, content
+            from net._http_response
+            order by created desc
+            limit 1
+          ) as response on true
           where job.jobname = 'dispatch-schedule-reminders';"
           jq -n --arg query "$query" '{query: $query}' > /tmp/reminder-cron-status.json
           response="$(curl --fail-with-body \
@@ -85,4 +92,10 @@ jobs:
             --header "Content-Type: application/json" \
             --data @/tmp/reminder-cron-status.json)"
           echo "$response"
-          echo "$response" | jq -e 'length == 1 and .[0].active == true and .[0].status == "succeeded"'
+          echo "$response" | jq -e '
+            length == 1
+            and .[0].active == true
+            and .[0].status == "succeeded"
+            and .[0].function_status_code == 200
+            and .[0].function_error == null
+          '
