@@ -5,28 +5,38 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = { title: "日程提醒", body: event.data ? event.data.text() : "" };
   }
+  const appUrl = self.registration.scope;
   event.waitUntil(
     self.registration.showNotification(payload.title || "日程提醒", {
       body: payload.body || "有一项日程即将开始",
-      icon: "app-icon-192.png",
-      badge: "app-icon-192.png",
+      icon: new URL("app-icon-192.png", appUrl).href,
+      badge: new URL("app-icon-192.png", appUrl).href,
       tag: payload.tag || "schedule-reminder",
-      data: { url: payload.url || self.registration.scope }
+      data: { url: payload.url || appUrl }
     })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || self.registration.scope;
+  const appUrl = self.registration.scope;
+  let targetUrl = appUrl;
+  try {
+    const requestedUrl = new URL(event.notification.data?.url || appUrl, appUrl);
+    const scopeUrl = new URL(appUrl);
+    if (
+      requestedUrl.origin === scopeUrl.origin
+      && requestedUrl.pathname.startsWith(scopeUrl.pathname)
+    ) {
+      targetUrl = requestedUrl.href;
+    }
+  } catch {
+    targetUrl = appUrl;
+  }
+
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((client) => client.url.startsWith(self.registration.scope));
-      if (existing) {
-        existing.navigate(targetUrl);
-        return existing.focus();
-      }
-      return self.clients.openWindow(targetUrl);
-    })
+    self.clients.openWindow(targetUrl).then((windowClient) => (
+      windowClient ? windowClient.focus() : null
+    ))
   );
 });
