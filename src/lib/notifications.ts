@@ -3,6 +3,7 @@ import { eventOccursOn, toISODate } from "./date";
 import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
 import { reminderIsDue } from "./reminderTime";
 import { supabase } from "./supabase";
+import type { EventItem } from "../types";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 
@@ -140,6 +141,53 @@ async function showReminder(title: string, body: string, tag: string) {
     badge: `${import.meta.env.BASE_URL}app-icon-192.png`,
     data: { url: new URL(import.meta.env.BASE_URL, window.location.origin).toString() }
   });
+}
+
+export async function showTestNotification(): Promise<void> {
+  if (!notificationsSupported()) throw new Error("当前浏览器不支持系统通知");
+  if (Notification.permission !== "granted") throw new Error("请先允许系统通知");
+  await showReminder(
+    "日程计划表测试通知",
+    "通知显示正常。点击此通知可测试应用跳转。",
+    `schedule-test-${Date.now()}`
+  );
+}
+
+const REMINDER_SCHEDULE_FIELDS = [
+  "start_date",
+  "start_time",
+  "all_day",
+  "recurrence_type",
+  "recurrence_until",
+  "reminder_enabled",
+  "reminder_minutes_before",
+  "timezone"
+] as const satisfies readonly (keyof EventItem)[];
+
+export function reminderScheduleChanged(previous: EventItem, next: EventItem): boolean {
+  return REMINDER_SCHEDULE_FIELDS.some((field) => previous[field] !== next[field]);
+}
+
+export async function resetSentRemindersForChangedEvent(
+  previous: EventItem | undefined,
+  next: EventItem
+): Promise<number> {
+  if (!previous || !reminderScheduleChanged(previous, next)) return 0;
+  const states = await db.eventOccurrenceStates
+    .filter((state) => state.event_id === next.id && !state.deleted_at && Boolean(state.reminder_sent_at))
+    .toArray();
+  for (const state of states) {
+    const updated = {
+      ...syncFields(state),
+      event_id: state.event_id,
+      occurrence_date: state.occurrence_date,
+      completed: state.completed,
+      reminder_sent_at: null
+    };
+    await db.eventOccurrenceStates.put(updated);
+    await queueChange("eventOccurrenceStates", updated.id);
+  }
+  return states.length;
 }
 
 export async function checkDueLocalReminders(ownerId: string): Promise<number> {

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { db, queueChange } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
 import { syncFields } from "../lib/identity";
-import { enableNotifications } from "../lib/notifications";
+import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
 import type { EventItem } from "../types";
 import { Modal } from "./Modal";
 
@@ -106,6 +106,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     };
     await db.events.put(record);
     await queueChange("events", record.id);
+    await resetSentRemindersForChangedEvent(eventItem, record);
     setSaving(false);
     onClose();
   }

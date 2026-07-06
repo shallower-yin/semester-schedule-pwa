@@ -5,14 +5,13 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = { title: "日程提醒", body: event.data ? event.data.text() : "" };
   }
-  const appUrl = self.registration.scope;
   event.waitUntil(
     self.registration.showNotification(payload.title || "日程提醒", {
       body: payload.body || "有一项日程即将开始",
-      icon: new URL("app-icon-192.png", appUrl).href,
-      badge: new URL("app-icon-192.png", appUrl).href,
+      icon: "app-icon-192.png",
+      badge: "app-icon-192.png",
       tag: payload.tag || "schedule-reminder",
-      data: { url: payload.url || appUrl }
+      data: { url: payload.url || self.registration.scope }
     })
   );
 });

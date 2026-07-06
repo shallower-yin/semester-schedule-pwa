@@ -6,6 +6,7 @@ import {
   disableNotificationsForCurrentDevice,
   enableNotifications,
   getNotificationStatus,
+  showTestNotification,
   type NotificationStatus
 } from "../lib/notifications";
 import type { SyncResult } from "../lib/sync";
@@ -50,6 +51,29 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     } catch (error) {
       setNotificationStatus(await getNotificationStatus());
       setNotificationMessage(error instanceof Error ? error.message : "启用提醒失败");
+    } finally {
+      setEnablingNotifications(false);
+    }
+  }
+
+  async function testNotification() {
+    setEnablingNotifications(true);
+    setNotificationMessage("");
+    try {
+      const result = await enableNotifications();
+      setNotificationStatus(await getNotificationStatus());
+      if (result === "denied") {
+        setNotificationMessage("浏览器已阻止通知，请在网站权限中改为允许。");
+        return;
+      }
+      if (result === "unsupported") {
+        setNotificationMessage("当前浏览器不支持系统通知。");
+        return;
+      }
+      await showTestNotification();
+      setNotificationMessage("测试通知已发送，请检查系统通知栏并点击它测试应用跳转。");
+    } catch (error) {
+      setNotificationMessage(error instanceof Error ? error.message : "测试通知发送失败");
     } finally {
       setEnablingNotifications(false);
     }
@@ -100,6 +124,9 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       {notificationMessage && <p className="auth-message">{notificationMessage}</p>}
       {message && <p className="auth-message">{message}</p>}
       <div className="form-stack">
+        <button className="button secondary" disabled={enablingNotifications} onClick={() => void testNotification()}>
+          <BellRing size={17} />发送测试通知
+        </button>
         <button className="button primary" disabled={syncing} onClick={() => void onSync()}><Cloud size={17} />{syncing ? "同步中…" : "立即同步"}</button>
         <button className="button secondary" onClick={logout}><LogOut size={17} />退出登录</button>
       </div>
