@@ -1,0 +1,4 @@
+project_id = "haifsnaupqhlvgfoyvlc"
+
+[functions.send-reminders]
+verify_jwt = false
