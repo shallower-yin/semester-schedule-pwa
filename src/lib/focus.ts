@@ -40,6 +40,27 @@ export function totalFocusSeconds(sessions: FocusSession[]): number {
   return sessions.reduce((sum, session) => sum + Math.max(0, Number(session.duration_seconds ?? 0)), 0);
 }
 
+export interface FocusDailyTotal {
+  date: string;
+  label: string;
+  total_seconds: number;
+  session_count: number;
+}
+
+export function focusDailyTotals(sessions: FocusSession[], days = 7, now = new Date()): FocusDailyTotal[] {
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1 - index));
+    const isoDate = toISODate(date);
+    const matched = sessions.filter((session) => toISODate(new Date(session.ended_at)) === isoDate && !session.deleted_at);
+    return {
+      date: isoDate,
+      label: `${date.getMonth() + 1}/${date.getDate()}`,
+      total_seconds: totalFocusSeconds(matched),
+      session_count: matched.length
+    };
+  });
+}
+
 export function focusModeLabel(mode: FocusMode): string {
   return {
     stopwatch: "正计时",

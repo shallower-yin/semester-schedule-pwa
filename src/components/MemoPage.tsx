@@ -3,6 +3,7 @@ import { FileText, Folder, Plus, RotateCcw, Search, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
+import { supabase } from "../lib/supabase";
 import type { Memo, MemoFolder } from "../types";
 import { Modal } from "./Modal";
 
@@ -24,6 +25,7 @@ export function MemoPage({ ownerId }: MemoPageProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FolderFilter>("all");
   const [memoToEdit, setMemoToEdit] = useState<Memo | null | undefined>(undefined);
+  const [message, setMessage] = useState("");
 
   const visibleMemos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -72,10 +74,55 @@ export function MemoPage({ ownerId }: MemoPageProps) {
     setFilter("all");
   }
 
+  async function renameFolder(folder: MemoFolder) {
+    const name = window.prompt("新的文件夹名称", folder.name);
+    if (!name?.trim() || name.trim() === folder.name) return;
+    const updated = { ...folder, ...syncFields(folder), name: name.trim() };
+    await db.memoFolders.put(updated);
+    await queueChange("memoFolders", updated.id);
+    setMessage(`已重命名文件夹为“${updated.name}”。`);
+  }
+
   async function restoreMemo(memo: Memo) {
     const restored = { ...memo, ...syncFields(memo), deleted_at: null };
     await db.memos.put(restored);
     await queueChange("memos", restored.id);
+  }
+
+  async function permanentlyDeleteMemo(memo: Memo) {
+    if (!window.confirm(`彻底删除备忘录“${memo.title}”？此操作不会进入回收站。`)) return;
+    try {
+      await permanentlyDeleteRemoteRow("memos", memo.id, memo.user_id);
+      await db.transaction("rw", db.memos, db.syncQueue, async () => {
+        await db.memos.delete(memo.id);
+        const queued = await db.syncQueue
+          .where("table_name")
+          .equals("memos")
+          .and((item) => item.record_id === memo.id)
+          .toArray();
+        await db.syncQueue.bulkDelete(queued.map((item) => item.id));
+      });
+      setMessage("备忘录已彻底删除。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "彻底删除失败");
+    }
+  }
+
+  async function emptyTrash() {
+    const trashed = memos.filter((memo) => memo.deleted_at);
+    if (!trashed.length) return;
+    if (!window.confirm(`彻底删除回收站中的 ${trashed.length} 条备忘录？`)) return;
+    try {
+      for (const memo of trashed) await permanentlyDeleteRemoteRow("memos", memo.id, memo.user_id);
+      await db.transaction("rw", db.memos, db.syncQueue, async () => {
+        await db.memos.bulkDelete(trashed.map((memo) => memo.id));
+        const queued = await db.syncQueue.where("table_name").equals("memos").toArray();
+        await db.syncQueue.bulkDelete(queued.filter((item) => trashed.some((memo) => memo.id === item.record_id)).map((item) => item.id));
+      });
+      setMessage(`已彻底删除 ${trashed.length} 条备忘录。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "清空回收站失败");
+    }
   }
 
   return (
@@ -106,6 +153,18 @@ export function MemoPage({ ownerId }: MemoPageProps) {
               <Folder size={18} /><span>{folder.name}</span>
               <small>{memos.filter((memo) => !memo.deleted_at && memo.folder_id === folder.id).length}</small>
               <span
+                className="memo-folder-edit"
+                role="button"
+                tabIndex={0}
+                title="重命名文件夹"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void renameFolder(folder);
+                }}
+              >
+                ✎
+              </span>
+              <span
                 className="memo-folder-delete"
                 role="button"
                 tabIndex={0}
@@ -130,8 +189,12 @@ export function MemoPage({ ownerId }: MemoPageProps) {
             <h1>备忘录</h1>
             <p>记录临时想法、复习计划和需要保留的文字资料。</p>
           </div>
-          <button className="button primary compact" onClick={() => setMemoToEdit(null)}><Plus size={17} />新增备忘录</button>
+          <div className="inline-actions">
+            {filter === "trash" && trashMemoCount > 0 && <button className="button danger-button compact" onClick={() => void emptyTrash()}><Trash2 size={16} />清空回收站</button>}
+            <button className="button primary compact" onClick={() => setMemoToEdit(null)}><Plus size={17} />新增备忘录</button>
+          </div>
         </div>
+        {message && <p className="status-message memo-status">{message}</p>}
         {visibleMemos.length ? (
           <div className="memo-list">
             {visibleMemos.map((memo) => (
@@ -140,15 +203,26 @@ export function MemoPage({ ownerId }: MemoPageProps) {
                 <h2>{memo.title}</h2>
                 <p>{memo.content || "无正文"}</p>
                 {memo.deleted_at ? (
-                  <button
-                    className="button secondary compact"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void restoreMemo(memo);
-                    }}
-                  >
-                    <RotateCcw size={15} />恢复
-                  </button>
+                  <div className="memo-card-actions">
+                    <button
+                      className="button secondary compact"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void restoreMemo(memo);
+                      }}
+                    >
+                      <RotateCcw size={15} />恢复
+                    </button>
+                    <button
+                      className="button danger-button compact"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void permanentlyDeleteMemo(memo);
+                      }}
+                    >
+                      <Trash2 size={15} />彻底删除
+                    </button>
+                  </div>
                 ) : null}
               </article>
             ))}
@@ -172,6 +246,14 @@ export function MemoPage({ ownerId }: MemoPageProps) {
       )}
     </section>
   );
+}
+
+async function permanentlyDeleteRemoteRow(table: "memos" | "memo_folders", id: string, userId: string) {
+  if (userId === "local") return;
+  if (!navigator.onLine) throw new Error("当前离线，无法彻底删除云端记录。请联网后重试。");
+  if (!supabase) throw new Error("云端未配置，无法彻底删除已登录账号的数据。");
+  const { error } = await supabase.from(table).delete().eq("id", id).eq("user_id", userId);
+  if (error) throw new Error(`${table} 云端彻底删除失败：${error.message}`);
 }
 
 interface MemoDialogProps {

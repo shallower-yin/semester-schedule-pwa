@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FocusSession } from "../types";
-import { elapsedFocusSeconds, focusModeLabel, focusSessionsForDate, formatFocusDuration, remainingFocusSeconds, totalFocusSeconds } from "./focus";
+import { elapsedFocusSeconds, focusDailyTotals, focusModeLabel, focusSessionsForDate, formatFocusDuration, remainingFocusSeconds, totalFocusSeconds } from "./focus";
 
 describe("专注计时", () => {
   it("计算已用时间时扣除暂停时间", () => {
@@ -35,6 +35,19 @@ describe("专注计时", () => {
     const matched = focusSessionsForDate(sessions, new Date(2026, 6, 7));
 
     expect(totalFocusSeconds(matched)).toBe(600);
+  });
+
+  it("生成近几日专注统计", () => {
+    const totals = focusDailyTotals([
+      session("2026-07-06T10:00:00.000Z", 300),
+      session("2026-07-07T10:00:00.000Z", 600)
+    ], 3, new Date("2026-07-07T12:00:00.000Z"));
+
+    expect(totals.map((item) => ({ date: item.date, total: item.total_seconds, count: item.session_count }))).toEqual([
+      { date: "2026-07-05", total: 0, count: 0 },
+      { date: "2026-07-06", total: 300, count: 1 },
+      { date: "2026-07-07", total: 600, count: 1 }
+    ]);
   });
 });
 

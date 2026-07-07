@@ -1448,21 +1448,35 @@ textarea {
   color: #8791a1;
 }
 
+.memo-folder-edit,
 .memo-folder-delete {
   display: none;
   position: absolute;
-  right: 8px;
   padding: 0 4px;
-  color: #a12a22;
   font-weight: 800;
 }
 
+.memo-folder-edit {
+  right: 28px;
+  color: var(--primary);
+}
+
+.memo-folder-delete {
+  right: 8px;
+  color: #a12a22;
+}
+
+.memo-sidebar-section > button:hover .memo-folder-edit,
 .memo-sidebar-section > button:hover .memo-folder-delete {
   display: inline;
 }
 
 .memo-heading {
   margin-bottom: 14px;
+}
+
+.memo-status {
+  margin-bottom: 12px !important;
 }
 
 .memo-list {
@@ -1504,8 +1518,15 @@ textarea {
   -webkit-line-clamp: 2;
 }
 
-.memo-card .button {
+.memo-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 12px;
+}
+
+.memo-card-actions .button {
+  margin-top: 0;
 }
 
 .memo-textarea {
@@ -1674,6 +1695,47 @@ textarea {
   margin: 12px 0;
 }
 
+.focus-chart {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.focus-chart-bar {
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  min-width: 0;
+}
+
+.focus-chart-track {
+  display: flex;
+  width: 100%;
+  height: 96px;
+  align-items: flex-end;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2fb;
+}
+
+.focus-chart-track span {
+  display: block;
+  width: 100%;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, #6d87ff, var(--primary));
+}
+
+.focus-chart-bar strong,
+.focus-chart-bar small {
+  overflow: hidden;
+  max-width: 100%;
+  color: #647085;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .focus-record-list {
   display: grid;
   gap: 8px;
@@ -1697,6 +1759,13 @@ textarea {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.focus-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
 }
 
 .focus-lock-overlay {

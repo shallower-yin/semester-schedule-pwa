@@ -1,9 +1,10 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { Bell, CheckCircle2, Link2, Pause, Play, RotateCcw, Settings, Square, Target } from "lucide-react";
+import { BarChart3, Bell, CheckCircle2, Edit3, Link2, Pause, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
   elapsedFocusSeconds,
+  focusDailyTotals,
   focusModeLabel,
   focusSessionsForDate,
   formatFocusDuration,
@@ -13,6 +14,7 @@ import {
 } from "../lib/focus";
 import { syncFields } from "../lib/identity";
 import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
+import { Modal } from "./Modal";
 
 interface FocusPageProps {
   ownerId: string;
@@ -53,6 +55,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [active, setActive] = useState<ActiveFocusState | null>(() => loadActiveFocus(ownerId));
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
+  const [sessionToEdit, setSessionToEdit] = useState<FocusSession | null>(null);
   const completingRef = useRef(false);
 
   const effectiveSettings = storedSettings ?? settingsDraft;
@@ -63,6 +66,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
     return totalFocusSeconds(sessions.filter((session) => new Date(session.ended_at) >= monday));
   }, [sessions]);
+  const dailyTotals = useMemo(() => focusDailyTotals(sessions, 7, new Date()), [sessions]);
+  const maxDailySeconds = Math.max(1, ...dailyTotals.map((item) => item.total_seconds));
   const elapsed = active ? elapsedFocusSeconds(active, now) : 0;
   const remaining = active ? remainingFocusSeconds(active, now) : null;
   const displaySeconds = active ? remaining ?? elapsed : plannedSecondsForMode(mode, effectiveSettings);
@@ -189,6 +194,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     setMessage("专注设置已保存。");
   }
 
+  async function deleteSession(session: FocusSession) {
+    if (!window.confirm(`删除专注记录“${session.task_title || focusModeLabel(session.mode)}”？`)) return;
+    const updated = { ...session, ...syncFields(session), deleted_at: new Date().toISOString() };
+    await db.focusSessions.put(updated);
+    await queueChange("focusSessions", updated.id, "delete");
+    setMessage("专注记录已删除。");
+  }
+
   return (
     <section className="focus-page">
       <div className="page-heading focus-heading">
@@ -262,6 +275,21 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           </section>
 
           <section>
+            <h2><BarChart3 size={18} />近 7 日统计</h2>
+            <div className="focus-chart">
+              {dailyTotals.map((item) => (
+                <div key={item.date} className="focus-chart-bar">
+                  <div className="focus-chart-track">
+                    <span style={{ height: `${Math.max(6, (item.total_seconds / maxDailySeconds) * 100)}%` }} />
+                  </div>
+                  <strong>{formatFocusDuration(item.total_seconds)}</strong>
+                  <small>{item.label}</small>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
             <h2>最近记录</h2>
             <div className="focus-record-list">
               {sessions
@@ -272,6 +300,10 @@ export function FocusPage({ ownerId }: FocusPageProps) {
                   <article key={session.id}>
                     <strong>{session.task_title || focusModeLabel(session.mode)}</strong>
                     <span>{focusModeLabel(session.mode)} · {formatFocusDuration(session.duration_seconds)} · {new Date(session.ended_at).toLocaleString()}</span>
+                    <div className="focus-record-actions">
+                      <button className="button secondary compact" onClick={() => setSessionToEdit(session)}><Edit3 size={14} />编辑</button>
+                      <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />删除</button>
+                    </div>
                   </article>
                 ))}
               {!sessions.length && <p>还没有专注记录。</p>}
@@ -294,6 +326,17 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             </div>
           </div>
         </div>
+      )}
+      {sessionToEdit && (
+        <FocusSessionDialog
+          session={sessionToEdit}
+          events={events}
+          onClose={() => setSessionToEdit(null)}
+          onSaved={(text) => {
+            setSessionToEdit(null);
+            setMessage(text);
+          }}
+        />
       )}
     </section>
   );
@@ -320,6 +363,76 @@ function saveActiveFocus(ownerId: string, active: ActiveFocusState) {
 
 function clearActiveFocus(ownerId: string) {
   localStorage.removeItem(activeFocusKey(ownerId));
+}
+
+interface FocusSessionDialogProps {
+  session: FocusSession;
+  events: EventItem[];
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}
+
+function FocusSessionDialog({ session, events, onClose, onSaved }: FocusSessionDialogProps) {
+  const [taskTitle, setTaskTitle] = useState(session.task_title);
+  const [mode, setMode] = useState<FocusMode>(session.mode);
+  const [linkedEventId, setLinkedEventId] = useState(session.linked_event_id ?? "");
+  const [durationMinutes, setDurationMinutes] = useState(Math.max(1, Math.round(session.duration_seconds / 60)));
+  const [completed, setCompleted] = useState(session.completed);
+  const [interrupted, setInterrupted] = useState(session.interrupted);
+  const [message, setMessage] = useState("");
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (!taskTitle.trim()) {
+      setMessage("请填写任务名称。");
+      return;
+    }
+    const durationSeconds = Math.max(1, Math.round(Number(durationMinutes) * 60));
+    const updated: FocusSession = {
+      ...session,
+      ...syncFields(session),
+      mode,
+      task_title: taskTitle.trim(),
+      linked_event_id: linkedEventId || null,
+      planned_seconds: mode === "stopwatch" || mode === "lock" ? null : session.planned_seconds ?? durationSeconds,
+      duration_seconds: durationSeconds,
+      completed,
+      interrupted
+    };
+    await db.focusSessions.put(updated);
+    await queueChange("focusSessions", updated.id);
+    onSaved("专注记录已更新。");
+  }
+
+  return (
+    <Modal title="编辑专注记录" onClose={onClose}>
+      <form className="form-stack" onSubmit={save}>
+        <label>任务名称<input autoFocus required value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} /></label>
+        <label>模式
+          <select value={mode} onChange={(event) => setMode(event.target.value as FocusMode)}>
+            <option value="stopwatch">正计时</option>
+            <option value="pomodoro">番茄钟</option>
+            <option value="countdown">倒计时</option>
+            <option value="lock">锁机</option>
+          </select>
+        </label>
+        <label>专注时长（分钟）<input type="number" min={1} max={1440} value={durationMinutes} onChange={(event) => setDurationMinutes(Number(event.target.value))} /></label>
+        <label>关联任务
+          <select value={linkedEventId} onChange={(event) => setLinkedEventId(event.target.value)}>
+            <option value="">无</option>
+            {events.slice(0, 120).map((eventItem) => <option key={eventItem.id} value={eventItem.id}>{eventItem.title}</option>)}
+          </select>
+        </label>
+        <label className="checkbox-label"><input type="checkbox" checked={completed} onChange={(event) => setCompleted(event.target.checked)} />已完成</label>
+        <label className="checkbox-label"><input type="checkbox" checked={interrupted} onChange={(event) => setInterrupted(event.target.checked)} />中断结束</label>
+        {message && <p className="auth-message error">{message}</p>}
+        <div className="form-actions">
+          <button type="button" className="button secondary" onClick={onClose}>取消</button>
+          <button className="button primary">保存记录</button>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 async function enterFocusFullscreen() {
