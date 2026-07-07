@@ -101,6 +101,8 @@ export default function App() {
   const [showSchoolImport, setShowSchoolImport] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installMessage, setInstallMessage] = useState("");
+  const [updatingApp, setUpdatingApp] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState("");
   const [scheduleQuery, setScheduleQuery] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
   const [eventStatusFilter, setEventStatusFilter] = useState<EventStatusFilter>("all");
@@ -345,6 +347,41 @@ export default function App() {
     }
   }
 
+  async function applyAppUpdate() {
+    if (updatingApp) return;
+    setUpdatingApp(true);
+    setUpdateMessage("正在切换到新版本…");
+    let reloaded = false;
+    let fallbackTimer: number | null = null;
+
+    const reloadOnce = () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    };
+    const handleControllerChange = () => {
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      reloadOnce();
+    };
+
+    try {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange, { once: true });
+        fallbackTimer = window.setTimeout(reloadOnce, 3000);
+      } else {
+        fallbackTimer = window.setTimeout(reloadOnce, 500);
+      }
+      await updateServiceWorker(true);
+    } catch (error) {
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
+      }
+      setUpdatingApp(false);
+      setUpdateMessage(error instanceof Error ? `更新失败：${error.message}` : "更新失败，请稍后重试。");
+    }
+  }
+
   function navigate(nextPage: Page) {
     setPage(nextPage);
     setSidebarOpen(false);
@@ -533,8 +570,8 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
                 <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
               </button>
-              <button className="setting-card" onClick={() => needRefresh ? updateServiceWorker(true) : window.location.reload()}>
-                <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
+              <button className="setting-card" onClick={() => needRefresh ? void applyAppUpdate() : window.location.reload()} disabled={updatingApp}>
+                <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
                 <GraduationCap /><span><strong>当前学期</strong><small>{semester!.name} · {semester!.total_weeks} 周</small></span><ChevronRight />
@@ -656,8 +693,8 @@ export default function App() {
       {needRefresh && (
         <div className="update-toast">
           <RefreshCw size={18} />
-          <span>新版本已准备好 · 当前 {appVersion}</span>
-          <button onClick={() => updateServiceWorker(true)}>立即更新</button>
+          <span>{updatingApp ? updateMessage : `新版本已准备好 · 当前 ${appVersion}`}</span>
+          <button disabled={updatingApp} onClick={() => void applyAppUpdate()}>{updatingApp ? "更新中…" : "立即更新"}</button>
           <button className="icon-button" onClick={() => setNeedRefresh(false)}><X size={16} /></button>
         </div>
       )}
