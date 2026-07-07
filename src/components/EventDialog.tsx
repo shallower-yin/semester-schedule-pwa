@@ -3,6 +3,7 @@ import { BellRing } from "lucide-react";
 import { useState } from "react";
 import { db, queueChange } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
+import { validateEventDraft } from "../lib/eventValidation";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
 import type { EventItem } from "../types";
@@ -38,6 +39,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [reminderEnabled, setReminderEnabled] = useState(eventItem?.reminder_enabled ?? false);
   const [reminderMinutes, setReminderMinutes] = useState(eventItem?.reminder_minutes_before ?? 10);
   const [reminderMessage, setReminderMessage] = useState("");
+  const [validationMessage, setValidationMessage] = useState("");
   const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -85,7 +87,12 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
 
   async function save(formEvent: React.FormEvent) {
     formEvent.preventDefault();
-    if (!title.trim() || (!allDay && endTime <= startTime)) return;
+    setValidationMessage("");
+    const validationError = validateEventDraft({ title, allDay, startTime, endTime });
+    if (validationError) {
+      setValidationMessage(validationError);
+      return;
+    }
     setSaving(true);
     const record: EventItem = {
       ...syncFields(eventItem),
@@ -171,6 +178,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           {reminderMessage && <p>{reminderMessage}</p>}
         </section>
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+        {validationMessage && <p className="auth-message error">{validationMessage}</p>}
         <div className="form-actions split">
           <div>{eventItem && <button type="button" className="button danger-button" onClick={remove}>删除事项</button>}</div>
           <div className="inline-actions">
