@@ -1,5 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
+  Bot,
   BookOpen,
   CalendarCheck2,
   CalendarHeart,
@@ -47,6 +48,7 @@ import { MemoPage } from "./components/MemoPage";
 import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { QuickEntryDialog } from "./components/QuickEntryDialog";
+import { ScheduleAssistantDialog } from "./components/ScheduleAssistantDialog";
 import { ScheduleOverviewPanel } from "./components/ScheduleOverview";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
@@ -105,6 +107,7 @@ export default function App() {
   const [showDataHealth, setShowDataHealth] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showQuickEntry, setShowQuickEntry] = useState(false);
+  const [showScheduleAssistant, setShowScheduleAssistant] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
@@ -343,6 +346,9 @@ export default function App() {
       } else if (event.key.toLowerCase() === "q") {
         event.preventDefault();
         setShowQuickEntry(true);
+      } else if (event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        setShowScheduleAssistant(true);
       } else if (event.key.toLowerCase() === "t") {
         event.preventDefault();
         goToday();
@@ -353,6 +359,7 @@ export default function App() {
         setShowBatchEvents(false);
         setShowDataHealth(false);
         setShowStats(false);
+        setShowScheduleAssistant(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -604,6 +611,7 @@ export default function App() {
                 `仅本地 · ${pendingChanges} 项待同步`}
             </span>
           </button>
+          <button className="icon-button header-search-button" onClick={() => setShowScheduleAssistant(true)} aria-label="问日程助手"><Bot size={18} /></button>
           <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
           <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
         </div>
@@ -752,6 +760,9 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowStats(true)}>
                 <Target /><span><strong>统计与日历导出</strong><small>查看完成率、专注趋势，并导出 ICS</small></span><ChevronRight />
               </button>
+              <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
+                <Bot /><span><strong>问日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                 <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
               </button>
@@ -822,6 +833,22 @@ export default function App() {
             setPage("calendar");
           }}
           onClose={() => setShowQuickEntry(false)}
+        />
+      )}
+      {showScheduleAssistant && semester && (
+        <ScheduleAssistantDialog
+          input={{
+            semester,
+            courses,
+            schedules,
+            cancellations,
+            events,
+            categories,
+            occurrenceStates,
+            periods,
+            focusSessions
+          }}
+          onClose={() => setShowScheduleAssistant(false)}
         />
       )}
       {showMobileNavSettings && (

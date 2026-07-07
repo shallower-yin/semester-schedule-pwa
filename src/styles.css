@@ -3311,6 +3311,70 @@ textarea {
   margin: 0;
 }
 
+.assistant-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(260px, 52vh) auto;
+  gap: 12px;
+}
+
+.assistant-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assistant-examples button {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: #4b5568;
+  background: #f8fafc;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assistant-messages {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.assistant-messages article {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.assistant-messages article.user {
+  color: #22304a;
+}
+
+.assistant-messages p {
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 9px;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  background: white;
+}
+
+.assistant-messages article.user p {
+  color: white;
+  background: var(--primary);
+}
+
+.assistant-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .mobile-sidebar-backdrop {
   display: none;
 }
@@ -3906,5 +3970,13 @@ textarea {
 
   .habit-heatmap {
     grid-template-columns: repeat(7, 1fr);
+  }
+
+  .assistant-dialog {
+    grid-template-rows: auto minmax(240px, 48vh) auto;
+  }
+
+  .assistant-input {
+    grid-template-columns: 1fr;
   }
 }
