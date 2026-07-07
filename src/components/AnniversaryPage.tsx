@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { BellRing, Cake, CalendarHeart, Gift, Heart, PartyPopper, Plus, Search, Trash2 } from "lucide-react";
 import type { ComponentType, CSSProperties, FormEvent, SVGProps } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { db, queueChange } from "../db";
 import {
   ANNIVERSARY_KIND_META,
@@ -25,6 +25,8 @@ import { Modal } from "./Modal";
 
 interface AnniversaryPageProps {
   ownerId: string;
+  openAnniversaryId?: string | null;
+  onOpenAnniversaryConsumed?: () => void;
 }
 
 type AnniversaryFilter = "all" | AnniversaryKind;
@@ -43,7 +45,7 @@ const KIND_ICONS: Record<AnniversaryKind, IconComponent> = {
   holiday: PartyPopper
 };
 
-export function AnniversaryPage({ ownerId }: AnniversaryPageProps) {
+export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryConsumed }: AnniversaryPageProps) {
   const anniversaries = useLiveQuery(
     () => db.anniversaries.filter((item) => item.user_id === ownerId).toArray(),
     [ownerId]
@@ -53,6 +55,13 @@ export function AnniversaryPage({ ownerId }: AnniversaryPageProps) {
   const [anniversaryToEdit, setAnniversaryToEdit] = useState<Anniversary | null | undefined>(undefined);
 
   const activeAnniversaries = anniversaries.filter((item) => !item.deleted_at);
+  useEffect(() => {
+    if (!openAnniversaryId) return;
+    const target = activeAnniversaries.find((item) => item.id === openAnniversaryId);
+    if (!target) return;
+    setAnniversaryToEdit(target);
+    onOpenAnniversaryConsumed?.();
+  }, [activeAnniversaries, onOpenAnniversaryConsumed, openAnniversaryId]);
   const visibleAnniversaries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return activeAnniversaries

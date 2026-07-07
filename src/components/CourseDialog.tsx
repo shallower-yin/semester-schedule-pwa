@@ -3,6 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db, queueChange } from "../db";
 import { WEEKDAY_NAMES } from "../data/defaults";
+import { findCourseEventConflicts, findCourseScheduleConflicts } from "../lib/conflicts";
 import { syncFields } from "../lib/identity";
 import type { Course, CourseSchedule, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
@@ -35,6 +36,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
     { weekday: 1, start_period: 1, end_period: 2, weeks: Array.from({ length: semester.total_weeks }, (_, index) => index + 1) }
   ]);
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!course) return;
@@ -132,6 +134,22 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
       color,
       note: note.trim()
     };
+    const existingCourses = await db.courses.where("semester_id").equals(semester.id).filter((item) => !item.deleted_at).toArray();
+    const existingCourseIds = new Set(existingCourses.map((item) => item.id));
+    const existingSchedules = await db.courseSchedules.filter((item) => existingCourseIds.has(item.course_id) && !item.deleted_at).toArray();
+    const existingEvents = await db.events.filter((item) => item.user_id === semester.user_id && !item.deleted_at).toArray();
+    const conflicts = [
+      ...findCourseScheduleConflicts(courseRecord.id, courseRecord.name, existingSchedules, existingCourses, schedules),
+      ...findCourseEventConflicts(semester, schedules, periods, existingEvents)
+    ].slice(0, 5);
+    if (conflicts.length) {
+      const conflictMessage = `可能与 ${conflicts.map((item) => `“${item.title}”(${item.detail})`).join("、")} 冲突。仍然保存？`;
+      if (!window.confirm(conflictMessage)) {
+        setMessage(conflictMessage);
+        setSaving(false);
+        return;
+      }
+    }
     await db.transaction("rw", db.courses, db.courseSchedules, db.syncQueue, async () => {
       await db.courses.put(courseRecord);
       await queueChange("courses", courseRecord.id);
@@ -241,6 +259,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
             </div>
           </div>
         ))}
+        {message && <p className="auth-message">{message}</p>}
 
         <div className="form-actions split">
           <div>{course && <button type="button" className="button danger-button" onClick={removeCourse}>删除课程</button>}</div>

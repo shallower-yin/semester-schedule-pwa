@@ -60,6 +60,7 @@ export interface Category extends SyncFields {
 }
 
 export type EventType = "event" | "habit";
+export type EventRecurrenceType = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "interval";
 
 export interface EventItem extends SyncFields {
   event_type: EventType;
@@ -72,8 +73,9 @@ export interface EventItem extends SyncFields {
   category_id: string | null;
   color: string;
   note: string;
-  recurrence_type: "none" | "weekly";
+  recurrence_type: EventRecurrenceType;
   recurrence_until: ISODate | null;
+  recurrence_interval: number;
   reminder_enabled: boolean;
   reminder_minutes_before: number;
   timezone: string;

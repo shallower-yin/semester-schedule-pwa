@@ -65,7 +65,7 @@ function currentHabitStreak(habit: EventItem, completedDates: Set<string>, now: 
 }
 
 function habitEndDate(habit: EventItem): Date {
-  return parseLocalDate(habit.recurrence_type === "weekly" ? habit.recurrence_until ?? habit.end_date : habit.end_date);
+  return parseLocalDate(habit.recurrence_type !== "none" ? habit.recurrence_until ?? habit.end_date : habit.end_date);
 }
 
 function minDate(left: Date, right: Date): Date {

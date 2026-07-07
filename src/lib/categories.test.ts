@@ -42,6 +42,7 @@ function eventItem(categoryId: string): EventItem {
     note: "",
     recurrence_type: "none",
     recurrence_until: null,
+    recurrence_interval: 1,
     reminder_enabled: false,
     reminder_minutes_before: 10,
     timezone: "Asia/Shanghai"

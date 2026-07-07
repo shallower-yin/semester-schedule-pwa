@@ -70,7 +70,7 @@ export function dateIsToday(date: Date): boolean {
 }
 
 export function eventOccursOn(
-  event: { start_date: string; end_date: string; recurrence_type: "none" | "weekly"; recurrence_until: string | null },
+  event: { start_date: string; end_date: string; recurrence_type: string; recurrence_until: string | null; recurrence_interval?: number },
   date: Date
 ): boolean {
   const target = toISODate(date);
@@ -80,7 +80,20 @@ export function eventOccursOn(
   if (target < event.start_date || (event.recurrence_until && target > event.recurrence_until)) {
     return false;
   }
-  return weekdayOf(date) === weekdayOf(parseLocalDate(event.start_date));
+  if (event.recurrence_type === "daily") return true;
+  if (event.recurrence_type === "weekdays") {
+    const weekday = weekdayOf(date);
+    return weekday >= 1 && weekday <= 5;
+  }
+  if (event.recurrence_type === "weekly") return weekdayOf(date) === weekdayOf(parseLocalDate(event.start_date));
+  if (event.recurrence_type === "monthly") {
+    return date.getDate() === parseLocalDate(event.start_date).getDate();
+  }
+  if (event.recurrence_type === "interval") {
+    const interval = Math.max(1, Number(event.recurrence_interval ?? 1));
+    return differenceInCalendarDays(date, parseLocalDate(event.start_date)) % interval === 0;
+  }
+  return false;
 }
 
 export function courseScheduleOccursOn(schedule: CourseSchedule, semester: Semester, date: Date): boolean {

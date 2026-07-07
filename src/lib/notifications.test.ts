@@ -42,6 +42,7 @@ describe("编辑事项后的再次提醒", () => {
     note: "",
     recurrence_type: "none",
     recurrence_until: null,
+    recurrence_interval: 1,
     reminder_enabled: true,
     reminder_minutes_before: 0,
     timezone: "Asia/Shanghai"

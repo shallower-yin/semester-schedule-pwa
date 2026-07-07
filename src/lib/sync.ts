@@ -148,6 +148,7 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       end_time: record.end_time ? String(record.end_time).slice(0, 5) : null,
       reminder_enabled: Boolean(record.reminder_enabled),
       reminder_minutes_before: Number(record.reminder_minutes_before ?? 10),
+      recurrence_interval: Number(record.recurrence_interval ?? 1),
       timezone: String(record.timezone ?? "Asia/Shanghai")
     };
   }

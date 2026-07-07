@@ -75,7 +75,8 @@ describe("事项重复", () => {
       start_date: "2026-07-25",
       end_date: "2026-07-27",
       recurrence_type: "none" as const,
-      recurrence_until: null
+      recurrence_until: null,
+      recurrence_interval: 1
     };
     expect(eventOccursOn(event, new Date(2026, 6, 24))).toBe(false);
     expect(eventOccursOn(event, new Date(2026, 6, 25))).toBe(true);
@@ -89,11 +90,36 @@ describe("事项重复", () => {
       start_date: "2026-03-04",
       end_date: "2026-03-04",
       recurrence_type: "weekly" as const,
-      recurrence_until: "2026-03-25"
+      recurrence_until: "2026-03-25",
+      recurrence_interval: 1
     };
     expect(eventOccursOn(event, new Date(2026, 2, 4))).toBe(true);
     expect(eventOccursOn(event, new Date(2026, 2, 11))).toBe(true);
     expect(eventOccursOn(event, new Date(2026, 2, 12))).toBe(false);
     expect(eventOccursOn(event, new Date(2026, 3, 1))).toBe(false);
+  });
+
+  it("支持工作日、每月同日和自定义间隔重复", () => {
+    expect(eventOccursOn({
+      start_date: "2026-03-02",
+      end_date: "2026-03-02",
+      recurrence_type: "weekdays",
+      recurrence_until: "2026-03-08",
+      recurrence_interval: 1
+    }, new Date(2026, 2, 7))).toBe(false);
+    expect(eventOccursOn({
+      start_date: "2026-03-15",
+      end_date: "2026-03-15",
+      recurrence_type: "monthly",
+      recurrence_until: "2026-05-31",
+      recurrence_interval: 1
+    }, new Date(2026, 4, 15))).toBe(true);
+    expect(eventOccursOn({
+      start_date: "2026-03-01",
+      end_date: "2026-03-01",
+      recurrence_type: "interval",
+      recurrence_until: "2026-03-10",
+      recurrence_interval: 3
+    }, new Date(2026, 2, 7))).toBe(true);
   });
 });

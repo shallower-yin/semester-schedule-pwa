@@ -1,14 +1,16 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BellRing, CalendarCheck, Copy } from "lucide-react";
+import { BellRing, CalendarCheck, Copy, FileText } from "lucide-react";
 import { useState } from "react";
 import { db, queueChange } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
+import { findEventConflicts, findEventCourseConflicts } from "../lib/conflicts";
 import { parseLocalDate, toISODate } from "../lib/date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { validateEventDraft } from "../lib/eventValidation";
+import { deleteEventTemplate, loadEventTemplates, saveEventTemplate } from "../lib/eventTemplates";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
-import type { EventItem, EventOccurrenceState, EventType } from "../types";
+import type { EventItem, EventOccurrenceState, EventRecurrenceType, EventType, Memo } from "../types";
 import { Modal } from "./Modal";
 
 interface EventDialogProps {
@@ -40,13 +42,17 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [categoryId, setCategoryId] = useState(eventItem?.category_id ?? "");
   const [color, setColor] = useState(eventItem?.color ?? "#e36b32");
   const [note, setNote] = useState(eventItem?.note ?? "");
-  const [recurrence, setRecurrence] = useState<"none" | "weekly">(eventItem?.recurrence_type ?? "none");
+  const [recurrence, setRecurrence] = useState<EventRecurrenceType>(eventItem?.recurrence_type ?? "none");
   const [recurrenceUntil, setRecurrenceUntil] = useState(eventItem?.recurrence_until ?? eventItem?.start_date ?? initialDate);
+  const [recurrenceInterval, setRecurrenceInterval] = useState(eventItem?.recurrence_interval ?? 1);
   const [reminderEnabled, setReminderEnabled] = useState(eventItem?.reminder_enabled ?? false);
   const [reminderMinutes, setReminderMinutes] = useState(eventItem?.reminder_minutes_before ?? 10);
   const [reminderMessage, setReminderMessage] = useState("");
   const [validationMessage, setValidationMessage] = useState("");
   const [completionMessage, setCompletionMessage] = useState("");
+  const [conflictMessage, setConflictMessage] = useState("");
+  const [templates, setTemplates] = useState(() => loadEventTemplates());
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
   const todayCompletion = eventItem ? eventCompletionForDate(eventItem, occurrenceStates, new Date()) : null;
@@ -69,6 +75,55 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     setDate(nextDate);
     if (endDate < nextDate) setEndDate(nextDate);
     if (recurrenceUntil < nextDate) setRecurrenceUntil(nextDate);
+  }
+
+  function applyTemplate(templateId: string) {
+    setSelectedTemplateId(templateId);
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) return;
+    setTitle(template.title);
+    setStartTime(template.start_time ?? "09:00");
+    setEndTime(template.end_time ?? template.start_time ?? "10:00");
+    setAllDay(template.all_day);
+    setCategoryId(template.category_id ?? "");
+    setColor(template.color);
+    setNote(template.note);
+    setRecurrence(template.recurrence_type);
+    setRecurrenceInterval(template.recurrence_interval);
+    setReminderEnabled(template.reminder_enabled);
+    setReminderMinutes(template.reminder_minutes_before);
+  }
+
+  function saveCurrentTemplate() {
+    if (!title.trim()) {
+      setValidationMessage("请先填写标题，再保存模板。");
+      return;
+    }
+    const name = window.prompt("模板名称", title.trim());
+    if (!name?.trim()) return;
+    saveEventTemplate({
+      name: name.trim(),
+      event_type: eventType,
+      title: title.trim(),
+      start_time: allDay ? null : startTime,
+      end_time: allDay ? null : endTime,
+      all_day: allDay,
+      category_id: categoryId || null,
+      color,
+      note: note.trim(),
+      recurrence_type: recurrence,
+      recurrence_interval: Math.max(1, recurrenceInterval),
+      reminder_enabled: reminderEnabled,
+      reminder_minutes_before: reminderMinutes
+    });
+    setTemplates(loadEventTemplates());
+  }
+
+  function removeSelectedTemplate() {
+    if (!selectedTemplateId) return;
+    deleteEventTemplate(selectedTemplateId);
+    setSelectedTemplateId("");
+    setTemplates(loadEventTemplates());
   }
 
   async function toggleReminder(enabled: boolean) {
@@ -142,16 +197,41 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       color,
       note: note.trim(),
       recurrence_type: recurrence,
-      recurrence_until: recurrence === "weekly" ? recurrenceUntil : null,
+      recurrence_until: recurrence === "none" ? null : recurrenceUntil,
+      recurrence_interval: recurrence === "interval" ? Math.max(1, recurrenceInterval) : 1,
       reminder_enabled: reminderEnabled,
       reminder_minutes_before: reminderMinutes,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
     };
+    const existingEvents = await db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray();
+    const currentSemester = await db.semesters.filter((item) => item.user_id === ownerId && item.is_current && !item.deleted_at).first();
+    const courseConflicts = currentSemester
+      ? await collectCourseConflicts(record, currentSemester.id)
+      : [];
+    const conflicts = [...findEventConflicts(record, existingEvents), ...courseConflicts].slice(0, 5);
+    if (conflicts.length) {
+      const message = `可能与 ${conflicts.map((item) => `“${item.title}”(${item.detail})`).join("、")} 重叠。仍然保存？`;
+      if (!window.confirm(message)) {
+        setConflictMessage(message);
+        setSaving(false);
+        return;
+      }
+    }
     await db.events.put(record);
     await queueChange("events", record.id);
     await resetSentRemindersForChangedEvent(eventItem, record);
     setSaving(false);
     onClose();
+  }
+
+  async function collectCourseConflicts(record: EventItem, semesterId: string) {
+    const currentSemester = await db.semesters.get(semesterId);
+    if (!currentSemester) return [];
+    const courses = await db.courses.where("semester_id").equals(semesterId).filter((item) => !item.deleted_at).toArray();
+    const courseIds = new Set(courses.map((item) => item.id));
+    const schedules = await db.courseSchedules.filter((item) => courseIds.has(item.course_id) && !item.deleted_at).toArray();
+    const periods = await db.classPeriods.where("semester_id").equals(semesterId).filter((item) => !item.deleted_at && item.kind !== "break").toArray();
+    return findEventCourseConflicts(record, currentSemester, courses, schedules, periods);
   }
 
   async function remove() {
@@ -182,16 +262,43 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     setCompletionMessage(completed ? "已标记今天完成。" : "已标记今天未完成。");
   }
 
+  async function createMemoFromEvent() {
+    const record: Memo = {
+      ...syncFields(),
+      folder_id: null,
+      title: title.trim() || "未命名事项",
+      content: [
+        `日期：${date}${endDate !== date ? ` 至 ${endDate}` : ""}`,
+        allDay ? "时间：全天" : `时间：${startTime}-${endTime}`,
+        note.trim()
+      ].filter(Boolean).join("\n"),
+      is_pinned: false
+    };
+    await db.memos.put(record);
+    await queueChange("memos", record.id);
+    setCompletionMessage("已转为备忘录。");
+  }
+
   return (
     <Modal title={eventItem ? `编辑${itemLabel}` : `新增${itemLabel}`} onClose={onClose}>
       <form className="form-stack" onSubmit={save}>
         <label>标题<input required autoFocus value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <div className="template-toolbar">
+          <label>模板
+            <select value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}>
+              <option value="">不使用模板</option>
+              {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+            </select>
+          </label>
+          <button type="button" className="button secondary compact" onClick={saveCurrentTemplate}>保存为模板</button>
+          <button type="button" className="button secondary compact" disabled={!selectedTemplateId} onClick={removeSelectedTemplate}>删除模板</button>
+        </div>
         <div className="form-grid">
           <label>开始日期<input required type="date" value={date} onChange={(event) => changeStartDate(event.target.value)} /></label>
           {recurrence === "none" ? (
             <label>结束日期<input required type="date" min={date} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
           ) : (
-            <label>重复截止日期<input type="date" min={date} value={recurrenceUntil} onChange={(event) => setRecurrenceUntil(event.target.value)} /></label>
+            <label>重复截止日期<input required type="date" min={date} value={recurrenceUntil} onChange={(event) => setRecurrenceUntil(event.target.value)} /></label>
           )}
         </div>
         <label className="checkbox-label"><input type="checkbox" checked={allDay} onChange={(event) => setAllDay(event.target.checked)} />全天{itemLabel}</label>
@@ -211,11 +318,18 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
         </div>
         <label>重复
-          <select value={recurrence} onChange={(event) => setRecurrence(event.target.value as "none" | "weekly")}>
+          <select value={recurrence} onChange={(event) => setRecurrence(event.target.value as EventRecurrenceType)}>
             <option value="none">{eventType === "habit" ? "每天打卡" : "日期范围内每天"}</option>
+            <option value="daily">每天重复</option>
+            <option value="weekdays">工作日重复</option>
             <option value="weekly">每周重复</option>
+            <option value="monthly">每月同日重复</option>
+            <option value="interval">自定义间隔天数</option>
           </select>
         </label>
+        {recurrence === "interval" && (
+          <label>间隔天数<input type="number" min={1} max={366} value={recurrenceInterval} onChange={(event) => setRecurrenceInterval(Number(event.target.value))} /></label>
+        )}
         {eventItem && todayCompletion && (
           <section className="event-completion-editor">
             <div>
@@ -264,9 +378,11 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         </section>
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         {validationMessage && <p className="auth-message error">{validationMessage}</p>}
+        {conflictMessage && <p className="auth-message">{conflictMessage}</p>}
         <div className="form-actions split">
           <div className="inline-actions">
             {eventItem && <button type="button" className="button secondary" onClick={() => void duplicate()}><Copy size={16} />复制事项</button>}
+            <button type="button" className="button secondary" onClick={() => void createMemoFromEvent()}><FileText size={16} />转备忘录</button>
             {eventItem && <button type="button" className="button danger-button" onClick={remove}>删除{itemLabel}</button>}
           </div>
           <div className="inline-actions">

@@ -65,7 +65,8 @@ function habitRecord(overrides: Partial<EventItem> = {}): EventItem {
     reminder_enabled: true,
     reminder_minutes_before: 0,
     timezone: "Asia/Shanghai",
-    ...overrides
+    ...overrides,
+    recurrence_interval: overrides.recurrence_interval ?? 1
   };
 }
 

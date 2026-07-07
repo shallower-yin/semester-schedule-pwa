@@ -23,6 +23,7 @@ export interface ScheduleOverviewItem {
   sortTime: string;
   color: string;
   completed: boolean;
+  occurrenceDate?: string;
 }
 
 export interface ScheduleOverview {
@@ -112,7 +113,8 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
       timeLabel: eventItem.all_day ? "全天" : formatTimeRange(eventItem.start_time, eventItem.end_time),
       sortTime,
       color: eventItem.color || category?.color || "#e36b32",
-      completed: occurrenceState?.completed ?? false
+      completed: occurrenceState?.completed ?? false,
+      occurrenceDate: todayDate
     }];
   });
 
@@ -195,7 +197,8 @@ function buildOverdueIncompleteItems(
         timeLabel: `${date.getMonth() + 1}/${date.getDate()} ${eventItem.all_day ? "全天" : formatTimeRange(eventItem.start_time, eventItem.end_time)}`,
         sortTime: `${occurrenceDate} ${eventItem.all_day ? "00:00" : eventItem.start_time ?? "99:99"}`,
         color: eventItem.color || category?.color || "#e36b32",
-        completed: false
+        completed: false,
+        occurrenceDate
       });
     }
   }

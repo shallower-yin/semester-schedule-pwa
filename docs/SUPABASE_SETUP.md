@@ -36,6 +36,12 @@
 
 该迁移给事项表增加 `event_type` 字段，支持 `event` 和 `habit` 两类记录，并把后台提醒函数调整为按事项开始日期到结束日期逐日领取提醒。
 
+事项重复规则增强需要执行：
+
+`supabase/migrations/20260708_recurrence_rules.sql`
+
+该迁移给事项表增加 `recurrence_interval` 字段，允许 `daily`、`weekdays`、`weekly`、`monthly`、`interval` 重复规则，并同步更新后台提醒领取函数。执行后，工作日、每月同日和自定义间隔事项/习惯才能在云端后台提醒中正确领取。
+
 ## Auth URL 配置
 
 在 Supabase Dashboard 打开 `Authentication → URL Configuration`：

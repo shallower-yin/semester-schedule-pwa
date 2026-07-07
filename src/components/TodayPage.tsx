@@ -1,0 +1,134 @@
+import { AlertCircle, CalendarCheck2, CheckCircle2, Clock3, Edit3, Target } from "lucide-react";
+import type { EventItem, EventOccurrenceState } from "../types";
+import { addDays, parseLocalDate, startOfWeek, toISODate } from "../lib/date";
+import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
+import { formatFocusDuration } from "../lib/focus";
+import type { ScheduleOverview, ScheduleOverviewItem } from "../lib/overview";
+
+interface TodayPageProps {
+  overview: ScheduleOverview;
+  events: EventItem[];
+  occurrenceStates: EventOccurrenceState[];
+  onOpenItem: (item: ScheduleOverviewItem) => void;
+  onOpenFocus: () => void;
+}
+
+export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOpenFocus }: TodayPageProps) {
+  const today = new Date();
+
+  async function toggleCompleted(item: ScheduleOverviewItem) {
+    const eventItem = events.find((event) => event.id === item.targetId);
+    if (!eventItem) return;
+    await setEventCompletedForDate(eventItem, occurrenceStates, item.occurrenceDate ? parseLocalDate(item.occurrenceDate) : today, !item.completed);
+  }
+
+  async function postpone(item: ScheduleOverviewItem, targetDate: string) {
+    const eventItem = events.find((event) => event.id === item.targetId);
+    if (!eventItem) return;
+    await postponeEventToDate(eventItem, targetDate);
+  }
+
+  function chooseCustomDate(item: ScheduleOverviewItem) {
+    const target = window.prompt("推迟到哪一天？", toISODate(addDays(today, 1)));
+    if (!target) return;
+    void postpone(item, target);
+  }
+
+  const weekend = toISODate(addDays(startOfWeek(today), 6));
+  const tomorrow = toISODate(addDays(today, 1));
+
+  return (
+    <section className="today-page">
+      <div className="page-heading today-heading">
+        <div>
+          <h1>今天</h1>
+          <p>{overview.todayDate} · 集中处理课程、事项、习惯和逾期未完成。</p>
+        </div>
+        <button className="button secondary compact" onClick={onOpenFocus}><Target size={17} />去专注</button>
+      </div>
+
+      <div className="today-stats">
+        <article><CalendarCheck2 /><span><strong>{overview.todayItemCount}</strong><small>今日安排</small></span></article>
+        <article><CheckCircle2 /><span><strong>{overview.todayIncompleteEventCount}</strong><small>今日未完成</small></span></article>
+        <article><AlertCircle /><span><strong>{overview.overdueIncompleteItems.length}</strong><small>逾期未完成</small></span></article>
+        <article><Target /><span><strong>{formatFocusDuration(overview.todayFocusSeconds)}</strong><small>今日专注</small></span></article>
+      </div>
+
+      <TodayList
+        title="今日安排"
+        items={overview.upcomingItems}
+        emptyText="今天暂无安排。"
+        onOpenItem={onOpenItem}
+        onToggleCompleted={toggleCompleted}
+        onPostpone={postpone}
+        onCustomPostpone={chooseCustomDate}
+        tomorrow={tomorrow}
+        weekend={weekend}
+      />
+      <TodayList
+        title="逾期未完成"
+        items={overview.overdueIncompleteItems}
+        emptyText="最近没有逾期未完成事项。"
+        onOpenItem={onOpenItem}
+        onToggleCompleted={toggleCompleted}
+        onPostpone={postpone}
+        onCustomPostpone={chooseCustomDate}
+        tomorrow={tomorrow}
+        weekend={weekend}
+        overdue
+      />
+    </section>
+  );
+}
+
+interface TodayListProps {
+  title: string;
+  items: ScheduleOverviewItem[];
+  emptyText: string;
+  tomorrow: string;
+  weekend: string;
+  overdue?: boolean;
+  onOpenItem: (item: ScheduleOverviewItem) => void;
+  onToggleCompleted: (item: ScheduleOverviewItem) => Promise<void>;
+  onPostpone: (item: ScheduleOverviewItem, targetDate: string) => Promise<void>;
+  onCustomPostpone: (item: ScheduleOverviewItem) => void;
+}
+
+function TodayList({ title, items, emptyText, tomorrow, weekend, overdue, onOpenItem, onToggleCompleted, onPostpone, onCustomPostpone }: TodayListProps) {
+  return (
+    <section className="today-list-section">
+      <div className="section-heading">
+        <div><h3>{title}</h3><p>{overdue ? "处理拖延事项，或快速推迟到新的日期。" : "课程、事项和习惯按时间排序。"}</p></div>
+      </div>
+      {items.length ? (
+        <div className="today-list" role="list" aria-label={title}>
+          {items.map((item) => (
+            <article key={`${item.type}-${item.id}`} className={`today-item ${item.completed ? "completed" : ""}`} role="listitem">
+              <i style={{ background: item.color }} />
+              <div className="today-item-main">
+                <strong>{item.title}</strong>
+                <span>{item.subtitle}</span>
+                <small><Clock3 size={12} />{item.timeLabel}</small>
+              </div>
+              <div className="today-item-actions">
+                {item.type === "event" && (
+                  <>
+                    <button className="button secondary compact" onClick={() => void onToggleCompleted(item)}>
+                      <CheckCircle2 size={15} />{item.completed ? "取消完成" : "完成"}
+                    </button>
+                    <button className="button secondary compact" onClick={() => void onPostpone(item, tomorrow)}>明天</button>
+                    <button className="button secondary compact" onClick={() => void onPostpone(item, weekend)}>周末</button>
+                    <button className="button secondary compact" onClick={() => onCustomPostpone(item)}>自选</button>
+                  </>
+                )}
+                <button className="button primary compact" onClick={() => onOpenItem(item)}><Edit3 size={15} />编辑</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state compact-empty"><CalendarCheck2 size={34} /><h2>{emptyText}</h2></div>
+      )}
+    </section>
+  );
+}

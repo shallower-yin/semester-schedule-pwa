@@ -1,21 +1,24 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { FileText, Folder, Grid3X3, List, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CalendarPlus, FileText, Folder, Grid3X3, List, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
+import { toISODate } from "../lib/date";
 import { supabase } from "../lib/supabase";
-import type { Memo, MemoFolder } from "../types";
+import type { EventItem, Memo, MemoFolder } from "../types";
 import { Modal } from "./Modal";
 
 interface MemoPageProps {
   ownerId: string;
+  openMemoId?: string | null;
+  onOpenMemoConsumed?: () => void;
 }
 
 type FolderFilter = "all" | "trash" | string;
 type MemoViewMode = "list" | "grid";
 const GRID_PAGE_SIZE = 9;
 
-export function MemoPage({ ownerId }: MemoPageProps) {
+export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPageProps) {
   const folders = useLiveQuery(
     () => db.memoFolders.filter((folder) => folder.user_id === ownerId && !folder.deleted_at).sortBy("sort_order"),
     [ownerId]
@@ -30,6 +33,14 @@ export function MemoPage({ ownerId }: MemoPageProps) {
   const [gridPage, setGridPage] = useState(0);
   const [memoToEdit, setMemoToEdit] = useState<Memo | null | undefined>(undefined);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!openMemoId) return;
+    const target = memos.find((memo) => memo.id === openMemoId && !memo.deleted_at);
+    if (!target) return;
+    setMemoToEdit(target);
+    onOpenMemoConsumed?.();
+  }, [memos, onOpenMemoConsumed, openMemoId]);
 
   const visibleMemos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -146,6 +157,32 @@ export function MemoPage({ ownerId }: MemoPageProps) {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "清空回收站失败");
     }
+  }
+
+  async function createEventFromMemo(memo: Memo) {
+    const today = toISODate(new Date());
+    const eventItem: EventItem = {
+      ...syncFields(),
+      event_type: "event",
+      title: memo.title,
+      start_date: today,
+      end_date: today,
+      start_time: "09:00",
+      end_time: "09:00",
+      all_day: false,
+      category_id: null,
+      color: "#e36b32",
+      note: memo.content,
+      recurrence_type: "none",
+      recurrence_until: null,
+      recurrence_interval: 1,
+      reminder_enabled: false,
+      reminder_minutes_before: 10,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+    };
+    await db.events.put(eventItem);
+    await queueChange("events", eventItem.id);
+    setMessage(`已从“${memo.title}”创建今天事项。`);
   }
 
   return (
@@ -266,6 +303,7 @@ export function MemoPage({ ownerId }: MemoPageProps) {
                     onEdit={setMemoToEdit}
                     onRestore={restoreMemo}
                     onDelete={permanentlyDeleteMemo}
+                    onCreateEvent={createEventFromMemo}
                   />
                 ))}
                 {Array.from({ length: emptyGridSlots }, (_, index) => (
@@ -288,6 +326,7 @@ export function MemoPage({ ownerId }: MemoPageProps) {
                   onEdit={setMemoToEdit}
                   onRestore={restoreMemo}
                   onDelete={permanentlyDeleteMemo}
+                  onCreateEvent={createEventFromMemo}
                 />
               ))}
             </div>
@@ -319,9 +358,10 @@ interface MemoCardProps {
   onEdit: (memo: Memo) => void;
   onRestore: (memo: Memo) => Promise<void>;
   onDelete: (memo: Memo) => Promise<void>;
+  onCreateEvent: (memo: Memo) => Promise<void>;
 }
 
-function MemoCard({ memo, mode, onEdit, onRestore, onDelete }: MemoCardProps) {
+function MemoCard({ memo, mode, onEdit, onRestore, onDelete, onCreateEvent }: MemoCardProps) {
   return (
     <article
       className={`memo-card ${mode === "grid" ? "memo-card-grid" : ""}`}
@@ -355,7 +395,19 @@ function MemoCard({ memo, mode, onEdit, onRestore, onDelete }: MemoCardProps) {
             <Trash2 size={15} />彻底删除
           </button>
         </div>
-      ) : null}
+      ) : (
+        <div className="memo-card-actions">
+          <button
+            className="button secondary compact"
+            onClick={(event) => {
+              event.stopPropagation();
+              void onCreateEvent(memo);
+            }}
+          >
+            <CalendarPlus size={15} />转事项
+          </button>
+        </div>
+      )}
     </article>
   );
 }

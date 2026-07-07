@@ -1,6 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen,
+  CalendarCheck2,
   CalendarHeart,
   CalendarDays,
   CheckCircle2,
@@ -16,6 +17,7 @@ import {
   NotebookText,
   Plus,
   RefreshCw,
+  Search,
   Settings,
   SlidersHorizontal,
   Target,
@@ -31,10 +33,13 @@ import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
 import { BackupDialog } from "./components/BackupDialog";
+import { BatchEventsDialog } from "./components/BatchEventsDialog";
 import { CourseDialog } from "./components/CourseDialog";
 import { CourseManagerDialog } from "./components/CourseManagerDialog";
+import { DataHealthDialog } from "./components/DataHealthDialog";
 import { EventDialog } from "./components/EventDialog";
 import { FocusPage } from "./components/FocusPage";
+import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
 import { HabitPage } from "./components/HabitPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
@@ -42,6 +47,8 @@ import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { ScheduleOverviewPanel } from "./components/ScheduleOverview";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
+import { StatsDialog } from "./components/StatsDialog";
+import { TodayPage } from "./components/TodayPage";
 import { WeekCalendar } from "./components/WeekCalendar";
 import { db, queueChange } from "./db";
 import {
@@ -65,9 +72,9 @@ import {
 } from "./lib/pwaInstall";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
-import type { Course, EventItem, EventType, Semester } from "./types";
+import type { Anniversary, Course, EventItem, EventType, Memo, Semester } from "./types";
 
-type Page = "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "settings";
+type Page = "today" | "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "settings";
 type ScheduleFilter = "all" | "courses" | "uncategorized" | string;
 
 interface EventDraft {
@@ -80,7 +87,7 @@ interface EventDraft {
 
 export default function App() {
   const appVersion = `版本 ${__APP_VERSION__} · 提交 ${__APP_COMMIT__}`;
-  const [page, setPage] = useState<Page>("calendar");
+  const [page, setPage] = useState<Page>("today");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [overviewNow, setOverviewNow] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
@@ -88,6 +95,9 @@ export default function App() {
   const [semesterToEdit, setSemesterToEdit] = useState<Semester | null | undefined>(undefined);
   const [showPeriodSettings, setShowPeriodSettings] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  const [showBatchEvents, setShowBatchEvents] = useState(false);
+  const [showDataHealth, setShowDataHealth] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
@@ -104,6 +114,9 @@ export default function App() {
   const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
   const [showSchoolImport, setShowSchoolImport] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [anniversaryToOpen, setAnniversaryToOpen] = useState<string | null>(null);
+  const [memoToOpen, setMemoToOpen] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installMessage, setInstallMessage] = useState("");
   const [updatingApp, setUpdatingApp] = useState(false);
@@ -142,6 +155,8 @@ export default function App() {
     ) ?? []
   );
   const occurrenceStates = useLiveQuery(() => db.eventOccurrenceStates.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const anniversaries = useLiveQuery(() => db.anniversaries.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const memos = useLiveQuery(() => db.memos.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
   const focusSessions = useLiveQuery(() => db.focusSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
   const periods = useLiveQuery(
     () => (semester ? db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
@@ -163,6 +178,23 @@ export default function App() {
         occurrenceStates,
         periods,
         focusSessions
+      }, overviewNow)
+      : null,
+    [categories, cancellations, courses, events, focusSessions, occurrenceStates, overviewNow, periods, schedules, semester]
+  );
+  const todayOverview = useMemo(
+    () => semester
+      ? buildScheduleOverview({
+        semester,
+        courses,
+        schedules,
+        cancellations,
+        events,
+        categories,
+        occurrenceStates,
+        periods,
+        focusSessions,
+        maxItems: 50
       }, overviewNow)
       : null,
     [categories, cancellations, courses, events, focusSessions, occurrenceStates, overviewNow, periods, schedules, semester]
@@ -287,6 +319,32 @@ export default function App() {
     const timer = window.setInterval(() => setOverviewNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (event.key === "/") {
+        event.preventDefault();
+        setShowGlobalSearch(true);
+      } else if (event.key.toLowerCase() === "n" && semester) {
+        event.preventDefault();
+        openNewEvent(toISODate(new Date()), "09:00", "10:00");
+      } else if (event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        goToday();
+        setPage("today");
+      } else if (event.key === "Escape") {
+        setShowGlobalSearch(false);
+        setShowAddSchedule(false);
+        setShowBatchEvents(false);
+        setShowDataHealth(false);
+        setShowStats(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [semester]);
 
   useEffect(() => {
     if (!user || !("Notification" in window) || Notification.permission !== "granted") return;
@@ -421,6 +479,33 @@ export default function App() {
     if (eventItem) setEventToEdit(eventItem);
   }
 
+  function openGlobalSearchResult(result: GlobalSearchResult) {
+    setShowGlobalSearch(false);
+    if (result.type === "course") {
+      const course = courses.find((candidate) => candidate.id === result.id);
+      if (course) {
+        setCourseToEdit(course);
+        setPage("calendar");
+      }
+      return;
+    }
+    if (result.type === "event") {
+      const eventItem = events.find((candidate) => candidate.id === result.id);
+      if (eventItem) {
+        setEventToEdit(eventItem);
+        setPage(eventItem.event_type === "habit" ? "habits" : "calendar");
+      }
+      return;
+    }
+    if (result.type === "anniversary") {
+      setAnniversaryToOpen(result.id);
+      setPage("anniversaries");
+      return;
+    }
+    setMemoToOpen(result.id);
+    setPage("memos");
+  }
+
   async function activateSemester(target: Semester) {
     if (target.is_current) return;
     await db.transaction("rw", db.semesters, db.syncQueue, async () => {
@@ -438,6 +523,7 @@ export default function App() {
 
   const navigation = (
     <>
+      <button className={page === "today" ? "active" : ""} onClick={() => navigate("today")}><CalendarCheck2 size={19} />今天</button>
       <button className={page === "calendar" ? "active" : ""} onClick={() => navigate("calendar")}><CalendarDays size={19} />日程</button>
       <button className={page === "habits" ? "active" : ""} onClick={() => navigate("habits")}><CheckCircle2 size={19} />习惯</button>
       <button className={page === "anniversaries" ? "active" : ""} onClick={() => navigate("anniversaries")}><CalendarHeart size={19} />纪念日</button>
@@ -470,6 +556,7 @@ export default function App() {
                 `仅本地 · ${pendingChanges} 项待同步`}
             </span>
           </button>
+          <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
         </div>
       </header>
 
@@ -491,9 +578,9 @@ export default function App() {
             <button className="button primary" onClick={() => setSemesterToEdit(null)}><Plus size={18} />创建学期</button>
           </section>
         ) : page === "memos" ? (
-          <MemoPage ownerId={ownerId} />
+          <MemoPage ownerId={ownerId} openMemoId={memoToOpen} onOpenMemoConsumed={() => setMemoToOpen(null)} />
         ) : page === "anniversaries" ? (
-          <AnniversaryPage ownerId={ownerId} />
+          <AnniversaryPage ownerId={ownerId} openAnniversaryId={anniversaryToOpen} onOpenAnniversaryConsumed={() => setAnniversaryToOpen(null)} />
         ) : page === "habits" ? (
           <HabitPage
             habits={events}
@@ -503,6 +590,14 @@ export default function App() {
           />
         ) : page === "focus" ? (
           <FocusPage ownerId={ownerId} />
+        ) : page === "today" && todayOverview ? (
+          <TodayPage
+            overview={todayOverview}
+            events={events}
+            occurrenceStates={occurrenceStates}
+            onOpenItem={openOverviewItem}
+            onOpenFocus={() => navigate("focus")}
+          />
         ) : page === "calendar" ? (
           <>
             <section className="calendar-toolbar">
@@ -517,6 +612,7 @@ export default function App() {
                 <button className="button secondary compact" onClick={goToday}>回到本周</button>
                 <button className="button secondary compact" onClick={() => moveWeek(1)} aria-label="下一周"><span>下一周</span><ChevronRight size={18} /></button>
                 <button className="button secondary compact" onClick={() => setShowCourseManager(true)}><BookOpen size={18} />课程管理</button>
+                <button className="button secondary compact" onClick={() => setShowBatchEvents(true)}>批量事项</button>
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
@@ -598,6 +694,12 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowBackup(true)}>
                 <Database /><span><strong>JSON 数据备份</strong><small>导入或导出本地数据</small></span><ChevronRight />
               </button>
+              <button className="setting-card" onClick={() => setShowStats(true)}>
+                <Target /><span><strong>统计与日历导出</strong><small>查看完成率、专注趋势，并导出 ICS</small></span><ChevronRight />
+              </button>
+              <button className="setting-card" onClick={() => setShowDataHealth(true)}>
+                <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => setShowSchoolImport(true)}>
                 <FileSpreadsheet /><span><strong>天津大学课表提取器</strong><small>提取学校导出的 HTML-XLS 课表</small></span><ChevronRight />
               </button>
@@ -637,6 +739,20 @@ export default function App() {
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
+      {showBatchEvents && <BatchEventsDialog events={events} categories={categories} occurrenceStates={occurrenceStates} onClose={() => setShowBatchEvents(false)} />}
+      {showDataHealth && <DataHealthDialog ownerId={ownerId} onClose={() => setShowDataHealth(false)} />}
+      {showStats && semester && (
+        <StatsDialog
+          semester={semester}
+          courses={courses}
+          schedules={schedules}
+          periods={periods}
+          events={events}
+          occurrenceStates={occurrenceStates}
+          focusSessions={focusSessions}
+          onClose={() => setShowStats(false)}
+        />
+      )}
       {showSchoolImport && <SchoolTimetableImportDialog semester={semester!} onClose={() => setShowSchoolImport(false)} />}
       {showInstallDialog && (
         <InstallDialog
@@ -718,6 +834,17 @@ export default function App() {
           <button disabled={updatingApp} onClick={() => void applyAppUpdate()}>{updatingApp ? "更新中…" : "立即更新"}</button>
           <button className="icon-button" onClick={() => setNeedRefresh(false)}><X size={16} /></button>
         </div>
+      )}
+      {showGlobalSearch && (
+        <GlobalSearchDialog
+          courses={courses}
+          events={events}
+          categories={categories}
+          anniversaries={anniversaries as Anniversary[]}
+          memos={memos as Memo[]}
+          onOpen={openGlobalSearchResult}
+          onClose={() => setShowGlobalSearch(false)}
+        />
       )}
     </div>
   );

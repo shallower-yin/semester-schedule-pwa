@@ -162,6 +162,7 @@ const REMINDER_SCHEDULE_FIELDS = [
   "all_day",
   "recurrence_type",
   "recurrence_until",
+  "recurrence_interval",
   "reminder_enabled",
   "reminder_minutes_before",
   "timezone"
