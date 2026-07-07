@@ -57,7 +57,7 @@ import {
   type BeforeInstallPromptEvent
 } from "./lib/pwaInstall";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { adoptAnonymousData, getLastSync, syncNow, type SyncResult } from "./lib/sync";
+import { adoptAnonymousData, getLastSync, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
 import type { Course, EventItem, Semester } from "./types";
 
 type Page = "calendar" | "memos" | "focus" | "settings";
@@ -70,6 +70,7 @@ interface EventDraft {
 }
 
 export default function App() {
+  const appVersion = __APP_VERSION__;
   const [page, setPage] = useState<Page>("calendar");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
@@ -256,6 +257,25 @@ export default function App() {
     }
   }
 
+  async function handlePullRemote(): Promise<SyncResult | void> {
+    if (!user) {
+      setAuthDialogMode("login");
+      return;
+    }
+    setSyncing(true);
+    setSyncMessage("");
+    try {
+      const result = await pullRemoteNow(user.id);
+      setLastSync(result.completed_at);
+      setSyncMessage(`已重新拉取云端：下载 ${result.downloaded} 条。`);
+      return result;
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : "拉取云端失败");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function requestInstall() {
     if (!installPrompt || installing) return;
     setInstalling(true);
@@ -406,6 +426,9 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
                 <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
               </button>
+              <button className="setting-card" onClick={() => needRefresh ? updateServiceWorker(true) : window.location.reload()}>
+                <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
                 <GraduationCap /><span><strong>当前学期</strong><small>{semester!.name} · {semester!.total_weeks} 周</small></span><ChevronRight />
               </button>
@@ -495,6 +518,7 @@ export default function App() {
           syncing={syncing}
           message={syncMessage}
           onSync={handleSync}
+          onPullRemote={handlePullRemote}
           onClose={() => setShowAccount(false)}
         />
       )}
@@ -517,7 +541,7 @@ export default function App() {
       {needRefresh && (
         <div className="update-toast">
           <RefreshCw size={18} />
-          <span>新版本已准备好</span>
+          <span>新版本已准备好 · 当前 {appVersion}</span>
           <button onClick={() => updateServiceWorker(true)}>立即更新</button>
           <button className="icon-button" onClick={() => setNeedRefresh(false)}><X size={16} /></button>
         </div>

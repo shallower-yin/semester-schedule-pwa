@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
-import { BellRing, CheckCircle2, Cloud, LogOut } from "lucide-react";
+import { useLiveQuery } from "dexie-react-hooks";
+import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, LogOut, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import {
@@ -9,7 +10,7 @@ import {
   showTestNotification,
   type NotificationStatus
 } from "../lib/notifications";
-import type { SyncResult } from "../lib/sync";
+import { getSyncHealth, type SyncResult } from "../lib/sync";
 import { Modal } from "./Modal";
 
 interface AccountDialogProps {
@@ -19,13 +20,16 @@ interface AccountDialogProps {
   syncing: boolean;
   message: string;
   onSync: () => Promise<SyncResult | void>;
+  onPullRemote: () => Promise<SyncResult | void>;
   onClose: () => void;
 }
 
-export function AccountDialog({ user, pendingChanges, lastSync, syncing, message, onSync, onClose }: AccountDialogProps) {
+export function AccountDialog({ user, pendingChanges, lastSync, syncing, message, onSync, onPullRemote, onClose }: AccountDialogProps) {
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus | null>(null);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [enablingNotifications, setEnablingNotifications] = useState(false);
+  const [healthRefreshKey, setHealthRefreshKey] = useState(0);
+  const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, message, healthRefreshKey]);
 
   useEffect(() => {
     void getNotificationStatus().then(setNotificationStatus);
@@ -94,6 +98,16 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     onClose();
   }
 
+  async function runSync() {
+    await onSync();
+    setHealthRefreshKey((value) => value + 1);
+  }
+
+  async function pullRemote() {
+    await onPullRemote();
+    setHealthRefreshKey((value) => value + 1);
+  }
+
   return (
     <Modal title="账号与同步" onClose={onClose}>
       <div className="account-summary">
@@ -105,7 +119,38 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       </div>
       <div className="sync-detail-card">
         <div><span>待上传</span><strong>{pendingChanges} 条</strong></div>
+        <div><span>异常项</span><strong>{syncHealth?.failed ?? 0} 条</strong></div>
         <div><span>上次同步</span><strong>{lastSync ? new Date(lastSync).toLocaleString("zh-CN") : "尚未同步"}</strong></div>
+        <div><span>最早排队</span><strong>{syncHealth?.oldest_queued_at ? new Date(syncHealth.oldest_queued_at).toLocaleString("zh-CN") : "无"}</strong></div>
+      </div>
+      <div className={`sync-health-card ${syncHealth?.failed ? "has-error" : ""}`}>
+        <div className="sync-health-title">
+          {syncHealth?.failed ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+          <div>
+            <strong>{syncHealth?.pending ? "同步队列诊断" : "同步队列正常"}</strong>
+            <span>
+              {syncHealth
+                ? `${syncHealth.online ? "在线" : "离线"} · ${syncHealth.cloud_configured ? "云端已配置" : "云端未配置"} · ${new Date(syncHealth.checked_at).toLocaleTimeString("zh-CN")}`
+                : "正在检查…"}
+            </span>
+          </div>
+          <button className="icon-button" onClick={() => setHealthRefreshKey((value) => value + 1)} aria-label="重新检查同步状态"><RefreshCw size={16} /></button>
+        </div>
+        {syncHealth?.tables.length ? (
+          <div className="sync-health-list">
+            {syncHealth.tables.slice(0, 6).map((table) => (
+              <article key={table.table_name}>
+                <div>
+                  <strong>{table.label}</strong>
+                  <span>{table.pending} 条待上传 · 失败 {table.failed} 条 · 尝试 {table.attempts} 次</span>
+                </div>
+                {table.last_error && <p>{table.last_error}</p>}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p>没有等待上传的数据。若手机和电脑不一致，可以点击“重新拉取云端”。</p>
+        )}
       </div>
       <div className="notification-status-card">
         <BellRing size={20} />
@@ -127,7 +172,8 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void testNotification()}>
           <BellRing size={17} />发送测试通知
         </button>
-        <button className="button primary" disabled={syncing} onClick={() => void onSync()}><Cloud size={17} />{syncing ? "同步中…" : "立即同步"}</button>
+        <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : "立即同步"}</button>
+        <button className="button secondary" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={17} />重新拉取云端</button>
         <button className="button secondary" onClick={logout}><LogOut size={17} />退出登录</button>
       </div>
     </Modal>

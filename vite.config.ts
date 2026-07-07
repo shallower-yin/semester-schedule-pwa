@@ -6,6 +6,9 @@ export default defineConfig(() => {
   const base = process.env.GITHUB_ACTIONS ? "/semester-schedule-pwa/" : "/";
   return {
   base,
+  define: {
+    __APP_VERSION__: JSON.stringify(`${process.env.npm_package_version ?? "0.1.0"}-${(process.env.GITHUB_SHA ?? "local").slice(0, 7)}`)
+  },
   build: {
     rollupOptions: {
       output: {

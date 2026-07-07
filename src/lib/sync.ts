@@ -4,20 +4,83 @@ import { deduplicateCategories } from "./categories";
 import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
 import { supabase } from "./supabase";
 
-const TABLES: Array<{ local: SyncTableName; remote: string }> = [
-  { local: "semesters", remote: "semesters" },
-  { local: "categories", remote: "categories" },
-  { local: "classPeriods", remote: "class_periods" },
-  { local: "courses", remote: "courses" },
-  { local: "courseSchedules", remote: "course_schedules" },
-  { local: "courseCancellations", remote: "course_cancellations" },
-  { local: "events", remote: "events" },
-  { local: "eventOccurrenceStates", remote: "event_occurrence_states" },
-  { local: "memoFolders", remote: "memo_folders" },
-  { local: "memos", remote: "memos" },
-  { local: "focusSettings", remote: "focus_settings" },
-  { local: "focusSessions", remote: "focus_sessions" }
+export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: string }> = [
+  { local: "semesters", remote: "semesters", label: "学期" },
+  { local: "categories", remote: "categories", label: "分类" },
+  { local: "classPeriods", remote: "class_periods", label: "时间块" },
+  { local: "courses", remote: "courses", label: "课程" },
+  { local: "courseSchedules", remote: "course_schedules", label: "课程安排" },
+  { local: "courseCancellations", remote: "course_cancellations", label: "停课标记" },
+  { local: "events", remote: "events", label: "事项" },
+  { local: "eventOccurrenceStates", remote: "event_occurrence_states", label: "事项状态" },
+  { local: "memoFolders", remote: "memo_folders", label: "备忘录文件夹" },
+  { local: "memos", remote: "memos", label: "备忘录" },
+  { local: "focusSettings", remote: "focus_settings", label: "专注设置" },
+  { local: "focusSessions", remote: "focus_sessions", label: "专注记录" }
 ];
+
+const TABLES = SYNC_TABLES;
+
+export const SYNC_TABLE_LABELS = Object.fromEntries(
+  SYNC_TABLES.map((table) => [table.local, table.label])
+) as Record<SyncTableName, string>;
+
+export interface SyncQueueTableHealth {
+  table_name: SyncTableName;
+  label: string;
+  pending: number;
+  failed: number;
+  attempts: number;
+  oldest_queued_at: string | null;
+  last_error: string | null;
+}
+
+export interface SyncHealth {
+  pending: number;
+  failed: number;
+  oldest_queued_at: string | null;
+  checked_at: string;
+  online: boolean;
+  cloud_configured: boolean;
+  tables: SyncQueueTableHealth[];
+}
+
+export async function getSyncHealth(): Promise<SyncHealth> {
+  const queued = await db.syncQueue.orderBy("queued_at").toArray();
+  const byTable = new Map<SyncTableName, SyncQueueItem[]>();
+  for (const item of queued) {
+    const items = byTable.get(item.table_name) ?? [];
+    items.push(item);
+    byTable.set(item.table_name, items);
+  }
+
+  const tables = Array.from(byTable.entries())
+    .map(([tableName, items]) => {
+      const sorted = [...items].sort((left, right) => left.queued_at.localeCompare(right.queued_at));
+      const failedItems = items.filter((item) => item.last_error || item.attempts > 0);
+      const lastFailed = [...failedItems].sort((left, right) => right.queued_at.localeCompare(left.queued_at))[0];
+      return {
+        table_name: tableName,
+        label: SYNC_TABLE_LABELS[tableName] ?? tableName,
+        pending: items.length,
+        failed: failedItems.length,
+        attempts: items.reduce((sum, item) => sum + item.attempts, 0),
+        oldest_queued_at: sorted[0]?.queued_at ?? null,
+        last_error: lastFailed?.last_error ?? null
+      };
+    })
+    .sort((left, right) => right.pending - left.pending || left.label.localeCompare(right.label, "zh-CN"));
+
+  return {
+    pending: queued.length,
+    failed: queued.filter((item) => item.last_error || item.attempts > 0).length,
+    oldest_queued_at: queued.sort((left, right) => left.queued_at.localeCompare(right.queued_at))[0]?.queued_at ?? null,
+    checked_at: new Date().toISOString(),
+    online: typeof navigator === "undefined" ? true : navigator.onLine,
+    cloud_configured: Boolean(supabase),
+    tables
+  };
+}
 
 export interface SyncResult {
   uploaded: number;
@@ -119,6 +182,52 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
   return record;
 }
 
+async function downloadRemoteTables(userId: string): Promise<number> {
+  if (!supabase) throw new Error("Supabase 尚未配置");
+  let downloaded = 0;
+
+  for (const config of TABLES) {
+    const { data, error } = await supabase.from(config.remote).select("*").eq("user_id", userId);
+    if (error) {
+      if (error.code === "PGRST205" || error.message.includes("schema cache")) {
+        throw new Error("Supabase 数据表尚未初始化，请先执行 schema.sql");
+      }
+      throw new Error(`${config.remote} 下载失败：${error.message}`);
+    }
+    const records = (data ?? []).map((record) => normalizeRemoteRecord(config.local, record));
+    if (records.length) {
+      if (config.local === "eventOccurrenceStates") {
+        const occurrenceRecords = records as unknown as EventOccurrenceState[];
+        await db.transaction("rw", db.eventOccurrenceStates, db.syncQueue, async () => {
+          for (const record of occurrenceRecords) {
+            const localMatches = await db.eventOccurrenceStates
+              .where("[event_id+occurrence_date]")
+              .equals([record.event_id, record.occurrence_date])
+              .filter((state) => state.user_id === userId)
+              .toArray();
+            for (const local of localMatches) {
+              if (local.id === record.id) continue;
+              const pending = await db.syncQueue
+                .where("table_name")
+                .equals("eventOccurrenceStates")
+                .and((queuedItem) => queuedItem.record_id === local.id)
+                .first();
+              if (!pending) await db.eventOccurrenceStates.delete(local.id);
+            }
+            await db.eventOccurrenceStates.put(record);
+          }
+        });
+      } else {
+        await db.table(config.local).bulkPut(records);
+      }
+      downloaded += records.length;
+    }
+  }
+
+  await deduplicateCategories(userId);
+  return downloaded;
+}
+
 async function runSync(userId: string): Promise<SyncResult> {
   if (!supabase) throw new Error("Supabase 尚未配置");
   if (!navigator.onLine) throw new Error("当前处于离线状态");
@@ -200,49 +309,20 @@ async function runSync(userId: string): Promise<SyncResult> {
     }
   }
 
-  for (const config of TABLES) {
-    const { data, error } = await supabase.from(config.remote).select("*").eq("user_id", userId);
-    if (error) {
-      if (error.code === "PGRST205" || error.message.includes("schema cache")) {
-        throw new Error("Supabase 数据表尚未初始化，请先执行 schema.sql");
-      }
-      throw new Error(`${config.remote} 下载失败：${error.message}`);
-    }
-    const records = (data ?? []).map((record) => normalizeRemoteRecord(config.local, record));
-    if (records.length) {
-      if (config.local === "eventOccurrenceStates") {
-        const occurrenceRecords = records as unknown as EventOccurrenceState[];
-        await db.transaction("rw", db.eventOccurrenceStates, db.syncQueue, async () => {
-          for (const record of occurrenceRecords) {
-            const localMatches = await db.eventOccurrenceStates
-              .where("[event_id+occurrence_date]")
-              .equals([record.event_id, record.occurrence_date])
-              .filter((state) => state.user_id === userId)
-              .toArray();
-            for (const local of localMatches) {
-              if (local.id === record.id) continue;
-              const pending = await db.syncQueue
-                .where("table_name")
-                .equals("eventOccurrenceStates")
-                .and((queuedItem) => queuedItem.record_id === local.id)
-                .first();
-              if (!pending) await db.eventOccurrenceStates.delete(local.id);
-            }
-            await db.eventOccurrenceStates.put(record);
-          }
-        });
-      } else {
-        await db.table(config.local).bulkPut(records);
-      }
-      downloaded += records.length;
-    }
-  }
-
-  await deduplicateCategories(userId);
+  downloaded = await downloadRemoteTables(userId);
 
   const completedAt = new Date().toISOString();
   localStorage.setItem(`semester-schedule-last-sync:${userId}`, completedAt);
   return { uploaded, downloaded, completed_at: completedAt };
+}
+
+export async function pullRemoteNow(userId: string): Promise<SyncResult> {
+  if (!supabase) throw new Error("Supabase 尚未配置");
+  if (!navigator.onLine) throw new Error("当前处于离线状态");
+  const downloaded = await downloadRemoteTables(userId);
+  const completedAt = new Date().toISOString();
+  localStorage.setItem(`semester-schedule-last-sync:${userId}`, completedAt);
+  return { uploaded: 0, downloaded, completed_at: completedAt };
 }
 
 export function syncNow(userId: string): Promise<SyncResult> {
