@@ -1,7 +1,9 @@
 -- 修复提醒领取函数中 RETURNS TABLE 输出参数与 ON CONFLICT 列名的歧义。
 -- 仅替换函数定义，不修改业务表中的任何数据。
 
-create or replace function public.claim_due_reminders(dispatcher_token text)
+drop function if exists public.claim_due_reminders(text);
+
+create function public.claim_due_reminders(dispatcher_token text)
 returns table (
   delivery_id uuid,
   event_id uuid,
