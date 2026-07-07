@@ -42,6 +42,12 @@
 
 该迁移给事项表增加 `recurrence_interval` 字段，允许 `daily`、`weekdays`、`weekly`、`monthly`、`interval` 重复规则，并同步更新后台提醒领取函数。执行后，工作日、每月同日和自定义间隔事项/习惯才能在云端后台提醒中正确领取。
 
+DeepSeek AI 助手权限需要执行：
+
+`supabase/migrations/20260708_ai_assistant_access.sql`
+
+该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 DeepSeek AI 助手。
+
 ## Auth URL 配置
 
 在 Supabase Dashboard 打开 `Authentication → URL Configuration`：
@@ -69,7 +75,42 @@
 ## 安全规则
 
 - 网页中只能使用 Publishable key。
+- DeepSeek API Key 只能保存为 Supabase Edge Function Secret `DEEPSEEK_API_KEY`，不要写进前端 `.env.local`。
 - GitHub 后台提醒任务需要 Legacy API Keys 中的 `anon` key，并将其保存为仓库 Secret `SUPABASE_ANON_KEY`；不要使用 `service_role`。
 - 不要把 Secret key、`service_role`、数据库密码放入 `.env.local` 或发给他人。
 - 所有业务表启用 RLS，策略限定 `auth.uid() = user_id`。
 - 删除采用 `deleted_at` 软删除，云端触发器拒绝较旧的 `updated_at` 覆盖较新记录。
+
+## DeepSeek AI 助手
+
+需要在 GitHub Secrets / Variables 中配置：
+
+- Secret `DEEPSEEK_API_KEY`：你的 DeepSeek API Key。
+- Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给临时用户输入的访问口令。
+- Variable `DEEPSEEK_MODEL`：可选，默认 `deepseek-v4-flash`，也可设为 `deepseek-v4-pro`。
+
+给指定账号开通：
+
+```sql
+insert into public.ai_assistant_access (user_id, enabled, role, expires_at, note)
+values ('用户 UUID', true, 'member', null, 'DeepSeek 助手开通')
+on conflict (user_id) do update
+set enabled = excluded.enabled,
+    role = excluded.role,
+    expires_at = excluded.expires_at,
+    note = excluded.note,
+    updated_at = now();
+```
+
+设置管理员账号：
+
+```sql
+insert into public.ai_assistant_access (user_id, enabled, role, note)
+values ('你的用户 UUID', true, 'admin', '管理员')
+on conflict (user_id) do update
+set enabled = true,
+    role = 'admin',
+    updated_at = now();
+```
+
+当前应用没有开放“查看所有用户”的前端管理页。你可以在 Supabase Dashboard 的 Authentication 页面查看账号邮箱、注册时间等账号信息；业务数据仍受 RLS 保护。后续如果要做会员后台，应只给 `role = 'admin'` 的账号开放，并通过服务端接口读取必要信息。

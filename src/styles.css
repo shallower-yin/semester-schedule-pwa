@@ -3099,33 +3099,6 @@ textarea {
   cursor: pointer;
 }
 
-.backup-reminder-toast {
-  position: fixed;
-  z-index: 79;
-  right: 20px;
-  bottom: 78px;
-  display: flex;
-  max-width: min(420px, calc(100vw - 40px));
-  align-items: center;
-  gap: 10px;
-  padding: 11px 12px;
-  border: 1px solid #f3d28b;
-  border-radius: 12px;
-  color: #6d4a04;
-  background: #fff8e7;
-  box-shadow: var(--shadow);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.backup-reminder-toast > button:not(.icon-button) {
-  border: 0;
-  color: #9a6300;
-  background: transparent;
-  font-weight: 750;
-  cursor: pointer;
-}
-
 .quick-entry-dialog,
 .mobile-nav-settings {
   display: flex;
@@ -3372,6 +3345,36 @@ textarea {
 .assistant-input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.ai-access-panel {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid #c8d6ff;
+  border-radius: 10px;
+  background: #f2f6ff;
+}
+
+.ai-access-panel div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ai-access-panel span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-access-code {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
   gap: 8px;
 }
 
@@ -3954,12 +3957,6 @@ textarea {
 
   .memo-grid-toolbar .button {
     width: 100%;
-  }
-
-  .backup-reminder-toast {
-    right: 10px;
-    bottom: calc(146px + env(safe-area-inset-bottom));
-    left: 10px;
   }
 
   .next-action-panel,

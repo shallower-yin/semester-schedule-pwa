@@ -2,6 +2,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   Bot,
   BookOpen,
+  BrainCircuit,
   CalendarCheck2,
   CalendarHeart,
   CalendarDays,
@@ -39,6 +40,7 @@ import { BatchEventsDialog } from "./components/BatchEventsDialog";
 import { CourseDialog } from "./components/CourseDialog";
 import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { DataHealthDialog } from "./components/DataHealthDialog";
+import { DeepSeekAssistantDialog } from "./components/DeepSeekAssistantDialog";
 import { EventDialog } from "./components/EventDialog";
 import { FocusPage } from "./components/FocusPage";
 import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
@@ -64,8 +66,6 @@ import {
   toISODate,
   weekDates
 } from "./lib/date";
-import { createBackup, downloadBackup } from "./lib/backup";
-import { backupIsDue, getLastBackupAt } from "./lib/backupStatus";
 import { uniqueCategoriesByName } from "./lib/categories";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
@@ -108,6 +108,7 @@ export default function App() {
   const [showStats, setShowStats] = useState(false);
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showScheduleAssistant, setShowScheduleAssistant] = useState(false);
+  const [showDeepSeekAssistant, setShowDeepSeekAssistant] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
@@ -133,7 +134,6 @@ export default function App() {
   const [updatingApp, setUpdatingApp] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const [mobileNavItems, setMobileNavItems] = useState<PageId[]>(() => loadMobileNavSettings());
-  const [backupDue, setBackupDue] = useState(() => backupIsDue());
   const [scheduleQuery, setScheduleQuery] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
   const [eventStatusFilter, setEventStatusFilter] = useState<EventStatusFilter>("all");
@@ -349,6 +349,9 @@ export default function App() {
       } else if (event.key.toLowerCase() === "a") {
         event.preventDefault();
         setShowScheduleAssistant(true);
+      } else if (event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        setShowDeepSeekAssistant(true);
       } else if (event.key.toLowerCase() === "t") {
         event.preventDefault();
         goToday();
@@ -360,6 +363,7 @@ export default function App() {
         setShowDataHealth(false);
         setShowStats(false);
         setShowScheduleAssistant(false);
+        setShowDeepSeekAssistant(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -485,12 +489,6 @@ export default function App() {
     }
   }
 
-  async function exportDueBackup() {
-    const backup = await createBackup();
-    downloadBackup(backup, `日程计划表定期备份-${new Date().toISOString().slice(0, 10)}.json`);
-    setBackupDue(backupIsDue());
-  }
-
   function navigate(nextPage: Page) {
     setPage(nextPage);
     setSidebarOpen(false);
@@ -612,6 +610,7 @@ export default function App() {
             </span>
           </button>
           <button className="icon-button header-search-button" onClick={() => setShowScheduleAssistant(true)} aria-label="问日程助手"><Bot size={18} /></button>
+          <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="DeepSeek AI 助手"><BrainCircuit size={18} /></button>
           <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
           <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
         </div>
@@ -755,13 +754,16 @@ export default function App() {
                 <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>自由添加、删除和排序节次或午休</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowBackup(true)}>
-                <Database /><span><strong>JSON 数据备份</strong><small>{backupDue ? "建议导出一份新备份" : `上次备份 ${getLastBackupAt()?.slice(0, 10)}`}</small></span><ChevronRight />
+                <Database /><span><strong>JSON 数据备份</strong><small>主动导入或导出本地数据</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowStats(true)}>
                 <Target /><span><strong>统计与日历导出</strong><small>查看完成率、专注趋势，并导出 ICS</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
                 <Bot /><span><strong>问日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
+              </button>
+              <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
+                <BrainCircuit /><span><strong>DeepSeek AI 助手</strong><small>由服务端调用 DeepSeek，可用白名单或访问口令限制</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                 <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
@@ -806,10 +808,7 @@ export default function App() {
 
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
-      {showBackup && <BackupDialog onClose={() => {
-        setBackupDue(backupIsDue());
-        setShowBackup(false);
-      }} />}
+      {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
       {showBatchEvents && <BatchEventsDialog events={events} categories={categories} occurrenceStates={occurrenceStates} onClose={() => setShowBatchEvents(false)} />}
       {showDataHealth && <DataHealthDialog ownerId={ownerId} onClose={() => setShowDataHealth(false)} />}
       {showStats && semester && (
@@ -849,6 +848,23 @@ export default function App() {
             focusSessions
           }}
           onClose={() => setShowScheduleAssistant(false)}
+        />
+      )}
+      {showDeepSeekAssistant && semester && (
+        <DeepSeekAssistantDialog
+          input={{
+            semester,
+            courses,
+            schedules,
+            cancellations,
+            events,
+            categories,
+            occurrenceStates,
+            periods,
+            focusSessions
+          }}
+          userEmail={user?.email}
+          onClose={() => setShowDeepSeekAssistant(false)}
         />
       )}
       {showMobileNavSettings && (
@@ -943,15 +959,6 @@ export default function App() {
           <span>{updatingApp ? updateMessage : `新版本已准备好 · 当前 ${appVersion}`}</span>
           <button disabled={updatingApp} onClick={() => void applyAppUpdate()}>{updatingApp ? "更新中…" : "立即更新"}</button>
           <button className="icon-button" onClick={() => setNeedRefresh(false)}><X size={16} /></button>
-        </div>
-      )}
-      {backupDue && !showBackup && (
-        <div className="backup-reminder-toast">
-          <Database size={18} />
-          <span>距离上次备份已超过 7 天，建议导出一份 JSON 备份。</span>
-          <button onClick={() => void exportDueBackup()}>立即导出</button>
-          <button onClick={() => setShowBackup(true)}>备份设置</button>
-          <button className="icon-button" onClick={() => setBackupDue(false)}><X size={16} /></button>
         </div>
       )}
       {showGlobalSearch && (
