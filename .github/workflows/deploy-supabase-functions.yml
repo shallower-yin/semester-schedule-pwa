@@ -36,6 +36,7 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
           AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           supabase secrets set --project-ref "$PROJECT_REF" \
             REMINDER_DISPATCHER_TOKEN="${{ secrets.REMINDER_DISPATCHER_TOKEN }}" \
@@ -49,12 +50,18 @@ jobs:
           if [ -n "${AI_ASSISTANT_ACCESS_CODE:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" AI_ASSISTANT_ACCESS_CODE="$AI_ASSISTANT_ACCESS_CODE"
           fi
+          if [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            supabase secrets set --project-ref "$PROJECT_REF" SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
+          fi
 
       - name: Deploy reminder function
         run: supabase functions deploy send-reminders --project-ref "$PROJECT_REF" --no-verify-jwt
 
       - name: Deploy AI assistant function
         run: supabase functions deploy ai-assistant --project-ref "$PROJECT_REF"
+
+      - name: Deploy admin function
+        run: supabase functions deploy admin --project-ref "$PROJECT_REF"
 
       - name: Configure database cron
         env:

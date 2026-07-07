@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Target,
@@ -32,6 +33,7 @@ import type { User } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
+import { AdminDialog } from "./components/AdminDialog";
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
@@ -109,6 +111,7 @@ export default function App() {
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showScheduleAssistant, setShowScheduleAssistant] = useState(false);
   const [showDeepSeekAssistant, setShowDeepSeekAssistant] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
@@ -137,6 +140,7 @@ export default function App() {
   const [scheduleQuery, setScheduleQuery] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
   const [eventStatusFilter, setEventStatusFilter] = useState<EventStatusFilter>("all");
+  const [isAdmin, setIsAdmin] = useState(false);
   const ownerId = user?.id ?? "local";
 
   const semester = useLiveQuery(
@@ -263,6 +267,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user || !supabase) {
+      setIsAdmin(false);
+      return;
+    }
+    const client = supabase;
+    let active = true;
+    async function loadAdminFlag() {
+      const { data, error } = await client
+        .from("ai_assistant_access")
+        .select("enabled,role,expires_at")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (!active) return;
+      if (error || !data?.enabled || data.role !== "admin") {
+        setIsAdmin(false);
+        return;
+      }
+      setIsAdmin(!data.expires_at || new Date(data.expires_at).getTime() > Date.now());
+    }
+    void loadAdminFlag();
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     const captureInstallPrompt = () => setInstallPrompt(getCapturedInstallPrompt());
     const markInstalled = () => {
       setInstalled(true);
@@ -364,6 +394,7 @@ export default function App() {
         setShowStats(false);
         setShowScheduleAssistant(false);
         setShowDeepSeekAssistant(false);
+        setShowAdmin(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -765,6 +796,11 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
                 <BrainCircuit /><span><strong>DeepSeek AI 助手</strong><small>由服务端调用 DeepSeek，可用白名单或访问口令限制</small></span><ChevronRight />
               </button>
+              {isAdmin && (
+                <button className="setting-card" onClick={() => setShowAdmin(true)}>
+                  <ShieldCheck /><span><strong>管理员后台</strong><small>查看账号数据概览，管理 DeepSeek 会员和管理员权限</small></span><ChevronRight />
+                </button>
+              )}
               <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                 <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
               </button>
@@ -867,6 +903,7 @@ export default function App() {
           onClose={() => setShowDeepSeekAssistant(false)}
         />
       )}
+      {showAdmin && isAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
       {showMobileNavSettings && (
         <MobileNavSettingsDialog
           options={navItems.map((item) => ({ id: item.id, label: item.label }))}
