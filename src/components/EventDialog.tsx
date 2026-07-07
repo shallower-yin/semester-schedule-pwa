@@ -8,7 +8,7 @@ import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/event
 import { validateEventDraft } from "../lib/eventValidation";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
-import type { EventItem, EventOccurrenceState } from "../types";
+import type { EventItem, EventOccurrenceState, EventType } from "../types";
 import { Modal } from "./Modal";
 
 interface EventDialogProps {
@@ -17,12 +17,13 @@ interface EventDialogProps {
   initialStartTime?: string;
   initialEndTime?: string;
   initialAllDay?: boolean;
+  initialEventType?: EventType;
   ownerId: string;
   occurrenceStates: EventOccurrenceState[];
   onClose: () => void;
 }
 
-export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, ownerId, occurrenceStates, onClose }: EventDialogProps) {
+export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, initialEventType = "event", ownerId, occurrenceStates, onClose }: EventDialogProps) {
   const categories = uniqueCategoriesByName(
     useLiveQuery(
       () => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
@@ -30,7 +31,9 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     ) ?? []
   );
   const [title, setTitle] = useState(eventItem?.title ?? "");
+  const [eventType] = useState<EventType>(eventItem?.event_type ?? initialEventType);
   const [date, setDate] = useState(eventItem?.start_date ?? initialDate);
+  const [endDate, setEndDate] = useState(eventItem?.end_date ?? initialDate);
   const [startTime, setStartTime] = useState(eventItem?.start_time ?? initialStartTime);
   const [endTime, setEndTime] = useState(eventItem?.end_time ?? initialEndTime);
   const [allDay, setAllDay] = useState(eventItem?.all_day ?? initialAllDay);
@@ -38,7 +41,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [color, setColor] = useState(eventItem?.color ?? "#e36b32");
   const [note, setNote] = useState(eventItem?.note ?? "");
   const [recurrence, setRecurrence] = useState<"none" | "weekly">(eventItem?.recurrence_type ?? "none");
-  const [recurrenceUntil, setRecurrenceUntil] = useState(eventItem?.recurrence_until ?? initialDate);
+  const [recurrenceUntil, setRecurrenceUntil] = useState(eventItem?.recurrence_until ?? eventItem?.start_date ?? initialDate);
   const [reminderEnabled, setReminderEnabled] = useState(eventItem?.reminder_enabled ?? false);
   const [reminderMinutes, setReminderMinutes] = useState(eventItem?.reminder_minutes_before ?? 10);
   const [reminderMessage, setReminderMessage] = useState("");
@@ -47,14 +50,26 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
   const todayCompletion = eventItem ? eventCompletionForDate(eventItem, occurrenceStates, new Date()) : null;
+  const itemLabel = eventType === "habit" ? "习惯" : "事项";
+  const usesDateRange = recurrence === "none" && endDate > date;
   const reminderSummary = reminderEnabled
-    ? `${formatReminderLead(reminderMinutes)}提醒，预计 ${formatReminderPreview(date, allDay, startTime, reminderMinutes)} 触发。`
+    ? `${formatReminderLead(reminderMinutes)}提醒，${
+        usesDateRange
+          ? `首日预计 ${formatReminderPreview(date, allDay, startTime, reminderMinutes)} 触发，之后范围内每天按同一时间提醒。`
+          : `预计 ${formatReminderPreview(date, allDay, startTime, reminderMinutes)} 触发。`
+      }`
     : "未开启提醒，保存后不会发送本地提醒或系统推送。";
   const reminderModeDetail = reminderEnabled
     ? ownerId === "local"
       ? "当前为本地数据：应用打开时会检查提醒；登录并完成系统提醒订阅后，可在应用关闭时接收推送。"
       : "应用打开时会本地检查；账号与同步中的系统提醒订阅可让应用关闭后也由云端推送。"
-    : "";
+      : "";
+
+  function changeStartDate(nextDate: string) {
+    setDate(nextDate);
+    if (endDate < nextDate) setEndDate(nextDate);
+    if (recurrenceUntil < nextDate) setRecurrenceUntil(nextDate);
+  }
 
   async function toggleReminder(enabled: boolean) {
     setReminderMessage("");
@@ -90,7 +105,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       const detail = error instanceof Error ? error.message : "通知订阅失败";
       setReminderMessage(
         permissionGranted
-          ? `${detail}。事项仍可保存；应用打开时会进行本地提醒。`
+          ? `${detail}。${itemLabel}仍可保存；应用打开时会进行本地提醒。`
           : `${detail}。请重新启用提醒。`
       );
     } finally {
@@ -101,7 +116,14 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   async function save(formEvent: React.FormEvent) {
     formEvent.preventDefault();
     setValidationMessage("");
-    const validationError = validateEventDraft({ title, allDay, startTime, endTime });
+    const validationError = validateEventDraft({
+      title,
+      startDate: date,
+      endDate: recurrence === "none" ? endDate : date,
+      allDay,
+      startTime,
+      endTime
+    });
     if (validationError) {
       setValidationMessage(validationError);
       return;
@@ -109,9 +131,10 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     setSaving(true);
     const record: EventItem = {
       ...syncFields(eventItem),
+      event_type: eventType,
       title: title.trim(),
       start_date: date,
-      end_date: date,
+      end_date: recurrence === "none" ? endDate : date,
       start_time: allDay ? null : startTime,
       end_time: allDay ? null : endTime,
       all_day: allDay,
@@ -132,7 +155,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   }
 
   async function remove() {
-    if (!eventItem || !window.confirm(`删除事项“${eventItem.title}”？`)) return;
+    if (!eventItem || !window.confirm(`删除${itemLabel}“${eventItem.title}”？`)) return;
     await db.events.put({ ...eventItem, ...syncFields(eventItem), deleted_at: new Date().toISOString() });
     await queueChange("events", eventItem.id, "delete");
     onClose();
@@ -160,11 +183,18 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   }
 
   return (
-    <Modal title={eventItem ? "编辑事项" : "新增事项"} onClose={onClose}>
+    <Modal title={eventItem ? `编辑${itemLabel}` : `新增${itemLabel}`} onClose={onClose}>
       <form className="form-stack" onSubmit={save}>
         <label>标题<input required autoFocus value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <label>日期<input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
-        <label className="checkbox-label"><input type="checkbox" checked={allDay} onChange={(event) => setAllDay(event.target.checked)} />全天事项</label>
+        <div className="form-grid">
+          <label>开始日期<input required type="date" value={date} onChange={(event) => changeStartDate(event.target.value)} /></label>
+          {recurrence === "none" ? (
+            <label>结束日期<input required type="date" min={date} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
+          ) : (
+            <label>重复截止日期<input type="date" min={date} value={recurrenceUntil} onChange={(event) => setRecurrenceUntil(event.target.value)} /></label>
+          )}
+        </div>
+        <label className="checkbox-label"><input type="checkbox" checked={allDay} onChange={(event) => setAllDay(event.target.checked)} />全天{itemLabel}</label>
         {!allDay && (
           <div className="form-grid">
             <label>开始时间<input required type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} /></label>
@@ -182,11 +212,10 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         </div>
         <label>重复
           <select value={recurrence} onChange={(event) => setRecurrence(event.target.value as "none" | "weekly")}>
-            <option value="none">不重复</option>
+            <option value="none">{eventType === "habit" ? "每天打卡" : "日期范围内每天"}</option>
             <option value="weekly">每周重复</option>
           </select>
         </label>
-        {recurrence === "weekly" && <label>重复截止日期<input type="date" min={date} value={recurrenceUntil} onChange={(event) => setRecurrenceUntil(event.target.value)} /></label>}
         {eventItem && todayCompletion && (
           <section className="event-completion-editor">
             <div>
@@ -238,12 +267,12 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         <div className="form-actions split">
           <div className="inline-actions">
             {eventItem && <button type="button" className="button secondary" onClick={() => void duplicate()}><Copy size={16} />复制事项</button>}
-            {eventItem && <button type="button" className="button danger-button" onClick={remove}>删除事项</button>}
+            {eventItem && <button type="button" className="button danger-button" onClick={remove}>删除{itemLabel}</button>}
           </div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>
             <button className="button primary" disabled={saving || enablingReminder}>
-              {saving ? "保存中…" : enablingReminder ? "正在启用提醒…" : "保存事项"}
+              {saving ? "保存中…" : enablingReminder ? "正在启用提醒…" : `保存${itemLabel}`}
             </button>
           </div>
         </div>

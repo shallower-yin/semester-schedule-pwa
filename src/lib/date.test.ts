@@ -70,6 +70,20 @@ describe("课程任意周数", () => {
 });
 
 describe("事项重复", () => {
+  it("不重复事项在开始到结束日期之间每天出现", () => {
+    const event = {
+      start_date: "2026-07-25",
+      end_date: "2026-07-27",
+      recurrence_type: "none" as const,
+      recurrence_until: null
+    };
+    expect(eventOccursOn(event, new Date(2026, 6, 24))).toBe(false);
+    expect(eventOccursOn(event, new Date(2026, 6, 25))).toBe(true);
+    expect(eventOccursOn(event, new Date(2026, 6, 26))).toBe(true);
+    expect(eventOccursOn(event, new Date(2026, 6, 27))).toBe(true);
+    expect(eventOccursOn(event, new Date(2026, 6, 28))).toBe(false);
+  });
+
   it("每周事项按开始日期的星期重复，并遵守截止日期", () => {
     const event = {
       start_date: "2026-03-04",

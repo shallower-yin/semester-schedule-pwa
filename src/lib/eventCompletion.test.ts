@@ -46,6 +46,7 @@ function eventRecord(overrides: Partial<EventItem> = {}): EventItem {
   return {
     ...syncFields(),
     id: "event-1",
+    event_type: "event",
     title: "测试事项",
     start_date: "2026-07-07",
     start_time: "09:00",

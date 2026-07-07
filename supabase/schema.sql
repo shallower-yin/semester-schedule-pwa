@@ -116,6 +116,7 @@ create table if not exists public.events (
   deleted_at timestamptz,
   version bigint not null default 1,
   device_id uuid not null,
+  event_type text not null default 'event' check (event_type in ('event', 'habit')),
   title text not null check (char_length(title) between 1 and 200),
   start_date date not null,
   start_time time,

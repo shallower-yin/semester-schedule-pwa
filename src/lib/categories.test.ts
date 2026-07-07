@@ -30,6 +30,7 @@ function eventItem(categoryId: string): EventItem {
     deleted_at: null,
     version: 1,
     device_id: "11111111-1111-4111-8111-111111111111",
+    event_type: "event",
     title: "复习",
     start_date: "2026-07-05",
     start_time: "09:00",

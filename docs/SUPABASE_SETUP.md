@@ -30,6 +30,12 @@
 
 该迁移新增纪念日表，并把后台提醒函数扩展为同时领取事项提醒和纪念日提醒。
 
+事项日期范围和习惯功能需要执行：
+
+`supabase/migrations/20260708_event_ranges_and_habits.sql`
+
+该迁移给事项表增加 `event_type` 字段，支持 `event` 和 `habit` 两类记录，并把后台提醒函数调整为按事项开始日期到结束日期逐日领取提醒。
+
 ## Auth URL 配置
 
 在 Supabase Dashboard 打开 `Authentication → URL Configuration`：

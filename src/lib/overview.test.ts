@@ -96,6 +96,7 @@ describe("首页日程概览", () => {
       {
         ...baseFields,
         id: "event-1",
+        event_type: "event",
         title: "背单词",
         start_date: "2026-03-02",
         start_time: null,
@@ -114,6 +115,7 @@ describe("首页日程概览", () => {
       {
         ...baseFields,
         id: "event-2",
+        event_type: "event",
         title: "提交作业",
         start_date: "2026-03-02",
         start_time: "10:30",
@@ -190,6 +192,7 @@ describe("首页日程概览", () => {
       {
         ...baseFields,
         id: "event-overdue",
+        event_type: "event",
         title: "补交材料",
         start_date: "2026-03-04",
         start_time: "18:00",
@@ -208,6 +211,7 @@ describe("首页日程概览", () => {
       {
         ...baseFields,
         id: "event-completed",
+        event_type: "event",
         title: "已完成旧事项",
         start_date: "2026-03-05",
         start_time: null,

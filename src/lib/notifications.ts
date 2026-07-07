@@ -155,7 +155,9 @@ export async function showTestNotification(): Promise<void> {
 }
 
 const REMINDER_SCHEDULE_FIELDS = [
+  "event_type",
   "start_date",
+  "end_date",
   "start_time",
   "all_day",
   "recurrence_type",

@@ -30,6 +30,7 @@ describe("编辑事项后的再次提醒", () => {
     deleted_at: null,
     version: 1,
     device_id: "device-1",
+    event_type: "event",
     title: "测试",
     start_date: "2026-07-06",
     start_time: "12:18",

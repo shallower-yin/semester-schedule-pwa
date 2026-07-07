@@ -3,6 +3,7 @@ import {
   BookOpen,
   CalendarHeart,
   CalendarDays,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Cloud,
@@ -34,6 +35,7 @@ import { CourseDialog } from "./components/CourseDialog";
 import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { EventDialog } from "./components/EventDialog";
 import { FocusPage } from "./components/FocusPage";
+import { HabitPage } from "./components/HabitPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
@@ -63,9 +65,9 @@ import {
 } from "./lib/pwaInstall";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
-import type { Course, EventItem, Semester } from "./types";
+import type { Course, EventItem, EventType, Semester } from "./types";
 
-type Page = "calendar" | "anniversaries" | "memos" | "focus" | "settings";
+type Page = "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "settings";
 type ScheduleFilter = "all" | "courses" | "uncategorized" | string;
 
 interface EventDraft {
@@ -73,6 +75,7 @@ interface EventDraft {
   start: string;
   end: string;
   allDay: boolean;
+  eventType: EventType;
 }
 
 export default function App() {
@@ -403,8 +406,8 @@ export default function App() {
     setSelectedDay(nextSelectedDay);
   }
 
-  function openNewEvent(date: string, start: string, end: string, allDay = false) {
-    setEventDraft({ date, start, end, allDay });
+  function openNewEvent(date: string, start: string, end: string, allDay = false, eventType: EventType = "event") {
+    setEventDraft({ date, start, end, allDay, eventType });
     setEventToEdit(null);
   }
 
@@ -436,6 +439,7 @@ export default function App() {
   const navigation = (
     <>
       <button className={page === "calendar" ? "active" : ""} onClick={() => navigate("calendar")}><CalendarDays size={19} />日程</button>
+      <button className={page === "habits" ? "active" : ""} onClick={() => navigate("habits")}><CheckCircle2 size={19} />习惯</button>
       <button className={page === "anniversaries" ? "active" : ""} onClick={() => navigate("anniversaries")}><CalendarHeart size={19} />纪念日</button>
       <button className={page === "memos" ? "active" : ""} onClick={() => navigate("memos")}><NotebookText size={19} />备忘录</button>
       <button className={page === "focus" ? "active" : ""} onClick={() => navigate("focus")}><Target size={19} />专注</button>
@@ -479,7 +483,7 @@ export default function App() {
       )}
 
       <main>
-        {!semester && page !== "anniversaries" && page !== "memos" && page !== "focus" ? (
+        {!semester && page !== "habits" && page !== "anniversaries" && page !== "memos" && page !== "focus" ? (
           <section className="empty-state welcome-state">
             <div className="empty-icon"><GraduationCap size={34} /></div>
             <h1>先建立你的学期</h1>
@@ -490,6 +494,13 @@ export default function App() {
           <MemoPage ownerId={ownerId} />
         ) : page === "anniversaries" ? (
           <AnniversaryPage ownerId={ownerId} />
+        ) : page === "habits" ? (
+          <HabitPage
+            habits={events}
+            occurrenceStates={occurrenceStates}
+            onAddHabit={() => openNewEvent(toISODate(new Date()), "09:00", "09:10", false, "habit")}
+            onEditHabit={(habit) => setEventToEdit(habit)}
+          />
         ) : page === "focus" ? (
           <FocusPage ownerId={ownerId} />
         ) : page === "calendar" ? (
@@ -647,6 +658,10 @@ export default function App() {
             setShowAddSchedule(false);
             openNewEvent(toISODate(dates[selectedDay]), "09:00", "10:00");
           }}
+          onAddHabit={() => {
+            setShowAddSchedule(false);
+            openNewEvent(toISODate(dates[selectedDay]), "09:00", "09:10", false, "habit");
+          }}
           onClose={() => setShowAddSchedule(false)}
         />
       )}
@@ -686,6 +701,7 @@ export default function App() {
           initialStartTime={eventDraft?.start}
           initialEndTime={eventDraft?.end}
           initialAllDay={eventDraft?.allDay}
+          initialEventType={eventToEdit?.event_type ?? eventDraft?.eventType}
           ownerId={ownerId}
           occurrenceStates={occurrenceStates}
           onClose={() => {

@@ -1,13 +1,14 @@
-import { BookOpen, CalendarPlus } from "lucide-react";
+import { BookOpen, CalendarPlus, CheckCircle2 } from "lucide-react";
 import { Modal } from "./Modal";
 
 interface AddScheduleDialogProps {
   onAddCourse: () => void;
   onAddEvent: () => void;
+  onAddHabit: () => void;
   onClose: () => void;
 }
 
-export function AddScheduleDialog({ onAddCourse, onAddEvent, onClose }: AddScheduleDialogProps) {
+export function AddScheduleDialog({ onAddCourse, onAddEvent, onAddHabit, onClose }: AddScheduleDialogProps) {
   return (
     <Modal title="新增日程" onClose={onClose}>
       <div className="add-type-grid">
@@ -18,6 +19,10 @@ export function AddScheduleDialog({ onAddCourse, onAddEvent, onClose }: AddSched
         <button onClick={onAddEvent}>
           <CalendarPlus />
           <span><strong>临时事项</strong><small>指定日期、时间或每周重复</small></span>
+        </button>
+        <button onClick={onAddHabit}>
+          <CheckCircle2 />
+          <span><strong>习惯</strong><small>定义一段日期范围，每天打卡并统计</small></span>
         </button>
       </div>
     </Modal>

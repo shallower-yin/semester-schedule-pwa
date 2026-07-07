@@ -1,4 +1,4 @@
-import { Ban, Bell, BookOpen, Check, Coffee, Users } from "lucide-react";
+import { Ban, Bell, BookOpen, Check, CheckCircle2, Coffee, Users } from "lucide-react";
 import type { PointerEvent, TouchEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { WEEKDAY_NAMES } from "../data/defaults";
@@ -304,14 +304,15 @@ export function WeekCalendar(props: WeekCalendarProps) {
           props.events.flatMap((eventItem) => {
             if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return [];
             const category = eventItem.category_id ? categoryMap.get(eventItem.category_id) : undefined;
-            const Icon = category ? CATEGORY_ICONS[category.icon as keyof typeof CATEGORY_ICONS] ?? Bell : Bell;
+            const isHabit = eventItem.event_type === "habit";
+            const Icon = isHabit ? CheckCircle2 : category ? CATEGORY_ICONS[category.icon as keyof typeof CATEGORY_ICONS] ?? Bell : Bell;
             const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
             if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return [];
             const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
             return (
               <article
                 key={`${eventItem.id}-${toISODate(date)}`}
-                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""}`}
+                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${isHabit ? "habit-entry" : ""}`}
                 style={{
                   gridColumn: dayIndex + 2,
                   gridRow: eventItem.all_day ? 2 : `${firstRow + 3} / ${endRow + 3}`,
@@ -322,7 +323,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
                 <div className="entry-title"><Icon size={14} />{eventItem.title}</div>
                 {completed && <div className="entry-status">已完成</div>}
                 {!eventItem.all_day && <div className="entry-time">{eventItem.start_time}–{eventItem.end_time}</div>}
-                {category && <div className="entry-category">{category.name}</div>}
+                {(isHabit || category) && <div className="entry-category">{isHabit ? "习惯" : category?.name}</div>}
                 {eventItem.reminder_enabled && <div className="entry-reminder"><Bell size={11} />提前 {eventItem.reminder_minutes_before} 分钟</div>}
                 <button
                   className="entry-icon-button"

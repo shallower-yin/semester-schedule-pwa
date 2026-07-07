@@ -59,7 +59,10 @@ export interface Category extends SyncFields {
   icon: string;
 }
 
+export type EventType = "event" | "habit";
+
 export interface EventItem extends SyncFields {
+  event_type: EventType;
   title: string;
   start_date: ISODate;
   start_time: string | null;
