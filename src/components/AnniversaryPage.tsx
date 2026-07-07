@@ -6,8 +6,10 @@ import { db, queueChange } from "../db";
 import {
   ANNIVERSARY_KIND_META,
   ANNIVERSARY_KINDS,
+  anniversaryDistanceLabel,
   anniversaryKindLabel,
   anniversaryScheduleChanged,
+  daysSinceAnniversary,
   daysUntilAnniversary,
   formatAnniversaryReminderBody,
   formatAnniversaryReminderLead,
@@ -137,7 +139,8 @@ interface AnniversaryCardProps {
 
 function AnniversaryCard({ anniversary, onEdit }: AnniversaryCardProps) {
   const occurrence = nextAnniversaryOccurrence(anniversary);
-  const days = daysUntilAnniversary(anniversary);
+  const isCountUp = anniversary.kind === "anniversary";
+  const elapsedDays = daysSinceAnniversary(anniversary);
   const yearCount = yearsSinceAnniversary(anniversary, occurrence);
   const Icon = KIND_ICONS[anniversary.kind];
   return (
@@ -149,12 +152,18 @@ function AnniversaryCard({ anniversary, onEdit }: AnniversaryCardProps) {
     >
       <div className="anniversary-card-topline">
         <span className="anniversary-kind"><Icon width={15} height={15} />{anniversaryKindLabel(anniversary.kind)}</span>
-        <strong>{days === 0 ? "今天" : `${days} 天后`}</strong>
+        <strong>{anniversaryDistanceLabel(anniversary)}</strong>
       </div>
       <h2>{anniversary.title}</h2>
       <div className="anniversary-card-meta">
-        <span>原始日期：{anniversary.date}</span>
-        <span>下次：{occurrence.getFullYear()}年{formatMonthDay(occurrence)}{yearCount > 0 && anniversary.kind !== "holiday" ? ` · 第 ${yearCount} 年` : ""}</span>
+        <span>{isCountUp ? "纪念日期" : "原始日期"}：{anniversary.date}</span>
+        <span>
+          {isCountUp
+            ? elapsedDays >= 0
+              ? `已经：${elapsedDays} 天${yearCount > 0 ? ` · 第 ${yearCount} 年` : ""}`
+              : `还有：${Math.abs(elapsedDays)} 天`
+            : `下次：${occurrence.getFullYear()}年${formatMonthDay(occurrence)}${yearCount > 0 && anniversary.kind !== "holiday" ? ` · 第 ${yearCount} 年` : ""}`}
+        </span>
       </div>
       <p className={anniversary.reminder_enabled ? "anniversary-reminder active" : "anniversary-reminder"}>
         <BellRing size={14} />

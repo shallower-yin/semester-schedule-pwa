@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Anniversary } from "../types";
 import {
+  anniversaryDistanceLabel,
   anniversaryReminderTimeForOccurrence,
   dueAnniversaryOccurrence,
   formatAnniversaryReminderLead,
@@ -45,6 +46,14 @@ describe("纪念日日期和提醒", () => {
   it("2 月 29 日在非闰年按 2 月 28 日处理", () => {
     expect(toISODate(nextAnniversaryOccurrence({ date: "2020-02-29" }, new Date(2027, 1, 27)))).toBe("2027-02-28");
     expect(toISODate(nextAnniversaryOccurrence({ date: "2020-02-29" }, new Date(2027, 2, 1)))).toBe("2028-02-29");
+  });
+
+  it("纪念日显示已过去天数，生日和节日显示下次还有几天", () => {
+    const now = new Date(2026, 6, 8);
+
+    expect(anniversaryDistanceLabel({ kind: "anniversary", date: "2026-03-27" }, now)).toBe("103 天前");
+    expect(anniversaryDistanceLabel({ kind: "birthday", date: "2000-10-18" }, now)).toBe("102 天后");
+    expect(anniversaryDistanceLabel({ kind: "holiday", date: "2026-01-01" }, now)).toBe("177 天后");
   });
 });
 

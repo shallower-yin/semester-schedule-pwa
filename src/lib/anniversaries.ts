@@ -38,6 +38,21 @@ export function daysUntilAnniversary(anniversary: Pick<Anniversary, "date">, fro
   return differenceInCalendarDays(nextAnniversaryOccurrence(anniversary, from), from);
 }
 
+export function daysSinceAnniversary(anniversary: Pick<Anniversary, "date">, from = new Date()): number {
+  return differenceInCalendarDays(from, parseLocalDate(anniversary.date));
+}
+
+export function anniversaryDistanceLabel(anniversary: Pick<Anniversary, "date" | "kind">, from = new Date()): string {
+  if (anniversary.kind === "anniversary") {
+    const days = daysSinceAnniversary(anniversary, from);
+    if (days === 0) return "今天";
+    if (days > 0) return `${days} 天前`;
+    return `${Math.abs(days)} 天后`;
+  }
+  const days = daysUntilAnniversary(anniversary, from);
+  return days === 0 ? "今天" : `${days} 天后`;
+}
+
 export function yearsSinceAnniversary(anniversary: Pick<Anniversary, "date">, occurrence: Date): number {
   const original = parseLocalDate(anniversary.date);
   return Math.max(0, occurrence.getFullYear() - original.getFullYear());
