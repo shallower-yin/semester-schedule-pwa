@@ -1,27 +1,10 @@
 import { useRef, useState } from "react";
 import { db, queueChange } from "../db";
-import { markBackupExported } from "../lib/backupStatus";
+import { BACKUP_TABLES, createBackup, downloadBackup, OPTIONAL_TABLES_IN_OLD_BACKUPS } from "../lib/backup";
 import { getCurrentUserId } from "../lib/identity";
 import { SYNC_TABLE_LABELS } from "../lib/sync";
 import type { BackupFile, SyncTableName } from "../types";
 import { Modal } from "./Modal";
-
-const TABLES: SyncTableName[] = [
-  "semesters",
-  "classPeriods",
-  "courses",
-  "courseSchedules",
-  "courseCancellations",
-  "categories",
-  "events",
-  "eventOccurrenceStates",
-  "anniversaries",
-  "memoFolders",
-  "memos",
-  "focusSettings",
-  "focusSessions"
-];
-const OPTIONAL_TABLES_IN_OLD_BACKUPS = new Set<SyncTableName>(["anniversaries"]);
 
 interface BackupDialogProps {
   onClose: () => void;
@@ -51,30 +34,6 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [importing, setImporting] = useState(false);
 
-  async function createBackup(): Promise<BackupFile> {
-    const data = {} as BackupFile["data"];
-    for (const name of TABLES) {
-      data[name] = await db.table(name).toArray();
-    }
-    return {
-      format: "semester-schedule-backup",
-      schema_version: 1,
-      exported_at: new Date().toISOString(),
-      data
-    };
-  }
-
-  function downloadBackup(backup: BackupFile, fileName: string) {
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = fileName;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    markBackupExported();
-  }
-
   async function exportBackup() {
     downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
     setMessage("备份文件已导出。");
@@ -89,7 +48,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
       const currentUserId = getCurrentUserId();
       const tables: BackupTablePreview[] = [];
 
-      for (const tableName of TABLES) {
+      for (const tableName of BACKUP_TABLES) {
         const records = parsed.data[tableName] as Array<Record<string, unknown>>;
         const ids = records.map((record) => String(record.id));
         const existingRecords = await db.table(tableName).bulkGet(ids);
@@ -129,8 +88,8 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
       downloadBackup(await createBackup(), `导入前自动备份-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
       const currentUserId = getCurrentUserId();
 
-      await db.transaction("rw", [...TABLES.map((name) => db.table(name)), db.syncQueue], async () => {
-        for (const tableName of TABLES) {
+      await db.transaction("rw", [...BACKUP_TABLES.map((name) => db.table(name)), db.syncQueue], async () => {
+        for (const tableName of BACKUP_TABLES) {
           const records = (preview.backup.data[tableName] as Array<Record<string, unknown>>).map((record) => {
             if (record.user_id === "local" && currentUserId !== "local") {
               return {
@@ -217,7 +176,7 @@ function validateBackup(value: unknown): BackupFile {
   if (!parsed.exported_at || Number.isNaN(new Date(parsed.exported_at).getTime())) {
     throw new Error("备份文件缺少有效导出时间");
   }
-  for (const tableName of TABLES) {
+  for (const tableName of BACKUP_TABLES) {
     const rows = parsed.data[tableName];
     if (!Array.isArray(rows)) {
       if (OPTIONAL_TABLES_IN_OLD_BACKUPS.has(tableName)) {

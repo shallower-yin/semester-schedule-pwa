@@ -62,6 +62,7 @@ import {
   toISODate,
   weekDates
 } from "./lib/date";
+import { createBackup, downloadBackup } from "./lib/backup";
 import { backupIsDue, getLastBackupAt } from "./lib/backupStatus";
 import { uniqueCategoriesByName } from "./lib/categories";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
@@ -475,6 +476,12 @@ export default function App() {
     } finally {
       window.location.replace(`${window.location.pathname}?reload=${Date.now()}${window.location.hash}`);
     }
+  }
+
+  async function exportDueBackup() {
+    const backup = await createBackup();
+    downloadBackup(backup, `日程计划表定期备份-${new Date().toISOString().slice(0, 10)}.json`);
+    setBackupDue(backupIsDue());
   }
 
   function navigate(nextPage: Page) {
@@ -915,7 +922,8 @@ export default function App() {
         <div className="backup-reminder-toast">
           <Database size={18} />
           <span>距离上次备份已超过 7 天，建议导出一份 JSON 备份。</span>
-          <button onClick={() => setShowBackup(true)}>去备份</button>
+          <button onClick={() => void exportDueBackup()}>立即导出</button>
+          <button onClick={() => setShowBackup(true)}>备份设置</button>
           <button className="icon-button" onClick={() => setBackupDue(false)}><X size={16} /></button>
         </div>
       )}
