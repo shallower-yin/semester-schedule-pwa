@@ -265,8 +265,16 @@ async function applyTimetableImport(
   };
 }
 
-function groupCourses(schedules: ImportedCourseSchedule[], semesterId: string, termName: string | null) {
-  const groups = new Map<string, { course: Course; schedules: CourseSchedule[] }>();
+export function groupCourses(schedules: ImportedCourseSchedule[], semesterId: string, termName: string | null) {
+  const groups = new Map<
+    string,
+    {
+      course: Course;
+      schedules: CourseSchedule[];
+      scheduleMap: Map<string, CourseSchedule>;
+      teacherNames: Set<string>;
+    }
+  >();
   for (const item of schedules) {
     const key = courseKey(item);
     let group = groups.get(key);
@@ -275,45 +283,96 @@ function groupCourses(schedules: ImportedCourseSchedule[], semesterId: string, t
         ...syncFields(),
         semester_id: semesterId,
         name: item.name,
-        teacher: item.teacher,
+        teacher: "",
         classroom: item.classroom,
         color: colorForImportedCourse(item.name),
         note: `由${TIANJIN_UNIVERSITY_TIMETABLE_EXTRACTOR}导入${termName ? `：${termName}` : ""}`
       };
-      group = { course, schedules: [] };
+      group = { course, schedules: [], scheduleMap: new Map(), teacherNames: new Set() };
       groups.set(key, group);
     }
-    group.schedules.push({
+    addTeacherNames(group.teacherNames, item.teacher);
+    group.course.teacher = Array.from(group.teacherNames).join(",");
+
+    const scheduleKey = `${item.weekday}\u0001${item.startPeriod}\u0001${item.endPeriod}`;
+    const existingSchedule = group.scheduleMap.get(scheduleKey);
+    if (existingSchedule) {
+      existingSchedule.weeks = mergeWeeks(existingSchedule.weeks, item.weeks);
+      continue;
+    }
+    const schedule: CourseSchedule = {
       ...syncFields(),
       course_id: group.course.id,
       weekday: item.weekday,
       start_period: item.startPeriod,
       end_period: item.endPeriod,
-      weeks: item.weeks
-    });
+      weeks: [...item.weeks]
+    };
+    group.scheduleMap.set(scheduleKey, schedule);
+    group.schedules.push(schedule);
   }
-  return Array.from(groups.values());
+  return Array.from(groups.values()).map(({ course, schedules }) => ({ course, schedules }));
 }
 
-function buildClassPeriodBlocks(semesterId: string, periods: ImportedClassPeriod[]): ClassPeriod[] {
+export function buildClassPeriodBlocks(semesterId: string, periods: ImportedClassPeriod[]): ClassPeriod[] {
   const sorted = [...periods].sort((left, right) => left.periodNumber - right.periodNumber);
-  return WEEKDAYS.flatMap((weekday) =>
-    sorted.map((period, index) => ({
+  const fourthPeriod = sorted.find((period) => period.periodNumber === 4);
+  const fifthPeriod = sorted.find((period) => period.periodNumber === 5);
+  const lunch =
+    fourthPeriod && fifthPeriod && timeToMinutes(fifthPeriod.startTime) > timeToMinutes(fourthPeriod.endTime)
+      ? { startTime: fourthPeriod.endTime, endTime: fifthPeriod.startTime }
+      : null;
+
+  return WEEKDAYS.flatMap((weekday) => {
+    const blocks: ClassPeriod[] = [];
+    let sortOrder = 1;
+    for (const period of sorted) {
+      blocks.push({
         ...syncFields(),
         semester_id: semesterId,
         weekday,
         period_number: period.periodNumber,
         kind: "period",
-        sort_order: index + 1,
+        sort_order: sortOrder++,
         name: period.name,
         start_time: period.startTime,
         end_time: period.endTime
-      }))
-  );
+      });
+      if (period.periodNumber === 4 && lunch) {
+        blocks.push({
+          ...syncFields(),
+          semester_id: semesterId,
+          weekday,
+          period_number: 0,
+          kind: "break",
+          sort_order: sortOrder++,
+          name: "午休",
+          start_time: lunch.startTime,
+          end_time: lunch.endTime
+        });
+      }
+    }
+    return blocks;
+  });
 }
 
-function courseKey(schedule: Pick<ImportedCourseSchedule, "name" | "teacher" | "classroom">): string {
-  return `${schedule.name}\u0001${schedule.teacher}\u0001${schedule.classroom}`;
+function addTeacherNames(target: Set<string>, teacher: string) {
+  for (const name of teacher.split(/[，,、]/).map((item) => item.trim()).filter(Boolean)) {
+    target.add(name);
+  }
+}
+
+function mergeWeeks(left: number[], right: number[]): number[] {
+  return Array.from(new Set([...left, ...right])).sort((a, b) => a - b);
+}
+
+function timeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function courseKey(schedule: Pick<ImportedCourseSchedule, "name" | "classroom">): string {
+  return `${schedule.name}\u0001${schedule.classroom}`;
 }
 
 function formatWeeks(weeks: number[]): string {
