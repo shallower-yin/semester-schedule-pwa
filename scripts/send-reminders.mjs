@@ -52,7 +52,7 @@ if (!Array.isArray(rows) || rows.length === 0) {
 
 const deliveries = new Map();
 for (const row of rows) {
-  const current = deliveries.get(row.delivery_id) ?? { event: row, subscriptions: [] };
+  const current = deliveries.get(row.delivery_id) ?? { reminder: row, subscriptions: [] };
   current.subscriptions.push({
     endpoint: row.endpoint,
     keys: { p256dh: row.p256dh, auth: row.auth }
@@ -64,13 +64,7 @@ for (const [deliveryId, delivery] of deliveries) {
   let delivered = false;
   const errors = [];
   const expiredEndpoints = [];
-  const time = delivery.event.start_time ? String(delivery.event.start_time).slice(0, 5) : "全天";
-  const payload = JSON.stringify({
-    title: delivery.event.title,
-    body: `${delivery.event.occurrence_date} ${time}`,
-    tag: `event-${delivery.event.event_id}-${delivery.event.occurrence_date}`,
-    url: appUrl
-  });
+  const payload = JSON.stringify(buildPayload(delivery.reminder));
 
   for (const subscription of delivery.subscriptions) {
     try {
@@ -90,5 +84,31 @@ for (const [deliveryId, delivery] of deliveries) {
     failure_message: errors.length ? errors.join(" | ").slice(0, 1000) : null,
     expired_endpoints: expiredEndpoints
   });
-  console.log(`${delivery.event.title}: ${delivered ? "delivered" : "failed"}`);
+  console.log(`${delivery.reminder.title}: ${delivered ? "delivered" : "failed"}`);
+}
+
+function buildPayload(row) {
+  const sourceType = row.source_type ?? "event";
+  const sourceId = row.source_id ?? row.event_id ?? row.anniversary_id ?? "unknown";
+  if (sourceType === "anniversary") {
+    return {
+      title: row.title,
+      body: `${anniversaryKindLabel(row.anniversary_kind)} · ${row.occurrence_date}`,
+      tag: `anniversary-${sourceId}-${row.occurrence_date}`,
+      url: appUrl
+    };
+  }
+  const time = row.start_time ? String(row.start_time).slice(0, 5) : "全天";
+  return {
+    title: row.title,
+    body: `${row.occurrence_date} ${time}`,
+    tag: `event-${sourceId}-${row.occurrence_date}`,
+    url: appUrl
+  };
+}
+
+function anniversaryKindLabel(kind) {
+  if (kind === "birthday") return "生日";
+  if (kind === "holiday") return "节日";
+  return "纪念日";
 }

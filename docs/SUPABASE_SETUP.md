@@ -1,6 +1,6 @@
 # Supabase 接入状态
 
-项目地址已经写入本机 `.env.local`，Publishable key 仅用于浏览器客户端。八张业务表、同步触发器和 RLS 已在 Supabase 执行。
+项目地址已经写入本机 `.env.local`，Publishable key 仅用于浏览器客户端。业务表、同步触发器和 RLS 已在 Supabase 执行。
 
 ## 数据库升级
 
@@ -23,6 +23,12 @@
 `supabase/migrations/20260705_fix_reminder_claim_conflict.sql`
 
 该修复仅替换提醒领取函数，改用唯一约束名称处理重复提醒。
+
+纪念日、生日和节日功能需要执行：
+
+`supabase/migrations/20260707_anniversaries.sql`
+
+该迁移新增纪念日表，并把后台提醒函数扩展为同时领取事项提醒和纪念日提醒。
 
 ## Auth URL 配置
 

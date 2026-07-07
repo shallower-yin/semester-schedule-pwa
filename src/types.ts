@@ -83,6 +83,21 @@ export interface EventOccurrenceState extends SyncFields {
   reminder_sent_at: ISODateTime | null;
 }
 
+export type AnniversaryKind = "anniversary" | "birthday" | "holiday";
+
+export interface Anniversary extends SyncFields {
+  kind: AnniversaryKind;
+  title: string;
+  date: ISODate;
+  color: string;
+  note: string;
+  reminder_enabled: boolean;
+  reminder_days_before: number;
+  reminder_time: string;
+  reminder_sent_for: ISODate | null;
+  timezone: string;
+}
+
 export interface MemoFolder extends SyncFields {
   name: string;
   sort_order: number;
@@ -136,6 +151,7 @@ export type SyncTableName =
   | "categories"
   | "events"
   | "eventOccurrenceStates"
+  | "anniversaries"
   | "memoFolders"
   | "memos"
   | "focusSettings"

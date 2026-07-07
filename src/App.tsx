@@ -1,6 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   BookOpen,
+  CalendarHeart,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +27,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
+import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
 import { BackupDialog } from "./components/BackupDialog";
 import { CourseDialog } from "./components/CourseDialog";
@@ -63,7 +65,7 @@ import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
 import type { Course, EventItem, Semester } from "./types";
 
-type Page = "calendar" | "memos" | "focus" | "settings";
+type Page = "calendar" | "anniversaries" | "memos" | "focus" | "settings";
 type ScheduleFilter = "all" | "courses" | "uncategorized" | string;
 
 interface EventDraft {
@@ -434,6 +436,7 @@ export default function App() {
   const navigation = (
     <>
       <button className={page === "calendar" ? "active" : ""} onClick={() => navigate("calendar")}><CalendarDays size={19} />日程</button>
+      <button className={page === "anniversaries" ? "active" : ""} onClick={() => navigate("anniversaries")}><CalendarHeart size={19} />纪念日</button>
       <button className={page === "memos" ? "active" : ""} onClick={() => navigate("memos")}><NotebookText size={19} />备忘录</button>
       <button className={page === "focus" ? "active" : ""} onClick={() => navigate("focus")}><Target size={19} />专注</button>
       <button className={page === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Settings size={19} />设置</button>
@@ -476,7 +479,7 @@ export default function App() {
       )}
 
       <main>
-        {!semester && page !== "memos" && page !== "focus" ? (
+        {!semester && page !== "anniversaries" && page !== "memos" && page !== "focus" ? (
           <section className="empty-state welcome-state">
             <div className="empty-icon"><GraduationCap size={34} /></div>
             <h1>先建立你的学期</h1>
@@ -485,6 +488,8 @@ export default function App() {
           </section>
         ) : page === "memos" ? (
           <MemoPage ownerId={ownerId} />
+        ) : page === "anniversaries" ? (
+          <AnniversaryPage ownerId={ownerId} />
         ) : page === "focus" ? (
           <FocusPage ownerId={ownerId} />
         ) : page === "calendar" ? (

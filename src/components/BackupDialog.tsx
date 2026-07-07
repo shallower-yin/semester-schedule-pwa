@@ -14,11 +14,13 @@ const TABLES: SyncTableName[] = [
   "categories",
   "events",
   "eventOccurrenceStates",
+  "anniversaries",
   "memoFolders",
   "memos",
   "focusSettings",
   "focusSessions"
 ];
+const OPTIONAL_TABLES_IN_OLD_BACKUPS = new Set<SyncTableName>(["anniversaries"]);
 
 interface BackupDialogProps {
   onClose: () => void;
@@ -161,7 +163,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
       <div className="backup-options">
         <section>
           <h3>导出 JSON</h3>
-          <p>导出学期、节次、课程、事项、备忘录、专注记录和停课记录。建议定期保存到安全位置。</p>
+          <p>导出学期、节次、课程、事项、纪念日、备忘录、专注记录和停课记录。建议定期保存到安全位置。</p>
           <button className="button primary" onClick={() => void exportBackup()}>导出备份</button>
         </section>
         <section>
@@ -215,7 +217,13 @@ function validateBackup(value: unknown): BackupFile {
   }
   for (const tableName of TABLES) {
     const rows = parsed.data[tableName];
-    if (!Array.isArray(rows)) throw new Error(`缺少数据表：${tableName}`);
+    if (!Array.isArray(rows)) {
+      if (OPTIONAL_TABLES_IN_OLD_BACKUPS.has(tableName)) {
+        parsed.data[tableName] = [];
+        continue;
+      }
+      throw new Error(`缺少数据表：${tableName}`);
+    }
     for (const row of rows) {
       if (!row || typeof row !== "object" || typeof (row as { id?: unknown }).id !== "string") {
         throw new Error(`${tableName} 中存在无效记录`);

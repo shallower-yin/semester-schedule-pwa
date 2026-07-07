@@ -13,6 +13,7 @@ export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: s
   { local: "courseCancellations", remote: "course_cancellations", label: "停课标记" },
   { local: "events", remote: "events", label: "事项" },
   { local: "eventOccurrenceStates", remote: "event_occurrence_states", label: "事项状态" },
+  { local: "anniversaries", remote: "anniversaries", label: "纪念日" },
   { local: "memoFolders", remote: "memo_folders", label: "备忘录文件夹" },
   { local: "memos", remote: "memos", label: "备忘录" },
   { local: "focusSettings", remote: "focus_settings", label: "专注设置" },
@@ -151,6 +152,19 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
   }
   if (table === "eventOccurrenceStates") {
     return { ...record, reminder_sent_at: record.reminder_sent_at ?? null };
+  }
+  if (table === "anniversaries") {
+    return {
+      ...record,
+      kind: record.kind ?? "anniversary",
+      color: String(record.color ?? "#d97706"),
+      note: String(record.note ?? ""),
+      reminder_enabled: Boolean(record.reminder_enabled),
+      reminder_days_before: Number(record.reminder_days_before ?? 0),
+      reminder_time: String(record.reminder_time ?? "09:00").slice(0, 5),
+      reminder_sent_for: record.reminder_sent_for ?? null,
+      timezone: String(record.timezone ?? "Asia/Shanghai")
+    };
   }
   if (table === "memos") {
     return {

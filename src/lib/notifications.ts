@@ -1,9 +1,10 @@
 import { db, queueChange } from "../db";
+import { dueAnniversaryOccurrence, formatAnniversaryReminderBody } from "./anniversaries";
 import { eventOccursOn, toISODate } from "./date";
 import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
 import { reminderIsDue } from "./reminderTime";
 import { supabase } from "./supabase";
-import type { EventItem } from "../types";
+import type { Anniversary, EventItem } from "../types";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 
@@ -223,6 +224,30 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
     };
     await db.eventOccurrenceStates.put(state);
     await queueChange("eventOccurrenceStates", state.id);
+    sent += 1;
+  }
+
+  const anniversaries = await db.anniversaries
+    .filter((anniversary) => anniversary.user_id === ownerId && !anniversary.deleted_at && anniversary.reminder_enabled)
+    .toArray();
+  for (const anniversary of anniversaries) {
+    const occurrence = dueAnniversaryOccurrence(anniversary, now);
+    if (!occurrence) continue;
+    const occurrenceDate = toISODate(occurrence);
+    if (anniversary.reminder_sent_for === occurrenceDate) continue;
+
+    await showReminder(
+      anniversary.title,
+      formatAnniversaryReminderBody(anniversary, occurrence, now),
+      `anniversary-${anniversary.id}-${occurrenceDate}`
+    );
+    const updated: Anniversary = {
+      ...anniversary,
+      ...syncFields(anniversary),
+      reminder_sent_for: occurrenceDate
+    };
+    await db.anniversaries.put(updated);
+    await queueChange("anniversaries", updated.id);
     sent += 1;
   }
   return sent;

@@ -1704,12 +1704,14 @@ textarea {
 }
 
 .memo-page,
-.focus-page {
+.focus-page,
+.anniversary-page {
   max-width: 1600px;
   margin: 0 auto;
 }
 
-.memo-page {
+.memo-page,
+.anniversary-page {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 18px;
@@ -1981,6 +1983,123 @@ textarea {
 .memo-textarea {
   min-height: 260px;
   line-height: 1.65;
+}
+
+.anniversary-main {
+  min-width: 0;
+}
+
+.anniversary-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.anniversary-card {
+  --accent: #d97706;
+  position: relative;
+  display: flex;
+  min-height: 196px;
+  flex-direction: column;
+  gap: 11px;
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: white;
+  box-shadow: 0 8px 20px rgb(30 48 88 / 5%);
+  cursor: pointer;
+}
+
+.anniversary-card::before {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: var(--accent);
+  content: "";
+}
+
+.anniversary-card:hover {
+  border-color: #c8d3ef;
+  box-shadow: 0 12px 28px rgb(30 48 88 / 10%);
+}
+
+.anniversary-card-topline,
+.anniversary-kind,
+.anniversary-reminder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.anniversary-card-topline {
+  justify-content: space-between;
+}
+
+.anniversary-kind {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.anniversary-card-topline strong {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, white);
+  font-size: 12px;
+}
+
+.anniversary-card h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.anniversary-card-meta {
+  display: grid;
+  gap: 4px;
+  color: #657084;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.anniversary-reminder {
+  width: fit-content;
+  margin: auto 0 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #6b7280;
+  background: #f2f4f8;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.anniversary-reminder.active {
+  color: #31543f;
+  background: #e8f6ee;
+}
+
+.anniversary-note {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.anniversary-reminder-editor {
+  align-items: start;
+}
+
+.anniversary-reminder-grid {
+  width: 100%;
 }
 
 .focus-layout {
@@ -2609,7 +2728,7 @@ textarea {
     bottom: calc(10px + env(safe-area-inset-bottom));
     left: 10px;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 4px;
     padding: 6px;
     border: 1px solid rgb(212 220 235 / 88%);
@@ -2853,6 +2972,7 @@ textarea {
   }
 
   .memo-page,
+  .anniversary-page,
   .focus-layout {
     grid-template-columns: 1fr;
   }
@@ -2862,6 +2982,10 @@ textarea {
   }
 
   .memo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .anniversary-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -3007,6 +3131,10 @@ textarea {
   .form-actions.split {
     align-items: stretch;
     flex-direction: column-reverse;
+  }
+
+  .anniversary-list {
+    grid-template-columns: 1fr;
   }
 
   .event-completion-editor,

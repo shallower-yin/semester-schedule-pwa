@@ -127,6 +127,9 @@ create table if not exists public.events (
   note text not null default '',
   recurrence_type text not null default 'none' check (recurrence_type in ('none', 'weekly')),
   recurrence_until date,
+  reminder_enabled boolean not null default false,
+  reminder_minutes_before integer not null default 10 check (reminder_minutes_before between 0 and 10080),
+  timezone text not null default 'Asia/Shanghai',
   unique (id, user_id)
 );
 
@@ -142,9 +145,32 @@ create table if not exists public.event_occurrence_states (
   event_id uuid not null,
   occurrence_date date not null,
   completed boolean not null default false,
+  reminder_sent_at timestamptz,
   unique (id, user_id),
   unique (user_id, event_id, occurrence_date),
   foreign key (event_id, user_id) references public.events(id, user_id)
+);
+
+create table if not exists public.anniversaries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  server_updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  version bigint not null default 1,
+  device_id uuid not null,
+  kind text not null default 'anniversary' check (kind in ('anniversary', 'birthday', 'holiday')),
+  title text not null check (char_length(title) between 1 and 200),
+  date date not null,
+  color text not null default '#d97706',
+  note text not null default '',
+  reminder_enabled boolean not null default false,
+  reminder_days_before integer not null default 0 check (reminder_days_before between 0 and 366),
+  reminder_time time not null default time '09:00',
+  reminder_sent_for date,
+  timezone text not null default 'Asia/Shanghai',
+  unique (id, user_id)
 );
 
 create table if not exists public.memo_folders (
@@ -250,6 +276,7 @@ declare
     'categories',
     'events',
     'event_occurrence_states',
+    'anniversaries',
     'memo_folders',
     'memos',
     'focus_settings',

@@ -3,17 +3,21 @@ import webpush from "npm:web-push@3.6.7";
 
 interface ReminderRow {
   delivery_id: string;
-  event_id: string;
+  source_type?: "event" | "anniversary";
+  source_id?: string;
+  event_id?: string | null;
+  anniversary_id?: string | null;
   title: string;
   occurrence_date: string;
   start_time: string | null;
+  anniversary_kind?: "anniversary" | "birthday" | "holiday" | null;
   endpoint: string;
   p256dh: string;
   auth: string;
 }
 
 interface Delivery {
-  event: ReminderRow;
+  reminder: ReminderRow;
   subscriptions: webpush.PushSubscription[];
 }
 
@@ -77,7 +81,7 @@ Deno.serve(async (request) => {
 
     const deliveries = new Map<string, Delivery>();
     for (const row of rows) {
-      const current = deliveries.get(row.delivery_id) ?? { event: row, subscriptions: [] };
+      const current = deliveries.get(row.delivery_id) ?? { reminder: row, subscriptions: [] };
       current.subscriptions.push({
         endpoint: row.endpoint,
         keys: { p256dh: row.p256dh, auth: row.auth }
@@ -91,15 +95,7 @@ Deno.serve(async (request) => {
       let delivered = false;
       const errors: string[] = [];
       const expiredEndpoints: string[] = [];
-      const time = delivery.event.start_time
-        ? String(delivery.event.start_time).slice(0, 5)
-        : "全天";
-      const payload = JSON.stringify({
-        title: delivery.event.title,
-        body: `${delivery.event.occurrence_date} ${time}`,
-        tag: `event-${delivery.event.event_id}-${delivery.event.occurrence_date}`,
-        url: appUrl
-      });
+      const payload = JSON.stringify(buildPayload(delivery.reminder));
 
       for (const subscription of delivery.subscriptions) {
         try {
@@ -137,3 +133,29 @@ Deno.serve(async (request) => {
     }, 500);
   }
 });
+
+function buildPayload(row: ReminderRow) {
+  const sourceType = row.source_type ?? "event";
+  const sourceId = row.source_id ?? row.event_id ?? row.anniversary_id ?? "unknown";
+  if (sourceType === "anniversary") {
+    return {
+      title: row.title,
+      body: `${anniversaryKindLabel(row.anniversary_kind)} · ${row.occurrence_date}`,
+      tag: `anniversary-${sourceId}-${row.occurrence_date}`,
+      url: appUrl
+    };
+  }
+  const time = row.start_time ? String(row.start_time).slice(0, 5) : "全天";
+  return {
+    title: row.title,
+    body: `${row.occurrence_date} ${time}`,
+    tag: `event-${sourceId}-${row.occurrence_date}`,
+    url: appUrl
+  };
+}
+
+function anniversaryKindLabel(kind: ReminderRow["anniversary_kind"]): string {
+  if (kind === "birthday") return "生日";
+  if (kind === "holiday") return "节日";
+  return "纪念日";
+}
