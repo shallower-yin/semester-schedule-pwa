@@ -36,6 +36,13 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
 
   const weekend = toISODate(addDays(startOfWeek(today), 6));
   const tomorrow = toISODate(addDays(today, 1));
+  const nextAction = overview.overdueIncompleteItems[0] ?? overview.upcomingItems.find((item) => item.type === "event" && !item.completed) ?? overview.upcomingItems[0];
+
+  async function postponeItems(items: ScheduleOverviewItem[], targetDate: string) {
+    for (const item of items) {
+      if (item.type === "event" && !item.completed) await postpone(item, targetDate);
+    }
+  }
 
   return (
     <section className="today-page">
@@ -54,6 +61,17 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
         <article><Target /><span><strong>{formatFocusDuration(overview.todayFocusSeconds)}</strong><small>今日专注</small></span></article>
       </div>
 
+      {nextAction && (
+        <section className="next-action-panel">
+          <div>
+            <span>接下来</span>
+            <strong>{nextAction.title}</strong>
+            <small>{nextAction.timeLabel} · {nextAction.subtitle}</small>
+          </div>
+          <button className="button primary compact" onClick={() => onOpenItem(nextAction)}><Edit3 size={15} />处理</button>
+        </section>
+      )}
+
       <TodayList
         title="今日安排"
         items={overview.upcomingItems}
@@ -61,6 +79,7 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
         onOpenItem={onOpenItem}
         onToggleCompleted={toggleCompleted}
         onPostpone={postpone}
+        onPostponeAll={(targetDate) => postponeItems(overview.upcomingItems, targetDate)}
         onCustomPostpone={chooseCustomDate}
         tomorrow={tomorrow}
         weekend={weekend}
@@ -72,6 +91,7 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
         onOpenItem={onOpenItem}
         onToggleCompleted={toggleCompleted}
         onPostpone={postpone}
+        onPostponeAll={(targetDate) => postponeItems(overview.overdueIncompleteItems, targetDate)}
         onCustomPostpone={chooseCustomDate}
         tomorrow={tomorrow}
         weekend={weekend}
@@ -91,14 +111,17 @@ interface TodayListProps {
   onOpenItem: (item: ScheduleOverviewItem) => void;
   onToggleCompleted: (item: ScheduleOverviewItem) => Promise<void>;
   onPostpone: (item: ScheduleOverviewItem, targetDate: string) => Promise<void>;
+  onPostponeAll: (targetDate: string) => Promise<void>;
   onCustomPostpone: (item: ScheduleOverviewItem) => void;
 }
 
-function TodayList({ title, items, emptyText, tomorrow, weekend, overdue, onOpenItem, onToggleCompleted, onPostpone, onCustomPostpone }: TodayListProps) {
+function TodayList({ title, items, emptyText, tomorrow, weekend, overdue, onOpenItem, onToggleCompleted, onPostpone, onPostponeAll, onCustomPostpone }: TodayListProps) {
+  const incompleteCount = items.filter((item) => item.type === "event" && !item.completed).length;
   return (
     <section className="today-list-section">
       <div className="section-heading">
         <div><h3>{title}</h3><p>{overdue ? "处理拖延事项，或快速推迟到新的日期。" : "课程、事项和习惯按时间排序。"}</p></div>
+        {incompleteCount > 1 && <button className="button secondary compact" onClick={() => void onPostponeAll(tomorrow)}>未完成全推到明天</button>}
       </div>
       {items.length ? (
         <div className="today-list" role="list" aria-label={title}>

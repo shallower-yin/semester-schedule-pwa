@@ -2,12 +2,17 @@ import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
 import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, LogOut, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { db, queueChange } from "../db";
+import { toISODate } from "../lib/date";
+import { syncFields } from "../lib/identity";
 import { supabase } from "../lib/supabase";
 import {
+  diagnoseNotifications,
   disableNotificationsForCurrentDevice,
   enableNotifications,
   getNotificationStatus,
   showTestNotification,
+  type NotificationDiagnosticStep,
   type NotificationStatus
 } from "../lib/notifications";
 import { getSyncHealth, type SyncResult } from "../lib/sync";
@@ -27,12 +32,14 @@ interface AccountDialogProps {
 export function AccountDialog({ user, pendingChanges, lastSync, syncing, message, onSync, onPullRemote, onClose }: AccountDialogProps) {
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus | null>(null);
   const [notificationMessage, setNotificationMessage] = useState("");
+  const [diagnosticSteps, setDiagnosticSteps] = useState<NotificationDiagnosticStep[]>([]);
   const [enablingNotifications, setEnablingNotifications] = useState(false);
   const [healthRefreshKey, setHealthRefreshKey] = useState(0);
   const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, message, healthRefreshKey]);
 
   useEffect(() => {
     void getNotificationStatus().then(setNotificationStatus);
+    void diagnoseNotifications().then(setDiagnosticSteps);
   }, []);
 
   async function activateNotifications() {
@@ -48,12 +55,14 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         }[stage]);
       });
       setNotificationStatus(await getNotificationStatus());
+      setDiagnosticSteps(await diagnoseNotifications());
       if (result === "denied") setNotificationMessage("浏览器已阻止通知，请在网站权限中改为允许。");
       else if (result === "unsupported") setNotificationMessage("当前浏览器不支持系统通知。");
       else if (result === "local-only") setNotificationMessage("只能在应用打开时提醒，请确认已登录并联网。");
       else setNotificationMessage("当前设备已订阅系统提醒。");
     } catch (error) {
       setNotificationStatus(await getNotificationStatus());
+      setDiagnosticSteps(await diagnoseNotifications());
       setNotificationMessage(error instanceof Error ? error.message : "启用提醒失败");
     } finally {
       setEnablingNotifications(false);
@@ -66,6 +75,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     try {
       const result = await enableNotifications();
       setNotificationStatus(await getNotificationStatus());
+      setDiagnosticSteps(await diagnoseNotifications());
       if (result === "denied") {
         setNotificationMessage("浏览器已阻止通知，请在网站权限中改为允许。");
         return;
@@ -78,6 +88,54 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       setNotificationMessage("测试通知已发送，请检查系统通知栏并点击它测试应用跳转。");
     } catch (error) {
       setNotificationMessage(error instanceof Error ? error.message : "测试通知发送失败");
+    } finally {
+      setEnablingNotifications(false);
+    }
+  }
+
+  async function scheduleRealReminderTest() {
+    setEnablingNotifications(true);
+    setNotificationMessage("");
+    try {
+      const result = await enableNotifications();
+      setNotificationStatus(await getNotificationStatus());
+      setDiagnosticSteps(await diagnoseNotifications());
+      if (result === "denied") {
+        setNotificationMessage("浏览器已阻止通知，请先允许通知。");
+        return;
+      }
+      if (result === "unsupported") {
+        setNotificationMessage("当前浏览器不支持系统通知。");
+        return;
+      }
+      const startsAt = new Date();
+      startsAt.setMinutes(startsAt.getMinutes() + 1);
+      const startTime = `${String(startsAt.getHours()).padStart(2, "0")}:${String(startsAt.getMinutes()).padStart(2, "0")}`;
+      const record = {
+        ...syncFields(),
+        user_id: user.id,
+        event_type: "event" as const,
+        title: "提醒测试",
+        start_date: toISODate(startsAt),
+        end_date: toISODate(startsAt),
+        start_time: startTime,
+        end_time: startTime,
+        all_day: false,
+        category_id: null,
+        color: "#3157d5",
+        note: "由账号与同步中的提醒测试创建，用于检查本地提醒和后台 Web Push。",
+        recurrence_type: "none" as const,
+        recurrence_until: null,
+        recurrence_interval: 1,
+        reminder_enabled: true,
+        reminder_minutes_before: 0,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+      };
+      await db.events.put(record);
+      await queueChange("events", record.id);
+      setNotificationMessage(`已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台 Web Push。`);
+    } catch (error) {
+      setNotificationMessage(error instanceof Error ? error.message : "创建测试提醒失败");
     } finally {
       setEnablingNotifications(false);
     }
@@ -166,11 +224,24 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
           {enablingNotifications ? "检查中…" : notificationStatus === "subscribed" ? "重新检查" : "启用提醒"}
         </button>
       </div>
+      {diagnosticSteps.length > 0 && (
+        <div className="notification-diagnostic-list">
+          {diagnosticSteps.map((step) => (
+            <article key={step.id} className={step.status}>
+              <strong>{step.label}</strong>
+              <span>{step.detail}</span>
+            </article>
+          ))}
+        </div>
+      )}
       {notificationMessage && <p className="auth-message">{notificationMessage}</p>}
       {message && <p className="auth-message">{message}</p>}
       <div className="form-stack">
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void testNotification()}>
           <BellRing size={17} />发送测试通知
+        </button>
+        <button className="button secondary" disabled={enablingNotifications} onClick={() => void scheduleRealReminderTest()}>
+          <BellRing size={17} />创建 1 分钟后提醒测试
         </button>
         <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : "立即同步"}</button>
         <button className="button secondary" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={17} />重新拉取云端</button>

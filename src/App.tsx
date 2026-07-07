@@ -20,13 +20,14 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   Target,
   UserRound,
   WifiOff,
   X
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
@@ -43,7 +44,9 @@ import { GlobalSearchDialog, type GlobalSearchResult } from "./components/Global
 import { HabitPage } from "./components/HabitPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
+import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
+import { QuickEntryDialog } from "./components/QuickEntryDialog";
 import { ScheduleOverviewPanel } from "./components/ScheduleOverview";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
@@ -59,10 +62,12 @@ import {
   toISODate,
   weekDates
 } from "./lib/date";
+import { backupIsDue, getLastBackupAt } from "./lib/backupStatus";
 import { uniqueCategoriesByName } from "./lib/categories";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
+import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
 import {
   clearCapturedInstallPrompt,
@@ -72,9 +77,9 @@ import {
 } from "./lib/pwaInstall";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
-import type { Anniversary, Course, EventItem, EventType, Memo, Semester } from "./types";
+import type { Anniversary, Course, EventItem, EventType, Memo, PageId, Semester } from "./types";
 
-type Page = "today" | "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "settings";
+type Page = PageId;
 type ScheduleFilter = "all" | "courses" | "uncategorized" | string;
 
 interface EventDraft {
@@ -98,6 +103,8 @@ export default function App() {
   const [showBatchEvents, setShowBatchEvents] = useState(false);
   const [showDataHealth, setShowDataHealth] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showQuickEntry, setShowQuickEntry] = useState(false);
+  const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
@@ -121,6 +128,8 @@ export default function App() {
   const [installMessage, setInstallMessage] = useState("");
   const [updatingApp, setUpdatingApp] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
+  const [mobileNavItems, setMobileNavItems] = useState<PageId[]>(() => loadMobileNavSettings());
+  const [backupDue, setBackupDue] = useState(() => backupIsDue());
   const [scheduleQuery, setScheduleQuery] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
   const [eventStatusFilter, setEventStatusFilter] = useState<EventStatusFilter>("all");
@@ -330,6 +339,9 @@ export default function App() {
       } else if (event.key.toLowerCase() === "n" && semester) {
         event.preventDefault();
         openNewEvent(toISODate(new Date()), "09:00", "10:00");
+      } else if (event.key.toLowerCase() === "q") {
+        event.preventDefault();
+        setShowQuickEntry(true);
       } else if (event.key.toLowerCase() === "t") {
         event.preventDefault();
         goToday();
@@ -413,7 +425,7 @@ export default function App() {
   async function applyAppUpdate() {
     if (updatingApp) return;
     setUpdatingApp(true);
-    setUpdateMessage("正在切换到新版本…");
+    setUpdateMessage("正在通知后台服务安装新版本…");
     let reloaded = false;
     let fallbackTimer: number | null = null;
 
@@ -423,6 +435,7 @@ export default function App() {
       window.location.reload();
     };
     const handleControllerChange = () => {
+      setUpdateMessage("新版本已接管，正在刷新页面…");
       if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
       reloadOnce();
     };
@@ -430,8 +443,10 @@ export default function App() {
     try {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange, { once: true });
+        setUpdateMessage("正在等待新版本接管页面…");
         fallbackTimer = window.setTimeout(reloadOnce, 3000);
       } else {
+        setUpdateMessage("当前浏览器没有后台服务，正在直接刷新…");
         fallbackTimer = window.setTimeout(reloadOnce, 500);
       }
       await updateServiceWorker(true);
@@ -442,6 +457,23 @@ export default function App() {
       }
       setUpdatingApp(false);
       setUpdateMessage(error instanceof Error ? `更新失败：${error.message}` : "更新失败，请稍后重试。");
+    }
+  }
+
+  async function hardReloadApp() {
+    setUpdatingApp(true);
+    setUpdateMessage("正在清理缓存并重新加载…");
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } finally {
+      window.location.replace(`${window.location.pathname}?reload=${Date.now()}${window.location.hash}`);
     }
   }
 
@@ -521,17 +553,26 @@ export default function App() {
     setAnchorDate(new Date());
   }
 
-  const navigation = (
-    <>
-      <button className={page === "today" ? "active" : ""} onClick={() => navigate("today")}><CalendarCheck2 size={19} />今天</button>
-      <button className={page === "calendar" ? "active" : ""} onClick={() => navigate("calendar")}><CalendarDays size={19} />日程</button>
-      <button className={page === "habits" ? "active" : ""} onClick={() => navigate("habits")}><CheckCircle2 size={19} />习惯</button>
-      <button className={page === "anniversaries" ? "active" : ""} onClick={() => navigate("anniversaries")}><CalendarHeart size={19} />纪念日</button>
-      <button className={page === "memos" ? "active" : ""} onClick={() => navigate("memos")}><NotebookText size={19} />备忘录</button>
-      <button className={page === "focus" ? "active" : ""} onClick={() => navigate("focus")}><Target size={19} />专注</button>
-      <button className={page === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Settings size={19} />设置</button>
-    </>
-  );
+  const navItems: Array<{ id: PageId; label: string; icon: ReactNode }> = [
+    { id: "today", label: "今天", icon: <CalendarCheck2 size={19} /> },
+    { id: "calendar", label: "日程", icon: <CalendarDays size={19} /> },
+    { id: "habits", label: "习惯", icon: <CheckCircle2 size={19} /> },
+    { id: "anniversaries", label: "纪念日", icon: <CalendarHeart size={19} /> },
+    { id: "memos", label: "备忘录", icon: <NotebookText size={19} /> },
+    { id: "focus", label: "专注", icon: <Target size={19} /> },
+    { id: "settings", label: "设置", icon: <Settings size={19} /> }
+  ];
+  const selectedMobileNavItems = navItems
+    .filter((item) => mobileNavItems.includes(item.id))
+    .sort((left, right) => mobileNavItems.indexOf(left.id) - mobileNavItems.indexOf(right.id));
+
+  function renderNavigation(items: typeof navItems) {
+    return items.map((item) => (
+      <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => navigate(item.id)}>
+        {item.icon}{item.label}
+      </button>
+    ));
+  }
 
   return (
     <div className="app-shell">
@@ -544,7 +585,7 @@ export default function App() {
             <span>{semester?.name ?? "尚未创建学期"}</span>
           </div>
         </div>
-        <nav className="desktop-nav">{navigation}</nav>
+        <nav className="desktop-nav">{renderNavigation(navItems)}</nav>
         <div className="header-status">
           <button className={`sync-status ${user ? "connected" : ""}`} onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
             {user ? <Cloud size={16} /> : <LogIn size={16} />}
@@ -556,6 +597,7 @@ export default function App() {
                 `仅本地 · ${pendingChanges} 项待同步`}
             </span>
           </button>
+          <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
           <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
         </div>
       </header>
@@ -564,7 +606,7 @@ export default function App() {
         <div className="mobile-sidebar-backdrop" onClick={() => setSidebarOpen(false)}>
           <aside className="mobile-sidebar" onClick={(event) => event.stopPropagation()}>
             <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={() => setSidebarOpen(false)}><X /></button></div>
-            <nav>{navigation}</nav>
+            <nav>{renderNavigation(navItems)}</nav>
           </aside>
         </div>
       )}
@@ -685,6 +727,12 @@ export default function App() {
               <button className="setting-card" onClick={() => needRefresh ? void applyAppUpdate() : window.location.reload()} disabled={updatingApp}>
                 <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
               </button>
+              <button className="setting-card" onClick={() => void hardReloadApp()} disabled={updatingApp}>
+                <RefreshCw /><span><strong>清缓存重载</strong><small>手机 PWA 更新没生效时使用，会重新获取最新资源</small></span><ChevronRight />
+              </button>
+              <button className="setting-card" onClick={() => setShowMobileNavSettings(true)}>
+                <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
                 <GraduationCap /><span><strong>当前学期</strong><small>{semester!.name} · {semester!.total_weeks} 周</small></span><ChevronRight />
               </button>
@@ -692,7 +740,7 @@ export default function App() {
                 <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>自由添加、删除和排序节次或午休</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowBackup(true)}>
-                <Database /><span><strong>JSON 数据备份</strong><small>导入或导出本地数据</small></span><ChevronRight />
+                <Database /><span><strong>JSON 数据备份</strong><small>{backupDue ? "建议导出一份新备份" : `上次备份 ${getLastBackupAt()?.slice(0, 10)}`}</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowStats(true)}>
                 <Target /><span><strong>统计与日历导出</strong><small>查看完成率、专注趋势，并导出 ICS</small></span><ChevronRight />
@@ -729,7 +777,9 @@ export default function App() {
         )}
       </main>
 
-      <nav className="mobile-bottom-nav" aria-label="手机底部导航">{navigation}</nav>
+      <nav className="mobile-bottom-nav" aria-label="手机底部导航" style={{ gridTemplateColumns: `repeat(${Math.max(1, selectedMobileNavItems.length)}, minmax(0, 1fr))` }}>
+        {renderNavigation(selectedMobileNavItems)}
+      </nav>
       {page === "calendar" && semester && (
         <button className="mobile-fab" onClick={() => setShowAddSchedule(true)} aria-label="新增日程">
           <Plus size={26} />
@@ -738,7 +788,10 @@ export default function App() {
 
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
-      {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
+      {showBackup && <BackupDialog onClose={() => {
+        setBackupDue(backupIsDue());
+        setShowBackup(false);
+      }} />}
       {showBatchEvents && <BatchEventsDialog events={events} categories={categories} occurrenceStates={occurrenceStates} onClose={() => setShowBatchEvents(false)} />}
       {showDataHealth && <DataHealthDialog ownerId={ownerId} onClose={() => setShowDataHealth(false)} />}
       {showStats && semester && (
@@ -748,9 +801,28 @@ export default function App() {
           schedules={schedules}
           periods={periods}
           events={events}
+          categories={categories}
           occurrenceStates={occurrenceStates}
           focusSessions={focusSessions}
           onClose={() => setShowStats(false)}
+        />
+      )}
+      {showQuickEntry && (
+        <QuickEntryDialog
+          ownerId={ownerId}
+          onCreated={(item) => {
+            setEventToEdit(item);
+            setPage("calendar");
+          }}
+          onClose={() => setShowQuickEntry(false)}
+        />
+      )}
+      {showMobileNavSettings && (
+        <MobileNavSettingsDialog
+          options={navItems.map((item) => ({ id: item.id, label: item.label }))}
+          value={mobileNavItems}
+          onChange={setMobileNavItems}
+          onClose={() => setShowMobileNavSettings(false)}
         />
       )}
       {showSchoolImport && <SchoolTimetableImportDialog semester={semester!} onClose={() => setShowSchoolImport(false)} />}
@@ -777,6 +849,10 @@ export default function App() {
           onAddHabit={() => {
             setShowAddSchedule(false);
             openNewEvent(toISODate(dates[selectedDay]), "09:00", "09:10", false, "habit");
+          }}
+          onQuickEntry={() => {
+            setShowAddSchedule(false);
+            setShowQuickEntry(true);
           }}
           onClose={() => setShowAddSchedule(false)}
         />
@@ -833,6 +909,14 @@ export default function App() {
           <span>{updatingApp ? updateMessage : `新版本已准备好 · 当前 ${appVersion}`}</span>
           <button disabled={updatingApp} onClick={() => void applyAppUpdate()}>{updatingApp ? "更新中…" : "立即更新"}</button>
           <button className="icon-button" onClick={() => setNeedRefresh(false)}><X size={16} /></button>
+        </div>
+      )}
+      {backupDue && !showBackup && (
+        <div className="backup-reminder-toast">
+          <Database size={18} />
+          <span>距离上次备份已超过 7 天，建议导出一份 JSON 备份。</span>
+          <button onClick={() => setShowBackup(true)}>去备份</button>
+          <button className="icon-button" onClick={() => setBackupDue(false)}><X size={16} /></button>
         </div>
       )}
       {showGlobalSearch && (

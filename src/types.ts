@@ -1,6 +1,7 @@
 export type ISODate = string;
 export type ISODateTime = string;
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type PageId = "today" | "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "settings";
 
 export interface SyncFields {
   id: string;

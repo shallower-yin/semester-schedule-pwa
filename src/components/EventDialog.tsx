@@ -4,7 +4,7 @@ import { useState } from "react";
 import { db, queueChange } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
 import { findEventConflicts, findEventCourseConflicts } from "../lib/conflicts";
-import { parseLocalDate, toISODate } from "../lib/date";
+import { addDays, parseLocalDate, toISODate } from "../lib/date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { validateEventDraft } from "../lib/eventValidation";
 import { deleteEventTemplate, loadEventTemplates, saveEventTemplate } from "../lib/eventTemplates";
@@ -51,6 +51,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [validationMessage, setValidationMessage] = useState("");
   const [completionMessage, setCompletionMessage] = useState("");
   const [conflictMessage, setConflictMessage] = useState("");
+  const [suggestedSlot, setSuggestedSlot] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
   const [templates, setTemplates] = useState(() => loadEventTemplates());
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [enablingReminder, setEnablingReminder] = useState(false);
@@ -171,6 +172,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   async function save(formEvent: React.FormEvent) {
     formEvent.preventDefault();
     setValidationMessage("");
+    setSuggestedSlot(null);
     const validationError = validateEventDraft({
       title,
       startDate: date,
@@ -213,6 +215,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       const message = `可能与 ${conflicts.map((item) => `“${item.title}”(${item.detail})`).join("、")} 重叠。仍然保存？`;
       if (!window.confirm(message)) {
         setConflictMessage(message);
+        setSuggestedSlot(await findNextAvailableSlot(record, existingEvents, currentSemester?.id));
         setSaving(false);
         return;
       }
@@ -222,6 +225,43 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     await resetSentRemindersForChangedEvent(eventItem, record);
     setSaving(false);
     onClose();
+  }
+
+  async function findNextAvailableSlot(record: EventItem, existingEvents: EventItem[], semesterId?: string): Promise<{ date: string; startTime: string; endTime: string } | null> {
+    if (record.all_day) return null;
+    const duration = Math.max(30, minutesBetween(record.start_time ?? "09:00", record.end_time ?? record.start_time ?? "10:00"));
+    const start = parseLocalDate(record.start_date);
+    for (let dayOffset = 0; dayOffset <= 14; dayOffset += 1) {
+      const candidateDate = toISODate(addDays(start, dayOffset));
+      for (let minute = 8 * 60; minute <= 22 * 60 - duration; minute += 30) {
+        const candidate: EventItem = {
+          ...record,
+          start_date: candidateDate,
+          end_date: candidateDate,
+          start_time: formatMinutes(minute),
+          end_time: formatMinutes(minute + duration),
+          recurrence_type: "none",
+          recurrence_until: null
+        };
+        const eventConflicts = findEventConflicts(candidate, existingEvents);
+        const courseConflicts = semesterId ? await collectCourseConflicts(candidate, semesterId) : [];
+        if (!eventConflicts.length && !courseConflicts.length) {
+          return { date: candidateDate, startTime: candidate.start_time ?? "09:00", endTime: candidate.end_time ?? "10:00" };
+        }
+      }
+    }
+    return null;
+  }
+
+  function applySuggestedSlot() {
+    if (!suggestedSlot) return;
+    setDate(suggestedSlot.date);
+    setEndDate(suggestedSlot.date);
+    setStartTime(suggestedSlot.startTime);
+    setEndTime(suggestedSlot.endTime);
+    setRecurrence("none");
+    setSuggestedSlot(null);
+    setConflictMessage("");
   }
 
   async function collectCourseConflicts(record: EventItem, semesterId: string) {
@@ -378,7 +418,16 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         </section>
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         {validationMessage && <p className="auth-message error">{validationMessage}</p>}
-        {conflictMessage && <p className="auth-message">{conflictMessage}</p>}
+        {conflictMessage && (
+          <div className="auth-message conflict-suggestion">
+            <p>{conflictMessage}</p>
+            {suggestedSlot ? (
+              <button type="button" className="button secondary compact" onClick={applySuggestedSlot}>
+                改到 {suggestedSlot.date} {suggestedSlot.startTime}-{suggestedSlot.endTime}
+              </button>
+            ) : <span>暂未找到接下来两周内的空闲时间。</span>}
+          </div>
+        )}
         <div className="form-actions split">
           <div className="inline-actions">
             {eventItem && <button type="button" className="button secondary" onClick={() => void duplicate()}><Copy size={16} />复制事项</button>}
@@ -410,4 +459,17 @@ function formatReminderPreview(date: string, allDay: boolean, startTime: string,
   triggerAt.setHours(hour, minute, 0, 0);
   triggerAt.setMinutes(triggerAt.getMinutes() - minutesBefore);
   return `${toISODate(triggerAt)} ${String(triggerAt.getHours()).padStart(2, "0")}:${String(triggerAt.getMinutes()).padStart(2, "0")}`;
+}
+
+function minutesBetween(start: string, end: string): number {
+  return Math.max(0, minutesOf(end) - minutesOf(start));
+}
+
+function minutesOf(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function formatMinutes(value: number): string {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }

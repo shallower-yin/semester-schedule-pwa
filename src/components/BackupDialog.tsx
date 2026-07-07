@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { db, queueChange } from "../db";
+import { markBackupExported } from "../lib/backupStatus";
 import { getCurrentUserId } from "../lib/identity";
 import { SYNC_TABLE_LABELS } from "../lib/sync";
 import type { BackupFile, SyncTableName } from "../types";
@@ -71,6 +72,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
     anchor.download = fileName;
     anchor.click();
     URL.revokeObjectURL(url);
+    markBackupExported();
   }
 
   async function exportBackup() {

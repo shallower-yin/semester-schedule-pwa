@@ -18,6 +18,12 @@ export type NotificationStatus =
 
 export type NotificationEnableResult = "enabled" | "local-only" | "denied" | "unsupported";
 export type NotificationSetupStage = "permission" | "service-worker" | "push-service" | "cloud";
+export interface NotificationDiagnosticStep {
+  id: NotificationSetupStage | "support";
+  label: string;
+  status: "ok" | "warning" | "error";
+  detail: string;
+}
 
 export async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
   let timer = 0;
@@ -142,6 +148,66 @@ async function showReminder(title: string, body: string, tag: string) {
     badge: `${import.meta.env.BASE_URL}app-icon-192.png`,
     data: { url: new URL(import.meta.env.BASE_URL, window.location.origin).toString() }
   });
+}
+
+export async function diagnoseNotifications(): Promise<NotificationDiagnosticStep[]> {
+  const steps: NotificationDiagnosticStep[] = [];
+  if (!notificationsSupported()) {
+    return [{
+      id: "support",
+      label: "浏览器能力",
+      status: "error",
+      detail: "当前浏览器不支持 Notification 或 Service Worker。"
+    }];
+  }
+
+  steps.push({ id: "support", label: "浏览器能力", status: "ok", detail: "支持系统通知和应用后台服务。" });
+
+  if (Notification.permission === "denied") {
+    steps.push({ id: "permission", label: "通知权限", status: "error", detail: "浏览器已阻止通知，需要在网站权限中改为允许。" });
+    return steps;
+  }
+  if (Notification.permission === "default") {
+    steps.push({ id: "permission", label: "通知权限", status: "warning", detail: "尚未允许通知，点击启用提醒时需要选择允许。" });
+    return steps;
+  }
+  steps.push({ id: "permission", label: "通知权限", status: "ok", detail: "浏览器已允许通知。" });
+
+  try {
+    const registration = await withTimeout(navigator.serviceWorker.ready, 6_000, "等待应用后台服务超时");
+    steps.push({ id: "service-worker", label: "后台服务", status: "ok", detail: registration.active ? "Service Worker 已激活。" : "Service Worker 已就绪。" });
+
+    if (!("PushManager" in window)) {
+      steps.push({ id: "push-service", label: "系统推送", status: "warning", detail: "当前环境不支持 PushManager，只能在应用打开时提醒。" });
+      return steps;
+    }
+    if (!supabase || getCurrentUserId() === "local" || !vapidPublicKey) {
+      steps.push({ id: "push-service", label: "系统推送", status: "warning", detail: "未登录或未配置推送公钥，只能在应用打开时提醒。" });
+      return steps;
+    }
+    const subscription = await withTimeout(registration.pushManager.getSubscription(), 6_000, "读取系统推送订阅超时");
+    steps.push({
+      id: "push-service",
+      label: "系统推送",
+      status: subscription ? "ok" : "warning",
+      detail: subscription ? "当前设备已有系统推送订阅。" : "尚未建立系统推送订阅，可点击启用提醒。"
+    });
+    steps.push({
+      id: "cloud",
+      label: "云端订阅",
+      status: subscription ? "ok" : "warning",
+      detail: subscription ? "已具备云端后台推送所需订阅信息。" : "未订阅时，应用关闭后的 Web Push 不会触发。"
+    });
+  } catch (error) {
+    steps.push({
+      id: "service-worker",
+      label: "后台服务",
+      status: "error",
+      detail: error instanceof Error ? error.message : "后台服务检查失败。"
+    });
+  }
+
+  return steps;
 }
 
 export async function showTestNotification(): Promise<void> {
