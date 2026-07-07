@@ -269,6 +269,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
                 onClick={() => props.onEditEvent(eventItem)}
               >
                 <div className="entry-title"><Icon size={14} />{eventItem.title}</div>
+                {completed && <div className="entry-status">已完成</div>}
                 {!eventItem.all_day && <div className="entry-time">{eventItem.start_time}–{eventItem.end_time}</div>}
                 {category && <div className="entry-category">{category.name}</div>}
                 {eventItem.reminder_enabled && <div className="entry-reminder"><Bell size={11} />提前 {eventItem.reminder_minutes_before} 分钟</div>}

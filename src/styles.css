@@ -604,7 +604,9 @@ main {
 }
 
 .event-entry.completed {
-  opacity: 0.55;
+  border-color: #d2d8e4;
+  background: #f7f9fc;
+  opacity: 0.72;
 }
 
 .event-entry.completed .entry-title {
@@ -637,7 +639,8 @@ main {
 .entry-meta,
 .entry-time,
 .entry-category,
-.entry-reminder {
+.entry-reminder,
+.entry-status {
   margin-top: 4px;
   overflow: hidden;
   font-size: 11px;
@@ -651,6 +654,16 @@ main {
   display: flex;
   align-items: center;
   gap: 3px;
+}
+
+.entry-status {
+  display: inline-flex;
+  width: fit-content;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #2f6846;
+  background: #e8f6ee;
+  font-weight: 750;
 }
 
 .entry-category {
