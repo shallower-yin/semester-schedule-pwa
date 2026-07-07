@@ -79,7 +79,7 @@ interface EventDraft {
 }
 
 export default function App() {
-  const appVersion = __APP_VERSION__;
+  const appVersion = `版本 ${__APP_VERSION__} · 提交 ${__APP_COMMIT__}`;
   const [page, setPage] = useState<Page>("calendar");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [overviewNow, setOverviewNow] = useState(() => new Date());
