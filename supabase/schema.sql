@@ -204,7 +204,7 @@ create table if not exists public.focus_sessions (
   deleted_at timestamptz,
   version bigint not null default 1,
   device_id uuid not null,
-  mode text not null check (mode in ('stopwatch', 'countdown', 'pomodoro')),
+  mode text not null check (mode in ('stopwatch', 'countdown', 'pomodoro', 'lock')),
   task_title text not null default '',
   linked_event_id uuid,
   planned_seconds integer check (planned_seconds is null or planned_seconds >= 0),

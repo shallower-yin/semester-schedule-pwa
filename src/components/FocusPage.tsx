@@ -103,6 +103,16 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     });
   }, [active, remaining]);
 
+  useEffect(() => {
+    if (active?.mode !== "lock") return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [active?.mode]);
+
   const selectedEvent = events.find((event) => event.id === linkedEventId);
 
   function startFocus() {
@@ -112,13 +122,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       mode,
       task_title: title,
       linked_event_id: linkedEventId || null,
-      planned_seconds: mode === "stopwatch" ? null : plannedSeconds,
+      planned_seconds: mode === "stopwatch" || mode === "lock" ? null : plannedSeconds,
       started_at: new Date().toISOString(),
       paused_seconds: 0,
       pause_started_at: null
     };
     setActive(next);
     saveActiveFocus(ownerId, next);
+    if (mode === "lock") void enterFocusFullscreen();
     setMessage("");
   }
 
@@ -152,6 +163,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     await db.focusSessions.put(record);
     await queueChange("focusSessions", record.id);
     clearActiveFocus(ownerId);
+    void exitFocusFullscreen();
     setActive(null);
     setTaskTitle("");
     setLinkedEventId("");
@@ -162,6 +174,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   function discardFocus() {
     if (!active || !window.confirm("放弃当前专注？不会保存本次记录。")) return;
     clearActiveFocus(ownerId);
+    void exitFocusFullscreen();
     setActive(null);
     setMessage("已放弃当前专注。");
   }
@@ -181,7 +194,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       <div className="page-heading focus-heading">
         <div>
           <h1>专注</h1>
-          <p>正计时、倒计时和番茄钟记录会同步到手机和电脑。</p>
+          <p>正计时、倒计时、番茄钟和锁机记录会同步到手机和电脑。</p>
         </div>
         <div className="focus-stats">
           <span><strong>{formatFocusDuration(todaySeconds)}</strong><small>今日</small></span>
@@ -193,7 +206,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       <div className="focus-layout">
         <section className="focus-panel">
           <div className="focus-mode-tabs">
-            {(["stopwatch", "pomodoro", "countdown"] as FocusMode[]).map((item) => (
+            {(["stopwatch", "pomodoro", "countdown", "lock"] as FocusMode[]).map((item) => (
               <button key={item} className={mode === item ? "active" : ""} disabled={Boolean(active)} onClick={() => setMode(item)}>
                 {focusModeLabel(item)}
               </button>
@@ -266,6 +279,22 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           </section>
         </aside>
       </div>
+
+      {active?.mode === "lock" && (
+        <div className="focus-lock-overlay" role="dialog" aria-modal="true" aria-label="锁机专注">
+          <div className="focus-lock-card">
+            <span>锁机专注中</span>
+            <h2>{active.task_title}</h2>
+            <strong>{formatFocusDuration(elapsed)}</strong>
+            <p>这是 PWA 内的锁机界面，会阻挡应用内操作并在关闭页面前提示；浏览器无法真正锁住手机系统返回键或主屏幕。</p>
+            <div className="focus-actions">
+              <button className="button secondary" onClick={pauseOrResume}>{active.pause_started_at ? <Play size={17} /> : <Pause size={17} />}{active.pause_started_at ? "继续" : "暂停"}</button>
+              <button className="button primary" onClick={() => void finishFocus(true, false)}><CheckCircle2 size={17} />结束并保存</button>
+              <button className="button danger-button" onClick={discardFocus}><Square size={16} />放弃</button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -291,6 +320,22 @@ function saveActiveFocus(ownerId: string, active: ActiveFocusState) {
 
 function clearActiveFocus(ownerId: string) {
   localStorage.removeItem(activeFocusKey(ownerId));
+}
+
+async function enterFocusFullscreen() {
+  try {
+    if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+  } catch {
+    // 部分手机浏览器不支持全屏 API，保留应用内遮罩即可。
+  }
+}
+
+async function exitFocusFullscreen() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+  } catch {
+    // 忽略浏览器全屏退出限制。
+  }
 }
 
 function notifyFocusComplete(taskTitle: string, soundEnabled: boolean) {

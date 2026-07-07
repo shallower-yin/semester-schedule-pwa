@@ -44,6 +44,7 @@ export function focusModeLabel(mode: FocusMode): string {
   return {
     stopwatch: "正计时",
     countdown: "倒计时",
-    pomodoro: "番茄钟"
+    pomodoro: "番茄钟",
+    lock: "锁机"
   }[mode];
 }

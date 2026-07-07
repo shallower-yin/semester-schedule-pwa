@@ -95,7 +95,7 @@ export interface Memo extends SyncFields {
   is_pinned: boolean;
 }
 
-export type FocusMode = "stopwatch" | "countdown" | "pomodoro";
+export type FocusMode = "stopwatch" | "countdown" | "pomodoro" | "lock";
 
 export interface FocusSettings extends SyncFields {
   pomodoro_minutes: number;

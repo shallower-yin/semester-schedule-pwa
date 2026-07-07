@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FocusSession } from "../types";
-import { elapsedFocusSeconds, focusSessionsForDate, formatFocusDuration, remainingFocusSeconds, totalFocusSeconds } from "./focus";
+import { elapsedFocusSeconds, focusModeLabel, focusSessionsForDate, formatFocusDuration, remainingFocusSeconds, totalFocusSeconds } from "./focus";
 
 describe("专注计时", () => {
   it("计算已用时间时扣除暂停时间", () => {
@@ -21,6 +21,10 @@ describe("专注计时", () => {
   it("格式化专注时长", () => {
     expect(formatFocusDuration(65)).toBe("01:05");
     expect(formatFocusDuration(3661)).toBe("01:01:01");
+  });
+
+  it("支持锁机模式标签", () => {
+    expect(focusModeLabel("lock")).toBe("锁机");
   });
 
   it("按本地日期统计专注记录", () => {
