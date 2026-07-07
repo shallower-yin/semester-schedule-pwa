@@ -97,13 +97,13 @@ Deno.serve(async (request) => {
     const serviceRoleKey = optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
     if (!serviceRoleKey) {
       return jsonResponse({
-        error: "管理员后台未完成配置：请在 GitHub Secret 和 Supabase Edge Function Secret 中配置 SUPABASE_SERVICE_ROLE_KEY。"
+        error: "管理后台未完成配置，请联系管理员。"
       }, 500);
     }
 
     const user = await getUser(authorization);
     const adminAccess = await getAiAccess(user.id, serviceRoleKey);
-    if (!isActiveAdmin(adminAccess)) return jsonResponse({ error: "当前账号不是管理员。" }, 403);
+    if (!isActiveAdmin(adminAccess)) return jsonResponse({ error: "当前账号没有管理权限。" }, 403);
 
     const body = await request.json() as AdminRequest;
     if (body.action === "details") {
@@ -117,7 +117,7 @@ Deno.serve(async (request) => {
     return jsonResponse(await getSummary(serviceRoleKey));
   } catch (error) {
     console.error(error);
-    return jsonResponse({ error: error instanceof Error ? error.message : "管理员后台请求失败。" }, 500);
+    return jsonResponse({ error: error instanceof Error ? error.message : "管理后台请求失败。" }, 500);
   }
 });
 
@@ -145,7 +145,10 @@ async function authAdminGet<T>(path: string, serviceRoleKey: string): Promise<T>
     headers: serviceHeaders(serviceRoleKey)
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`读取 Supabase Auth 失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+  if (!response.ok) {
+    console.error(`读取账号信息失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+    throw new Error("读取账号信息失败，请稍后再试。");
+  }
   return JSON.parse(text) as T;
 }
 
@@ -162,7 +165,10 @@ async function restGet<T>(
     headers: serviceHeaders(serviceRoleKey)
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`读取 ${table} 失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+  if (!response.ok) {
+    console.error(`读取 ${table} 失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+    throw new Error("读取数据失败，请稍后再试。");
+  }
   return JSON.parse(text) as T[];
 }
 
@@ -284,7 +290,10 @@ async function setAiAccess(targetUserId: string, access: AdminRequest["access"],
     body: JSON.stringify(body)
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`保存 AI 权限失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+  if (!response.ok) {
+    console.error(`保存 AI 权限失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+    throw new Error("保存 AI 助手权限失败，请稍后再试。");
+  }
   const rows = JSON.parse(text) as AiAccessRow[];
   return { aiAccess: rows[0] ?? null };
 }

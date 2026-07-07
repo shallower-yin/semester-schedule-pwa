@@ -60,9 +60,9 @@ export interface SaveAdminAccessInput {
 }
 
 async function invokeAdmin<T>(body: Record<string, unknown>): Promise<T> {
-  if (!supabase) throw new Error("Supabase 未配置，无法使用管理员后台。");
+  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
   const { data, error } = await supabase.functions.invoke<T>("admin", { body });
-  if (error) throw new Error(error.message || "管理员后台请求失败。");
+  if (error) throw new Error(error.message || "管理后台请求失败。");
   return data as T;
 }
 

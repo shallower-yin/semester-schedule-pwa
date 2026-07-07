@@ -21,7 +21,7 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
     {
       id: "welcome",
       role: "assistant",
-      content: "我是 DeepSeek AI 日程助手。启用后会把当前日程摘要发送到你的 Supabase Edge Function，再由服务端调用 DeepSeek。API Key 不会暴露在浏览器里。"
+      content: "我是 AI 日程助手，可以根据你的日程摘要回答安排、冲突、未完成事项和时间规划问题。"
     }
   ]);
   const [question, setQuestion] = useState("");
@@ -42,7 +42,7 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
       setMessages((current) => [...current, {
         id: `e-${Date.now()}`,
         role: "assistant",
-        content: error instanceof Error ? `暂时不能使用 DeepSeek 助手：${error.message}` : "暂时不能使用 DeepSeek 助手。"
+        content: error instanceof Error ? `暂时不能使用 AI 助手：${error.message}` : "暂时不能使用 AI 助手。"
       }]);
     } finally {
       setLoading(false);
@@ -50,25 +50,25 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
   }
 
   return (
-    <Modal title="DeepSeek AI 助手" onClose={onClose} wide>
+    <Modal title="AI 助手" onClose={onClose} wide>
       <div className="assistant-dialog">
         <section className="ai-access-panel">
           <BrainCircuit size={19} />
           <div>
             <strong>{userEmail ? `当前账号：${userEmail}` : "需要先登录账号"}</strong>
-            <span>只有白名单账号、会员账号，或输入指定访问口令的用户可以调用 DeepSeek。</span>
+            <span>只有已开通账号，或输入指定访问口令后，才可以使用 AI 助手。</span>
           </div>
         </section>
         <label className="ai-access-code">
           <KeyRound size={16} />
           <input value={accessCode} placeholder="访问口令，可留空使用账号白名单" onChange={(event) => setAccessCode(event.target.value)} />
         </label>
-        <div className="assistant-examples" aria-label="DeepSeek 问日程样例">
+        <div className="assistant-examples" aria-label="AI 助手问日程样例">
           {SCHEDULE_ASSISTANT_EXAMPLES.map((example) => (
             <button key={example} type="button" disabled={loading} onClick={() => ask(example)}>{example}</button>
           ))}
         </div>
-        <div className="assistant-messages" role="log" aria-label="DeepSeek 对话">
+        <div className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
               {message.role === "assistant" ? <BrainCircuit size={18} /> : <UserRound size={18} />}
@@ -78,7 +78,7 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
           {loading && (
             <article className="assistant">
               <BrainCircuit size={18} />
-              <p>正在让 DeepSeek 分析日程…</p>
+              <p>正在分析日程...</p>
             </article>
           )}
         </div>

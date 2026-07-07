@@ -48,7 +48,7 @@ Deno.serve(async (request) => {
 
   try {
     const authorization = request.headers.get("authorization") ?? "";
-    if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 DeepSeek 助手。" }, 401);
+    if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 AI 助手。" }, 401);
     const body = await request.json() as AiAssistantRequest;
     const question = body.question?.trim();
     if (!question) return jsonResponse({ error: "问题不能为空。" }, 400);
@@ -102,12 +102,12 @@ async function checkAiAccess(
       authorization
     }
   });
-  if (!response.ok) throw new Error(`读取 AI 权限失败：HTTP ${response.status}`);
+  if (!response.ok) throw new Error("读取 AI 助手权限失败，请稍后再试。");
   const rows = await response.json() as AiAccessRow[];
   const row = rows[0];
-  if (!row?.enabled) return { allowed: false, reason: "当前账号未开通 DeepSeek 助手。" };
+  if (!row?.enabled) return { allowed: false, reason: "当前账号未开通 AI 助手。" };
   if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
-    return { allowed: false, reason: "当前账号的 DeepSeek 助手权限已到期。" };
+    return { allowed: false, reason: "当前账号的 AI 助手权限已到期。" };
   }
   return { allowed: true, method: row.role };
 }
@@ -146,9 +146,9 @@ async function askDeepSeek(question: string, scheduleContext: unknown, email?: s
     })
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`DeepSeek 请求失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+  if (!response.ok) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const data = JSON.parse(text) as { choices?: Array<{ message?: { content?: string } }> };
   const answer = data.choices?.[0]?.message?.content?.trim();
-  if (!answer) throw new Error("DeepSeek 未返回有效回答。");
+  if (!answer) throw new Error("AI 助手没有返回有效回答。");
   return answer;
 }

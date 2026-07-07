@@ -42,11 +42,11 @@
 
 该迁移给事项表增加 `recurrence_interval` 字段，允许 `daily`、`weekdays`、`weekly`、`monthly`、`interval` 重复规则，并同步更新后台提醒领取函数。执行后，工作日、每月同日和自定义间隔事项/习惯才能在云端后台提醒中正确领取。
 
-DeepSeek AI 助手权限需要执行：
+AI 助手权限需要执行：
 
 `supabase/migrations/20260708_ai_assistant_access.sql`
 
-该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 DeepSeek AI 助手。
+该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 AI 助手。
 
 ## Auth URL 配置
 
@@ -75,28 +75,28 @@ DeepSeek AI 助手权限需要执行：
 ## 安全规则
 
 - 网页中只能使用 Publishable key。
-- DeepSeek API Key 只能保存为 Supabase Edge Function Secret `DEEPSEEK_API_KEY`，不要写进前端 `.env.local`。
-- 管理员后台需要 `SUPABASE_SERVICE_ROLE_KEY`，只能放在 GitHub Secret / Supabase Edge Function Secret，绝对不要写进前端或公开文档。
+- AI 服务 API Key 只能保存为 Supabase Edge Function Secret `DEEPSEEK_API_KEY`，不要写进前端 `.env.local`。
+- 管理后台需要 `SUPABASE_SERVICE_ROLE_KEY`，只能放在 GitHub Secret / Supabase Edge Function Secret，绝对不要写进前端或公开文档。
 - GitHub 后台提醒任务需要 Legacy API Keys 中的 `anon` key，并将其保存为仓库 Secret `SUPABASE_ANON_KEY`；不要使用 `service_role`。
 - 不要把 Secret key、`service_role`、数据库密码放入 `.env.local` 或发给他人。
 - 所有业务表启用 RLS，策略限定 `auth.uid() = user_id`。
 - 删除采用 `deleted_at` 软删除，云端触发器拒绝较旧的 `updated_at` 覆盖较新记录。
-- Supabase Auth 只提供账号管理能力，不能查看用户明文密码。密码由 Supabase Auth 以哈希形式托管，管理员只能重置、删除或禁用账号。
+- Supabase Auth 负责账号凭据托管，应用不保存密码原文；管理员只能重置、删除或禁用账号。
 
-## DeepSeek AI 助手
+## AI 助手
 
 需要在 GitHub Secrets / Variables 中配置：
 
-- Secret `DEEPSEEK_API_KEY`：你的 DeepSeek API Key。
+- Secret `DEEPSEEK_API_KEY`：AI 服务 API Key。
 - Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给临时用户输入的访问口令。
-- Secret `SUPABASE_SERVICE_ROLE_KEY`：管理员后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。
-- Variable `DEEPSEEK_MODEL`：可选，默认 `deepseek-v4-flash`，也可设为 `deepseek-v4-pro`。
+- Secret `SUPABASE_SERVICE_ROLE_KEY`：管理后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。
+- Variable `DEEPSEEK_MODEL`：可选，AI 服务参数配置。
 
 给指定账号开通：
 
 ```sql
 insert into public.ai_assistant_access (user_id, enabled, role, expires_at, note)
-values ('用户 UUID', true, 'member', null, 'DeepSeek 助手开通')
+values ('用户 UUID', true, 'member', null, 'AI 助手开通')
 on conflict (user_id) do update
 set enabled = excluded.enabled,
     role = excluded.role,
@@ -116,6 +116,6 @@ set enabled = true,
     updated_at = now();
 ```
 
-设置完成并部署 Edge Function 后，管理员账号在“设置”中会看到“管理员后台”。后台可查看账号邮箱、注册时间、最近登录时间、数据数量和具体日程/习惯/纪念日/备忘录/专注记录，并可给指定用户开通或关闭 DeepSeek 助手、设置会员到期时间、设置管理员角色。
+设置完成并部署 Edge Function 后，管理员账号在“设置”中会看到“管理后台”。后台可查看账号邮箱、注册时间、最近登录时间、数据数量和具体日程/习惯/纪念日/备忘录/专注记录，并可给指定用户开通或关闭 AI 助手、设置高级权限到期时间、设置管理员角色。
 
-管理员后台看不到明文密码。密码由 Supabase Auth 托管，应用数据库只保存业务数据；前端仍受 RLS 保护，跨用户查看只通过 `admin` Edge Function 使用 service role 完成。
+账号凭据由 Supabase Auth 托管，应用数据库只保存业务数据；前端仍受 RLS 保护，跨用户查看只通过 `admin` Edge Function 使用 service role 完成。

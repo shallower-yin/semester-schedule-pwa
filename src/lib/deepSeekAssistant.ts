@@ -79,11 +79,11 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
 }
 
 export async function askDeepSeekAssistant(question: string, context: unknown, accessCode?: string): Promise<DeepSeekAssistantResult> {
-  if (!supabase) throw new Error("Supabase 未配置，无法使用 DeepSeek 助手。");
+  if (!supabase) throw new Error("云端服务未配置，暂时无法使用 AI 助手。");
   const { data, error } = await supabase.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
     body: { question, scheduleContext: context, accessCode: accessCode || undefined }
   });
-  if (error) throw new Error(error.message || "DeepSeek 助手请求失败。");
-  if (!data?.answer) throw new Error("DeepSeek 助手没有返回回答。");
+  if (error) throw new Error(error.message || "AI 助手请求失败。");
+  if (!data?.answer) throw new Error("AI 助手没有返回回答。");
   return data;
 }

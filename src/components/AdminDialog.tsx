@@ -101,13 +101,13 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }, [details?.aiAccess, selectedUser?.aiAccess]);
 
   return (
-    <Modal title="管理员后台" onClose={onClose} wide>
+    <Modal title="管理后台" onClose={onClose} wide>
       <div className="admin-dialog">
         <section className="admin-notice">
           <ShieldCheck size={22} />
           <div>
-            <strong>管理员可以查看用户邮箱、登录时间和应用数据，但不能查看明文密码。</strong>
-            <p>密码由 Supabase Auth 托管为哈希，后台只能重置或删除账号；不要把 service role key 放进前端代码。</p>
+            <strong>账号与权限管理</strong>
+            <p>查看账号概览、核对应用数据，并为指定账号配置 AI 助手与管理权限。</p>
           </div>
         </section>
 
@@ -165,7 +165,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
                 <section className="admin-access-editor">
                   <div className="section-heading">
-                    <div><h3><KeyRound size={18} /> AI 权限</h3><p>控制 DeepSeek 助手和管理员后台入口。</p></div>
+                    <div><h3><KeyRound size={18} /> AI 助手权限</h3><p>控制 AI 助手使用权限和管理后台入口。</p></div>
                   </div>
                   <div className="form-grid">
                     <label>
@@ -178,7 +178,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     <label>
                       角色
                       <select value={accessRole} onChange={(event) => setAccessRole(event.target.value as AdminRole)}>
-                        <option value="member">会员</option>
+                        <option value="member">高级权限</option>
                         <option value="admin">管理员</option>
                       </select>
                     </label>
@@ -188,7 +188,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     </label>
                     <label>
                       备注
-                      <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：本人账号、月度会员" />
+                      <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：本人账号、临时开通" />
                     </label>
                   </div>
                   <div className="form-actions">
@@ -270,10 +270,10 @@ function recordValue(value: unknown): string {
 function accessLabel(access: AdminAiAccess | null): string {
   if (!access?.enabled) return "未开通";
   if (access.expires_at && new Date(access.expires_at).getTime() <= Date.now()) return "已到期";
-  return access.role === "admin" ? "管理员" : "会员";
+  return access.role === "admin" ? "管理员" : "高级权限";
 }
 
 function accessBadgeClass(access: AdminAiAccess | null): string {
   const label = accessLabel(access);
-  return label === "管理员" ? "admin-access-badge admin" : label === "会员" ? "admin-access-badge member" : "admin-access-badge";
+  return label === "管理员" ? "admin-access-badge admin" : label === "高级权限" ? "admin-access-badge member" : "admin-access-badge";
 }

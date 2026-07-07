@@ -641,7 +641,7 @@ export default function App() {
             </span>
           </button>
           <button className="icon-button header-search-button" onClick={() => setShowScheduleAssistant(true)} aria-label="问日程助手"><Bot size={18} /></button>
-          <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="DeepSeek AI 助手"><BrainCircuit size={18} /></button>
+          <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="AI 助手"><BrainCircuit size={18} /></button>
           <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
           <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
         </div>
@@ -794,11 +794,11 @@ export default function App() {
                 <Bot /><span><strong>问日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
-                <BrainCircuit /><span><strong>DeepSeek AI 助手</strong><small>由服务端调用 DeepSeek，可用白名单或访问口令限制</small></span><ChevronRight />
+                <BrainCircuit /><span><strong>AI 助手</strong><small>智能分析日程安排，可按账号或访问口令控制使用权限</small></span><ChevronRight />
               </button>
               {isAdmin && (
                 <button className="setting-card" onClick={() => setShowAdmin(true)}>
-                  <ShieldCheck /><span><strong>管理员后台</strong><small>查看账号数据概览，管理 DeepSeek 会员和管理员权限</small></span><ChevronRight />
+                  <ShieldCheck /><span><strong>管理后台</strong><small>查看账号数据概览，管理 AI 助手和管理员权限</small></span><ChevronRight />
                 </button>
               )}
               <button className="setting-card" onClick={() => setShowDataHealth(true)}>
