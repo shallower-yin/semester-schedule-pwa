@@ -2080,6 +2080,11 @@ textarea {
   display: none;
 }
 
+.mobile-bottom-nav,
+.mobile-fab {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .app-header {
     grid-template-columns: 1fr auto;
@@ -2145,7 +2150,72 @@ textarea {
   }
 
   main {
-    padding: 15px 12px 25px;
+    padding: 15px 12px calc(98px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    z-index: 70;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    left: 10px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid rgb(212 220 235 / 88%);
+    border-radius: 22px;
+    background: rgb(255 255 255 / 94%);
+    box-shadow: 0 12px 32px rgb(23 35 58 / 16%);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-bottom-nav button {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 4px;
+    border: 0;
+    border-radius: 16px;
+    color: #667085;
+    background: transparent;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .mobile-bottom-nav button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-bottom-nav button.active {
+    color: var(--primary);
+    background: #edf2ff;
+  }
+
+  .mobile-fab {
+    position: fixed;
+    z-index: 75;
+    right: 18px;
+    bottom: calc(86px + env(safe-area-inset-bottom));
+    display: grid;
+    width: 58px;
+    height: 58px;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    color: white;
+    background: var(--primary);
+    box-shadow: 0 14px 30px rgb(49 87 213 / 32%);
+    cursor: pointer;
+  }
+
+  .toolbar-actions .button.primary {
+    display: none;
   }
 
   .calendar-toolbar {
@@ -2211,6 +2281,7 @@ textarea {
 
   .calendar-shell {
     overflow: visible;
+    touch-action: pan-y;
   }
 
   .week-grid {
@@ -2272,6 +2343,44 @@ textarea {
     width: 100%;
     overflow-x: auto;
   }
+
+  .modal-backdrop {
+    align-items: end;
+    justify-items: center;
+    padding: 0;
+    place-items: end center;
+  }
+
+  .modal,
+  .modal-wide {
+    width: 100%;
+    max-width: none;
+    max-height: min(92dvh, calc(100dvh - 14px));
+    border-radius: 20px 20px 0 0;
+  }
+
+  .modal-body {
+    padding: 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .modal .form-actions {
+    position: sticky;
+    z-index: 3;
+    bottom: 0;
+    margin: 10px -16px calc(-16px - env(safe-area-inset-bottom));
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: rgb(255 255 255 / 96%);
+    backdrop-filter: blur(10px);
+  }
+
+  .update-toast {
+    right: 12px;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    left: 12px;
+    justify-content: space-between;
+  }
 }
 
 @media (max-width: 580px) {
@@ -2303,7 +2412,7 @@ textarea {
 
   .modal {
     width: 100%;
-    max-height: 92vh;
+    max-height: 92dvh;
     border-radius: 18px 18px 0 0;
   }
 

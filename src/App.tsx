@@ -331,6 +331,11 @@ export default function App() {
     setSelectedDay((new Date().getDay() + 6) % 7);
   }
 
+  function moveMobileDay(direction: number, nextSelectedDay: number) {
+    setAnchorDate((current) => addDays(current, direction * 7));
+    setSelectedDay(nextSelectedDay);
+  }
+
   function openNewEvent(date: string, start: string, end: string, allDay = false) {
     setEventDraft({ date, start, end, allDay });
     setEventToEdit(null);
@@ -457,6 +462,7 @@ export default function App() {
               periods={periods}
               selectedDay={selectedDay}
               onSelectedDayChange={setSelectedDay}
+              onMoveMobileWeek={moveMobileDay}
               onAddEvent={openNewEvent}
               onEditEvent={(item) => setEventToEdit(item)}
               onEditCourse={(item) => setCourseToEdit(item)}
@@ -509,6 +515,13 @@ export default function App() {
           </section>
         )}
       </main>
+
+      <nav className="mobile-bottom-nav" aria-label="手机底部导航">{navigation}</nav>
+      {page === "calendar" && semester && (
+        <button className="mobile-fab" onClick={() => setShowAddSchedule(true)} aria-label="新增日程">
+          <Plus size={26} />
+        </button>
+      )}
 
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}

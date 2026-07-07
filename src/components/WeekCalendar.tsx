@@ -1,5 +1,6 @@
 import { Ban, Bell, BookOpen, Check, Coffee, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import type { TouchEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { db, queueChange } from "../db";
 import {
@@ -34,6 +35,7 @@ interface WeekCalendarProps {
   periods: ClassPeriod[];
   selectedDay: number;
   onSelectedDayChange: (index: number) => void;
+  onMoveMobileWeek?: (direction: number, selectedDay: number) => void;
   onAddEvent: (date: string, start: string, end: string, allDay?: boolean) => void;
   onEditEvent: (event: EventItem) => void;
   onEditCourse: (course: Course) => void;
@@ -48,6 +50,7 @@ const CATEGORY_ICONS = {
 
 export function WeekCalendar(props: WeekCalendarProps) {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 900px)");
     const update = () => setIsMobile(media.matches);
@@ -101,8 +104,41 @@ export function WeekCalendar(props: WeekCalendarProps) {
     await queueChange("eventOccurrenceStates", record.id);
   }
 
+  function moveSelectedDay(direction: number) {
+    const next = props.selectedDay + direction;
+    if (next >= 0 && next <= 6) {
+      props.onSelectedDayChange(next);
+      return;
+    }
+    if (next > 6) {
+      props.onMoveMobileWeek?.(1, 0);
+      return;
+    }
+    props.onMoveMobileWeek?.(-1, 6);
+  }
+
+  function handleTouchEnd(event: TouchEvent<HTMLElement>) {
+    if (!isMobile || !touchStart.current) return;
+    const touch = event.changedTouches[0];
+    const deltaX = touchStart.current.x - touch.clientX;
+    const deltaY = touchStart.current.y - touch.clientY;
+    touchStart.current = null;
+    if (Math.abs(deltaX) < 56 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) return;
+    moveSelectedDay(deltaX > 0 ? 1 : -1);
+  }
+
   return (
-    <section className="calendar-shell">
+    <section
+      className="calendar-shell"
+      onTouchStart={(event) => {
+        const touch = event.touches[0];
+        touchStart.current = { x: touch.clientX, y: touch.clientY };
+      }}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={() => {
+        touchStart.current = null;
+      }}
+    >
       <div className="mobile-day-switcher">
         {props.dates.map((date, index) => (
           <button
