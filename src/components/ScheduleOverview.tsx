@@ -1,13 +1,15 @@
 import { BookOpen, CalendarCheck2, CheckCircle2, Clock3, Target } from "lucide-react";
 import { formatFocusDuration } from "../lib/focus";
-import type { ScheduleOverview } from "../lib/overview";
+import type { ScheduleOverview, ScheduleOverviewItem } from "../lib/overview";
 
 interface ScheduleOverviewProps {
   overview: ScheduleOverview;
   onOpenFocus: () => void;
+  onOpenItem: (item: ScheduleOverviewItem) => void;
+  onShowIncomplete: () => void;
 }
 
-export function ScheduleOverviewPanel({ overview, onOpenFocus }: ScheduleOverviewProps) {
+export function ScheduleOverviewPanel({ overview, onOpenFocus, onOpenItem, onShowIncomplete }: ScheduleOverviewProps) {
   return (
     <section className="schedule-overview" aria-label="今日和本周概览">
       <div className="overview-stat primary-stat">
@@ -17,13 +19,13 @@ export function ScheduleOverviewPanel({ overview, onOpenFocus }: ScheduleOvervie
           <small>今日安排</small>
         </span>
       </div>
-      <div className="overview-stat">
+      <button type="button" className="overview-stat overview-stat-button" onClick={onShowIncomplete}>
         <CheckCircle2 size={19} />
         <span>
           <strong>{overview.todayIncompleteEventCount}</strong>
           <small>今日未完成</small>
         </span>
-      </div>
+      </button>
       <div className="overview-stat">
         <Target size={19} />
         <span>
@@ -45,14 +47,19 @@ export function ScheduleOverviewPanel({ overview, onOpenFocus }: ScheduleOvervie
         </div>
         {overview.upcomingItems.length ? (
           overview.upcomingItems.map((item) => (
-            <div key={`${item.type}-${item.id}`} className={`overview-item ${item.completed ? "completed" : ""}`}>
+            <button
+              key={`${item.type}-${item.id}`}
+              type="button"
+              className={`overview-item ${item.completed ? "completed" : ""}`}
+              onClick={() => onOpenItem(item)}
+            >
               <i style={{ background: item.color }} />
               <span>
                 <strong>{item.title}</strong>
                 <small>{item.subtitle}</small>
               </span>
               <em><Clock3 size={12} />{item.timeLabel}</em>
-            </div>
+            </button>
           ))
         ) : (
           <p className="overview-empty">今天暂无安排。</p>

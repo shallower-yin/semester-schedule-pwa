@@ -175,5 +175,7 @@ describe("首页日程概览", () => {
     expect(overview.todayFocusSeconds).toBe(1500);
     expect(overview.weekFocusSeconds).toBe(2100);
     expect(overview.upcomingItems.map((item) => item.title)).toEqual(["背单词", "数学", "提交作业"]);
+    expect(overview.upcomingItems.find((item) => item.title === "数学")?.targetId).toBe("course-1");
+    expect(overview.upcomingItems.find((item) => item.title === "提交作业")?.targetId).toBe("event-2");
   });
 });

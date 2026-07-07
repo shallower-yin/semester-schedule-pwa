@@ -10,6 +10,7 @@ import {
   formatMonthDay,
   toISODate
 } from "../lib/date";
+import { eventOccurrenceMatchesStatus, type EventStatusFilter } from "../lib/eventStatusFilter";
 import { syncFields } from "../lib/identity";
 import { buildDisplayRows, rowRangeForTime } from "../lib/timeBlocks";
 import type {
@@ -30,6 +31,7 @@ interface WeekCalendarProps {
   schedules: CourseSchedule[];
   cancellations: CourseCancellation[];
   events: EventItem[];
+  eventStatusFilter: EventStatusFilter;
   categories: Category[];
   occurrenceStates: EventOccurrenceState[];
   periods: ClassPeriod[];
@@ -253,6 +255,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
               (state) => state.event_id === eventItem.id && state.occurrence_date === toISODate(date) && !state.deleted_at
             );
             const completed = occurrenceState?.completed ?? false;
+            if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return [];
             const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
             return (
               <article

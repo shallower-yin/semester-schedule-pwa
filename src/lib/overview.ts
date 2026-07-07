@@ -15,6 +15,7 @@ import { totalFocusSeconds } from "./focus";
 export interface ScheduleOverviewItem {
   id: string;
   type: "course" | "event";
+  targetId: string;
   title: string;
   subtitle: string;
   timeLabel: string;
@@ -71,6 +72,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
     return [{
       id: schedule.id,
       type: "course" as const,
+      targetId: course.id,
       title: course.name,
       subtitle: [course.classroom, course.teacher].filter(Boolean).join(" · ") || "课程",
       timeLabel: `${startPeriod.start_time}–${endPeriod.end_time}`,
@@ -90,6 +92,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
     return [{
       id: eventItem.id,
       type: "event" as const,
+      targetId: eventItem.id,
       title: eventItem.title,
       subtitle: category?.name ?? "未分类事项",
       timeLabel: eventItem.all_day ? "全天" : formatTimeRange(eventItem.start_time, eventItem.end_time),

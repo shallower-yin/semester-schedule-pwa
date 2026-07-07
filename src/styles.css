@@ -180,7 +180,7 @@ main {
 .schedule-filter-bar {
   display: grid;
   max-width: 1600px;
-  grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) auto;
+  grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) minmax(130px, 180px) auto;
   gap: 10px;
   margin: -2px auto 16px;
 }
@@ -212,6 +212,19 @@ main {
   gap: 10px;
   min-height: 86px;
   padding: 14px;
+}
+
+.overview-stat-button {
+  width: 100%;
+  border: 1px solid var(--border);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.overview-stat-button:hover {
+  border-color: #b7c6f4;
+  background: #f8faff;
 }
 
 .overview-stat svg {
@@ -279,11 +292,20 @@ main {
 
 .overview-item {
   display: grid;
+  width: 100%;
   grid-template-columns: 10px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   padding: 7px 0;
+  border: 0;
   border-top: 1px solid #eef1f6;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.overview-item:hover {
+  background: #f8faff;
 }
 
 .overview-item:first-of-type {

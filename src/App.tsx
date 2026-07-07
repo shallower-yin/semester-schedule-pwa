@@ -49,9 +49,10 @@ import {
   weekDates
 } from "./lib/date";
 import { uniqueCategoriesByName } from "./lib/categories";
+import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
-import { buildScheduleOverview } from "./lib/overview";
+import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -102,6 +103,7 @@ export default function App() {
   const [installMessage, setInstallMessage] = useState("");
   const [scheduleQuery, setScheduleQuery] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
+  const [eventStatusFilter, setEventStatusFilter] = useState<EventStatusFilter>("all");
   const ownerId = user?.id ?? "local";
 
   const semester = useLiveQuery(
@@ -160,12 +162,13 @@ export default function App() {
   );
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
+    if (eventStatusFilter !== "all") return [];
     if (scheduleFilter !== "all" && scheduleFilter !== "courses") return [];
     if (!query) return courses;
     return courses.filter((course) =>
       [course.name, course.teacher, course.classroom, course.note].join("\n").toLowerCase().includes(query)
     );
-  }, [courses, scheduleFilter, scheduleQuery]);
+  }, [courses, eventStatusFilter, scheduleFilter, scheduleQuery]);
   const filteredEvents = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
     return events.filter((eventItem) => {
@@ -366,6 +369,16 @@ export default function App() {
     setEventToEdit(null);
   }
 
+  function openOverviewItem(item: ScheduleOverviewItem) {
+    if (item.type === "course") {
+      const course = courses.find((candidate) => candidate.id === item.targetId);
+      if (course) setCourseToEdit(course);
+      return;
+    }
+    const eventItem = events.find((candidate) => candidate.id === item.targetId);
+    if (eventItem) setEventToEdit(eventItem);
+  }
+
   async function activateSemester(target: Semester) {
     if (target.is_current) return;
     await db.transaction("rw", db.semesters, db.syncQueue, async () => {
@@ -454,7 +467,19 @@ export default function App() {
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
-            {scheduleOverview && <ScheduleOverviewPanel overview={scheduleOverview} onOpenFocus={() => navigate("focus")} />}
+            {scheduleOverview && (
+              <ScheduleOverviewPanel
+                overview={scheduleOverview}
+                onOpenFocus={() => navigate("focus")}
+                onOpenItem={openOverviewItem}
+                onShowIncomplete={() => {
+                  goToday();
+                  setScheduleFilter("all");
+                  setEventStatusFilter("incomplete");
+                  setScheduleQuery("");
+                }}
+              />
+            )}
             <section className="schedule-filter-bar" aria-label="日程搜索和筛选">
               <input
                 value={scheduleQuery}
@@ -467,10 +492,16 @@ export default function App() {
                 <option value="uncategorized">未分类事项</option>
                 {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
               </select>
-              {(scheduleQuery || scheduleFilter !== "all") && (
+              <select value={eventStatusFilter} onChange={(event) => setEventStatusFilter(event.target.value as EventStatusFilter)}>
+                <option value="all">全部状态</option>
+                <option value="incomplete">未完成事项</option>
+                <option value="completed">已完成事项</option>
+              </select>
+              {(scheduleQuery || scheduleFilter !== "all" || eventStatusFilter !== "all") && (
                 <button className="button secondary compact" onClick={() => {
                   setScheduleQuery("");
                   setScheduleFilter("all");
+                  setEventStatusFilter("all");
                 }}>
                   清除筛选
                 </button>
@@ -483,6 +514,7 @@ export default function App() {
               schedules={schedules}
               cancellations={cancellations}
               events={filteredEvents}
+              eventStatusFilter={eventStatusFilter}
               categories={categories}
               occurrenceStates={occurrenceStates}
               periods={periods}
