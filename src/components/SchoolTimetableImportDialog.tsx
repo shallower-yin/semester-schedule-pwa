@@ -22,7 +22,6 @@ interface ImportResult {
   courseCount: number;
   scheduleCount: number;
   periodCount: number;
-  breakCount: number;
   updatedSemester: boolean;
   replacedCourses: boolean;
 }
@@ -37,6 +36,7 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
   const [replaceCourses, setReplaceCourses] = useState(true);
   const [updatePeriods, setUpdatePeriods] = useState(true);
   const [syncSemesterInfo, setSyncSemesterInfo] = useState(true);
+  const [firstWeekStartDate, setFirstWeekStartDate] = useState(semester.start_date);
   const [importing, setImporting] = useState(false);
 
   const uniqueCourseCount = useMemo(() => {
@@ -63,6 +63,10 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
 
   async function importTimetable() {
     if (!timetable || importing) return;
+    if (!firstWeekStartDate) {
+      setError("请先指定第一周第一天的日期。");
+      return;
+    }
     if (replaceCourses && !window.confirm("将替换当前学期已有课程和课程安排，普通事项不会删除。继续导入？")) return;
     setImporting(true);
     setMessage("");
@@ -71,11 +75,12 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
       const result = await applyTimetableImport(semester, timetable, {
         replaceCourses,
         updatePeriods,
-        syncSemesterInfo
+        syncSemesterInfo,
+        firstWeekStartDate
       });
       setMessage(
         `导入完成：${result.replacedCourses ? "已替换旧课程，" : ""}写入 ${result.courseCount} 门课程、${result.scheduleCount} 条安排、${result.periodCount} 个节次` +
-          `${result.breakCount ? `、${result.breakCount} 个休息时段` : ""}${result.updatedSemester ? "，并更新了学期名称/周数" : ""}。登录后会自动同步到其他设备。`
+          `${result.updatedSemester ? "，并更新了学期日期/名称/周数" : ""}。登录后会自动同步到其他设备。`
       );
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "导入失败。");
@@ -123,11 +128,15 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
                 <h3>{timetable.termName ?? "未识别学期名称"}</h3>
                 <p>
                   来源：{timetable.sourceName ?? "本地文件"}；解析：{timetable.parseMode === "task-activity" ? "TaskActivity 结构数据" : "HTML 表格"}；将导入 {uniqueCourseCount} 门课程、{timetable.schedules.length} 条安排、{timetable.periods.length} 个节次。
-                  当前学期开学日期仍使用 {semester.start_date}。
                 </p>
               </div>
             </div>
             <div className="import-options">
+              <label>
+                第一周第一天日期
+                <input type="date" value={firstWeekStartDate} onChange={(event) => setFirstWeekStartDate(event.target.value)} />
+                <small>通常填本学期第 1 周星期一。课程周数会按这个日期换算成日历日期。</small>
+              </label>
               <label className="checkbox-label">
                 <input type="checkbox" checked={replaceCourses} onChange={(event) => setReplaceCourses(event.target.checked)} />
                 替换当前学期已有课程和课程安排
@@ -138,7 +147,7 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
               </label>
               <label className="checkbox-label">
                 <input type="checkbox" checked={syncSemesterInfo} onChange={(event) => setSyncSemesterInfo(event.target.checked)} />
-                同步学期名称，并把总周数扩展到 {maxWeek} 周
+                同步学期名称，并把总周数扩展到 {maxWeek} 周；第一周日期总会按上方设置更新
               </label>
             </div>
             <div className="import-preview-list">
@@ -174,7 +183,7 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
 async function applyTimetableImport(
   semester: Semester,
   timetable: ImportedTimetable,
-  options: { replaceCourses: boolean; updatePeriods: boolean; syncSemesterInfo: boolean }
+  options: { replaceCourses: boolean; updatePeriods: boolean; syncSemesterInfo: boolean; firstWeekStartDate: string }
 ): Promise<ImportResult> {
   if (!timetable.schedules.length) throw new Error("没有可导入的课程安排。");
 
@@ -186,12 +195,16 @@ async function applyTimetableImport(
   let updatedSemester = false;
 
   await db.transaction("rw", [db.semesters, db.classPeriods, db.courses, db.courseSchedules, db.courseCancellations, db.syncQueue], async () => {
-    if (options.syncSemesterInfo && ((timetable.termName && timetable.termName !== semester.name) || maxWeek !== semester.total_weeks)) {
+    const shouldUpdateSemester =
+      semester.start_date !== options.firstWeekStartDate ||
+      (options.syncSemesterInfo && ((timetable.termName && timetable.termName !== semester.name) || maxWeek !== semester.total_weeks));
+    if (shouldUpdateSemester) {
       const updatedSemesterRecord: Semester = {
         ...semester,
         ...syncFields(semester),
-        name: timetable.termName ?? semester.name,
-        total_weeks: maxWeek
+        start_date: options.firstWeekStartDate,
+        name: options.syncSemesterInfo ? timetable.termName ?? semester.name : semester.name,
+        total_weeks: options.syncSemesterInfo ? maxWeek : semester.total_weeks
       };
       await db.semesters.put(updatedSemesterRecord);
       await queueChange("semesters", updatedSemesterRecord.id);
@@ -247,7 +260,6 @@ async function applyTimetableImport(
     courseCount: courseGroups.length,
     scheduleCount: courseGroups.reduce((sum, group) => sum + group.schedules.length, 0),
     periodCount: options.updatePeriods ? timetable.periods.length : 0,
-    breakCount: Math.max(0, Math.floor(periodBlocks.length / 7) - timetable.periods.length),
     updatedSemester,
     replacedCourses
   };
@@ -285,47 +297,19 @@ function groupCourses(schedules: ImportedCourseSchedule[], semesterId: string, t
 
 function buildClassPeriodBlocks(semesterId: string, periods: ImportedClassPeriod[]): ClassPeriod[] {
   const sorted = [...periods].sort((left, right) => left.periodNumber - right.periodNumber);
-  return WEEKDAYS.flatMap((weekday) => {
-    const blocks: ClassPeriod[] = [];
-    let previousEnd = "";
-    let breakNumber = -1;
-    let usedLunch = false;
-    for (const period of sorted) {
-      if (previousEnd && minutes(period.startTime) > minutes(previousEnd)) {
-        const isLunch: boolean = !usedLunch && minutes(previousEnd) <= 12 * 60 && minutes(period.startTime) >= 13 * 60;
-        usedLunch = usedLunch || isLunch;
-        blocks.push({
-          ...syncFields(),
-          semester_id: semesterId,
-          weekday,
-          period_number: isLunch ? 0 : breakNumber--,
-          kind: "break",
-          sort_order: blocks.length + 1,
-          name: isLunch ? "午休" : "休息",
-          start_time: previousEnd,
-          end_time: period.startTime
-        });
-      }
-      blocks.push({
+  return WEEKDAYS.flatMap((weekday) =>
+    sorted.map((period, index) => ({
         ...syncFields(),
         semester_id: semesterId,
         weekday,
         period_number: period.periodNumber,
         kind: "period",
-        sort_order: blocks.length + 1,
+        sort_order: index + 1,
         name: period.name,
         start_time: period.startTime,
         end_time: period.endTime
-      });
-      previousEnd = period.endTime;
-    }
-    return blocks;
-  });
-}
-
-function minutes(time: string): number {
-  const [hours, mins] = time.split(":").map(Number);
-  return hours * 60 + mins;
+      }))
+  );
 }
 
 function courseKey(schedule: Pick<ImportedCourseSchedule, "name" | "teacher" | "classroom">): string {

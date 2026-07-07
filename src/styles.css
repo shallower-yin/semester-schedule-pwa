@@ -1207,6 +1207,23 @@ textarea {
   background: #f8faff;
 }
 
+.import-options label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  color: #394355;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.import-options label small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
 .import-preview-list {
   display: grid;
   gap: 8px;
