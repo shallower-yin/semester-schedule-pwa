@@ -11,10 +11,12 @@ import {
   GraduationCap,
   LogIn,
   Menu,
+  NotebookText,
   Plus,
   RefreshCw,
   Settings,
   SlidersHorizontal,
+  Target,
   UserRound,
   WifiOff,
   X
@@ -29,7 +31,9 @@ import { BackupDialog } from "./components/BackupDialog";
 import { CourseDialog } from "./components/CourseDialog";
 import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { EventDialog } from "./components/EventDialog";
+import { FocusPage } from "./components/FocusPage";
 import { InstallDialog } from "./components/InstallDialog";
+import { MemoPage } from "./components/MemoPage";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
@@ -56,7 +60,7 @@ import { supabase, supabaseConfigured } from "./lib/supabase";
 import { adoptAnonymousData, getLastSync, syncNow, type SyncResult } from "./lib/sync";
 import type { Course, EventItem, Semester } from "./types";
 
-type Page = "calendar" | "settings";
+type Page = "calendar" | "memos" | "focus" | "settings";
 
 interface EventDraft {
   date: string;
@@ -308,6 +312,8 @@ export default function App() {
   const navigation = (
     <>
       <button className={page === "calendar" ? "active" : ""} onClick={() => navigate("calendar")}><CalendarDays size={19} />日程</button>
+      <button className={page === "memos" ? "active" : ""} onClick={() => navigate("memos")}><NotebookText size={19} />备忘录</button>
+      <button className={page === "focus" ? "active" : ""} onClick={() => navigate("focus")}><Target size={19} />专注</button>
       <button className={page === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Settings size={19} />设置</button>
     </>
   );
@@ -348,13 +354,17 @@ export default function App() {
       )}
 
       <main>
-        {!semester ? (
+        {!semester && page !== "memos" && page !== "focus" ? (
           <section className="empty-state welcome-state">
             <div className="empty-icon"><GraduationCap size={34} /></div>
             <h1>先建立你的学期</h1>
             <p>设置开学日期和周数后，就能添加课程、每日节次和普通事项。</p>
             <button className="button primary" onClick={() => setSemesterToEdit(null)}><Plus size={18} />创建学期</button>
           </section>
+        ) : page === "memos" ? (
+          <MemoPage ownerId={ownerId} />
+        ) : page === "focus" ? (
+          <FocusPage ownerId={ownerId} />
         ) : page === "calendar" ? (
           <>
             <section className="calendar-toolbar">
@@ -374,7 +384,7 @@ export default function App() {
             </section>
             <WeekCalendar
               dates={dates}
-              semester={semester}
+              semester={semester!}
               courses={courses}
               schedules={schedules}
               cancellations={cancellations}
@@ -397,7 +407,7 @@ export default function App() {
                 <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
-                <GraduationCap /><span><strong>当前学期</strong><small>{semester.name} · {semester.total_weeks} 周</small></span><ChevronRight />
+                <GraduationCap /><span><strong>当前学期</strong><small>{semester!.name} · {semester!.total_weeks} 周</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowPeriodSettings(true)}>
                 <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>自由添加、删除和排序节次或午休</small></span><ChevronRight />

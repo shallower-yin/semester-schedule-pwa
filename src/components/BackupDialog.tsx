@@ -11,7 +11,11 @@ const TABLES: SyncTableName[] = [
   "courseCancellations",
   "categories",
   "events",
-  "eventOccurrenceStates"
+  "eventOccurrenceStates",
+  "memoFolders",
+  "memos",
+  "focusSettings",
+  "focusSessions"
 ];
 
 interface BackupDialogProps {
@@ -71,7 +75,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
       <div className="backup-options">
         <section>
           <h3>导出 JSON</h3>
-          <p>导出学期、节次、课程、事项和停课记录。建议定期保存到安全位置。</p>
+          <p>导出学期、节次、课程、事项、备忘录、专注记录和停课记录。建议定期保存到安全位置。</p>
           <button className="button primary" onClick={exportBackup}>导出备份</button>
         </section>
         <section>

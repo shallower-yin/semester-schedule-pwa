@@ -1273,6 +1273,368 @@ textarea {
   gap: 10px;
 }
 
+.memo-page,
+.focus-page {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.memo-page {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.memo-sidebar,
+.focus-panel,
+.focus-side section {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 8px 24px rgb(30 48 88 / 6%);
+}
+
+.memo-sidebar {
+  align-self: start;
+  padding: 16px;
+}
+
+.memo-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid #d7ddea;
+  border-radius: 12px;
+  background: #fbfcff;
+}
+
+.memo-search input {
+  border: 0;
+  background: transparent;
+}
+
+.memo-sidebar-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.memo-sidebar-section > span,
+.memo-sidebar-title > span {
+  color: #8a93a3;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.memo-sidebar-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.memo-view-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 4px;
+  border-radius: 999px;
+  background: #f3f5f9;
+}
+
+.memo-view-toggle button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.memo-view-toggle button.active {
+  color: white;
+  background: var(--primary);
+}
+
+.memo-sidebar-section > button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.memo-sidebar-section > button.active,
+.memo-sidebar-section > button:hover {
+  color: var(--primary);
+  background: #edf2ff;
+}
+
+.memo-sidebar-section > button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo-sidebar-section small {
+  color: #8791a1;
+}
+
+.memo-folder-delete {
+  display: none;
+  position: absolute;
+  right: 8px;
+  padding: 0 4px;
+  color: #a12a22;
+  font-weight: 800;
+}
+
+.memo-sidebar-section > button:hover .memo-folder-delete {
+  display: inline;
+}
+
+.memo-heading {
+  margin-bottom: 14px;
+}
+
+.memo-list {
+  display: grid;
+  gap: 12px;
+}
+
+.memo-card {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: rgb(255 255 255 / 92%);
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgb(30 48 88 / 5%);
+}
+
+.memo-card:hover {
+  border-color: #c8d3ef;
+  box-shadow: 0 12px 28px rgb(30 48 88 / 10%);
+}
+
+.memo-card time {
+  color: #98a1af;
+  font-size: 13px;
+}
+
+.memo-card h2 {
+  margin: 10px 0 8px;
+  font-size: 19px;
+}
+
+.memo-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #707989;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.memo-card .button {
+  margin-top: 12px;
+}
+
+.memo-textarea {
+  min-height: 260px;
+  line-height: 1.65;
+}
+
+.focus-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
+}
+
+.focus-heading {
+  align-items: flex-start;
+}
+
+.focus-stats {
+  display: flex;
+  gap: 10px;
+}
+
+.focus-stats span {
+  min-width: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+}
+
+.focus-stats strong,
+.focus-stats small {
+  display: block;
+}
+
+.focus-stats small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.focus-panel {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+}
+
+.focus-mode-tabs {
+  display: flex;
+  width: min(100%, 520px);
+  gap: 6px;
+  padding: 5px;
+  border-radius: 999px;
+  background: #f1f3f8;
+}
+
+.focus-mode-tabs button {
+  flex: 1;
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  color: #687387;
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.focus-mode-tabs button.active {
+  color: white;
+  background: var(--primary);
+}
+
+.focus-linked-task {
+  display: flex;
+  width: min(100%, 520px);
+  align-items: center;
+  gap: 8px;
+}
+
+.focus-task-input {
+  width: min(100%, 520px);
+}
+
+.focus-ring {
+  --progress: 0deg;
+  display: grid;
+  width: min(68vw, 360px);
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, white 0 62%, transparent 63%),
+    conic-gradient(var(--primary) var(--progress), #e5eaf4 0);
+}
+
+.focus-ring > div {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  color: #172033;
+  text-align: center;
+}
+
+.focus-ring strong {
+  margin-top: 10px;
+  font-size: clamp(42px, 8vw, 76px);
+  letter-spacing: -0.06em;
+}
+
+.focus-ring span {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-start-button {
+  min-width: 220px;
+  border-radius: 999px;
+}
+
+.focus-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.focus-side {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.focus-side section {
+  padding: 16px;
+}
+
+.focus-side h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.focus-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.focus-settings-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #4a5364;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.focus-sound {
+  margin: 12px 0;
+}
+
+.focus-record-list {
+  display: grid;
+  gap: 8px;
+}
+
+.focus-record-list article {
+  padding: 10px 11px;
+  border: 1px solid #e3e8f2;
+  border-radius: 10px;
+  background: #fbfcff;
+}
+
+.focus-record-list strong,
+.focus-record-list span {
+  display: block;
+}
+
+.focus-record-list span,
+.focus-record-list p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .auth-links button {
   padding: 5px;
   border: 0;
@@ -1639,6 +2001,24 @@ textarea {
   .settings-grid {
     grid-template-columns: 1fr;
   }
+
+  .memo-page,
+  .focus-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .memo-sidebar {
+    position: static;
+  }
+
+  .memo-sidebar-section {
+    margin-top: 12px;
+  }
+
+  .focus-stats {
+    width: 100%;
+    overflow-x: auto;
+  }
 }
 
 @media (max-width: 580px) {
@@ -1732,5 +2112,30 @@ textarea {
 
   .add-type-grid > button {
     min-height: 110px;
+  }
+
+  .focus-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .focus-stats span {
+    min-width: 0;
+  }
+
+  .focus-panel {
+    padding: 18px 14px;
+  }
+
+  .focus-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-actions .button {
+    flex: 1 1 150px;
+  }
+
+  .memo-view-toggle {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

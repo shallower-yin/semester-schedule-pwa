@@ -83,6 +83,40 @@ export interface EventOccurrenceState extends SyncFields {
   reminder_sent_at: ISODateTime | null;
 }
 
+export interface MemoFolder extends SyncFields {
+  name: string;
+  sort_order: number;
+}
+
+export interface Memo extends SyncFields {
+  folder_id: string | null;
+  title: string;
+  content: string;
+  is_pinned: boolean;
+}
+
+export type FocusMode = "stopwatch" | "countdown" | "pomodoro";
+
+export interface FocusSettings extends SyncFields {
+  pomodoro_minutes: number;
+  short_break_minutes: number;
+  countdown_minutes: number;
+  daily_goal_minutes: number;
+  sound_enabled: boolean;
+}
+
+export interface FocusSession extends SyncFields {
+  mode: FocusMode;
+  task_title: string;
+  linked_event_id: string | null;
+  planned_seconds: number | null;
+  duration_seconds: number;
+  started_at: ISODateTime;
+  ended_at: ISODateTime;
+  completed: boolean;
+  interrupted: boolean;
+}
+
 export interface SyncQueueItem {
   id: string;
   table_name: SyncTableName;
@@ -101,7 +135,11 @@ export type SyncTableName =
   | "courseCancellations"
   | "categories"
   | "events"
-  | "eventOccurrenceStates";
+  | "eventOccurrenceStates"
+  | "memoFolders"
+  | "memos"
+  | "focusSettings"
+  | "focusSessions";
 
 export interface BackupFile {
   format: "semester-schedule-backup";

@@ -7,6 +7,10 @@ import type {
   CourseSchedule,
   EventItem,
   EventOccurrenceState,
+  FocusSession,
+  FocusSettings,
+  Memo,
+  MemoFolder,
   Semester,
   SyncQueueItem,
   SyncTableName
@@ -23,6 +27,10 @@ class ScheduleDatabase extends Dexie {
   categories!: EntityTable<Category, "id">;
   events!: EntityTable<EventItem, "id">;
   eventOccurrenceStates!: EntityTable<EventOccurrenceState, "id">;
+  memoFolders!: EntityTable<MemoFolder, "id">;
+  memos!: EntityTable<Memo, "id">;
+  focusSettings!: EntityTable<FocusSettings, "id">;
+  focusSessions!: EntityTable<FocusSession, "id">;
   syncQueue!: EntityTable<SyncQueueItem, "id">;
 
   constructor() {
@@ -155,6 +163,21 @@ class ScheduleDatabase extends Dexie {
           });
         }
       });
+    this.version(3).stores({
+      semesters: "id, is_current, start_date, updated_at, deleted_at",
+      classPeriods: "id, semester_id, [semester_id+weekday], [semester_id+weekday+period_number], updated_at, deleted_at",
+      courses: "id, semester_id, name, updated_at, deleted_at",
+      courseSchedules: "id, course_id, weekday, updated_at, deleted_at",
+      courseCancellations: "id, course_schedule_id, occurrence_date, updated_at, deleted_at",
+      categories: "id, name, updated_at, deleted_at",
+      events: "id, start_date, end_date, recurrence_type, updated_at, deleted_at",
+      eventOccurrenceStates: "id, [event_id+occurrence_date], updated_at, deleted_at",
+      memoFolders: "id, name, sort_order, updated_at, deleted_at",
+      memos: "id, folder_id, title, is_pinned, updated_at, deleted_at",
+      focusSettings: "id, user_id, updated_at, deleted_at",
+      focusSessions: "id, mode, started_at, ended_at, linked_event_id, updated_at, deleted_at",
+      syncQueue: "id, table_name, record_id, queued_at"
+    });
   }
 }
 

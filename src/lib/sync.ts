@@ -12,7 +12,11 @@ const TABLES: Array<{ local: SyncTableName; remote: string }> = [
   { local: "courseSchedules", remote: "course_schedules" },
   { local: "courseCancellations", remote: "course_cancellations" },
   { local: "events", remote: "events" },
-  { local: "eventOccurrenceStates", remote: "event_occurrence_states" }
+  { local: "eventOccurrenceStates", remote: "event_occurrence_states" },
+  { local: "memoFolders", remote: "memo_folders" },
+  { local: "memos", remote: "memos" },
+  { local: "focusSettings", remote: "focus_settings" },
+  { local: "focusSessions", remote: "focus_sessions" }
 ];
 
 export interface SyncResult {
@@ -84,6 +88,33 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
   }
   if (table === "eventOccurrenceStates") {
     return { ...record, reminder_sent_at: record.reminder_sent_at ?? null };
+  }
+  if (table === "memos") {
+    return {
+      ...record,
+      folder_id: record.folder_id ?? null,
+      is_pinned: Boolean(record.is_pinned)
+    };
+  }
+  if (table === "focusSettings") {
+    return {
+      ...record,
+      pomodoro_minutes: Number(record.pomodoro_minutes ?? 25),
+      short_break_minutes: Number(record.short_break_minutes ?? 5),
+      countdown_minutes: Number(record.countdown_minutes ?? 30),
+      daily_goal_minutes: Number(record.daily_goal_minutes ?? 120),
+      sound_enabled: Boolean(record.sound_enabled)
+    };
+  }
+  if (table === "focusSessions") {
+    return {
+      ...record,
+      linked_event_id: record.linked_event_id ?? null,
+      planned_seconds: record.planned_seconds == null ? null : Number(record.planned_seconds),
+      duration_seconds: Number(record.duration_seconds ?? 0),
+      completed: Boolean(record.completed),
+      interrupted: Boolean(record.interrupted)
+    };
   }
   return record;
 }
