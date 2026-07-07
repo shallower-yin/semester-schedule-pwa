@@ -1,3 +1,4 @@
+import { useLiveQuery } from "dexie-react-hooks";
 import { FileSpreadsheet, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
@@ -31,10 +32,41 @@ interface ImportResult {
   skippedSchedules: number;
 }
 
+interface ImportPreviewConflict {
+  importedName: string;
+  existingName: string;
+  weekday: Weekday;
+  startPeriod: number;
+  endPeriod: number;
+  weeks: number[];
+}
+
+interface ImportPreview {
+  newCourseCount: number;
+  matchedCourseCount: number;
+  nameConflictCourseCount: number;
+  duplicateScheduleCount: number;
+  expandingScheduleCount: number;
+  timeConflictCount: number;
+  conflicts: ImportPreviewConflict[];
+}
+
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as Weekday[];
 type ImportMode = "merge" | "replace" | "append";
 
 export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetableImportDialogProps) {
+  const existingCourses = useLiveQuery(
+    () => db.courses.where("semester_id").equals(semester.id).filter((course) => !course.deleted_at).toArray(),
+    [semester.id]
+  ) ?? [];
+  const existingSchedules = useLiveQuery(
+    async () => {
+      if (!existingCourses.length) return [];
+      const courseIds = new Set(existingCourses.map((course) => course.id));
+      return db.courseSchedules.filter((schedule) => courseIds.has(schedule.course_id) && !schedule.deleted_at).toArray();
+    },
+    [existingCourses.map((course) => course.id).join(",")]
+  ) ?? [];
   const inputRef = useRef<HTMLInputElement>(null);
   const [timetable, setTimetable] = useState<ImportedTimetable | null>(null);
   const [message, setMessage] = useState("");
@@ -50,6 +82,10 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
     return new Set(timetable.schedules.map((schedule) => courseKey(schedule))).size;
   }, [timetable]);
   const maxWeek = useMemo(() => Math.max(semester.total_weeks, ...(timetable?.schedules.flatMap((schedule) => schedule.weeks) ?? [])), [semester.total_weeks, timetable]);
+  const importPreview = useMemo(
+    () => timetable ? buildTimetableImportPreview(timetable, existingCourses, existingSchedules) : null,
+    [existingCourses, existingSchedules, timetable]
+  );
 
   async function loadFiles(files?: FileList | null) {
     if (!files?.length) return;
@@ -162,6 +198,47 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
                 同步学期名称，并把总周数扩展到 {maxWeek} 周；第一周日期总会按上方设置更新
               </label>
             </div>
+            {importPreview && (
+              <div className="import-preview-summary">
+                <article>
+                  <strong>{importPreview.newCourseCount}</strong>
+                  <span>新增课程</span>
+                </article>
+                <article>
+                  <strong>{importPreview.matchedCourseCount}</strong>
+                  <span>匹配已有</span>
+                </article>
+                <article>
+                  <strong>{importPreview.expandingScheduleCount}</strong>
+                  <span>扩展周数</span>
+                </article>
+                <article>
+                  <strong>{importPreview.duplicateScheduleCount}</strong>
+                  <span>重复跳过</span>
+                </article>
+                <article className={importPreview.timeConflictCount ? "warning" : ""}>
+                  <strong>{importPreview.timeConflictCount}</strong>
+                  <span>时间冲突</span>
+                </article>
+              </div>
+            )}
+            {importPreview && (importPreview.nameConflictCourseCount > 0 || importPreview.timeConflictCount > 0 || (importMode === "append" && importPreview.duplicateScheduleCount > 0)) && (
+              <div className="import-conflict-panel">
+                {importPreview.nameConflictCourseCount > 0 && <p>有 {importPreview.nameConflictCourseCount} 门导入课程与现有课程同名但教室不同，导入前建议核对。</p>}
+                {importMode === "append" && importPreview.duplicateScheduleCount > 0 && <p>当前为追加模式，检测到的重复安排也会作为新课程/新安排写入。</p>}
+                {importPreview.conflicts.length > 0 && (
+                  <>
+                    <strong>可能冲突的已有课程</strong>
+                    {importPreview.conflicts.slice(0, 5).map((conflict) => (
+                      <span key={`${conflict.importedName}-${conflict.existingName}-${conflict.weekday}-${conflict.startPeriod}`}>
+                        {conflict.importedName} 与 {conflict.existingName}：周{conflict.weekday} 第{conflict.startPeriod}-{conflict.endPeriod}节，{formatWeeks(conflict.weeks)}
+                      </span>
+                    ))}
+                    {importPreview.conflicts.length > 5 && <span>还有 {importPreview.conflicts.length - 5} 条冲突未显示。</span>}
+                  </>
+                )}
+              </div>
+            )}
             <div className="import-preview-list">
               {timetable.schedules.slice(0, 6).map((schedule, index) => (
                 <div key={`${schedule.name}-${schedule.teacher}-${schedule.weekday}-${schedule.startPeriod}-${index}`}>
@@ -190,6 +267,104 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
       </div>
     </Modal>
   );
+}
+
+export function buildTimetableImportPreview(
+  timetable: ImportedTimetable,
+  existingCourses: Course[],
+  existingSchedules: CourseSchedule[]
+): ImportPreview {
+  const activeCourses = existingCourses.filter((course) => !course.deleted_at);
+  const activeSchedules = existingSchedules.filter((schedule) => !schedule.deleted_at);
+  const courseById = new Map(activeCourses.map((course) => [course.id, course]));
+  const courseByKey = new Map(activeCourses.map((course) => [courseKey(course), course]));
+  const coursesByName = new Map<string, Course[]>();
+  for (const course of activeCourses) {
+    coursesByName.set(course.name, [...(coursesByName.get(course.name) ?? []), course]);
+  }
+  const schedulesByCourseId = new Map<string, CourseSchedule[]>();
+  for (const schedule of activeSchedules) {
+    schedulesByCourseId.set(schedule.course_id, [...(schedulesByCourseId.get(schedule.course_id) ?? []), schedule]);
+  }
+
+  const importedGroups = new Map<string, { name: string; classroom: string; schedules: ImportedCourseSchedule[]; scheduleKeys: Set<string> }>();
+  for (const schedule of timetable.schedules) {
+    const key = courseKey(schedule);
+    const group = importedGroups.get(key) ?? { name: schedule.name, classroom: schedule.classroom, schedules: [], scheduleKeys: new Set<string>() };
+    const keyForSchedule = `${schedule.weekday}\u0001${schedule.startPeriod}\u0001${schedule.endPeriod}`;
+    const existingIndex = group.schedules.findIndex((item) => `${item.weekday}\u0001${item.startPeriod}\u0001${item.endPeriod}` === keyForSchedule);
+    if (existingIndex >= 0) {
+      group.schedules[existingIndex] = {
+        ...group.schedules[existingIndex],
+        weeks: mergeWeeks(group.schedules[existingIndex].weeks, schedule.weeks)
+      };
+    } else {
+      group.schedules.push({ ...schedule, weeks: [...schedule.weeks] });
+    }
+    group.scheduleKeys.add(keyForSchedule);
+    importedGroups.set(key, group);
+  }
+
+  let newCourseCount = 0;
+  let matchedCourseCount = 0;
+  let nameConflictCourseCount = 0;
+  let duplicateScheduleCount = 0;
+  let expandingScheduleCount = 0;
+  const conflicts = new Map<string, ImportPreviewConflict>();
+
+  for (const [groupKey, group] of importedGroups) {
+    const matchedCourse = courseByKey.get(groupKey);
+    if (matchedCourse) matchedCourseCount += 1;
+    else {
+      newCourseCount += 1;
+      if ((coursesByName.get(group.name) ?? []).some((course) => course.classroom !== group.classroom)) {
+        nameConflictCourseCount += 1;
+      }
+    }
+
+    if (matchedCourse) {
+      const matchedSchedules = schedulesByCourseId.get(matchedCourse.id) ?? [];
+      for (const schedule of group.schedules) {
+        const existingSchedule = matchedSchedules.find(
+          (item) => item.weekday === schedule.weekday && item.start_period === schedule.startPeriod && item.end_period === schedule.endPeriod
+        );
+        if (!existingSchedule) continue;
+        const mergedWeeks = mergeWeeks(existingSchedule.weeks, schedule.weeks);
+        if (sameWeeks(existingSchedule.weeks, mergedWeeks)) duplicateScheduleCount += 1;
+        else expandingScheduleCount += 1;
+      }
+    }
+
+    for (const schedule of group.schedules) {
+      for (const existingSchedule of activeSchedules) {
+        const existingCourse = courseById.get(existingSchedule.course_id);
+        if (!existingCourse || courseKey(existingCourse) === groupKey) continue;
+        if (existingSchedule.weekday !== schedule.weekday) continue;
+        if (!periodsOverlap(existingSchedule.start_period, existingSchedule.end_period, schedule.startPeriod, schedule.endPeriod)) continue;
+        const overlappingWeeks = schedule.weeks.filter((week) => existingSchedule.weeks.includes(week));
+        if (!overlappingWeeks.length) continue;
+        const conflictKey = `${group.name}\u0001${existingCourse.name}\u0001${schedule.weekday}\u0001${schedule.startPeriod}\u0001${existingSchedule.id}`;
+        conflicts.set(conflictKey, {
+          importedName: group.name,
+          existingName: existingCourse.name,
+          weekday: schedule.weekday,
+          startPeriod: Math.max(existingSchedule.start_period, schedule.startPeriod),
+          endPeriod: Math.min(existingSchedule.end_period, schedule.endPeriod),
+          weeks: overlappingWeeks
+        });
+      }
+    }
+  }
+
+  return {
+    newCourseCount,
+    matchedCourseCount,
+    nameConflictCourseCount,
+    duplicateScheduleCount,
+    expandingScheduleCount,
+    timeConflictCount: conflicts.size,
+    conflicts: Array.from(conflicts.values())
+  };
 }
 
 export async function applyTimetableImport(
@@ -465,6 +640,10 @@ function mergeTeacherText(left: string, right: string): string {
 function sameWeeks(left: number[], right: number[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((week, index) => week === right[index]);
+}
+
+function periodsOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number): boolean {
+  return leftStart <= rightEnd && rightStart <= leftEnd;
 }
 
 function formatWeeks(weeks: number[]): string {

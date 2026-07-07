@@ -645,6 +645,7 @@ export default function App() {
           initialEndTime={eventDraft?.end}
           initialAllDay={eventDraft?.allDay}
           ownerId={ownerId}
+          occurrenceStates={occurrenceStates}
           onClose={() => {
             setEventDraft(null);
             setEventToEdit(undefined);

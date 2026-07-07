@@ -1,0 +1,63 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { db } from "../db";
+import { setCurrentUserId, syncFields } from "../lib/identity";
+import type { Memo } from "../types";
+import { MemoPage } from "./MemoPage";
+
+describe("备忘录视图", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    setCurrentUserId("local");
+    await db.memoFolders.clear();
+    await db.memos.clear();
+    await db.syncQueue.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("可以在列表和九宫格之间切换，并按九条备忘录分页", async () => {
+    await db.memos.bulkAdd(Array.from({ length: 10 }, (_, index) => memoRecord(index + 1)));
+
+    render(<MemoPage ownerId="local" />);
+
+    await waitFor(() => expect(screen.getByText("备忘录 10")).toBeInTheDocument());
+
+    const gridButton = screen.getByRole("button", { name: /九宫格/ });
+    expect(gridButton).not.toBeDisabled();
+    fireEvent.click(gridButton);
+
+    expect(screen.getByText("九宫格 1 / 2")).toBeInTheDocument();
+    const grid = screen.getByRole("list", { name: "九宫格备忘录" });
+    expect(within(grid).getAllByRole("listitem")).toHaveLength(9);
+    expect(within(grid).getByText("备忘录 10")).toBeInTheDocument();
+    expect(within(grid).queryByText("备忘录 1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一组" }));
+
+    expect(screen.getByText("九宫格 2 / 2")).toBeInTheDocument();
+    expect(within(grid).getByText("备忘录 1")).toBeInTheDocument();
+    expect(within(grid).getAllByRole("button", { name: /新增备忘录/ })).toHaveLength(8);
+
+    fireEvent.change(screen.getByPlaceholderText("搜索备忘录"), { target: { value: "10" } });
+
+    expect(screen.getByText("九宫格 1 / 1")).toBeInTheDocument();
+    expect(within(grid).getByText("备忘录 10")).toBeInTheDocument();
+  });
+});
+
+function memoRecord(index: number): Memo {
+  const day = String(index).padStart(2, "0");
+  return {
+    ...syncFields(),
+    id: `memo-${index}`,
+    created_at: `2026-07-${day}T08:00:00.000Z`,
+    updated_at: `2026-07-${day}T09:00:00.000Z`,
+    folder_id: null,
+    title: `备忘录 ${index}`,
+    content: `第 ${index} 条备忘录正文`,
+    is_pinned: false
+  };
+}

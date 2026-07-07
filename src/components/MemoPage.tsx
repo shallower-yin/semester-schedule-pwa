@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { FileText, Folder, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { FileText, Folder, Grid3X3, List, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
@@ -12,6 +12,8 @@ interface MemoPageProps {
 }
 
 type FolderFilter = "all" | "trash" | string;
+type MemoViewMode = "list" | "grid";
+const GRID_PAGE_SIZE = 9;
 
 export function MemoPage({ ownerId }: MemoPageProps) {
   const folders = useLiveQuery(
@@ -24,6 +26,8 @@ export function MemoPage({ ownerId }: MemoPageProps) {
   ) ?? [];
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FolderFilter>("all");
+  const [viewMode, setViewMode] = useState<MemoViewMode>("list");
+  const [gridPage, setGridPage] = useState(0);
   const [memoToEdit, setMemoToEdit] = useState<Memo | null | undefined>(undefined);
   const [message, setMessage] = useState("");
 
@@ -44,6 +48,25 @@ export function MemoPage({ ownerId }: MemoPageProps) {
 
   const activeMemoCount = memos.filter((memo) => !memo.deleted_at).length;
   const trashMemoCount = memos.filter((memo) => memo.deleted_at).length;
+  const gridPageCount = Math.max(1, Math.ceil(visibleMemos.length / GRID_PAGE_SIZE));
+  const activeGridPage = Math.min(gridPage, gridPageCount - 1);
+  const gridMemos = visibleMemos.slice(activeGridPage * GRID_PAGE_SIZE, activeGridPage * GRID_PAGE_SIZE + GRID_PAGE_SIZE);
+  const emptyGridSlots = filter === "trash" ? 0 : GRID_PAGE_SIZE - gridMemos.length;
+
+  function selectFilter(nextFilter: FolderFilter) {
+    setFilter(nextFilter);
+    setGridPage(0);
+  }
+
+  function selectViewMode(nextMode: MemoViewMode) {
+    setViewMode(nextMode);
+    setGridPage(0);
+  }
+
+  function updateQuery(nextQuery: string) {
+    setQuery(nextQuery);
+    setGridPage(0);
+  }
 
   async function addFolder() {
     const name = window.prompt("文件夹名称");
@@ -55,7 +78,7 @@ export function MemoPage({ ownerId }: MemoPageProps) {
     };
     await db.memoFolders.put(folder);
     await queueChange("memoFolders", folder.id);
-    setFilter(folder.id);
+    selectFilter(folder.id);
   }
 
   async function removeFolder(folder: MemoFolder) {
@@ -71,7 +94,7 @@ export function MemoPage({ ownerId }: MemoPageProps) {
         await queueChange("memos", updated.id);
       }
     });
-    setFilter("all");
+    selectFilter("all");
   }
 
   async function renameFolder(folder: MemoFolder) {
@@ -130,14 +153,29 @@ export function MemoPage({ ownerId }: MemoPageProps) {
       <aside className="memo-sidebar">
         <div className="memo-search">
           <Search size={17} />
-          <input placeholder="搜索备忘录" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input placeholder="搜索备忘录" value={query} onChange={(event) => updateQuery(event.target.value)} />
         </div>
         <div className="memo-sidebar-section">
-          <span>展示列表</span>
+          <span>展示视图</span>
           <div className="memo-view-toggle">
-            <button disabled>视图</button>
-            <button className="active">列表</button>
-            <button disabled>九宫格</button>
+            <button
+              type="button"
+              className={viewMode === "list" ? "active" : ""}
+              aria-pressed={viewMode === "list"}
+              onClick={() => selectViewMode("list")}
+              title="列表视图"
+            >
+              <List size={15} />列表
+            </button>
+            <button
+              type="button"
+              className={viewMode === "grid" ? "active" : ""}
+              aria-pressed={viewMode === "grid"}
+              onClick={() => selectViewMode("grid")}
+              title="九宫格视图"
+            >
+              <Grid3X3 size={15} />九宫格
+            </button>
           </div>
         </div>
         <div className="memo-sidebar-section">
@@ -145,11 +183,11 @@ export function MemoPage({ ownerId }: MemoPageProps) {
             <span>文件夹</span>
             <button className="text-button" onClick={() => void addFolder()}><Plus size={14} />添加</button>
           </div>
-          <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>
+          <button className={filter === "all" ? "active" : ""} onClick={() => selectFilter("all")}>
             <FileText size={18} /><span>全部</span><small>{activeMemoCount}</small>
           </button>
           {folders.map((folder) => (
-            <button key={folder.id} className={filter === folder.id ? "active" : ""} onClick={() => setFilter(folder.id)}>
+            <button key={folder.id} className={filter === folder.id ? "active" : ""} onClick={() => selectFilter(folder.id)}>
               <Folder size={18} /><span>{folder.name}</span>
               <small>{memos.filter((memo) => !memo.deleted_at && memo.folder_id === folder.id).length}</small>
               <span
@@ -177,7 +215,7 @@ export function MemoPage({ ownerId }: MemoPageProps) {
               </span>
             </button>
           ))}
-          <button className={filter === "trash" ? "active" : ""} onClick={() => setFilter("trash")}>
+          <button className={filter === "trash" ? "active" : ""} onClick={() => selectFilter("trash")}>
             <Trash2 size={18} /><span>回收站</span><small>{trashMemoCount}</small>
           </button>
         </div>
@@ -196,37 +234,64 @@ export function MemoPage({ ownerId }: MemoPageProps) {
         </div>
         {message && <p className="status-message memo-status">{message}</p>}
         {visibleMemos.length ? (
-          <div className="memo-list">
-            {visibleMemos.map((memo) => (
-              <article className="memo-card" key={memo.id} onClick={() => !memo.deleted_at && setMemoToEdit(memo)}>
-                <time>{memo.updated_at.slice(0, 10).replaceAll("-", "/")}</time>
-                <h2>{memo.title}</h2>
-                <p>{memo.content || "无正文"}</p>
-                {memo.deleted_at ? (
-                  <div className="memo-card-actions">
-                    <button
-                      className="button secondary compact"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void restoreMemo(memo);
-                      }}
-                    >
-                      <RotateCcw size={15} />恢复
-                    </button>
-                    <button
-                      className="button danger-button compact"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void permanentlyDeleteMemo(memo);
-                      }}
-                    >
-                      <Trash2 size={15} />彻底删除
+          viewMode === "grid" ? (
+            <>
+              <div className="memo-grid-toolbar">
+                <span>九宫格 {activeGridPage + 1} / {gridPageCount}</span>
+                <div className="inline-actions">
+                  <button
+                    type="button"
+                    className="button secondary compact"
+                    disabled={activeGridPage === 0}
+                    onClick={() => setGridPage((page) => Math.max(0, page - 1))}
+                  >
+                    上一组
+                  </button>
+                  <button
+                    type="button"
+                    className="button secondary compact"
+                    disabled={activeGridPage >= gridPageCount - 1}
+                    onClick={() => setGridPage((page) => Math.min(gridPageCount - 1, page + 1))}
+                  >
+                    下一组
+                  </button>
+                </div>
+              </div>
+              <div className="memo-grid" role="list" aria-label="九宫格备忘录">
+                {gridMemos.map((memo) => (
+                  <MemoCard
+                    key={memo.id}
+                    memo={memo}
+                    mode="grid"
+                    onEdit={setMemoToEdit}
+                    onRestore={restoreMemo}
+                    onDelete={permanentlyDeleteMemo}
+                  />
+                ))}
+                {Array.from({ length: emptyGridSlots }, (_, index) => (
+                  <div className="memo-grid-empty" key={`empty-${activeGridPage}-${index}`} role="listitem">
+                    <button type="button" onClick={() => setMemoToEdit(null)}>
+                      <Plus size={18} />
+                      <span>新增备忘录</span>
                     </button>
                   </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="memo-list" role="list" aria-label="备忘录列表">
+              {visibleMemos.map((memo) => (
+                <MemoCard
+                  key={memo.id}
+                  memo={memo}
+                  mode="list"
+                  onEdit={setMemoToEdit}
+                  onRestore={restoreMemo}
+                  onDelete={permanentlyDeleteMemo}
+                />
+              ))}
+            </div>
+          )
         ) : (
           <div className="empty-state compact-empty">
             <FileText size={34} />
@@ -245,6 +310,53 @@ export function MemoPage({ ownerId }: MemoPageProps) {
         />
       )}
     </section>
+  );
+}
+
+interface MemoCardProps {
+  memo: Memo;
+  mode: MemoViewMode;
+  onEdit: (memo: Memo) => void;
+  onRestore: (memo: Memo) => Promise<void>;
+  onDelete: (memo: Memo) => Promise<void>;
+}
+
+function MemoCard({ memo, mode, onEdit, onRestore, onDelete }: MemoCardProps) {
+  return (
+    <article
+      className={`memo-card ${mode === "grid" ? "memo-card-grid" : ""}`}
+      role="listitem"
+      onClick={() => !memo.deleted_at && onEdit(memo)}
+    >
+      <div className="memo-card-topline">
+        <time>{memo.updated_at.slice(0, 10).replaceAll("-", "/")}</time>
+        {memo.is_pinned && <span className="memo-pin"><Pin size={13} />置顶</span>}
+      </div>
+      <h2>{memo.title}</h2>
+      <p>{memo.content || "无正文"}</p>
+      {memo.deleted_at ? (
+        <div className="memo-card-actions">
+          <button
+            className="button secondary compact"
+            onClick={(event) => {
+              event.stopPropagation();
+              void onRestore(memo);
+            }}
+          >
+            <RotateCcw size={15} />恢复
+          </button>
+          <button
+            className="button danger-button compact"
+            onClick={(event) => {
+              event.stopPropagation();
+              void onDelete(memo);
+            }}
+          >
+            <Trash2 size={15} />彻底删除
+          </button>
+        </div>
+      ) : null}
+    </article>
   );
 }
 

@@ -1,12 +1,14 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BellRing, Copy } from "lucide-react";
+import { BellRing, CalendarCheck, Copy } from "lucide-react";
 import { useState } from "react";
 import { db, queueChange } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
+import { parseLocalDate, toISODate } from "../lib/date";
+import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { validateEventDraft } from "../lib/eventValidation";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
-import type { EventItem } from "../types";
+import type { EventItem, EventOccurrenceState } from "../types";
 import { Modal } from "./Modal";
 
 interface EventDialogProps {
@@ -16,10 +18,11 @@ interface EventDialogProps {
   initialEndTime?: string;
   initialAllDay?: boolean;
   ownerId: string;
+  occurrenceStates: EventOccurrenceState[];
   onClose: () => void;
 }
 
-export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, ownerId, onClose }: EventDialogProps) {
+export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, ownerId, occurrenceStates, onClose }: EventDialogProps) {
   const categories = uniqueCategoriesByName(
     useLiveQuery(
       () => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
@@ -40,8 +43,18 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [reminderMinutes, setReminderMinutes] = useState(eventItem?.reminder_minutes_before ?? 10);
   const [reminderMessage, setReminderMessage] = useState("");
   const [validationMessage, setValidationMessage] = useState("");
+  const [completionMessage, setCompletionMessage] = useState("");
   const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
+  const todayCompletion = eventItem ? eventCompletionForDate(eventItem, occurrenceStates, new Date()) : null;
+  const reminderSummary = reminderEnabled
+    ? `${formatReminderLead(reminderMinutes)}提醒，预计 ${formatReminderPreview(date, allDay, startTime, reminderMinutes)} 触发。`
+    : "未开启提醒，保存后不会发送本地提醒或系统推送。";
+  const reminderModeDetail = reminderEnabled
+    ? ownerId === "local"
+      ? "当前为本地数据：应用打开时会检查提醒；登录并完成系统提醒订阅后，可在应用关闭时接收推送。"
+      : "应用打开时会本地检查；账号与同步中的系统提醒订阅可让应用关闭后也由云端推送。"
+    : "";
 
   async function toggleReminder(enabled: boolean) {
     setReminderMessage("");
@@ -138,6 +151,14 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     onClose();
   }
 
+  async function setTodayCompleted(completed: boolean) {
+    if (!eventItem || !todayCompletion?.occurs) return;
+    const record = buildEventCompletionRecord(eventItem, todayCompletion.occurrenceDate, completed, todayCompletion.state);
+    await db.eventOccurrenceStates.put(record);
+    await queueChange("eventOccurrenceStates", record.id);
+    setCompletionMessage(completed ? "已标记今天完成。" : "已标记今天未完成。");
+  }
+
   return (
     <Modal title={eventItem ? "编辑事项" : "新增事项"} onClose={onClose}>
       <form className="form-stack" onSubmit={save}>
@@ -166,6 +187,27 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </select>
         </label>
         {recurrence === "weekly" && <label>重复截止日期<input type="date" min={date} value={recurrenceUntil} onChange={(event) => setRecurrenceUntil(event.target.value)} /></label>}
+        {eventItem && todayCompletion && (
+          <section className="event-completion-editor">
+            <div>
+              <strong><CalendarCheck size={17} />今日状态</strong>
+              <span>
+                {todayCompletion.occurs
+                  ? `今天 ${todayCompletion.occurrenceDate} ${todayCompletion.completed ? "已完成" : "未完成"}`
+                  : `今天 ${todayCompletion.occurrenceDate} 没有这一事项`}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="button secondary compact"
+              disabled={!todayCompletion.occurs}
+              onClick={() => void setTodayCompleted(!todayCompletion.completed)}
+            >
+              {todayCompletion.completed ? "标记今天未完成" : "标记今天完成"}
+            </button>
+            {completionMessage && <p>{completionMessage}</p>}
+          </section>
+        )}
         <section className="reminder-editor">
           <label className="checkbox-label">
             <input type="checkbox" checked={reminderEnabled} onChange={(event) => void toggleReminder(event.target.checked)} />
@@ -185,9 +227,10 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
               </select>
             </label>
           )}
-          {reminderEnabled && !reminderMessage && (
-            <p>应用打开时每 30 秒检查；应用关闭后由云端约每 5 分钟检查一次。</p>
-          )}
+          <p className={reminderEnabled ? "reminder-status active" : "reminder-status"}>
+            <strong>{reminderEnabled ? "提醒已开启" : "提醒未开启"}</strong>
+            <span>{reminderSummary}{reminderModeDetail ? ` ${reminderModeDetail}` : ""}</span>
+          </p>
           {reminderMessage && <p>{reminderMessage}</p>}
         </section>
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
@@ -207,4 +250,19 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       </form>
     </Modal>
   );
+}
+
+function formatReminderLead(minutes: number): string {
+  if (minutes === 0) return "开始时";
+  if (minutes === 1440) return "提前 1 天";
+  if (minutes >= 60 && minutes % 60 === 0) return `提前 ${minutes / 60} 小时`;
+  return `提前 ${minutes} 分钟`;
+}
+
+function formatReminderPreview(date: string, allDay: boolean, startTime: string, minutesBefore: number): string {
+  const [hour, minute] = (allDay ? "09:00" : startTime).split(":").map(Number);
+  const triggerAt = parseLocalDate(date);
+  triggerAt.setHours(hour, minute, 0, 0);
+  triggerAt.setMinutes(triggerAt.getMinutes() - minutesBefore);
+  return `${toISODate(triggerAt)} ${String(triggerAt.getHours()).padStart(2, "0")}:${String(triggerAt.getMinutes()).padStart(2, "0")}`;
 }

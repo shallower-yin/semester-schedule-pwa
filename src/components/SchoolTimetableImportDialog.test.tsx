@@ -3,7 +3,7 @@ import { db } from "../db";
 import { setCurrentUserId, syncFields } from "../lib/identity";
 import type { ImportedCourseSchedule, ImportedTimetable } from "../lib/schoolTimetableImport";
 import type { Course, CourseSchedule, Semester } from "../types";
-import { applyTimetableImport, buildClassPeriodBlocks, groupCourses } from "./SchoolTimetableImportDialog";
+import { applyTimetableImport, buildClassPeriodBlocks, buildTimetableImportPreview, groupCourses } from "./SchoolTimetableImportDialog";
 
 describe("教务课表导入写入规则", () => {
   beforeEach(async () => {
@@ -167,5 +167,86 @@ describe("教务课表导入写入规则", () => {
     expect(activeCourses[0].teacher).toBe("旧老师,新老师");
     expect(activeSchedules).toHaveLength(2);
     expect(activeSchedules.find((item) => item.id === "schedule-1")?.weeks).toEqual([1, 2]);
+  });
+
+  it("导入预览提示已有课程和时间冲突", () => {
+    const existingCourses: Course[] = [
+      {
+        ...syncFields(),
+        id: "course-existing",
+        semester_id: "semester-1",
+        name: "数学",
+        teacher: "王老师",
+        classroom: "A101",
+        color: "#3157d5",
+        note: ""
+      },
+      {
+        ...syncFields(),
+        id: "course-conflict",
+        semester_id: "semester-1",
+        name: "物理",
+        teacher: "李老师",
+        classroom: "B201",
+        color: "#e36b32",
+        note: ""
+      }
+    ];
+    const existingSchedules: CourseSchedule[] = [
+      { ...syncFields(), id: "schedule-existing", course_id: "course-existing", weekday: 1, start_period: 1, end_period: 2, weeks: [1, 2] },
+      { ...syncFields(), id: "schedule-conflict", course_id: "course-conflict", weekday: 1, start_period: 3, end_period: 4, weeks: [2] }
+    ];
+    const timetable: ImportedTimetable = {
+      sourceName: "sheet001.htm",
+      extractorName: "天津大学课表提取器",
+      parseMode: "task-activity",
+      isFrameFile: false,
+      termName: "2026春",
+      studentId: null,
+      studentName: null,
+      className: null,
+      totalCredits: null,
+      periods: [],
+      warnings: [],
+      schedules: [
+        {
+          name: "数学",
+          teacher: "新老师",
+          classroom: "A101",
+          weekday: 1,
+          startPeriod: 1,
+          endPeriod: 2,
+          weeks: [1, 2],
+          rawText: ""
+        },
+        {
+          name: "数学",
+          teacher: "新老师",
+          classroom: "A202",
+          weekday: 1,
+          startPeriod: 3,
+          endPeriod: 4,
+          weeks: [2],
+          rawText: ""
+        }
+      ]
+    };
+
+    const preview = buildTimetableImportPreview(timetable, existingCourses, existingSchedules);
+
+    expect(preview).toMatchObject({
+      matchedCourseCount: 1,
+      newCourseCount: 1,
+      nameConflictCourseCount: 1,
+      duplicateScheduleCount: 1,
+      expandingScheduleCount: 0,
+      timeConflictCount: 1
+    });
+    expect(preview.conflicts[0]).toMatchObject({
+      importedName: "数学",
+      existingName: "物理",
+      weekday: 1,
+      weeks: [2]
+    });
   });
 });

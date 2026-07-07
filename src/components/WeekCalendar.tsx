@@ -1,5 +1,5 @@
 import { Ban, Bell, BookOpen, Check, Coffee, Users } from "lucide-react";
-import type { TouchEvent } from "react";
+import type { PointerEvent, TouchEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { db, queueChange } from "../db";
@@ -10,6 +10,7 @@ import {
   formatMonthDay,
   toISODate
 } from "../lib/date";
+import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { eventOccurrenceMatchesStatus, type EventStatusFilter } from "../lib/eventStatusFilter";
 import { syncFields } from "../lib/identity";
 import { buildDisplayRows, rowRangeForTime } from "../lib/timeBlocks";
@@ -53,6 +54,9 @@ const CATEGORY_ICONS = {
 export function WeekCalendar(props: WeekCalendarProps) {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const quickAddTimer = useRef<number | null>(null);
+  const quickAddOrigin = useRef<{ x: number; y: number } | null>(null);
+  const suppressNextBlankClick = useRef(false);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 900px)");
     const update = () => setIsMobile(media.matches);
@@ -91,19 +95,51 @@ export function WeekCalendar(props: WeekCalendarProps) {
   }
 
   async function toggleCompleted(eventItem: EventItem, date: Date) {
-    const occurrenceDate = toISODate(date);
-    const existing = props.occurrenceStates.find(
-      (state) => state.event_id === eventItem.id && state.occurrence_date === occurrenceDate && !state.deleted_at
-    );
-    const record: EventOccurrenceState = {
-      ...syncFields(existing),
-      event_id: eventItem.id,
-      occurrence_date: occurrenceDate,
-      completed: !existing?.completed,
-      reminder_sent_at: existing?.reminder_sent_at ?? null
-    };
+    const completion = eventCompletionForDate(eventItem, props.occurrenceStates, date);
+    const record = buildEventCompletionRecord(eventItem, completion.occurrenceDate, !completion.completed, completion.state);
     await db.eventOccurrenceStates.put(record);
     await queueChange("eventOccurrenceStates", record.id);
+  }
+
+  function clearQuickAddTimer() {
+    if (quickAddTimer.current !== null) {
+      window.clearTimeout(quickAddTimer.current);
+      quickAddTimer.current = null;
+    }
+    quickAddOrigin.current = null;
+  }
+
+  function openBlankSlot(dateText: string, start: string, end: string, allDay = false) {
+    if (allDay) props.onAddEvent(dateText, start, end, true);
+    else props.onAddEvent(dateText, start, end);
+  }
+
+  function handleBlankCellClick(dateText: string, start: string, end: string, allDay = false) {
+    if (suppressNextBlankClick.current) {
+      suppressNextBlankClick.current = false;
+      return;
+    }
+    openBlankSlot(dateText, start, end, allDay);
+  }
+
+  function startQuickAdd(event: PointerEvent<HTMLButtonElement>, dateText: string, start: string, end: string, allDay = false) {
+    if (!isMobile || event.pointerType === "mouse") return;
+    clearQuickAddTimer();
+    quickAddOrigin.current = { x: event.clientX, y: event.clientY };
+    quickAddTimer.current = window.setTimeout(() => {
+      quickAddTimer.current = null;
+      quickAddOrigin.current = null;
+      suppressNextBlankClick.current = true;
+      navigator.vibrate?.(8);
+      openBlankSlot(dateText, start, end, allDay);
+    }, 520);
+  }
+
+  function moveQuickAdd(event: PointerEvent<HTMLButtonElement>) {
+    if (!quickAddOrigin.current) return;
+    const deltaX = Math.abs(event.clientX - quickAddOrigin.current.x);
+    const deltaY = Math.abs(event.clientY - quickAddOrigin.current.y);
+    if (Math.max(deltaX, deltaY) > 12) clearQuickAddTimer();
   }
 
   function moveSelectedDay(direction: number) {
@@ -171,15 +207,24 @@ export function WeekCalendar(props: WeekCalendarProps) {
         ))}
 
         <div className="time-label all-day-label"><strong>全天</strong></div>
-        {props.dates.map((date, dayIndex) => (
-          <button
-            key={`all-day-${toISODate(date)}`}
-            className={`calendar-cell all-day-cell day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${dateIsToday(date) ? "today" : ""}`}
-            style={{ gridColumn: dayIndex + 2, gridRow: 2 }}
-            onClick={() => props.onAddEvent(toISODate(date), "09:00", "10:00", true)}
-            aria-label={`${formatMonthDay(date)}新增全天事项`}
-          />
-        ))}
+        {props.dates.map((date, dayIndex) => {
+          const dateText = toISODate(date);
+          return (
+            <button
+              key={`all-day-${dateText}`}
+              className={`calendar-cell all-day-cell day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${dateIsToday(date) ? "today" : ""}`}
+              style={{ gridColumn: dayIndex + 2, gridRow: 2 }}
+              onClick={() => handleBlankCellClick(dateText, "09:00", "10:00", true)}
+              onPointerDown={(event) => startQuickAdd(event, dateText, "09:00", "10:00", true)}
+              onPointerMove={moveQuickAdd}
+              onPointerUp={clearQuickAddTimer}
+              onPointerCancel={clearQuickAddTimer}
+              onPointerLeave={clearQuickAddTimer}
+              aria-label={`${formatMonthDay(date)}新增全天事项`}
+              title="点击新增，长按快速新增"
+            />
+          );
+        })}
 
         {displayRows.map((row, rowIndex) => (
           <div key={`label-${row.key}`} className={`time-label ${row.kind === "break" ? "break-label" : ""}`} style={{ gridColumn: 1, gridRow: rowIndex + 3 }}>
@@ -189,15 +234,24 @@ export function WeekCalendar(props: WeekCalendarProps) {
         ))}
 
         {props.dates.flatMap((date, dayIndex) =>
-          displayRows.map((row, rowIndex) => (
-            <button
-              key={`${toISODate(date)}-${row.key}`}
-              className={`calendar-cell day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${row.kind === "break" ? "break-cell" : ""} ${dateIsToday(date) ? "today" : ""}`}
-              style={{ gridColumn: dayIndex + 2, gridRow: rowIndex + 3 }}
-              onClick={() => props.onAddEvent(toISODate(date), row.startTime, row.endTime)}
-              aria-label={`${formatMonthDay(date)} ${row.name}新增事项`}
-            />
-          ))
+          displayRows.map((row, rowIndex) => {
+            const dateText = toISODate(date);
+            return (
+              <button
+                key={`${dateText}-${row.key}`}
+                className={`calendar-cell day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${row.kind === "break" ? "break-cell" : ""} ${dateIsToday(date) ? "today" : ""}`}
+                style={{ gridColumn: dayIndex + 2, gridRow: rowIndex + 3 }}
+                onClick={() => handleBlankCellClick(dateText, row.startTime, row.endTime)}
+                onPointerDown={(event) => startQuickAdd(event, dateText, row.startTime, row.endTime)}
+                onPointerMove={moveQuickAdd}
+                onPointerUp={clearQuickAddTimer}
+                onPointerCancel={clearQuickAddTimer}
+                onPointerLeave={clearQuickAddTimer}
+                aria-label={`${formatMonthDay(date)} ${row.name}新增事项`}
+                title="点击新增，长按快速新增"
+              />
+            );
+          })
         )}
 
         {props.dates.flatMap((date, dayIndex) => {
@@ -251,10 +305,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
             if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return [];
             const category = eventItem.category_id ? categoryMap.get(eventItem.category_id) : undefined;
             const Icon = category ? CATEGORY_ICONS[category.icon as keyof typeof CATEGORY_ICONS] ?? Bell : Bell;
-            const occurrenceState = props.occurrenceStates.find(
-              (state) => state.event_id === eventItem.id && state.occurrence_date === toISODate(date) && !state.deleted_at
-            );
-            const completed = occurrenceState?.completed ?? false;
+            const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
             if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return [];
             const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
             return (

@@ -172,10 +172,71 @@ describe("首页日程概览", () => {
     expect(overview.todayEventCount).toBe(2);
     expect(overview.todayIncompleteEventCount).toBe(1);
     expect(overview.todayCompletedEventCount).toBe(1);
+    expect(overview.weekEventCount).toBe(2);
+    expect(overview.weekCompletedEventCount).toBe(1);
+    expect(overview.weekCompletionRate).toBe(50);
     expect(overview.todayFocusSeconds).toBe(1500);
     expect(overview.weekFocusSeconds).toBe(2100);
     expect(overview.upcomingItems.map((item) => item.title)).toEqual(["背单词", "数学", "提交作业"]);
     expect(overview.upcomingItems.find((item) => item.title === "数学")?.targetId).toBe("course-1");
     expect(overview.upcomingItems.find((item) => item.title === "提交作业")?.targetId).toBe("event-2");
+    expect(overview.weekFocusTrend.map((item) => item.totalSeconds)).toEqual([1500, 600, 0, 0, 0, 0, 0]);
+    expect(overview.weekFocusTrend[0]).toMatchObject({ date: "2026-03-02", isToday: true });
+    expect(overview.overdueIncompleteItems).toEqual([]);
+  });
+
+  it("列出最近逾期未完成事项", () => {
+    const events: EventItem[] = [
+      {
+        ...baseFields,
+        id: "event-overdue",
+        title: "补交材料",
+        start_date: "2026-03-04",
+        start_time: "18:00",
+        end_date: "2026-03-04",
+        end_time: "18:00",
+        all_day: false,
+        category_id: null,
+        color: "#e36b32",
+        note: "",
+        recurrence_type: "none",
+        recurrence_until: null,
+        reminder_enabled: false,
+        reminder_minutes_before: 10,
+        timezone: "Asia/Shanghai"
+      },
+      {
+        ...baseFields,
+        id: "event-completed",
+        title: "已完成旧事项",
+        start_date: "2026-03-05",
+        start_time: null,
+        end_date: "2026-03-05",
+        end_time: null,
+        all_day: true,
+        category_id: null,
+        color: "#3157d5",
+        note: "",
+        recurrence_type: "none",
+        recurrence_until: null,
+        reminder_enabled: false,
+        reminder_minutes_before: 10,
+        timezone: "Asia/Shanghai"
+      }
+    ];
+    const occurrenceStates: EventOccurrenceState[] = [
+      { ...baseFields, id: "state-completed", event_id: "event-completed", occurrence_date: "2026-03-05", completed: true, reminder_sent_at: null }
+    ];
+
+    const overview = buildScheduleOverview(
+      { semester, courses: [], schedules: [], cancellations: [], events, categories: [], occurrenceStates, periods, focusSessions: [] },
+      new Date(2026, 2, 6, 9, 0)
+    );
+
+    expect(overview.overdueIncompleteItems.map((item) => item.title)).toEqual(["补交材料"]);
+    expect(overview.overdueIncompleteItems[0]).toMatchObject({
+      targetId: "event-overdue",
+      timeLabel: "3/4 18:00–18:00"
+    });
   });
 });
