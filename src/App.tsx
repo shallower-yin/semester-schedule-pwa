@@ -35,6 +35,7 @@ import { FocusPage } from "./components/FocusPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
+import { ScheduleOverviewPanel } from "./components/ScheduleOverview";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
 import { WeekCalendar } from "./components/WeekCalendar";
@@ -50,6 +51,7 @@ import {
 import { uniqueCategoriesByName } from "./lib/categories";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
+import { buildScheduleOverview } from "./lib/overview";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -74,6 +76,7 @@ export default function App() {
   const appVersion = __APP_VERSION__;
   const [page, setPage] = useState<Page>("calendar");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
+  const [overviewNow, setOverviewNow] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [semesterToEdit, setSemesterToEdit] = useState<Semester | null | undefined>(undefined);
@@ -130,6 +133,7 @@ export default function App() {
     ) ?? []
   );
   const occurrenceStates = useLiveQuery(() => db.eventOccurrenceStates.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
+  const focusSessions = useLiveQuery(() => db.focusSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
   const periods = useLiveQuery(
     () => (semester ? db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
     [semester?.id, ownerId]
@@ -138,6 +142,22 @@ export default function App() {
 
   const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
   const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
+  const scheduleOverview = useMemo(
+    () => semester
+      ? buildScheduleOverview({
+        semester,
+        courses,
+        schedules,
+        cancellations,
+        events,
+        categories,
+        occurrenceStates,
+        periods,
+        focusSessions
+      }, overviewNow)
+      : null,
+    [categories, cancellations, courses, events, focusSessions, occurrenceStates, overviewNow, periods, schedules, semester]
+  );
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
     if (scheduleFilter !== "all" && scheduleFilter !== "courses") return [];
@@ -252,6 +272,11 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [ownerId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setOverviewNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!user || !("Notification" in window) || Notification.permission !== "granted") return;
@@ -429,6 +454,7 @@ export default function App() {
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
+            {scheduleOverview && <ScheduleOverviewPanel overview={scheduleOverview} onOpenFocus={() => navigate("focus")} />}
             <section className="schedule-filter-bar" aria-label="日程搜索和筛选">
               <input
                 value={scheduleQuery}
