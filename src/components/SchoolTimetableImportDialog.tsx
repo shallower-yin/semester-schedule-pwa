@@ -24,16 +24,22 @@ interface ImportResult {
   periodCount: number;
   updatedSemester: boolean;
   replacedCourses: boolean;
+  createdCourses: number;
+  updatedCourses: number;
+  createdSchedules: number;
+  updatedSchedules: number;
+  skippedSchedules: number;
 }
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as Weekday[];
+type ImportMode = "merge" | "replace" | "append";
 
 export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetableImportDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [timetable, setTimetable] = useState<ImportedTimetable | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [replaceCourses, setReplaceCourses] = useState(true);
+  const [importMode, setImportMode] = useState<ImportMode>("merge");
   const [updatePeriods, setUpdatePeriods] = useState(true);
   const [syncSemesterInfo, setSyncSemesterInfo] = useState(true);
   const [firstWeekStartDate, setFirstWeekStartDate] = useState(semester.start_date);
@@ -67,19 +73,20 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
       setError("请先指定第一周第一天的日期。");
       return;
     }
-    if (replaceCourses && !window.confirm("将替换当前学期已有课程和课程安排，普通事项不会删除。继续导入？")) return;
+    if (importMode === "replace" && !window.confirm("将替换当前学期已有课程和课程安排，普通事项不会删除。继续导入？")) return;
     setImporting(true);
     setMessage("");
     setError("");
     try {
       const result = await applyTimetableImport(semester, timetable, {
-        replaceCourses,
+        importMode,
         updatePeriods,
         syncSemesterInfo,
         firstWeekStartDate
       });
       setMessage(
-        `导入完成：${result.replacedCourses ? "已替换旧课程，" : ""}写入 ${result.courseCount} 门课程、${result.scheduleCount} 条安排、${result.periodCount} 个节次` +
+        `导入完成：${result.replacedCourses ? "已替换旧课程，" : ""}` +
+          `新增 ${result.createdCourses} 门课程、更新 ${result.updatedCourses} 门课程；新增 ${result.createdSchedules} 条安排、更新 ${result.updatedSchedules} 条安排、跳过 ${result.skippedSchedules} 条重复安排；写入 ${result.periodCount} 个节次` +
           `${result.updatedSemester ? "，并更新了学期日期/名称/周数" : ""}。登录后会自动同步到其他设备。`
       );
     } catch (applyError) {
@@ -137,9 +144,14 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
                 <input type="date" value={firstWeekStartDate} onChange={(event) => setFirstWeekStartDate(event.target.value)} />
                 <small>通常填本学期第 1 周星期一。课程周数会按这个日期换算成日历日期。</small>
               </label>
-              <label className="checkbox-label">
-                <input type="checkbox" checked={replaceCourses} onChange={(event) => setReplaceCourses(event.target.checked)} />
-                替换当前学期已有课程和课程安排
+              <label>
+                导入模式
+                <select value={importMode} onChange={(event) => setImportMode(event.target.value as ImportMode)}>
+                  <option value="merge">合并防重复：更新已有课程并补充新安排</option>
+                  <option value="replace">替换当前学期课表：先软删除旧课程再导入</option>
+                  <option value="append">仅追加：不检查重复，全部作为新课程导入</option>
+                </select>
+                <small>默认建议使用“合并防重复”。如果学校课表整体变动很大，再使用“替换”。</small>
               </label>
               <label className="checkbox-label">
                 <input type="checkbox" checked={updatePeriods} onChange={(event) => setUpdatePeriods(event.target.checked)} />
@@ -180,10 +192,10 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
   );
 }
 
-async function applyTimetableImport(
+export async function applyTimetableImport(
   semester: Semester,
   timetable: ImportedTimetable,
-  options: { replaceCourses: boolean; updatePeriods: boolean; syncSemesterInfo: boolean; firstWeekStartDate: string }
+  options: { importMode: ImportMode; updatePeriods: boolean; syncSemesterInfo: boolean; firstWeekStartDate: string }
 ): Promise<ImportResult> {
   if (!timetable.schedules.length) throw new Error("没有可导入的课程安排。");
 
@@ -193,6 +205,11 @@ async function applyTimetableImport(
   const deletedAt = new Date().toISOString();
   let replacedCourses = false;
   let updatedSemester = false;
+  let createdCourses = 0;
+  let updatedCourses = 0;
+  let createdSchedules = 0;
+  let updatedSchedules = 0;
+  let skippedSchedules = 0;
 
   await db.transaction("rw", [db.semesters, db.classPeriods, db.courses, db.courseSchedules, db.courseCancellations, db.syncQueue], async () => {
     const shouldUpdateSemester =
@@ -211,7 +228,7 @@ async function applyTimetableImport(
       updatedSemester = true;
     }
 
-    if (options.replaceCourses) {
+    if (options.importMode === "replace") {
       const existingCourses = await db.courses.where("semester_id").equals(semester.id).toArray();
       const activeCourses = existingCourses.filter((course) => !course.deleted_at);
       const activeCourseIds = new Set(activeCourses.map((course) => course.id));
@@ -246,22 +263,81 @@ async function applyTimetableImport(
       }
     }
 
+    const existingActiveCourses =
+      options.importMode === "merge"
+        ? await db.courses.where("semester_id").equals(semester.id).filter((course) => !course.deleted_at).toArray()
+        : [];
+    const existingCourseMap = new Map(existingActiveCourses.map((course) => [courseKey(course), course]));
+
     for (const group of courseGroups) {
-      await db.courses.put(group.course);
-      await queueChange("courses", group.course.id);
+      const existingCourse = options.importMode === "merge" ? existingCourseMap.get(courseKey(group.course)) : undefined;
+      if (!existingCourse) {
+        await db.courses.put(group.course);
+        await queueChange("courses", group.course.id);
+        createdCourses += 1;
+        for (const schedule of group.schedules) {
+          await db.courseSchedules.put(schedule);
+          await queueChange("courseSchedules", schedule.id);
+          createdSchedules += 1;
+        }
+        continue;
+      }
+
+      const updatedCourse: Course = {
+        ...existingCourse,
+        ...syncFields(existingCourse),
+        teacher: mergeTeacherText(existingCourse.teacher, group.course.teacher),
+        classroom: group.course.classroom || existingCourse.classroom,
+        color: existingCourse.color || group.course.color,
+        note: existingCourse.note || group.course.note,
+        deleted_at: null
+      };
+      await db.courses.put(updatedCourse);
+      await queueChange("courses", updatedCourse.id);
+      updatedCourses += 1;
+
+      const activeSchedules = await db.courseSchedules.where("course_id").equals(existingCourse.id).filter((schedule) => !schedule.deleted_at).toArray();
+      const scheduleMap = new Map(activeSchedules.map((schedule) => [scheduleKey(schedule), schedule]));
       for (const schedule of group.schedules) {
-        await db.courseSchedules.put(schedule);
-        await queueChange("courseSchedules", schedule.id);
+        const existingSchedule = scheduleMap.get(scheduleKey(schedule));
+        if (!existingSchedule) {
+          const createdSchedule: CourseSchedule = {
+            ...schedule,
+            course_id: existingCourse.id
+          };
+          await db.courseSchedules.put(createdSchedule);
+          await queueChange("courseSchedules", createdSchedule.id);
+          createdSchedules += 1;
+          continue;
+        }
+        const weeks = mergeWeeks(existingSchedule.weeks, schedule.weeks);
+        if (sameWeeks(existingSchedule.weeks, weeks)) {
+          skippedSchedules += 1;
+          continue;
+        }
+        const updatedSchedule: CourseSchedule = {
+          ...existingSchedule,
+          ...syncFields(existingSchedule),
+          weeks
+        };
+        await db.courseSchedules.put(updatedSchedule);
+        await queueChange("courseSchedules", updatedSchedule.id);
+        updatedSchedules += 1;
       }
     }
   });
 
   return {
     courseCount: courseGroups.length,
-    scheduleCount: courseGroups.reduce((sum, group) => sum + group.schedules.length, 0),
+    scheduleCount: createdSchedules + updatedSchedules + skippedSchedules,
     periodCount: options.updatePeriods ? timetable.periods.length : 0,
     updatedSemester,
-    replacedCourses
+    replacedCourses,
+    createdCourses,
+    updatedCourses,
+    createdSchedules,
+    updatedSchedules,
+    skippedSchedules
   };
 }
 
@@ -371,8 +447,24 @@ function timeToMinutes(time: string): number {
   return hours * 60 + minutes;
 }
 
-function courseKey(schedule: Pick<ImportedCourseSchedule, "name" | "classroom">): string {
+function courseKey(schedule: Pick<ImportedCourseSchedule | Course, "name" | "classroom">): string {
   return `${schedule.name}\u0001${schedule.classroom}`;
+}
+
+function scheduleKey(schedule: Pick<CourseSchedule, "weekday" | "start_period" | "end_period">): string {
+  return `${schedule.weekday}\u0001${schedule.start_period}\u0001${schedule.end_period}`;
+}
+
+function mergeTeacherText(left: string, right: string): string {
+  const names = new Set<string>();
+  addTeacherNames(names, left);
+  addTeacherNames(names, right);
+  return Array.from(names).join(",");
+}
+
+function sameWeeks(left: number[], right: number[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((week, index) => week === right[index]);
 }
 
 function formatWeeks(weeks: number[]): string {

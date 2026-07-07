@@ -1,8 +1,22 @@
-import { describe, expect, it } from "vitest";
-import { buildClassPeriodBlocks, groupCourses } from "./SchoolTimetableImportDialog";
-import type { ImportedCourseSchedule } from "../lib/schoolTimetableImport";
+import { beforeEach, describe, expect, it } from "vitest";
+import { db } from "../db";
+import { setCurrentUserId, syncFields } from "../lib/identity";
+import type { ImportedCourseSchedule, ImportedTimetable } from "../lib/schoolTimetableImport";
+import type { Course, CourseSchedule, Semester } from "../types";
+import { applyTimetableImport, buildClassPeriodBlocks, groupCourses } from "./SchoolTimetableImportDialog";
 
 describe("教务课表导入写入规则", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    setCurrentUserId("local");
+    await db.semesters.clear();
+    await db.courses.clear();
+    await db.courseSchedules.clear();
+    await db.courseCancellations.clear();
+    await db.classPeriods.clear();
+    await db.syncQueue.clear();
+  });
+
   it("合并同课程同教室的分段教师和周数", () => {
     const schedules: ImportedCourseSchedule[] = [
       {
@@ -62,5 +76,96 @@ describe("教务课表导入写入规则", () => {
         period_number: 0
       })
     ]);
+  });
+
+  it("合并导入时复用已有课程并合并相同时间段周数", async () => {
+    const semester: Semester = {
+      ...syncFields(),
+      id: "semester-1",
+      name: "2026春",
+      start_date: "2026-02-23",
+      total_weeks: 16,
+      is_current: true
+    };
+    const course: Course = {
+      ...syncFields(),
+      id: "course-1",
+      semester_id: semester.id,
+      name: "数学",
+      teacher: "旧老师",
+      classroom: "A101",
+      color: "#4f6bdc",
+      note: ""
+    };
+    const schedule: CourseSchedule = {
+      ...syncFields(),
+      id: "schedule-1",
+      course_id: course.id,
+      weekday: 1,
+      start_period: 1,
+      end_period: 2,
+      weeks: [1]
+    };
+    await db.semesters.put(semester);
+    await db.courses.put(course);
+    await db.courseSchedules.put(schedule);
+
+    const timetable: ImportedTimetable = {
+      sourceName: "sheet001.htm",
+      extractorName: "天津大学课表提取器",
+      parseMode: "task-activity",
+      isFrameFile: false,
+      termName: "2026春",
+      studentId: null,
+      studentName: null,
+      className: null,
+      totalCredits: null,
+      periods: [],
+      warnings: [],
+      schedules: [
+        {
+          name: "数学",
+          teacher: "新老师",
+          classroom: "A101",
+          weekday: 1,
+          startPeriod: 1,
+          endPeriod: 2,
+          weeks: [1, 2],
+          rawText: ""
+        },
+        {
+          name: "数学",
+          teacher: "新老师",
+          classroom: "A101",
+          weekday: 1,
+          startPeriod: 3,
+          endPeriod: 4,
+          weeks: [3],
+          rawText: ""
+        }
+      ]
+    };
+
+    const result = await applyTimetableImport(semester, timetable, {
+      importMode: "merge",
+      updatePeriods: false,
+      syncSemesterInfo: false,
+      firstWeekStartDate: semester.start_date
+    });
+
+    const activeCourses = await db.courses.filter((item) => !item.deleted_at).toArray();
+    const activeSchedules = await db.courseSchedules.filter((item) => !item.deleted_at).toArray();
+
+    expect(result).toMatchObject({
+      createdCourses: 0,
+      updatedCourses: 1,
+      createdSchedules: 1,
+      updatedSchedules: 1,
+      skippedSchedules: 0
+    });
+    expect(activeCourses).toHaveLength(1);
+    expect(activeCourses[0].teacher).toBe("旧老师,新老师");
+    expect(activeSchedules).toHaveLength(2);
+    expect(activeSchedules.find((item) => item.id === "schedule-1")?.weeks).toEqual([1, 2]);
   });
 });

@@ -177,6 +177,19 @@ main {
   gap: 20px;
 }
 
+.schedule-filter-bar {
+  display: grid;
+  max-width: 1600px;
+  grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) auto;
+  gap: 10px;
+  margin: -2px auto 16px;
+}
+
+.schedule-filter-bar input,
+.schedule-filter-bar select {
+  min-height: 42px;
+}
+
 .week-title h1,
 .page-heading h1 {
   margin: 0;
@@ -2084,6 +2097,11 @@ textarea {
 
   .toolbar-actions .button span {
     display: none;
+  }
+
+  .schedule-filter-bar {
+    grid-template-columns: 1fr;
+    margin-bottom: 12px;
   }
 
   .mobile-day-switcher {

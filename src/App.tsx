@@ -61,6 +61,7 @@ import { adoptAnonymousData, getLastSync, pullRemoteNow, syncNow, type SyncResul
 import type { Course, EventItem, Semester } from "./types";
 
 type Page = "calendar" | "memos" | "focus" | "settings";
+type ScheduleFilter = "all" | "courses" | "uncategorized" | string;
 
 interface EventDraft {
   date: string;
@@ -96,6 +97,8 @@ export default function App() {
   const [showSchoolImport, setShowSchoolImport] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installMessage, setInstallMessage] = useState("");
+  const [scheduleQuery, setScheduleQuery] = useState("");
+  const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
   const ownerId = user?.id ?? "local";
 
   const semester = useLiveQuery(
@@ -135,6 +138,25 @@ export default function App() {
 
   const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
   const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
+  const filteredCourses = useMemo(() => {
+    const query = scheduleQuery.trim().toLowerCase();
+    if (scheduleFilter !== "all" && scheduleFilter !== "courses") return [];
+    if (!query) return courses;
+    return courses.filter((course) =>
+      [course.name, course.teacher, course.classroom, course.note].join("\n").toLowerCase().includes(query)
+    );
+  }, [courses, scheduleFilter, scheduleQuery]);
+  const filteredEvents = useMemo(() => {
+    const query = scheduleQuery.trim().toLowerCase();
+    return events.filter((eventItem) => {
+      if (scheduleFilter === "courses") return false;
+      if (scheduleFilter === "uncategorized" && eventItem.category_id) return false;
+      if (scheduleFilter !== "all" && scheduleFilter !== "uncategorized" && eventItem.category_id !== scheduleFilter) return false;
+      if (!query) return true;
+      const category = categories.find((item) => item.id === eventItem.category_id);
+      return [eventItem.title, eventItem.note, category?.name ?? ""].join("\n").toLowerCase().includes(query);
+    });
+  }, [categories, events, scheduleFilter, scheduleQuery]);
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -402,13 +424,34 @@ export default function App() {
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
+            <section className="schedule-filter-bar" aria-label="日程搜索和筛选">
+              <input
+                value={scheduleQuery}
+                onChange={(event) => setScheduleQuery(event.target.value)}
+                placeholder="搜索课程、事项、教师、教室或备注"
+              />
+              <select value={scheduleFilter} onChange={(event) => setScheduleFilter(event.target.value)}>
+                <option value="all">全部日程</option>
+                <option value="courses">只看课程</option>
+                <option value="uncategorized">未分类事项</option>
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select>
+              {(scheduleQuery || scheduleFilter !== "all") && (
+                <button className="button secondary compact" onClick={() => {
+                  setScheduleQuery("");
+                  setScheduleFilter("all");
+                }}>
+                  清除筛选
+                </button>
+              )}
+            </section>
             <WeekCalendar
               dates={dates}
               semester={semester!}
-              courses={courses}
+              courses={filteredCourses}
               schedules={schedules}
               cancellations={cancellations}
-              events={events}
+              events={filteredEvents}
               categories={categories}
               occurrenceStates={occurrenceStates}
               periods={periods}

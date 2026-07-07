@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BellRing } from "lucide-react";
+import { BellRing, Copy } from "lucide-react";
 import { useState } from "react";
 import { db, queueChange } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
@@ -125,6 +125,19 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     onClose();
   }
 
+  async function duplicate() {
+    if (!eventItem) return;
+    const record: EventItem = {
+      ...eventItem,
+      ...syncFields(),
+      title: `${eventItem.title} 副本`,
+      deleted_at: null
+    };
+    await db.events.put(record);
+    await queueChange("events", record.id);
+    onClose();
+  }
+
   return (
     <Modal title={eventItem ? "编辑事项" : "新增事项"} onClose={onClose}>
       <form className="form-stack" onSubmit={save}>
@@ -180,7 +193,10 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         {validationMessage && <p className="auth-message error">{validationMessage}</p>}
         <div className="form-actions split">
-          <div>{eventItem && <button type="button" className="button danger-button" onClick={remove}>删除事项</button>}</div>
+          <div className="inline-actions">
+            {eventItem && <button type="button" className="button secondary" onClick={() => void duplicate()}><Copy size={16} />复制事项</button>}
+            {eventItem && <button type="button" className="button danger-button" onClick={remove}>删除事项</button>}
+          </div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>
             <button className="button primary" disabled={saving || enablingReminder}>
