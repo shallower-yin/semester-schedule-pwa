@@ -7,6 +7,7 @@ import {
   Cloud,
   Database,
   Download,
+  FileSpreadsheet,
   GraduationCap,
   LogIn,
   Menu,
@@ -31,6 +32,7 @@ import { EventDialog } from "./components/EventDialog";
 import { InstallDialog } from "./components/InstallDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
+import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
 import { WeekCalendar } from "./components/WeekCalendar";
 import { db, queueChange } from "./db";
 import {
@@ -86,6 +88,7 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() => getCapturedInstallPrompt());
   const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
+  const [showSchoolImport, setShowSchoolImport] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installMessage, setInstallMessage] = useState("");
   const ownerId = user?.id ?? "local";
@@ -402,6 +405,9 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowBackup(true)}>
                 <Database /><span><strong>JSON 数据备份</strong><small>导入或导出本地数据</small></span><ChevronRight />
               </button>
+              <button className="setting-card" onClick={() => setShowSchoolImport(true)}>
+                <FileSpreadsheet /><span><strong>天津大学课表提取器</strong><small>提取学校导出的 HTML-XLS 课表</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
                 {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
               </button>
@@ -431,6 +437,7 @@ export default function App() {
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
+      {showSchoolImport && <SchoolTimetableImportDialog semester={semester!} onClose={() => setShowSchoolImport(false)} />}
       {showInstallDialog && (
         <InstallDialog
           installed={installed}

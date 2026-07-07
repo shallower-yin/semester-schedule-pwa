@@ -1182,6 +1182,59 @@ textarea {
   background: #edf8f1;
 }
 
+.import-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.import-summary > svg {
+  flex: 0 0 auto;
+  box-sizing: content-box;
+  padding: 8px;
+  border-radius: 10px;
+  color: var(--primary);
+  background: #edf2ff;
+}
+
+.import-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #dfe6f3;
+  border-radius: 10px;
+  background: #f8faff;
+}
+
+.import-preview-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.import-preview-list div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #e2e7f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.import-preview-list strong {
+  color: #172033;
+}
+
+.import-preview-list span,
+.import-preview-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .auth-message {
   margin: 0;
   padding: 10px 12px;
