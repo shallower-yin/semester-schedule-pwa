@@ -61,7 +61,7 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
             autoFocus
             rows={3}
             value={text}
-            placeholder="例如：明天 9:00 交作业"
+            placeholder="例如：明天 9：00 交作业"
             onChange={(event) => setText(event.target.value)}
           />
         </label>
@@ -82,7 +82,7 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
           ) : (
             <div>
               <strong>支持格式</strong>
-              <span>今天/明天/后天/这周五/下周一/7月18日/2026-08-01 + 几点几分 + 内容</span>
+              <span>日期 时间 内容，字段之间用空格分隔，例如：明天 9：00 交作业。</span>
             </div>
           )}
         </section>

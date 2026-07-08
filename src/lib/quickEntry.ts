@@ -27,11 +27,11 @@ const WEEKDAY_ALIASES = new Map<string, number>([
 
 export const QUICK_ENTRY_EXAMPLES = [
   "今天 18点30 写实验报告",
-  "明天 9:00 交作业",
+  "明天 9：00 交作业",
   "后天 20点 背单词",
   "这周五 14:30 开组会",
   "下周一 8点10 上机测试",
-  "7月18日 19:00 看电影"
+  "7月18日 19：00 看电影"
 ];
 
 export function parseQuickEntry(input: string, now = new Date()): QuickEntryDraft | null {
@@ -88,7 +88,7 @@ function consumeDate(text: string, now: Date): { date: Date; rest: string } | nu
 }
 
 function consumeTime(text: string): { startTime: string; rest: string } | null {
-  const result = /^(上午|早上|中午|下午|晚上|今晚)?\s*(\d{1,2})(?::|点|時|时)(\d{1,2})?(?:分)?(?:\s+|，|,|。|$)/.exec(text);
+  const result = /^(上午|早上|中午|下午|晚上|今晚)?\s*(\d{1,2})(?::|：|点|時|时)(\d{1,2})?(?:分)?(?:\s+|，|,|。|$)/.exec(text);
   if (!result) return null;
   let hour = Number(result[2]);
   const minute = Number(result[3] ?? 0);

@@ -15,6 +15,11 @@ describe("快速录入解析", () => {
       startTime: "09:00",
       title: "交作业"
     });
+    expect(parseQuickEntry("明天 9：00 交作业", base)).toMatchObject({
+      date: "2026-07-09",
+      startTime: "09:00",
+      title: "交作业"
+    });
     expect(parseQuickEntry("后天 晚上8点 背单词", base)).toMatchObject({
       date: "2026-07-10",
       startTime: "20:00",
