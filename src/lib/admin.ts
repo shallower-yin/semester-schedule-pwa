@@ -1,4 +1,4 @@
-import { supabase, supabasePublishableKey, supabaseUrl } from "./supabase";
+import { supabase } from "./supabase";
 
 export type AdminRole = "member" | "admin";
 
@@ -65,67 +65,132 @@ export interface SaveAdminAccessInput {
   note?: string | null;
 }
 
-async function invokeAdmin<T>(body: Record<string, unknown>): Promise<T> {
-  if (!supabase || !supabaseUrl || !supabasePublishableKey) throw new Error("云端服务未配置，无法使用管理后台。");
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw new Error("登录状态读取失败，请重新登录。");
-  const token = data.session?.access_token;
-  if (!token) throw new Error("请先登录管理员账号。");
+interface AdminListUserRow {
+  id: string;
+  email: string | null;
+  created_at: string | null;
+  last_sign_in_at: string | null;
+  confirmed_at: string | null;
+  semesters: number | null;
+  courses: number | null;
+  events: number | null;
+  habits: number | null;
+  anniversaries: number | null;
+  memos: number | null;
+  focus_sessions: number | null;
+  ai_user_id: string | null;
+  ai_enabled: boolean | null;
+  ai_role: AdminRole | null;
+  ai_expires_at: string | null;
+  ai_note: string | null;
+  ai_created_at: string | null;
+  ai_updated_at: string | null;
+}
 
-  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/admin`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      apikey: supabasePublishableKey,
-      authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify(body)
+type AiAccessRpcRow = {
+  user_id: string;
+  enabled: boolean;
+  role: AdminRole;
+  expires_at: string | null;
+  note: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export async function getAdminSummary(): Promise<AdminSummary> {
+  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
+  const { data, error } = await supabase.rpc("admin_list_users");
+  if (error) throw new Error(formatAdminError(error.message));
+  const rows = (data ?? []) as AdminListUserRow[];
+  return {
+    passwordVisible: false,
+    users: rows.map((row) => ({
+      id: row.id,
+      email: row.email ?? "",
+      createdAt: row.created_at ?? null,
+      lastSignInAt: row.last_sign_in_at ?? null,
+      confirmedAt: row.confirmed_at ?? null,
+      counts: {
+        semesters: Number(row.semesters ?? 0),
+        courses: Number(row.courses ?? 0),
+        events: Number(row.events ?? 0),
+        habits: Number(row.habits ?? 0),
+        anniversaries: Number(row.anniversaries ?? 0),
+        memos: Number(row.memos ?? 0),
+        focusSessions: Number(row.focus_sessions ?? 0)
+      },
+      aiAccess: row.ai_user_id ? {
+        user_id: row.ai_user_id,
+        enabled: Boolean(row.ai_enabled),
+        role: row.ai_role === "admin" ? "admin" : "member",
+        expires_at: row.ai_expires_at ?? null,
+        note: row.ai_note ?? null,
+        created_at: row.ai_created_at ?? undefined,
+        updated_at: row.ai_updated_at ?? undefined
+      } : null
+    }))
+  };
+}
+
+export async function getAdminStatus(): Promise<AdminStatus> {
+  if (!supabase) throw new Error("云端服务未配置，无法读取账号类型。");
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw new Error("登录状态读取失败，请重新登录。");
+  const userId = sessionData.session?.user.id;
+  if (!userId) throw new Error("请先登录账号。");
+  const { data, error } = await supabase
+    .from("ai_assistant_access")
+    .select("user_id,enabled,role,expires_at,note,created_at,updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(formatAdminError(error.message));
+  const aiAccess = data ? normalizeAiAccess(data as AiAccessRpcRow) : null;
+  return { isAdmin: isActiveAdmin(aiAccess), aiAccess };
+}
+
+export async function getAdminUserDetails(targetUserId: string): Promise<AdminUserDetails> {
+  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
+  const { data, error } = await supabase.rpc("admin_get_user_details", { p_target_user_id: targetUserId });
+  if (error) throw new Error(formatAdminError(error.message));
+  return data as AdminUserDetails;
+}
+
+export async function saveAdminAiAccess(input: SaveAdminAccessInput): Promise<{ aiAccess: AdminAiAccess | null }> {
+  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
+  const { data, error } = await supabase.rpc("admin_set_ai_access", {
+    p_target_user_id: input.targetUserId || null,
+    p_target_email: input.targetEmail || null,
+    p_enabled: input.enabled,
+    p_role: input.role,
+    p_expires_at: input.expiresAt || null,
+    p_note: input.note || null
   });
-  const text = await response.text();
-  const payload = parseAdminResponse(text);
-  if (!response.ok) {
-    const errorPayload = payload as { error?: unknown; message?: unknown } | null;
-    const message = typeof errorPayload?.error === "string"
-      ? errorPayload.error
-      : typeof errorPayload?.message === "string"
-        ? errorPayload.message
-        : `管理后台请求失败（${response.status}）。`;
-    throw new Error(message);
-  }
-  return payload as T;
+  if (error) throw new Error(formatAdminError(error.message));
+  const rows = (data ?? []) as AiAccessRpcRow[];
+  return { aiAccess: rows[0] ? normalizeAiAccess(rows[0]) : null };
 }
 
-function parseAdminResponse(text: string): unknown {
-  if (!text.trim()) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { error: text.slice(0, 200) };
-  }
+function normalizeAiAccess(row: AiAccessRpcRow): AdminAiAccess {
+  return {
+    user_id: row.user_id,
+    enabled: Boolean(row.enabled),
+    role: row.role === "admin" ? "admin" : "member",
+    expires_at: row.expires_at ?? null,
+    note: row.note ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
 }
 
-export function getAdminSummary(): Promise<AdminSummary> {
-  return invokeAdmin<AdminSummary>({ action: "summary" });
+function isActiveAdmin(access: AdminAiAccess | null): boolean {
+  if (!access?.enabled || access.role !== "admin") return false;
+  return !access.expires_at || new Date(access.expires_at).getTime() > Date.now();
 }
 
-export function getAdminStatus(): Promise<AdminStatus> {
-  return invokeAdmin<AdminStatus>({ action: "whoami" });
-}
-
-export function getAdminUserDetails(targetUserId: string): Promise<AdminUserDetails> {
-  return invokeAdmin<AdminUserDetails>({ action: "details", targetUserId });
-}
-
-export function saveAdminAiAccess(input: SaveAdminAccessInput): Promise<{ aiAccess: AdminAiAccess | null }> {
-  return invokeAdmin<{ aiAccess: AdminAiAccess | null }>({
-    action: "set-ai-access",
-    targetUserId: input.targetUserId || undefined,
-    targetEmail: input.targetEmail || undefined,
-    access: {
-      enabled: input.enabled,
-      role: input.role,
-      expiresAt: input.expiresAt || null,
-      note: input.note || null
-    }
-  });
+function formatAdminError(message: string): string {
+  if (message.includes("当前账号没有管理权限")) return "当前账号没有管理权限。";
+  if (message.includes("没有找到该邮箱对应的账号")) return "没有找到该邮箱对应的账号。";
+  if (message.includes("没有找到该用户")) return "没有找到该用户。";
+  if (message.includes("权限角色无效")) return "权限角色无效。";
+  return message || "管理后台请求失败。";
 }
