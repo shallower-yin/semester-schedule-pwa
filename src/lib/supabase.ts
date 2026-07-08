@@ -1,12 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 
-const url = import.meta.env.VITE_SUPABASE_URL?.trim();
-const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
+export const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 
-export const supabaseConfigured = Boolean(url && publishableKey);
+export const supabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 
 export const supabase = supabaseConfigured
-  ? createClient(url!, publishableKey!, {
+  ? createClient(supabaseUrl, supabasePublishableKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,

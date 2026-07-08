@@ -803,11 +803,9 @@ export default function App() {
               <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
                 {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
               </button>
-              {isAdmin && (
-                <button className="setting-card" onClick={() => setShowAdmin(true)}>
-                  <ShieldCheck /><span><strong>管理后台</strong><small>查看账号数据概览，管理 AI 助手和管理员权限</small></span><ChevronRight />
-                </button>
-              )}
+              <button className="setting-card" onClick={() => user ? setShowAdmin(true) : setAuthDialogMode("login")}>
+                <ShieldCheck /><span><strong>管理后台</strong><small>{isAdmin ? "查看账号数据概览，管理 AI 助手和管理员权限" : "登录后可查看账号权限与管理功能"}</small></span><ChevronRight />
+              </button>
             </div>
             <div className="local-data-card">
               <Download size={22} />
@@ -902,7 +900,7 @@ export default function App() {
           onClose={() => setShowDeepSeekAssistant(false)}
         />
       )}
-      {showAdmin && isAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
+      {showAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
       {showMobileNavSettings && (
         <MobileNavSettingsDialog
           options={navItems.map((item) => ({ id: item.id, label: item.label }))}
