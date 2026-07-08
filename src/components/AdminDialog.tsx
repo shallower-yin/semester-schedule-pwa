@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Eye, KeyRound, RefreshCw, Save, ShieldCheck, UsersRound } from "lucide-react";
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, ShieldCheck, UsersRound } from "lucide-react";
 import {
   getAdminSummary,
   getAdminUserDetails,
@@ -68,6 +68,14 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     } finally {
       setDetailLoading(false);
     }
+  }
+
+  async function toggleDetails(userId: string) {
+    if (details?.user.id === userId && !detailLoading) {
+      setDetails(null);
+      return;
+    }
+    await loadDetails(userId);
   }
 
   function selectUser(userId: string) {
@@ -205,8 +213,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     <h3>{selectedUser.email || "用户详情"}</h3>
                     <p>{selectedUser.id}</p>
                   </div>
-                  <button className="button secondary compact" onClick={() => void loadDetails(selectedUser.id)} disabled={detailLoading}>
-                    <Eye size={16} />查看数据
+                  <button className="button secondary compact" onClick={() => void toggleDetails(selectedUser.id)} disabled={detailLoading}>
+                    {details?.user.id === selectedUser.id ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {detailLoading ? "读取中" : details?.user.id === selectedUser.id ? "隐藏数据" : "查看数据"}
                   </button>
                 </header>
 

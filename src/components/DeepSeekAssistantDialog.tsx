@@ -113,12 +113,12 @@ export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: 
           <BrainCircuit size={19} />
           <div>
             <strong>{userEmail ? `当前账号：${userEmail}` : "需要先登录账号"}</strong>
-            <span>只有会员账号，或输入指定访问口令后，才可以使用 AI 助手。</span>
+            <span>只有会员或管理员账号，或输入指定访问口令后，才可以使用 AI 助手。</span>
           </div>
         </section>
         <label className="ai-access-code">
           <KeyRound size={16} />
-          <input value={accessCode} placeholder="访问口令，会员账号可不填" onChange={(event) => setAccessCode(event.target.value)} />
+          <input value={accessCode} placeholder="访问口令，已开通账号可不填" onChange={(event) => setAccessCode(event.target.value)} />
         </label>
         <div className="assistant-examples" aria-label="AI 助手问日程样例">
           {SCHEDULE_ASSISTANT_EXAMPLES.map((example) => (

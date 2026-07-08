@@ -114,11 +114,27 @@ export async function askDeepSeekAssistant(
     }
   });
   if (error) {
-    const message = error.message?.includes("non-2xx")
-      ? "请先登录并确认当前账号已开通，或输入访问口令。"
-      : error.message || "AI 助手请求失败。";
-    throw new Error(message);
+    throw new Error(await functionErrorMessage(error));
   }
   if (!data?.answer) throw new Error("AI 助手没有返回回答。");
   return data;
+}
+
+async function functionErrorMessage(error: unknown): Promise<string> {
+  const fallback = error instanceof Error && error.message ? error.message : "AI 助手请求失败。";
+  const context = (error as { context?: unknown })?.context;
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: unknown };
+      if (typeof payload.error === "string" && payload.error.trim()) return payload.error.trim();
+    } catch {
+      try {
+        const text = await context.clone().text();
+        if (text.trim()) return text.trim().slice(0, 200);
+      } catch {
+        // Fall through to the fallback below.
+      }
+    }
+  }
+  return fallback.includes("non-2xx") ? "AI 助手请求失败，请稍后再试。" : fallback;
 }
