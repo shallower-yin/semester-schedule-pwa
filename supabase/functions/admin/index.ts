@@ -62,6 +62,10 @@ function optionalSecret(name: string): string {
   return Deno.env.get(name)?.trim() ?? "";
 }
 
+function serviceRoleSecret(): string {
+  return optionalSecret("SERVICE_ROLE_KEY") || optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
+}
+
 function requiredSecret(name: string): string {
   const value = optionalSecret(name);
   if (!value) throw new Error(`Missing Edge Function secret: ${name}`);
@@ -95,7 +99,7 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: "请先登录管理员账号。" }, 401);
     }
 
-    const serviceRoleKey = optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
+    const serviceRoleKey = serviceRoleSecret();
     if (!serviceRoleKey) {
       return jsonResponse({
         error: "管理后台未完成配置，请联系管理员。"

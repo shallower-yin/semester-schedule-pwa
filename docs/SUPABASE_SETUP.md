@@ -46,7 +46,7 @@ AI 助手权限需要执行：
 
 `supabase/migrations/20260708_ai_assistant_access.sql`
 
-该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 AI 助手。已配置 `SUPABASE_SERVICE_ROLE_KEY` 时，访问口令验证成功会自动把当前账号写入权限表，之后同账号可不再输入口令。
+该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 AI 助手。已配置服务端角色密钥时，访问口令验证成功会自动把当前账号写入权限表，之后同账号可不再输入口令。
 
 ## Auth URL 配置
 
@@ -76,7 +76,7 @@ AI 助手权限需要执行：
 
 - 网页中只能使用 Publishable key。
 - AI 服务 API Key 只能保存为 Supabase Edge Function Secret `DEEPSEEK_API_KEY`，不要写进前端 `.env.local`。
-- 管理后台需要 `SUPABASE_SERVICE_ROLE_KEY`，只能放在 GitHub Secret / Supabase Edge Function Secret，绝对不要写进前端或公开文档。
+- 管理后台需要服务端角色密钥，只能放在 GitHub Secret / Supabase Edge Function Secret，绝对不要写进前端或公开文档。GitHub Secret 使用 `SUPABASE_SERVICE_ROLE_KEY`，部署脚本会写入 Supabase Edge Function Secret `SERVICE_ROLE_KEY`。
 - GitHub 后台提醒任务需要 Legacy API Keys 中的 `anon` key，并将其保存为仓库 Secret `SUPABASE_ANON_KEY`；不要使用 `service_role`。
 - 不要把 Secret key、`service_role`、数据库密码放入 `.env.local` 或发给他人。
 - 所有业务表启用 RLS，策略限定 `auth.uid() = user_id`。
@@ -89,7 +89,7 @@ AI 助手权限需要执行：
 
 - Secret `DEEPSEEK_API_KEY`：AI 服务 API Key。
 - Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给用户输入的访问口令；验证成功后会自动绑定当前账号为会员权限。
-- Secret `SUPABASE_SERVICE_ROLE_KEY`：管理后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。
+- GitHub Secret `SUPABASE_SERVICE_ROLE_KEY`：管理后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。部署时会同步为 Edge Function Secret `SERVICE_ROLE_KEY`，因为 Supabase 不允许自定义 Secret 名以 `SUPABASE_` 开头。
 - Variable `DEEPSEEK_MODEL`：可选，AI 服务参数配置。
 
 给指定账号开通：

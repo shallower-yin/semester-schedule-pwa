@@ -51,7 +51,7 @@ jobs:
             supabase secrets set --project-ref "$PROJECT_REF" AI_ASSISTANT_ACCESS_CODE="$AI_ASSISTANT_ACCESS_CODE"
           fi
           if [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
-            supabase secrets set --project-ref "$PROJECT_REF" SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
+            supabase secrets set --project-ref "$PROJECT_REF" SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
           fi
 
       - name: Deploy reminder function

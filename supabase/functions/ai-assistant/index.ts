@@ -45,6 +45,10 @@ function optionalSecret(name: string): string {
   return Deno.env.get(name)?.trim() ?? "";
 }
 
+function serviceRoleSecret(): string {
+  return optionalSecret("SERVICE_ROLE_KEY") || optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
+}
+
 function requiredSecret(name: string): string {
   const value = optionalSecret(name);
   if (!value) throw new Error(`Missing Edge Function secret: ${name}`);
@@ -122,7 +126,7 @@ async function checkAiAccess(
     return { allowed: true, method: bound ? "member" : "access-code", bound };
   }
 
-  const serviceRoleKey = optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceRoleKey = serviceRoleSecret();
   const row = serviceRoleKey
     ? await getAiAccessByServiceRole(user.id, serviceRoleKey)
     : await getAiAccessByUserRpc(authorization);
@@ -148,7 +152,7 @@ async function getAiAccessByUserRpc(authorization: string): Promise<AiAccessRow 
 }
 
 async function bindMemberAccess(userId: string): Promise<boolean> {
-  const serviceRoleKey = optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceRoleKey = serviceRoleSecret();
   if (!serviceRoleKey) return false;
   try {
     const existing = await getAiAccessByServiceRole(userId, serviceRoleKey);
