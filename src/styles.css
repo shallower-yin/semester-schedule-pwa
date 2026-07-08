@@ -1039,6 +1039,13 @@ main {
   font-size: 13px;
 }
 
+.muted-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .semester-manager {
   margin-top: 20px;
   padding: 18px;
@@ -4508,13 +4515,30 @@ textarea {
     order: 2;
     width: 100%;
     justify-content: flex-start;
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow: visible;
     padding-bottom: 2px;
   }
 
   .today-anniversary-reminders button {
-    flex: 0 0 min(260px, 82vw);
+    flex: 1 1 calc(50% - 8px);
+    min-width: 136px;
+    max-width: none;
+    padding: 7px 8px;
+    gap: 5px;
+  }
+
+  .today-anniversary-text strong {
+    font-size: 12px;
+  }
+
+  .today-anniversary-text small,
+  .today-anniversary-days small {
+    font-size: 10px;
+  }
+
+  .today-anniversary-days strong {
+    font-size: 16px;
   }
 
   .help-section-grid {

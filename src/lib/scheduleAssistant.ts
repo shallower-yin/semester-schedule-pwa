@@ -15,7 +15,7 @@ import { formatFocusDuration, totalFocusSeconds } from "./focus";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./overview";
 
 export interface ScheduleAssistantInput {
-  semester: Semester;
+  semester?: Semester | null;
   courses: Course[];
   schedules: CourseSchedule[];
   cancellations: CourseCancellation[];
@@ -97,10 +97,11 @@ function resolveDate(query: string, now: Date): Date {
 
 function itemsForDate(input: ScheduleAssistantInput, date: Date): AssistantItem[] {
   const targetDate = toISODate(date);
+  const semester = input.semester;
   const courseMap = new Map(input.courses.filter((course) => !course.deleted_at).map((course) => [course.id, course]));
   const categoryMap = new Map(input.categories.filter((category) => !category.deleted_at).map((category) => [category.id, category]));
-  const courseItems = input.schedules.flatMap((schedule) => {
-    if (schedule.deleted_at || !courseScheduleOccursOn(schedule, input.semester, date)) return [];
+  const courseItems = semester ? input.schedules.flatMap((schedule) => {
+    if (schedule.deleted_at || !courseScheduleOccursOn(schedule, semester, date)) return [];
     if (input.cancellations.some((item) => item.course_schedule_id === schedule.id && item.occurrence_date === targetDate && !item.deleted_at)) return [];
     const course = courseMap.get(schedule.course_id);
     if (!course) return [];
@@ -114,7 +115,7 @@ function itemsForDate(input: ScheduleAssistantInput, date: Date): AssistantItem[
       sortTime: startPeriod?.start_time ?? "99:99",
       completed: false
     }];
-  });
+  }) : [];
 
   const eventItems = input.events.flatMap((eventItem) => {
     if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return [];
@@ -172,6 +173,7 @@ function answerConflicts(input: ScheduleAssistantInput, date: Date): string {
 }
 
 function answerCourseLookup(query: string, input: ScheduleAssistantInput): string {
+  if (!input.semester) return "当前没有学期和课程数据。可以直接使用普通事项、习惯、纪念日和专注功能。";
   const matched = input.courses.filter((course) => !course.deleted_at && query.includes(course.name.replace(/\s+/g, "")));
   if (!matched.length) return "没有找到匹配课程。可以直接问“高数在哪个教室”或“英语老师是谁”。";
   return matched.map((course) => {

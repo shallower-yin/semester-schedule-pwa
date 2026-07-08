@@ -33,16 +33,17 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
   const now = input.now ?? new Date();
   const from = addDays(now, -7);
   const to = addDays(now, 14);
+  const semester = input.semester;
   const courseMap = new Map(input.courses.filter((course) => !course.deleted_at).map((course) => [course.id, course]));
   const categoryMap = new Map(input.categories.filter((category) => !category.deleted_at).map((category) => [category.id, category]));
   return {
     generatedAt: new Date().toISOString(),
     today: toISODate(now),
-    semester: {
-      name: input.semester.name,
-      startDate: input.semester.start_date,
-      totalWeeks: input.semester.total_weeks
-    },
+    semester: semester ? {
+      name: semester.name,
+      startDate: semester.start_date,
+      totalWeeks: semester.total_weeks
+    } : null,
     courses: input.courses.filter((course) => !course.deleted_at).map((course) => ({
       name: course.name,
       teacher: course.teacher,
@@ -59,8 +60,8 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
       const dateText = toISODate(date);
       return {
         date: dateText,
-        courses: input.schedules.flatMap((schedule) => {
-          if (schedule.deleted_at || !courseScheduleOccursOn(schedule, input.semester, date)) return [];
+        courses: semester ? input.schedules.flatMap((schedule) => {
+          if (schedule.deleted_at || !courseScheduleOccursOn(schedule, semester, date)) return [];
           if (input.cancellations.some((item) => item.course_schedule_id === schedule.id && item.occurrence_date === dateText && !item.deleted_at)) return [];
           const course = courseMap.get(schedule.course_id);
           if (!course) return [];
@@ -70,7 +71,7 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
             classroom: course.classroom,
             period: `${schedule.start_period}-${schedule.end_period}`
           }];
-        }),
+        }) : [],
         events: input.events.flatMap((eventItem) => {
           if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return [];
           const completion = eventCompletionForDate(eventItem, input.occurrenceStates, date);

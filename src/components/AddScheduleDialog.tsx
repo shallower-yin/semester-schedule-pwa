@@ -2,6 +2,7 @@ import { BookOpen, CalendarPlus, CheckCircle2, Sparkles } from "lucide-react";
 import { Modal } from "./Modal";
 
 interface AddScheduleDialogProps {
+  courseAvailable?: boolean;
   onAddCourse: () => void;
   onAddEvent: () => void;
   onAddHabit: () => void;
@@ -9,7 +10,7 @@ interface AddScheduleDialogProps {
   onClose: () => void;
 }
 
-export function AddScheduleDialog({ onAddCourse, onAddEvent, onAddHabit, onQuickEntry, onClose }: AddScheduleDialogProps) {
+export function AddScheduleDialog({ courseAvailable = true, onAddCourse, onAddEvent, onAddHabit, onQuickEntry, onClose }: AddScheduleDialogProps) {
   return (
     <Modal title="新增日程" onClose={onClose}>
       <div className="add-type-grid">
@@ -19,7 +20,7 @@ export function AddScheduleDialog({ onAddCourse, onAddEvent, onAddHabit, onQuick
         </button>
         <button onClick={onAddCourse}>
           <BookOpen />
-          <span><strong>课程</strong><small>按星期、节次和指定周数重复</small></span>
+          <span><strong>课程</strong><small>{courseAvailable ? "按星期、节次和指定周数重复" : "需要先创建学期，普通事项不受影响"}</small></span>
         </button>
         <button onClick={onAddEvent}>
           <CalendarPlus />

@@ -59,6 +59,45 @@ const periods: ClassPeriod[] = [
 ];
 
 describe("首页日程概览", () => {
+  it("没有学期时也能统计今天的普通事项", () => {
+    const events: EventItem[] = [
+      {
+        ...baseFields,
+        id: "event-no-semester",
+        event_type: "event",
+        title: "交水费",
+        start_date: "2026-03-02",
+        start_time: "09:00",
+        end_date: "2026-03-02",
+        end_time: "09:00",
+        all_day: false,
+        category_id: null,
+        color: "#e36b32",
+        note: "",
+        recurrence_type: "none",
+        recurrence_until: null,
+        recurrence_interval: 1,
+        reminder_enabled: false,
+        reminder_minutes_before: 10,
+        timezone: "Asia/Shanghai"
+      }
+    ];
+
+    const overview = buildScheduleOverview(
+      { semester: null, courses: [], schedules: [], cancellations: [], events, categories: [], occurrenceStates: [], periods: [], focusSessions: [] },
+      new Date(2026, 2, 2, 8, 0)
+    );
+
+    expect(overview.todayItemCount).toBe(1);
+    expect(overview.todayCourseCount).toBe(0);
+    expect(overview.todayEventCount).toBe(1);
+    expect(overview.upcomingItems[0]).toMatchObject({
+      title: "交水费",
+      targetId: "event-no-semester",
+      timeLabel: "09:00–09:00"
+    });
+  });
+
   it("统计今日课程事项、完成状态和本周专注时长", () => {
     const courses: Course[] = [
       {

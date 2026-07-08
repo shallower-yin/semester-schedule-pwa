@@ -27,7 +27,7 @@ import type {
 
 interface WeekCalendarProps {
   dates: Date[];
-  semester: Semester;
+  semester?: Semester | null;
   courses: Course[];
   schedules: CourseSchedule[];
   cancellations: CourseCancellation[];
@@ -283,8 +283,10 @@ export function WeekCalendar(props: WeekCalendarProps) {
         )}
 
         {props.dates.flatMap((date, dayIndex) => {
+          const semester = props.semester;
+          if (!semester) return [];
           return props.schedules.flatMap((schedule) => {
-            if (!courseScheduleOccursOn(schedule, props.semester, date)) return [];
+            if (!courseScheduleOccursOn(schedule, semester, date)) return [];
             const course = courseMap.get(schedule.course_id);
             if (!course || course.deleted_at) return [];
             const canceled = props.cancellations.some(
@@ -377,11 +379,12 @@ export function WeekCalendar(props: WeekCalendarProps) {
 
 function buildOverlapLayouts(props: WeekCalendarProps, courseMap: Map<string, Course>): Map<string, OverlapLayout> {
   const blocks: OverlapBlock[] = [];
+  const semester = props.semester;
 
   props.dates.forEach((date, dayIndex) => {
     const dateText = toISODate(date);
-    props.schedules.forEach((schedule) => {
-      if (!courseScheduleOccursOn(schedule, props.semester, date)) return;
+    if (semester) props.schedules.forEach((schedule) => {
+      if (!courseScheduleOccursOn(schedule, semester, date)) return;
       const course = courseMap.get(schedule.course_id);
       if (!course || course.deleted_at) return;
       const canceled = props.cancellations.some(

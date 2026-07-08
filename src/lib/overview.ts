@@ -52,7 +52,7 @@ export interface ScheduleOverviewFocusTrendItem {
 }
 
 interface BuildScheduleOverviewInput {
-  semester: Semester;
+  semester?: Semester | null;
   courses: Course[];
   schedules: CourseSchedule[];
   cancellations: CourseCancellation[];
@@ -66,11 +66,12 @@ interface BuildScheduleOverviewInput {
 
 export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = new Date()): ScheduleOverview {
   const todayDate = toISODate(now);
+  const semester = input.semester;
   const courseMap = new Map(input.courses.filter((item) => !item.deleted_at).map((course) => [course.id, course]));
   const categoryMap = new Map(input.categories.filter((item) => !item.deleted_at).map((category) => [category.id, category]));
 
-  const courseItems = input.schedules.flatMap((schedule) => {
-    if (schedule.deleted_at || !courseScheduleOccursOn(schedule, input.semester, now)) return [];
+  const courseItems = semester ? input.schedules.flatMap((schedule) => {
+    if (schedule.deleted_at || !courseScheduleOccursOn(schedule, semester, now)) return [];
     const course = courseMap.get(schedule.course_id);
     if (!course) return [];
     const canceled = input.cancellations.some(
@@ -95,7 +96,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
       color: course.color,
       completed: false
     }];
-  });
+  }) : [];
 
   const eventItems = input.events.flatMap((eventItem) => {
     if (eventItem.deleted_at || !eventOccursOn(eventItem, now)) return [];

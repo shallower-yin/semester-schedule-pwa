@@ -93,13 +93,29 @@ describe("周视图移动端新增事项", () => {
     expect(first).toHaveStyle("width: calc((100% - 4px) / 2)");
     expect(second).toHaveStyle("width: calc((100% - 4px) / 2)");
   });
+
+  it("没有学期时仍能显示普通事项并点击空白时间新增", () => {
+    const onAddEvent = vi.fn();
+    renderWeekCalendar(onAddEvent, [eventRecord("event-no-semester", "无学期事项")], null, []);
+
+    expect(screen.getByText("无学期事项")).toBeInTheDocument();
+    const firstTimeCell = document.querySelector(".calendar-cell:not(.all-day-cell)") as HTMLElement;
+    fireEvent.click(firstTimeCell);
+
+    expect(onAddEvent).toHaveBeenCalledWith("2026-07-06", "08:30", "09:15");
+  });
 });
 
-function renderWeekCalendar(onAddEvent: ReturnType<typeof vi.fn>, events: EventItem[] = []) {
+function renderWeekCalendar(
+  onAddEvent: ReturnType<typeof vi.fn>,
+  events: EventItem[] = [],
+  activeSemester: Semester | null = semester,
+  activePeriods: ClassPeriod[] = periods
+) {
   render(
     <WeekCalendar
       dates={weekDates(new Date(2026, 6, 6))}
-      semester={semester}
+      semester={activeSemester}
       courses={[]}
       schedules={[]}
       cancellations={[]}
@@ -107,7 +123,7 @@ function renderWeekCalendar(onAddEvent: ReturnType<typeof vi.fn>, events: EventI
       eventStatusFilter="all"
       categories={[]}
       occurrenceStates={[]}
-      periods={periods}
+      periods={activePeriods}
       selectedDay={0}
       onSelectedDayChange={vi.fn()}
       onAddEvent={onAddEvent}

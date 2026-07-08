@@ -195,8 +195,7 @@ export default function App() {
   const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
   const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
   const todayOverview = useMemo(
-    () => semester
-      ? buildScheduleOverview({
+    () => buildScheduleOverview({
         semester,
         courses,
         schedules,
@@ -207,8 +206,7 @@ export default function App() {
         periods,
         focusSessions,
         maxItems: 50
-      }, overviewNow)
-      : null,
+      }, overviewNow),
     [categories, cancellations, courses, events, focusSessions, occurrenceStates, overviewNow, periods, schedules, semester]
   );
   const filteredCourses = useMemo(() => {
@@ -356,7 +354,7 @@ export default function App() {
       if (event.key === "/") {
         event.preventDefault();
         setShowGlobalSearch(true);
-      } else if (event.key.toLowerCase() === "n" && semester) {
+      } else if (event.key.toLowerCase() === "n") {
         event.preventDefault();
         openNewEvent(toISODate(new Date()), "09:00", "10:00");
       } else if (event.key.toLowerCase() === "q") {
@@ -654,7 +652,7 @@ export default function App() {
           <div className="brand-mark"><CalendarDays size={23} /></div>
           <div>
             <strong>日程计划表</strong>
-            <span>{semester?.name ?? "尚未创建学期"}</span>
+            <span>{semester?.name ?? "个人日程"}</span>
           </div>
         </div>
         <nav className="desktop-nav">{renderNavigation(navItems)}</nav>
@@ -673,14 +671,7 @@ export default function App() {
       )}
 
       <main>
-        {!semester && page !== "habits" && page !== "anniversaries" && page !== "memos" && page !== "focus" && page !== "help" ? (
-          <section className="empty-state welcome-state">
-            <div className="empty-icon"><GraduationCap size={34} /></div>
-            <h1>先建立你的学期</h1>
-            <p>设置开学日期和周数后，就能添加课程、每日节次和普通事项。</p>
-            <button className="button primary" onClick={() => setSemesterToEdit(null)}><Plus size={18} />创建学期</button>
-          </section>
-        ) : page === "memos" ? (
+        {page === "memos" ? (
           <MemoPage ownerId={ownerId} openMemoId={memoToOpen} onOpenMemoConsumed={() => setMemoToOpen(null)} />
         ) : page === "anniversaries" ? (
           <AnniversaryPage ownerId={ownerId} openAnniversaryId={anniversaryToOpen} onOpenAnniversaryConsumed={() => setAnniversaryToOpen(null)} />
@@ -714,7 +705,7 @@ export default function App() {
             <section className="calendar-toolbar">
               <div>
                 <div className="week-title">
-                  <h1>{weekNumber ? `第 ${weekNumber} 周` : "学期外日期"}</h1>
+                  <h1>{semester ? (weekNumber ? `第 ${weekNumber} 周` : "学期外日期") : "本周"}</h1>
                   <span>{formatWeekRange(dates)}</span>
                 </div>
               </div>
@@ -722,7 +713,7 @@ export default function App() {
                 <button className="button secondary compact" onClick={() => moveWeek(-1)} aria-label="上一周"><ChevronLeft size={18} /><span>上一周</span></button>
                 <button className="button secondary compact" onClick={goToday}>回到本周</button>
                 <button className="button secondary compact" onClick={() => moveWeek(1)} aria-label="下一周"><span>下一周</span><ChevronRight size={18} /></button>
-                <button className="button secondary compact" onClick={() => setShowCourseManager(true)}><BookOpen size={18} />课程管理</button>
+                <button className="button secondary compact" onClick={() => semester ? setShowCourseManager(true) : setSemesterToEdit(null)}><BookOpen size={18} />课程管理</button>
                 <button className="button secondary compact" onClick={() => setShowBatchEvents(true)}>批量事项</button>
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
@@ -756,7 +747,7 @@ export default function App() {
             </section>
             <WeekCalendar
               dates={dates}
-              semester={semester!}
+              semester={semester}
               courses={filteredCourses}
               schedules={schedules}
               cancellations={cancellations}
@@ -775,7 +766,7 @@ export default function App() {
           </>
         ) : (
           <section className="content-page">
-            <div className="page-heading"><div><h1>设置</h1><p>管理学期作息、本地数据和同步准备状态。</p></div></div>
+            <div className="page-heading"><div><h1>设置</h1><p>管理账号同步、数据备份、界面设置和可选学生功能。</p></div></div>
             <div className="settings-grid">
               <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
                 <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
@@ -795,17 +786,17 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
                 <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
               </button>
-              <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
-                <GraduationCap /><span><strong>当前学期</strong><small>{semester!.name} · {semester!.total_weeks} 周</small></span><ChevronRight />
+              <button className="setting-card" onClick={() => setSemesterToEdit(semester ?? null)}>
+                <GraduationCap /><span><strong>学期设置（可选）</strong><small>{semester ? `${semester.name} · ${semester.total_weeks} 周` : "不创建也能使用普通日程；学生课程功能可在这里开启"}</small></span><ChevronRight />
               </button>
-              <button className="setting-card" onClick={() => setShowPeriodSettings(true)}>
-                <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>自由添加、删除和排序节次或午休</small></span><ChevronRight />
+              <button className="setting-card" onClick={() => semester ? setShowPeriodSettings(true) : setSemesterToEdit(null)}>
+                <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>{semester ? "自由添加、删除和排序节次或午休" : "创建学期后可自定义课程节次；普通日程会使用默认时间网格"}</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowBackup(true)}>
                 <Database /><span><strong>JSON 数据备份</strong><small>主动导入或导出本地数据</small></span><ChevronRight />
               </button>
-              <button className="setting-card" onClick={() => setShowStats(true)}>
-                <Target /><span><strong>统计与日历导出</strong><small>查看完成率、专注趋势，并导出 ICS</small></span><ChevronRight />
+              <button className="setting-card" onClick={() => semester ? setShowStats(true) : navigate("focus")}>
+                <Target /><span><strong>统计与日历导出</strong><small>{semester ? "查看完成率、专注趋势，并导出 ICS" : "无学期时可先在专注页查看专注统计"}</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
                 <Bot /><span><strong>日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
@@ -816,8 +807,8 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                 <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
               </button>
-              <button className="setting-card" onClick={() => setShowSchoolImport(true)}>
-                <FileSpreadsheet /><span><strong>天津大学课表提取器</strong><small>提取学校导出的 HTML-XLS 课表</small></span><ChevronRight />
+              <button className="setting-card" onClick={() => semester ? setShowSchoolImport(true) : setSemesterToEdit(null)}>
+                <FileSpreadsheet /><span><strong>天津大学课表提取器</strong><small>{semester ? "提取学校导出的 HTML-XLS 课表" : "需要先创建学期，用于保存课程周数和节次"}</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
                 {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
@@ -832,7 +823,7 @@ export default function App() {
             </div>
             <section className="semester-manager">
               <div className="section-heading">
-                <div><h3>学期列表</h3><p>切换学期不会删除其他学期的数据。</p></div>
+                <div><h3>学期列表（可选）</h3><p>学期只用于课程、节次和课表导入；不创建也能使用普通事项、习惯、纪念日和备忘录。</p></div>
                 <button className="button secondary compact" onClick={() => setSemesterToEdit(null)}><Plus size={16} />新建学期</button>
               </div>
               <div className="semester-list">
@@ -842,6 +833,7 @@ export default function App() {
                     <span>{item.is_current ? "当前" : "切换"}</span>
                   </button>
                 ))}
+                {!semesters.length && <p className="muted-note">暂无学期。非学生用户可以忽略这里，直接在日程里添加事项。</p>}
               </div>
             </section>
           </section>
@@ -851,14 +843,14 @@ export default function App() {
       <nav className="mobile-bottom-nav" aria-label="手机底部导航" style={{ gridTemplateColumns: `repeat(${Math.max(1, selectedMobileNavItems.length)}, minmax(0, 1fr))` }}>
         {renderNavigation(selectedMobileNavItems)}
       </nav>
-      {page === "calendar" && semester && (
+      {page === "calendar" && (
         <button className="mobile-fab" onClick={() => setShowAddSchedule(true)} aria-label="新增日程">
           <Plus size={26} />
         </button>
       )}
 
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
-      {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
+      {showPeriodSettings && semester && <PeriodSettingsDialog semester={semester} onClose={() => setShowPeriodSettings(false)} />}
       {showThemeSkinSettings && <ThemeSkinDialog value={themeSkin} onChange={setThemeSkin} onClose={() => setShowThemeSkinSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
       {showBatchEvents && <BatchEventsDialog events={events} categories={categories} occurrenceStates={occurrenceStates} onClose={() => setShowBatchEvents(false)} />}
@@ -886,7 +878,7 @@ export default function App() {
           onClose={() => setShowQuickEntry(false)}
         />
       )}
-      {showScheduleAssistant && semester && (
+      {showScheduleAssistant && (
         <ScheduleAssistantDialog
           input={{
             semester,
@@ -902,7 +894,7 @@ export default function App() {
           onClose={() => setShowScheduleAssistant(false)}
         />
       )}
-      {showDeepSeekAssistant && semester && (
+      {showDeepSeekAssistant && (
         <DeepSeekAssistantDialog
           input={{
             semester,
@@ -937,7 +929,7 @@ export default function App() {
           onClose={() => setShowHeaderToolSettings(false)}
         />
       )}
-      {showSchoolImport && <SchoolTimetableImportDialog semester={semester!} onClose={() => setShowSchoolImport(false)} />}
+      {showSchoolImport && semester && <SchoolTimetableImportDialog semester={semester} onClose={() => setShowSchoolImport(false)} />}
       {showInstallDialog && (
         <InstallDialog
           installed={installed}
@@ -950,9 +942,11 @@ export default function App() {
       )}
       {showAddSchedule && (
         <AddScheduleDialog
+          courseAvailable={Boolean(semester)}
           onAddCourse={() => {
             setShowAddSchedule(false);
-            setCourseToEdit(null);
+            if (semester) setCourseToEdit(null);
+            else setSemesterToEdit(null);
           }}
           onAddEvent={() => {
             setShowAddSchedule(false);
@@ -969,7 +963,7 @@ export default function App() {
           onClose={() => setShowAddSchedule(false)}
         />
       )}
-      {showCourseManager && (
+      {showCourseManager && semester && (
         <CourseManagerDialog
           courses={courses}
           schedules={schedules}
@@ -997,7 +991,7 @@ export default function App() {
           onClose={() => setShowAccount(false)}
         />
       )}
-      {courseToEdit !== undefined && <CourseDialog semester={semester!} course={courseToEdit ?? undefined} onClose={() => setCourseToEdit(undefined)} />}
+      {courseToEdit !== undefined && semester && <CourseDialog semester={semester} course={courseToEdit ?? undefined} onClose={() => setCourseToEdit(undefined)} />}
       {(eventDraft || eventToEdit !== undefined) && (
         <EventDialog
           eventItem={eventToEdit ?? undefined}
