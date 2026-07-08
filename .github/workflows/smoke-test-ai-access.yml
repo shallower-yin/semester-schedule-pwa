@@ -1,0 +1,221 @@
+name: Smoke test AI access
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+      PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Verify AI access roles
+        run: |
+          node <<'NODE'
+          const crypto = require("node:crypto");
+
+          const supabaseUrl = requiredEnv("SUPABASE_URL");
+          const publishableKey = requiredEnv("PUBLISHABLE_KEY");
+          const serviceRoleKey = requiredEnv("SERVICE_ROLE_KEY");
+          const runId = process.env.GITHUB_RUN_ID || Date.now().toString();
+          const createdUsers = [];
+
+          function requiredEnv(name) {
+            const value = process.env[name]?.trim();
+            if (!value) throw new Error(`Missing required environment: ${name}`);
+            return value;
+          }
+
+          function serviceHeaders(extra = {}) {
+            return {
+              apikey: serviceRoleKey,
+              authorization: `Bearer ${serviceRoleKey}`,
+              ...extra
+            };
+          }
+
+          function publishableHeaders(extra = {}) {
+            return {
+              apikey: publishableKey,
+              ...extra
+            };
+          }
+
+          async function readJson(response) {
+            const text = await response.text();
+            try {
+              return text ? JSON.parse(text) : null;
+            } catch {
+              return { raw: text };
+            }
+          }
+
+          async function createUser(label) {
+            const email = `codex-ai-${label}-${runId}-${crypto.randomBytes(4).toString("hex")}@example.com`;
+            const password = `${crypto.randomUUID()}Aa1!`;
+            const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+              method: "POST",
+              headers: serviceHeaders({ "content-type": "application/json" }),
+              body: JSON.stringify({
+                email,
+                password,
+                email_confirm: true,
+                user_metadata: { source: "codex-ai-access-smoke", label, runId }
+              })
+            });
+            const payload = await readJson(response);
+            if (!response.ok || !payload?.id) {
+              throw new Error(`create ${label} user failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+            }
+            createdUsers.push(payload.id);
+            return { id: payload.id, email, password, label };
+          }
+
+          async function deleteUser(userId) {
+            await fetch(`${supabaseUrl}/rest/v1/ai_assistant_access?user_id=eq.${encodeURIComponent(userId)}`, {
+              method: "DELETE",
+              headers: serviceHeaders()
+            });
+            await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+              method: "DELETE",
+              headers: serviceHeaders()
+            });
+          }
+
+          async function signIn(user) {
+            const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+              method: "POST",
+              headers: publishableHeaders({ "content-type": "application/json" }),
+              body: JSON.stringify({ email: user.email, password: user.password })
+            });
+            const payload = await readJson(response);
+            if (!response.ok || !payload?.access_token) {
+              throw new Error(`sign in ${user.label} failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+            }
+            return payload.access_token;
+          }
+
+          async function setAccess(user, { enabled, role, expiresAt = null }) {
+            const response = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_access?on_conflict=user_id`, {
+              method: "POST",
+              headers: serviceHeaders({
+                "content-type": "application/json",
+                prefer: "resolution=merge-duplicates,return=representation"
+              }),
+              body: JSON.stringify({
+                user_id: user.id,
+                enabled,
+                role,
+                expires_at: expiresAt,
+                note: `smoke test ${role}`,
+                updated_at: new Date().toISOString()
+              })
+            });
+            const payload = await readJson(response);
+            if (!response.ok) {
+              throw new Error(`set ${role} access failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+            }
+          }
+
+          async function invokeFunction(name, token, body) {
+            const response = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
+              method: "POST",
+              headers: publishableHeaders({
+                authorization: `Bearer ${token}`,
+                "content-type": "application/json"
+              }),
+              body: JSON.stringify(body)
+            });
+            return { status: response.status, payload: await readJson(response) };
+          }
+
+          function assert(condition, message) {
+            if (!condition) throw new Error(message);
+          }
+
+          async function expectAiDenied(user, token) {
+            const result = await invokeFunction("ai-assistant", token, {
+              question: "今天有什么安排？",
+              scheduleContext: { today: "2026-07-08" },
+              history: []
+            });
+            assert(result.status === 403, `${user.label} should be denied by AI access gate, got HTTP ${result.status}`);
+            assert(result.payload?.code === "AI_ACCESS_REQUIRED", `${user.label} denial should return AI_ACCESS_REQUIRED`);
+            console.log(`PASS ${user.label}: AI denied`);
+          }
+
+          async function expectAiAllowed(user, token, expectedAccess) {
+            const result = await invokeFunction("ai-assistant", token, {
+              question: "请用一句话说明我当前没有提供具体日程。",
+              scheduleContext: { today: "2026-07-08", upcomingDays: [] },
+              history: []
+            });
+            assert(result.status === 200, `${user.label} should use AI, got HTTP ${result.status}: ${JSON.stringify(result.payload).slice(0, 300)}`);
+            assert(typeof result.payload?.answer === "string" && result.payload.answer.trim(), `${user.label} should receive an AI answer`);
+            assert(result.payload?.access === expectedAccess, `${user.label} access should be ${expectedAccess}, got ${result.payload?.access}`);
+            console.log(`PASS ${user.label}: AI allowed as ${expectedAccess}`);
+          }
+
+          async function expectAdminStatus(user, token, expectedAdmin) {
+            const whoami = await invokeFunction("admin", token, { action: "whoami" });
+            assert(whoami.status === 200, `${user.label} whoami failed: HTTP ${whoami.status}`);
+            assert(whoami.payload?.isAdmin === expectedAdmin, `${user.label} isAdmin should be ${expectedAdmin}`);
+            const summary = await invokeFunction("admin", token, { action: "summary" });
+            if (expectedAdmin) {
+              assert(summary.status === 200, `${user.label} summary should be allowed, got HTTP ${summary.status}`);
+            } else {
+              assert(summary.status === 403, `${user.label} summary should be forbidden, got HTTP ${summary.status}`);
+            }
+            console.log(`PASS ${user.label}: admin access ${expectedAdmin ? "allowed" : "blocked"}`);
+          }
+
+          async function main() {
+            const normal = await createUser("normal");
+            const disabled = await createUser("disabled");
+            const expired = await createUser("expired");
+            const member = await createUser("member");
+            const admin = await createUser("admin");
+
+            await setAccess(disabled, { enabled: false, role: "member" });
+            await setAccess(expired, { enabled: true, role: "member", expiresAt: "2020-01-01T00:00:00Z" });
+            await setAccess(member, { enabled: true, role: "member" });
+            await setAccess(admin, { enabled: true, role: "admin" });
+
+            const normalToken = await signIn(normal);
+            const disabledToken = await signIn(disabled);
+            const expiredToken = await signIn(expired);
+            const memberToken = await signIn(member);
+            const adminToken = await signIn(admin);
+
+            await expectAiDenied(normal, normalToken);
+            await expectAdminStatus(normal, normalToken, false);
+            await expectAiDenied(disabled, disabledToken);
+            await expectAdminStatus(disabled, disabledToken, false);
+            await expectAiDenied(expired, expiredToken);
+            await expectAdminStatus(expired, expiredToken, false);
+            await expectAiAllowed(member, memberToken, "member");
+            await expectAdminStatus(member, memberToken, false);
+            await expectAiAllowed(admin, adminToken, "admin");
+            await expectAdminStatus(admin, adminToken, true);
+          }
+
+          main()
+            .finally(async () => {
+              for (const userId of createdUsers.reverse()) {
+                try {
+                  await deleteUser(userId);
+                } catch (error) {
+                  console.warn(`cleanup failed for test user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+              }
+            })
+            .catch((error) => {
+              console.error(error);
+              process.exitCode = 1;
+            });
+          NODE
