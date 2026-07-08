@@ -1643,23 +1643,6 @@ textarea {
   gap: 16px;
 }
 
-.admin-notice {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  padding: 14px;
-  border: 1px solid #bfdbfe;
-  border-radius: 12px;
-  background: #eff6ff;
-  color: #1e3a8a;
-}
-
-.admin-notice p {
-  margin: 4px 0 0;
-  color: #1e40af;
-}
-
 .admin-toolbar,
 .admin-detail-header {
   display: flex;

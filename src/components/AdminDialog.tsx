@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, ShieldCheck, UsersRound } from "lucide-react";
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, UsersRound } from "lucide-react";
 import {
   getAdminSummary,
   getAdminUserDetails,
@@ -127,14 +127,6 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   return (
     <Modal title="管理后台" onClose={onClose} wide>
       <div className="admin-dialog">
-        <section className="admin-notice">
-          <ShieldCheck size={22} />
-          <div>
-            <strong>账号与权限管理</strong>
-            <p>查看账号概览、核对应用数据，并为指定账号配置 AI 助手与管理权限。</p>
-          </div>
-        </section>
-
         <div className="admin-toolbar">
           <span><UsersRound size={17} /> {summary?.users.length ?? 0} 个账号</span>
           <input value={userQuery} placeholder="搜索邮箱或 UID" onChange={(event) => setUserQuery(event.target.value)} />
