@@ -2266,6 +2266,65 @@ textarea {
   line-height: 1.65;
 }
 
+.memo-textarea,
+.memo-textarea-visual {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.65;
+}
+
+.memo-textarea-shell {
+  position: relative;
+  min-height: 260px;
+}
+
+.memo-textarea-shell .memo-textarea {
+  position: relative;
+  z-index: 1;
+  min-height: 260px;
+  color: transparent;
+  background: transparent;
+  caret-color: #20293a;
+}
+
+.memo-textarea-shell .memo-textarea::selection {
+  color: transparent;
+  background: rgb(var(--primary-rgb) / 18%);
+}
+
+.memo-textarea-visual {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #20293a;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.memo-visual-line {
+  min-height: 1.65em;
+}
+
+.memo-visual-marker {
+  color: #334155;
+}
+
+.memo-visual-marker.checked {
+  color: #60a5fa;
+}
+
+.memo-visual-text.completed {
+  color: #94a3b8;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
 .memo-editor-field {
   display: flex;
   min-width: 0;

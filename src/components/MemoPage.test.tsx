@@ -82,6 +82,9 @@ describe("备忘录视图", () => {
     fireEvent.click(textarea);
 
     await waitFor(() => expect(textarea).toHaveValue("● 防晒"));
+    expect(document.querySelector(".memo-visual-marker.checked")).toHaveTextContent("○");
+    expect(document.querySelector(".memo-visual-marker.checked")).not.toHaveTextContent("●");
+    expect(document.querySelector(".memo-visual-text.completed")).toHaveTextContent("防晒");
     expect(screen.queryByLabelText("待办清单")).not.toBeInTheDocument();
   });
 });
