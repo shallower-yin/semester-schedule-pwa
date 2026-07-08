@@ -19,7 +19,7 @@ export function ScheduleAssistantDialog({ input, onClose }: ScheduleAssistantDia
     {
       id: "welcome",
       role: "assistant",
-      content: "我是本地问日程助手，只读取当前浏览器里的日程数据。可以问今天安排、明天未完成、课程教室、逾期事项、完成率、专注时长和冲突。"
+      content: "我是日程助手，只读取当前浏览器里的日程数据。可以问今天安排、明天未完成、课程教室、逾期事项、完成率、专注时长和冲突。"
     }
   ]);
   const [question, setQuestion] = useState("");
@@ -37,14 +37,14 @@ export function ScheduleAssistantDialog({ input, onClose }: ScheduleAssistantDia
   }
 
   return (
-    <Modal title="问日程助手" onClose={onClose} wide>
+    <Modal title="日程助手" onClose={onClose} wide>
       <div className="assistant-dialog">
-        <div className="assistant-examples" aria-label="问日程样例">
+        <div className="assistant-examples" aria-label="日程助手样例">
           {SCHEDULE_ASSISTANT_EXAMPLES.map((example) => (
             <button key={example} type="button" onClick={() => ask(example)}>{example}</button>
           ))}
         </div>
-        <div className="assistant-messages" role="log" aria-label="问日程对话">
+        <div className="assistant-messages" role="log" aria-label="日程助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
               {message.role === "assistant" ? <Bot size={18} /> : <UserRound size={18} />}

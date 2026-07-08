@@ -1,7 +1,10 @@
 import { BrainCircuit, KeyRound, Send, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
-import { askDeepSeekAssistant, buildDeepSeekScheduleContext } from "../lib/deepSeekAssistant";
+import { db, queueChange } from "../db";
+import { askDeepSeekAssistant, buildDeepSeekScheduleContext, type DeepSeekAssistantAction } from "../lib/deepSeekAssistant";
+import { eventItemFromAiAction } from "../lib/aiEventActions";
 import { SCHEDULE_ASSISTANT_EXAMPLES, type ScheduleAssistantInput } from "../lib/scheduleAssistant";
+import type { EventItem } from "../types";
 import { Modal } from "./Modal";
 
 interface Message {
@@ -12,11 +15,12 @@ interface Message {
 
 interface DeepSeekAssistantDialogProps {
   input: ScheduleAssistantInput;
+  ownerId: string;
   userEmail?: string | null;
   onClose: () => void;
 }
 
-export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekAssistantDialogProps) {
+export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: DeepSeekAssistantDialogProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -37,7 +41,14 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
     setMessages((current) => [...current, { id: `u-${Date.now()}`, role: "user", content: trimmed }]);
     try {
       const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim());
-      setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "assistant", content: result.answer }]);
+      if (result.accessBound) setAccessCode("");
+      const created = await createEventsFromActions(result.actions ?? [], trimmed, ownerId);
+      const content = [
+        result.answer,
+        result.accessBound ? "已为当前账号开通 AI 助手，下次可不填访问口令。" : "",
+        created.length ? `已创建事项：${created.map((item) => item.title).join("、")}` : ""
+      ].filter(Boolean).join("\n");
+      setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "assistant", content }]);
     } catch (error) {
       setMessages((current) => [...current, {
         id: `e-${Date.now()}`,
@@ -51,7 +62,7 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
 
   return (
     <Modal title="AI 助手" onClose={onClose} wide>
-      <div className="assistant-dialog">
+      <div className="assistant-dialog ai-assistant-dialog">
         <section className="ai-access-panel">
           <BrainCircuit size={19} />
           <div>
@@ -61,7 +72,7 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
         </section>
         <label className="ai-access-code">
           <KeyRound size={16} />
-          <input value={accessCode} placeholder="访问口令，可留空使用账号白名单" onChange={(event) => setAccessCode(event.target.value)} />
+          <input value={accessCode} placeholder="访问口令，已开通账号可不填" onChange={(event) => setAccessCode(event.target.value)} />
         </label>
         <div className="assistant-examples" aria-label="AI 助手问日程样例">
           {SCHEDULE_ASSISTANT_EXAMPLES.map((example) => (
@@ -90,7 +101,7 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
             autoFocus
             value={question}
             disabled={loading}
-            placeholder="例如：帮我安排今天剩下的时间"
+            placeholder="例如：明天 9:00 添加交作业"
             onChange={(event) => setQuestion(event.target.value)}
           />
           <button className="button primary" disabled={loading}><Send size={16} />发送</button>
@@ -98,4 +109,16 @@ export function DeepSeekAssistantDialog({ input, userEmail, onClose }: DeepSeekA
       </div>
     </Modal>
   );
+}
+
+async function createEventsFromActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string): Promise<EventItem[]> {
+  const created: EventItem[] = [];
+  for (const action of actions) {
+    const record = eventItemFromAiAction(action, sourceText, ownerId);
+    if (!record) continue;
+    await db.events.put(record);
+    await queueChange("events", record.id);
+    created.push(record);
+  }
+  return created;
 }

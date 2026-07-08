@@ -138,6 +138,10 @@ textarea:focus-visible {
   justify-content: flex-end;
 }
 
+.header-tool {
+  display: contents;
+}
+
 .sync-status {
   display: flex;
   align-items: center;
@@ -3480,6 +3484,10 @@ textarea {
   gap: 12px;
 }
 
+.ai-assistant-dialog {
+  grid-template-rows: auto auto auto minmax(190px, 34vh) auto;
+}
+
 .assistant-examples {
   display: flex;
   flex-wrap: wrap;
@@ -3579,9 +3587,10 @@ textarea {
 
 @media (max-width: 900px) {
   .app-header {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
     height: 62px;
-    padding: 0 14px;
+    padding: 0 10px;
   }
 
   .desktop-nav {
@@ -3595,6 +3604,36 @@ textarea {
 
   .brand-mark {
     display: none;
+  }
+
+  .brand > div:last-child {
+    display: none;
+  }
+
+  .header-status {
+    min-width: 0;
+    gap: 6px;
+    overflow-x: auto;
+    justify-content: flex-end;
+    scrollbar-width: none;
+  }
+
+  .header-status::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sync-status {
+    width: 38px;
+    height: 38px;
+    justify-content: center;
+    flex: 0 0 38px;
+    padding: 0;
+  }
+
+  .header-search-button {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
   }
 
   .sync-status span {
@@ -4161,6 +4200,10 @@ textarea {
 
   .assistant-dialog {
     grid-template-rows: auto minmax(240px, 48vh) auto;
+  }
+
+  .ai-assistant-dialog {
+    grid-template-rows: auto auto auto minmax(150px, 25vh) auto;
   }
 
   .assistant-input {

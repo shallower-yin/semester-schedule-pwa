@@ -46,7 +46,7 @@ AI 助手权限需要执行：
 
 `supabase/migrations/20260708_ai_assistant_access.sql`
 
-该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 AI 助手。
+该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 AI 助手。已配置 `SUPABASE_SERVICE_ROLE_KEY` 时，访问口令验证成功会自动把当前账号写入权限表，之后同账号可不再输入口令。
 
 ## Auth URL 配置
 
@@ -88,7 +88,7 @@ AI 助手权限需要执行：
 需要在 GitHub Secrets / Variables 中配置：
 
 - Secret `DEEPSEEK_API_KEY`：AI 服务 API Key。
-- Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给临时用户输入的访问口令。
+- Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给用户输入的访问口令；验证成功后会自动绑定当前账号为高级权限。
 - Secret `SUPABASE_SERVICE_ROLE_KEY`：管理后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。
 - Variable `DEEPSEEK_MODEL`：可选，AI 服务参数配置。
 

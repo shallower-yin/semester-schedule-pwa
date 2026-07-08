@@ -47,6 +47,7 @@ import { EventDialog } from "./components/EventDialog";
 import { FocusPage } from "./components/FocusPage";
 import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
 import { HabitPage } from "./components/HabitPage";
+import { HeaderToolSettingsDialog } from "./components/HeaderToolSettingsDialog";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
 import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
@@ -72,6 +73,7 @@ import { uniqueCategoriesByName } from "./lib/categories";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
+import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
 import {
@@ -113,6 +115,7 @@ export default function App() {
   const [showDeepSeekAssistant, setShowDeepSeekAssistant] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
+  const [showHeaderToolSettings, setShowHeaderToolSettings] = useState(false);
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
@@ -137,6 +140,7 @@ export default function App() {
   const [updatingApp, setUpdatingApp] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const [mobileNavItems, setMobileNavItems] = useState<PageId[]>(() => loadMobileNavSettings());
+  const [headerToolItems, setHeaderToolItems] = useState<HeaderToolId[]>(() => loadHeaderToolSettings());
   const [scheduleQuery, setScheduleQuery] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
   const [eventStatusFilter, setEventStatusFilter] = useState<EventStatusFilter>("all");
@@ -395,6 +399,7 @@ export default function App() {
         setShowScheduleAssistant(false);
         setShowDeepSeekAssistant(false);
         setShowAdmin(false);
+        setShowHeaderToolSettings(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -608,6 +613,47 @@ export default function App() {
   const selectedMobileNavItems = navItems
     .filter((item) => mobileNavItems.includes(item.id))
     .sort((left, right) => mobileNavItems.indexOf(left.id) - mobileNavItems.indexOf(right.id));
+  const headerTools: Array<{ id: HeaderToolId; label: string; node: ReactNode }> = [
+    {
+      id: "account",
+      label: "账号同步",
+      node: (
+        <button className={`sync-status ${user ? "connected" : ""}`} onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")} aria-label="账号同步">
+          {user ? <Cloud size={16} /> : <LogIn size={16} />}
+          <span>
+            {!authReady ? "正在检查账号…" :
+              syncing ? "正在同步…" :
+              user ? `${user.email} · ${pendingChanges} 项待同步` :
+              supabaseConfigured ? "登录并同步" :
+              `仅本地 · ${pendingChanges} 项待同步`}
+          </span>
+        </button>
+      )
+    },
+    {
+      id: "scheduleAssistant",
+      label: "日程助手",
+      node: <button className="icon-button header-search-button" onClick={() => setShowScheduleAssistant(true)} aria-label="日程助手"><Bot size={18} /></button>
+    },
+    {
+      id: "aiAssistant",
+      label: "AI 助手",
+      node: <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="AI 助手"><BrainCircuit size={18} /></button>
+    },
+    {
+      id: "quickEntry",
+      label: "快速录入",
+      node: <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
+    },
+    {
+      id: "search",
+      label: "全局搜索",
+      node: <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
+    }
+  ];
+  const selectedHeaderTools = headerTools
+    .filter((item) => headerToolItems.includes(item.id))
+    .sort((left, right) => headerToolItems.indexOf(left.id) - headerToolItems.indexOf(right.id));
 
   function renderNavigation(items: typeof navItems) {
     return items.map((item) => (
@@ -630,20 +676,7 @@ export default function App() {
         </div>
         <nav className="desktop-nav">{renderNavigation(navItems)}</nav>
         <div className="header-status">
-          <button className={`sync-status ${user ? "connected" : ""}`} onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
-            {user ? <Cloud size={16} /> : <LogIn size={16} />}
-            <span>
-              {!authReady ? "正在检查账号…" :
-                syncing ? "正在同步…" :
-                user ? `${user.email} · ${pendingChanges} 项待同步` :
-                supabaseConfigured ? "登录并同步" :
-                `仅本地 · ${pendingChanges} 项待同步`}
-            </span>
-          </button>
-          <button className="icon-button header-search-button" onClick={() => setShowScheduleAssistant(true)} aria-label="问日程助手"><Bot size={18} /></button>
-          <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="AI 助手"><BrainCircuit size={18} /></button>
-          <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
-          <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
+          {selectedHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
         </div>
       </header>
 
@@ -778,6 +811,9 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowMobileNavSettings(true)}>
                 <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
               </button>
+              <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
+                <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => setSemesterToEdit(semester)}>
                 <GraduationCap /><span><strong>当前学期</strong><small>{semester!.name} · {semester!.total_weeks} 周</small></span><ChevronRight />
               </button>
@@ -791,7 +827,7 @@ export default function App() {
                 <Target /><span><strong>统计与日历导出</strong><small>查看完成率、专注趋势，并导出 ICS</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
-                <Bot /><span><strong>问日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
+                <Bot /><span><strong>日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
               </button>
               <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
                 <BrainCircuit /><span><strong>AI 助手</strong><small>智能分析日程安排，可按账号或访问口令控制使用权限</small></span><ChevronRight />
@@ -899,6 +935,7 @@ export default function App() {
             periods,
             focusSessions
           }}
+          ownerId={ownerId}
           userEmail={user?.email}
           onClose={() => setShowDeepSeekAssistant(false)}
         />
@@ -910,6 +947,14 @@ export default function App() {
           value={mobileNavItems}
           onChange={setMobileNavItems}
           onClose={() => setShowMobileNavSettings(false)}
+        />
+      )}
+      {showHeaderToolSettings && (
+        <HeaderToolSettingsDialog
+          options={headerTools.map((item) => ({ id: item.id, label: item.label }))}
+          value={headerToolItems}
+          onChange={setHeaderToolItems}
+          onClose={() => setShowHeaderToolSettings(false)}
         />
       )}
       {showSchoolImport && <SchoolTimetableImportDialog semester={semester!} onClose={() => setShowSchoolImport(false)} />}

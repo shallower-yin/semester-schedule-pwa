@@ -7,6 +7,21 @@ import { focusDailyTotals } from "./focus";
 export interface DeepSeekAssistantResult {
   answer: string;
   access?: string;
+  accessBound?: boolean;
+  actions?: DeepSeekAssistantAction[];
+}
+
+export interface DeepSeekAssistantAction {
+  type: "create_event";
+  title: string;
+  startDate: string;
+  endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  allDay?: boolean;
+  note?: string | null;
+  reminderEnabled?: boolean;
+  reminderMinutesBefore?: number;
 }
 
 export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {

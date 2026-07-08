@@ -10,9 +10,29 @@ interface SupabaseUser {
 }
 
 interface AiAccessRow {
+  user_id?: string;
   enabled: boolean;
   role: "member" | "admin";
   expires_at: string | null;
+  note?: string | null;
+}
+
+interface AiAssistantAction {
+  type: "create_event";
+  title: string;
+  startDate: string;
+  endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  allDay?: boolean;
+  note?: string | null;
+  reminderEnabled?: boolean;
+  reminderMinutesBefore?: number;
+}
+
+interface AiAssistantResponse {
+  answer: string;
+  actions: AiAssistantAction[];
 }
 
 function optionalSecret(name: string): string {
@@ -60,10 +80,12 @@ Deno.serve(async (request) => {
       code: "AI_ACCESS_REQUIRED"
     }, 403);
 
-    const answer = await askDeepSeek(question, body.scheduleContext, user.email);
+    const assistantResponse = await askDeepSeek(question, body.scheduleContext, user.email);
     return jsonResponse({
-      answer,
-      access: access.method
+      answer: assistantResponse.answer,
+      actions: assistantResponse.actions,
+      access: access.method,
+      accessBound: access.bound
     });
   } catch (error) {
     console.error(error);
@@ -86,10 +108,11 @@ async function checkAiAccess(
   user: SupabaseUser,
   authorization: string,
   accessCode: string | undefined
-): Promise<{ allowed: boolean; method?: string; reason?: string }> {
+): Promise<{ allowed: boolean; method?: string; reason?: string; bound?: boolean }> {
   const configuredCode = optionalSecret("AI_ASSISTANT_ACCESS_CODE");
   if (configuredCode && accessCode && accessCode === configuredCode) {
-    return { allowed: true, method: "access-code" };
+    const bound = await bindMemberAccess(user.id);
+    return { allowed: true, method: bound ? "member" : "access-code", bound };
   }
 
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_access`);
@@ -112,8 +135,61 @@ async function checkAiAccess(
   return { allowed: true, method: row.role };
 }
 
-async function askDeepSeek(question: string, scheduleContext: unknown, email?: string): Promise<string> {
-  const apiKey = requiredSecret("DEEPSEEK_API_KEY");
+async function bindMemberAccess(userId: string): Promise<boolean> {
+  const serviceRoleKey = optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
+  if (!serviceRoleKey) return false;
+  try {
+    const existing = await getAiAccessByServiceRole(userId, serviceRoleKey);
+    const body = {
+      user_id: userId,
+      enabled: true,
+      role: existing?.role === "admin" ? "admin" : "member",
+      expires_at: existing?.role === "admin" ? existing.expires_at : null,
+      note: existing?.note || "访问口令开通",
+      updated_at: new Date().toISOString()
+    };
+    const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_access`);
+    url.searchParams.set("on_conflict", "user_id");
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+        "content-type": "application/json",
+        prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      console.error(`绑定 AI 助手权限失败：HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+
+async function getAiAccessByServiceRole(userId: string, serviceRoleKey: string): Promise<AiAccessRow | null> {
+  const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_access`);
+  url.searchParams.set("select", "user_id,enabled,role,expires_at,note");
+  url.searchParams.set("user_id", `eq.${userId}`);
+  url.searchParams.set("limit", "1");
+  const response = await fetch(url, {
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`
+    }
+  });
+  if (!response.ok) return null;
+  const rows = await response.json() as AiAccessRow[];
+  return rows[0] ?? null;
+}
+
+async function askDeepSeek(question: string, scheduleContext: unknown, email?: string): Promise<AiAssistantResponse> {
+  const apiKey = optionalSecret("DEEPSEEK_API_KEY");
+  if (!apiKey) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const model = optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash";
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
   const response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -131,7 +207,15 @@ async function askDeepSeek(question: string, scheduleContext: unknown, email?: s
             "你是日程计划表的 AI 日程助手。",
             "只根据用户提供的日程上下文回答，不要编造不存在的课程、事项、纪念日或专注记录。",
             "回答要简洁、具体、可执行。涉及日期时使用明确日期。无法确定时直接说明。",
-            "不要输出用户隐私无关内容，也不要声称自己能访问未提供的数据。"
+            "不要输出用户隐私无关内容，也不要声称自己能访问未提供的数据。",
+            "你必须只返回 JSON 对象，不要使用 Markdown，不要输出额外解释。",
+            "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
+            "当用户明确要求新增、创建、记录、加入日程、提醒或安排待办事项时，把可创建的事项放入 actions。",
+            "actions 只允许 create_event，格式：{\"type\":\"create_event\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"note\":\"备注\",\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
+            "如果缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
+            "如果用户给了日期但没有时间，创建全天事项，startTime/endTime 为 null，allDay 为 true。",
+            "如果用户给了开始时间但没给结束时间，endTime 等于 startTime。",
+            "最多返回 5 个 actions。"
           ].join("\n")
         },
         {
@@ -148,7 +232,63 @@ async function askDeepSeek(question: string, scheduleContext: unknown, email?: s
   const text = await response.text();
   if (!response.ok) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const data = JSON.parse(text) as { choices?: Array<{ message?: { content?: string } }> };
-  const answer = data.choices?.[0]?.message?.content?.trim();
-  if (!answer) throw new Error("AI 助手没有返回有效回答。");
-  return answer;
+  const content = data.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error("AI 助手没有返回有效回答。");
+  return parseAssistantResponse(content);
+}
+
+function parseAssistantResponse(content: string): AiAssistantResponse {
+  const cleaned = content
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned) as { answer?: unknown; actions?: unknown };
+    const answer = typeof parsed.answer === "string" && parsed.answer.trim() ? parsed.answer.trim() : cleaned;
+    const actions = Array.isArray(parsed.actions) ? parsed.actions.flatMap(sanitizeAction).slice(0, 5) : [];
+    return { answer, actions };
+  } catch {
+    return { answer: content, actions: [] };
+  }
+}
+
+function sanitizeAction(action: unknown): AiAssistantAction[] {
+  if (!action || typeof action !== "object") return [];
+  const record = action as Record<string, unknown>;
+  if (record.type !== "create_event") return [];
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  const startDate = typeof record.startDate === "string" ? record.startDate.trim() : "";
+  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return [];
+  const endDate = typeof record.endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(record.endDate) ? record.endDate : startDate;
+  const startTime = normalizeTime(record.startTime);
+  const endTime = normalizeTime(record.endTime) ?? startTime;
+  const allDay = typeof record.allDay === "boolean" ? record.allDay : !startTime;
+  return [{
+    type: "create_event",
+    title,
+    startDate,
+    endDate,
+    startTime: allDay ? null : startTime,
+    endTime: allDay ? null : endTime,
+    allDay,
+    note: typeof record.note === "string" ? record.note.slice(0, 500) : "",
+    reminderEnabled: Boolean(record.reminderEnabled),
+    reminderMinutesBefore: clampNumber(record.reminderMinutesBefore, 0, 7 * 24 * 60, 10)
+  }];
+}
+
+function normalizeTime(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(numeric)));
 }
