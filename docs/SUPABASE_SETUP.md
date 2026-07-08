@@ -88,7 +88,7 @@ AI 助手权限需要执行：
 需要在 GitHub Secrets / Variables 中配置：
 
 - Secret `DEEPSEEK_API_KEY`：AI 服务 API Key。
-- Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给用户输入的访问口令；验证成功后会自动绑定当前账号为高级权限。
+- Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给用户输入的访问口令；验证成功后会自动绑定当前账号为会员权限。
 - Secret `SUPABASE_SERVICE_ROLE_KEY`：管理后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。
 - Variable `DEEPSEEK_MODEL`：可选，AI 服务参数配置。
 
@@ -116,6 +116,6 @@ set enabled = true,
     updated_at = now();
 ```
 
-设置完成并部署 Edge Function 后，管理员账号在“设置”中会看到“管理后台”。后台可查看账号邮箱、注册时间、最近登录时间、数据数量和具体日程/习惯/纪念日/备忘录/专注记录，并可给指定用户开通或关闭 AI 助手、设置高级权限到期时间、设置管理员角色。
+设置完成并部署 Edge Function 后，管理员账号在“设置”中会看到“管理后台”。后台可查看账号邮箱、注册时间、最近登录时间、数据数量和具体日程/习惯/纪念日/备忘录/专注记录，并可给指定用户开通或关闭 AI 助手、设置会员到期时间、设置管理员角色。
 
 账号凭据由 Supabase Auth 托管，应用数据库只保存业务数据；前端仍受 RLS 保护，跨用户查看只通过 `admin` Edge Function 使用 service role 完成。

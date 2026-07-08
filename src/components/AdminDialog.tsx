@@ -178,7 +178,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     <label>
                       角色
                       <select value={accessRole} onChange={(event) => setAccessRole(event.target.value as AdminRole)}>
-                        <option value="member">高级权限</option>
+                        <option value="member">会员</option>
                         <option value="admin">管理员</option>
                       </select>
                     </label>
@@ -270,10 +270,10 @@ function recordValue(value: unknown): string {
 function accessLabel(access: AdminAiAccess | null): string {
   if (!access?.enabled) return "未开通";
   if (access.expires_at && new Date(access.expires_at).getTime() <= Date.now()) return "已到期";
-  return access.role === "admin" ? "管理员" : "高级权限";
+  return access.role === "admin" ? "管理员" : "会员";
 }
 
 function accessBadgeClass(access: AdminAiAccess | null): string {
   const label = accessLabel(access);
-  return label === "管理员" ? "admin-access-badge admin" : label === "高级权限" ? "admin-access-badge member" : "admin-access-badge";
+  return label === "管理员" ? "admin-access-badge admin" : label === "会员" ? "admin-access-badge member" : "admin-access-badge";
 }
