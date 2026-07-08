@@ -1,4 +1,5 @@
 import { AlertCircle, CalendarCheck2, CheckCircle2, Clock3, Edit3, Target } from "lucide-react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { EventItem, EventOccurrenceState } from "../types";
 import { addDays, parseLocalDate, startOfWeek, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
@@ -11,10 +12,24 @@ interface TodayPageProps {
   occurrenceStates: EventOccurrenceState[];
   onOpenItem: (item: ScheduleOverviewItem) => void;
   onOpenFocus: () => void;
+  onAddEvent: (date: string, start: string, end: string, allDay?: boolean) => void;
 }
 
-export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOpenFocus }: TodayPageProps) {
+export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOpenFocus, onAddEvent }: TodayPageProps) {
   const today = new Date();
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  const quickAddTimer = useRef<number | null>(null);
+  const quickAddOrigin = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => () => clearQuickAddTimer(), []);
 
   async function toggleCompleted(item: ScheduleOverviewItem) {
     const eventItem = events.find((event) => event.id === item.targetId);
@@ -44,8 +59,43 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
     }
   }
 
+  function clearQuickAddTimer() {
+    if (quickAddTimer.current !== null) {
+      window.clearTimeout(quickAddTimer.current);
+      quickAddTimer.current = null;
+    }
+    quickAddOrigin.current = null;
+  }
+
+  function startQuickAdd(event: PointerEvent<HTMLElement>) {
+    if (!isMobile || event.pointerType === "mouse" || quickAddShouldIgnore(event.target)) return;
+    clearQuickAddTimer();
+    quickAddOrigin.current = { x: event.clientX, y: event.clientY };
+    quickAddTimer.current = window.setTimeout(() => {
+      quickAddTimer.current = null;
+      quickAddOrigin.current = null;
+      const slot = defaultTodaySlot(new Date());
+      navigator.vibrate?.(8);
+      onAddEvent(slot.date, slot.start, slot.end);
+    }, 520);
+  }
+
+  function moveQuickAdd(event: PointerEvent<HTMLElement>) {
+    if (!quickAddOrigin.current) return;
+    const deltaX = Math.abs(event.clientX - quickAddOrigin.current.x);
+    const deltaY = Math.abs(event.clientY - quickAddOrigin.current.y);
+    if (Math.max(deltaX, deltaY) > 12) clearQuickAddTimer();
+  }
+
   return (
-    <section className="today-page">
+    <section
+      className="today-page"
+      onPointerDown={startQuickAdd}
+      onPointerMove={moveQuickAdd}
+      onPointerUp={clearQuickAddTimer}
+      onPointerCancel={clearQuickAddTimer}
+      onPointerLeave={clearQuickAddTimer}
+    >
       <div className="page-heading today-heading">
         <div>
           <h1>今天</h1>
@@ -162,4 +212,22 @@ function TodayList({ title, items, emptyText, tomorrow, weekend, overdue, onOpen
       )}
     </section>
   );
+}
+
+function quickAddShouldIgnore(target: EventTarget): boolean {
+  return target instanceof Element && Boolean(target.closest("button, input, textarea, select, a, [role='button'], .today-item, .next-action-panel"));
+}
+
+function defaultTodaySlot(now: Date): { date: string; start: string; end: string } {
+  const startMinutes = Math.min(23 * 60 + 30, Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30);
+  const endMinutes = Math.min(23 * 60 + 59, startMinutes + 30);
+  return {
+    date: toISODate(now),
+    start: formatMinutes(startMinutes),
+    end: formatMinutes(endMinutes)
+  };
+}
+
+function formatMinutes(value: number): string {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }

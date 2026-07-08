@@ -697,6 +697,7 @@ export default function App() {
             occurrenceStates={occurrenceStates}
             onOpenItem={openOverviewItem}
             onOpenFocus={() => navigate("focus")}
+            onAddEvent={openNewEvent}
           />
         ) : page === "calendar" ? (
           <>

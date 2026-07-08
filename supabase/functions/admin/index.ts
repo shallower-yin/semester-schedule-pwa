@@ -30,6 +30,27 @@ interface AiAccessRow {
   updated_at?: string;
 }
 
+interface AiUsageRow {
+  user_id: string;
+  requested_at: string;
+  status: "success" | "error";
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number | string | null;
+}
+
+interface AiUsageSummary {
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+  lastUsedAt: string | null;
+}
+
 interface UserCounts {
   semesters: number;
   courses: number;
@@ -243,6 +264,10 @@ async function getSummary(serviceRoleKey: string) {
     select: "user_id,enabled,role,expires_at,note,created_at,updated_at"
   });
   const accessByUser = new Map(accessRows.map((row) => [row.user_id, row]));
+  const usageRows = await optionalRestGet<AiUsageRow>("ai_assistant_usage", serviceRoleKey, {
+    select: "user_id,requested_at,status,prompt_tokens,completion_tokens,total_tokens,estimated_cost_usd"
+  });
+  const usageByUser = aggregateAiUsage(usageRows);
 
   return {
     passwordVisible: false,
@@ -253,7 +278,8 @@ async function getSummary(serviceRoleKey: string) {
       lastSignInAt: item.last_sign_in_at ?? null,
       confirmedAt: item.confirmed_at ?? null,
       counts: counts.get(item.id) ?? emptyCounts(),
-      aiAccess: accessByUser.get(item.id) ?? null
+      aiAccess: accessByUser.get(item.id) ?? null,
+      aiUsage: usageByUser.get(item.id) ?? emptyAiUsage()
     })).sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""))
   };
 }
@@ -261,7 +287,7 @@ async function getSummary(serviceRoleKey: string) {
 async function getDetails(targetUserId: string, serviceRoleKey: string) {
   const authData = await authAdminGet<{ users?: SupabaseUser[] }>("users?page=1&per_page=1000", serviceRoleKey);
   const user = (authData.users ?? []).find((item) => item.id === targetUserId) ?? null;
-  const [semesters, courses, events, anniversaries, memos, focusSessions, aiAccess] = await Promise.all([
+  const [semesters, courses, events, anniversaries, memos, focusSessions, aiAccess, aiUsageRows] = await Promise.all([
     optionalRestGet( "semesters", serviceRoleKey, { select: DETAIL_TABLES.semesters, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
     optionalRestGet("courses", serviceRoleKey, { select: DETAIL_TABLES.courses, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
     optionalRestGet("events", serviceRoleKey, { select: DETAIL_TABLES.events, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
@@ -271,6 +297,10 @@ async function getDetails(targetUserId: string, serviceRoleKey: string) {
     getAiAccess(targetUserId, serviceRoleKey).catch((error) => {
       console.error(`跳过用户权限读取：${error instanceof Error ? error.message : String(error)}`);
       return null;
+    }),
+    optionalRestGet<AiUsageRow>("ai_assistant_usage", serviceRoleKey, {
+      select: "user_id,requested_at,status,prompt_tokens,completion_tokens,total_tokens,estimated_cost_usd",
+      user_id: `eq.${targetUserId}`
     })
   ]);
 
@@ -284,6 +314,7 @@ async function getDetails(targetUserId: string, serviceRoleKey: string) {
       confirmedAt: user.confirmed_at ?? null
     } : { id: targetUserId, email: "", createdAt: null, lastSignInAt: null, confirmedAt: null },
     aiAccess,
+    aiUsage: aggregateAiUsage(aiUsageRows).get(targetUserId) ?? emptyAiUsage(),
     data: {
       semesters,
       courses,
@@ -293,6 +324,37 @@ async function getDetails(targetUserId: string, serviceRoleKey: string) {
       focusSessions
     }
   };
+}
+
+function emptyAiUsage(): AiUsageSummary {
+  return {
+    requestCount: 0,
+    successCount: 0,
+    errorCount: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    estimatedCostUsd: null,
+    lastUsedAt: null
+  };
+}
+
+function aggregateAiUsage(rows: AiUsageRow[]): Map<string, AiUsageSummary> {
+  const usageByUser = new Map<string, AiUsageSummary>();
+  for (const row of rows) {
+    const current = usageByUser.get(row.user_id) ?? emptyAiUsage();
+    current.requestCount += 1;
+    if (row.status === "success") current.successCount += 1;
+    if (row.status === "error") current.errorCount += 1;
+    current.promptTokens += Number(row.prompt_tokens ?? 0);
+    current.completionTokens += Number(row.completion_tokens ?? 0);
+    current.totalTokens += Number(row.total_tokens ?? 0);
+    const cost = Number(row.estimated_cost_usd ?? NaN);
+    if (Number.isFinite(cost)) current.estimatedCostUsd = (current.estimatedCostUsd ?? 0) + cost;
+    if (!current.lastUsedAt || row.requested_at > current.lastUsedAt) current.lastUsedAt = row.requested_at;
+    usageByUser.set(row.user_id, current);
+  }
+  return usageByUser;
 }
 
 async function resolveTargetUserId(targetUserId: string | undefined, targetEmail: string | undefined, serviceRoleKey: string): Promise<string> {

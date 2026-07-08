@@ -87,6 +87,27 @@ describe("备忘录视图", () => {
     expect(document.querySelector(".memo-visual-text.completed")).toHaveTextContent("防晒");
     expect(screen.queryByLabelText("待办清单")).not.toBeInTheDocument();
   });
+
+  it("显示未完成待办数并支持筛选含未完成待办的备忘录", async () => {
+    await db.memos.bulkAdd([
+      { ...memoRecord(1), title: "采购", content: "○ 鞋垫\n● 防晒" },
+      { ...memoRecord(2), title: "已完成清单", content: "● 整理资料" },
+      { ...memoRecord(3), title: "普通记录", content: "没有待办" }
+    ]);
+
+    render(<MemoPage ownerId="local" />);
+
+    await waitFor(() => expect(screen.getByText(/未完成待办 1 项/)).toBeInTheDocument());
+    expect(screen.getByText("采购")).toBeInTheDocument();
+    expect(screen.getByText("已完成清单")).toBeInTheDocument();
+    expect(screen.getByText("普通记录")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /未完成待办/ }));
+
+    expect(screen.getByText("采购")).toBeInTheDocument();
+    expect(screen.queryByText("已完成清单")).not.toBeInTheDocument();
+    expect(screen.queryByText("普通记录")).not.toBeInTheDocument();
+  });
 });
 
 function memoRecord(index: number): Memo {

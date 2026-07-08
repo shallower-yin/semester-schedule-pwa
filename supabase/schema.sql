@@ -255,6 +255,25 @@ create table if not exists public.ai_assistant_access (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.ai_assistant_usage (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  requested_at timestamptz not null default now(),
+  status text not null default 'success' check (status in ('success', 'error')),
+  access_method text not null default '',
+  model text not null default '',
+  prompt_tokens integer not null default 0 check (prompt_tokens >= 0),
+  completion_tokens integer not null default 0 check (completion_tokens >= 0),
+  total_tokens integer not null default 0 check (total_tokens >= 0),
+  estimated_cost_usd numeric(14, 8),
+  latency_ms integer check (latency_ms is null or latency_ms >= 0),
+  question_chars integer check (question_chars is null or question_chars >= 0),
+  error text
+);
+
+create index if not exists ai_assistant_usage_user_requested_idx
+on public.ai_assistant_usage (user_id, requested_at desc);
+
 create or replace function public.apply_schedule_sync_metadata()
 returns trigger
 language plpgsql
@@ -316,6 +335,7 @@ end
 $$;
 
 alter table public.ai_assistant_access enable row level security;
+alter table public.ai_assistant_usage enable row level security;
 
 create or replace function public.is_ai_assistant_admin()
 returns boolean
@@ -360,6 +380,24 @@ with check (public.is_ai_assistant_admin());
 revoke all on public.ai_assistant_access from anon;
 grant select, insert, update, delete on public.ai_assistant_access to authenticated;
 grant select, insert, update, delete on public.ai_assistant_access to service_role;
+
+drop policy if exists "Users read own AI usage" on public.ai_assistant_usage;
+create policy "Users read own AI usage"
+on public.ai_assistant_usage
+for select
+to authenticated
+using ((select auth.uid()) = user_id);
+
+drop policy if exists "AI admins read all usage" on public.ai_assistant_usage;
+create policy "AI admins read all usage"
+on public.ai_assistant_usage
+for select
+to authenticated
+using (public.is_ai_assistant_admin());
+
+revoke all on public.ai_assistant_usage from anon;
+grant select on public.ai_assistant_usage to authenticated;
+grant select, insert on public.ai_assistant_usage to service_role;
 
 grant usage on schema public to authenticated;
 grant usage on schema public to service_role;

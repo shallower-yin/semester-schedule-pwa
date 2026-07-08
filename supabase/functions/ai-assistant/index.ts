@@ -34,11 +34,20 @@ interface AiAssistantAction {
 interface AiAssistantResponse {
   answer: string;
   actions: AiAssistantAction[];
+  model: string;
+  usage: AiAssistantUsage;
 }
 
 interface AiAssistantHistoryMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+interface AiAssistantUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number | null;
 }
 
 function optionalSecret(name: string): string {
@@ -76,22 +85,38 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return jsonResponse({ ok: true });
   if (request.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
+  const startedAt = Date.now();
+  let currentUser: SupabaseUser | null = null;
+  let accessMethod = "";
+  let questionChars = 0;
   try {
     const authorization = request.headers.get("authorization") ?? "";
     if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 AI 助手。" }, 401);
     const body = await request.json() as AiAssistantRequest;
     const question = body.question?.trim();
     if (!question) return jsonResponse({ error: "问题不能为空。" }, 400);
+    questionChars = question.length;
 
     const user = await getUser(authorization);
+    currentUser = user;
     const access = await checkAiAccess(user, authorization, body.accessCode?.trim());
     if (!access.allowed) return jsonResponse({
       error: access.reason,
       code: "AI_ACCESS_REQUIRED"
     }, 403);
+    accessMethod = access.method ?? "";
 
     const history = sanitizeHistory(body.history);
     const assistantResponse = await askDeepSeek(question, body.scheduleContext, history, user.email);
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "success",
+      accessMethod,
+      model: assistantResponse.model,
+      usage: assistantResponse.usage,
+      latencyMs: Date.now() - startedAt,
+      questionChars
+    });
     return jsonResponse({
       answer: assistantResponse.answer,
       actions: assistantResponse.actions,
@@ -100,6 +125,18 @@ Deno.serve(async (request) => {
     });
   } catch (error) {
     console.error(error);
+    if (currentUser) {
+      await logAiAssistantUsage({
+        userId: currentUser.id,
+        status: "error",
+        accessMethod,
+        model: optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash",
+        usage: emptyUsage(),
+        latencyMs: Date.now() - startedAt,
+        questionChars,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     return jsonResponse({ error: error instanceof Error ? error.message : "AI 助手请求失败。" }, 500);
   }
 });
@@ -219,10 +256,17 @@ async function askDeepSeek(
   });
   const text = await response.text();
   if (!response.ok) throw new Error("AI 助手暂时不可用，请稍后再试。");
-  const data = JSON.parse(text) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = JSON.parse(text) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: Partial<AiAssistantUsage>;
+  };
   const content = data.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("AI 助手没有返回有效回答。");
-  return parseAssistantResponse(content);
+  return {
+    ...parseAssistantResponse(content),
+    model,
+    usage: normalizeUsage(data.usage)
+  };
 }
 
 function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
@@ -290,4 +334,76 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.min(max, Math.max(min, Math.round(numeric)));
+}
+
+function normalizeUsage(usage: Partial<AiAssistantUsage> | undefined): AiAssistantUsage {
+  const promptTokens = Math.max(0, Math.round(Number(usage?.prompt_tokens ?? 0)));
+  const completionTokens = Math.max(0, Math.round(Number(usage?.completion_tokens ?? 0)));
+  const reportedTotal = Math.max(0, Math.round(Number(usage?.total_tokens ?? 0)));
+  const totalTokens = reportedTotal || promptTokens + completionTokens;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: totalTokens,
+    estimated_cost_usd: estimateCost(promptTokens, completionTokens)
+  };
+}
+
+function emptyUsage(): AiAssistantUsage {
+  return {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    estimated_cost_usd: null
+  };
+}
+
+function estimateCost(promptTokens: number, completionTokens: number): number | null {
+  const inputPrice = Number(optionalSecret("DEEPSEEK_INPUT_PRICE_USD_PER_MILLION"));
+  const outputPrice = Number(optionalSecret("DEEPSEEK_OUTPUT_PRICE_USD_PER_MILLION"));
+  if (!Number.isFinite(inputPrice) || !Number.isFinite(outputPrice) || inputPrice < 0 || outputPrice < 0) return null;
+  return Number((((promptTokens / 1_000_000) * inputPrice) + ((completionTokens / 1_000_000) * outputPrice)).toFixed(8));
+}
+
+async function logAiAssistantUsage(input: {
+  userId: string;
+  status: "success" | "error";
+  accessMethod: string;
+  model: string;
+  usage: AiAssistantUsage;
+  latencyMs: number;
+  questionChars: number;
+  error?: string;
+}) {
+  const serviceRoleKey = serviceRoleSecret();
+  if (!serviceRoleKey) return;
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage`, {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+        "content-type": "application/json",
+        prefer: "return=minimal"
+      },
+      body: JSON.stringify({
+        user_id: input.userId,
+        status: input.status,
+        access_method: input.accessMethod,
+        model: input.model,
+        prompt_tokens: input.usage.prompt_tokens,
+        completion_tokens: input.usage.completion_tokens,
+        total_tokens: input.usage.total_tokens,
+        estimated_cost_usd: input.usage.estimated_cost_usd,
+        latency_ms: input.latencyMs,
+        question_chars: input.questionChars,
+        error: input.error ? input.error.slice(0, 500) : null
+      })
+    });
+    if (!response.ok) {
+      console.error(`记录 AI 用量失败：HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+    }
+  } catch (error) {
+    console.error(`记录 AI 用量失败：${error instanceof Error ? error.message : String(error)}`);
+  }
 }

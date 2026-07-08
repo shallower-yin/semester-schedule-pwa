@@ -200,6 +200,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 <small>
                   课程 {user.counts.courses} · 事项 {user.counts.events} · 习惯 {user.counts.habits} · 纪念日 {user.counts.anniversaries}
                 </small>
+                <small>
+                  AI {user.aiUsage.requestCount} 次 · {formatTokenCount(user.aiUsage.totalTokens)} tokens · 最近 {formatDateTime(user.aiUsage.lastUsedAt)}
+                </small>
               </button>
             ))}
             {summary && !visibleUsers.length && <p>没有匹配账号。</p>}
@@ -253,6 +256,13 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     </button>
                   </div>
                 </section>
+
+                <div className="admin-stats-grid admin-ai-usage-grid">
+                  <article><strong>{selectedUser.aiUsage.requestCount}</strong><span>AI 使用次数</span></article>
+                  <article><strong>{formatTokenCount(selectedUser.aiUsage.totalTokens)}</strong><span>tokens</span></article>
+                  <article><strong>{formatCost(selectedUser.aiUsage.estimatedCostUsd)}</strong><span>估算费用</span></article>
+                  <article><strong>{formatDateTime(selectedUser.aiUsage.lastUsedAt)}</strong><span>最近使用</span></article>
+                </div>
 
                 {detailLoading ? <p>正在读取用户数据...</p> : details && details.user.id === selectedUser.id && (
                   <>
@@ -332,6 +342,28 @@ function recordValue(value: unknown): string {
   if (value == null || value === "") return "-";
   if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 80)}...` : value;
   return String(value);
+}
+
+function formatTokenCount(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString("zh-CN");
+}
+
+function formatCost(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  if (value === 0) return "$0";
+  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return "从未";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "从未";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 function isLikelyUuid(value: string): boolean {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
-import { applyMemoLineFormat, continueMemoListOnEnter, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
+import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
 import { supabase } from "../lib/supabase";
 import type { EventItem, Memo, MemoFolder } from "../types";
 import { Modal } from "./Modal";
@@ -15,7 +15,7 @@ interface MemoPageProps {
   onOpenMemoConsumed?: () => void;
 }
 
-type FolderFilter = "all" | "trash" | string;
+type FolderFilter = "all" | "trash" | "uncheckedTodos" | string;
 type MemoViewMode = "list" | "grid";
 const GRID_PAGE_SIZE = 9;
 
@@ -47,7 +47,11 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     const normalizedQuery = query.trim().toLowerCase();
     return memos
       .filter((memo) => (filter === "trash" ? Boolean(memo.deleted_at) : !memo.deleted_at))
-      .filter((memo) => (filter === "all" || filter === "trash" ? true : memo.folder_id === filter))
+      .filter((memo) => {
+        if (filter === "all" || filter === "trash") return true;
+        if (filter === "uncheckedTodos") return getMemoChecklistStats(memo.content).incomplete > 0;
+        return memo.folder_id === filter;
+      })
       .filter((memo) => {
         if (!normalizedQuery) return true;
         return `${memo.title}\n${memo.content}`.toLowerCase().includes(normalizedQuery);
@@ -60,6 +64,12 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
 
   const activeMemoCount = memos.filter((memo) => !memo.deleted_at).length;
   const trashMemoCount = memos.filter((memo) => memo.deleted_at).length;
+  const uncheckedTodoCount = memos
+    .filter((memo) => !memo.deleted_at)
+    .reduce((total, memo) => total + getMemoChecklistStats(memo.content).incomplete, 0);
+  const uncheckedTodoMemoCount = memos
+    .filter((memo) => !memo.deleted_at && getMemoChecklistStats(memo.content).incomplete > 0)
+    .length;
   const gridPageCount = Math.max(1, Math.ceil(visibleMemos.length / GRID_PAGE_SIZE));
   const activeGridPage = Math.min(gridPage, gridPageCount - 1);
   const gridMemos = visibleMemos.slice(activeGridPage * GRID_PAGE_SIZE, activeGridPage * GRID_PAGE_SIZE + GRID_PAGE_SIZE);
@@ -224,6 +234,9 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
           <button className={filter === "all" ? "active" : ""} onClick={() => selectFilter("all")}>
             <FileText size={18} /><span>全部</span><small>{activeMemoCount}</small>
           </button>
+          <button className={filter === "uncheckedTodos" ? "active" : ""} onClick={() => selectFilter("uncheckedTodos")}>
+            <ListChecks size={18} /><span>未完成待办</span><small>{uncheckedTodoCount}</small>
+          </button>
           {folders.map((folder) => (
             <button key={folder.id} className={filter === folder.id ? "active" : ""} onClick={() => selectFilter(folder.id)}>
               <Folder size={18} /><span>{folder.name}</span>
@@ -263,7 +276,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
         <div className="page-heading memo-heading">
           <div>
             <h1>备忘录</h1>
-            <p>记录临时想法、复习计划和需要保留的文字资料。</p>
+            <p>记录临时想法、复习计划和需要保留的文字资料。未完成待办 {uncheckedTodoCount} 项，分布在 {uncheckedTodoMemoCount} 条备忘录中。</p>
           </div>
           <div className="inline-actions">
             {filter === "trash" && trashMemoCount > 0 && <button className="button danger-button compact" onClick={() => void emptyTrash()}><Trash2 size={16} />清空回收站</button>}
@@ -363,6 +376,7 @@ interface MemoCardProps {
 }
 
 function MemoCard({ memo, mode, onEdit, onRestore, onDelete, onCreateEvent }: MemoCardProps) {
+  const checklistStats = getMemoChecklistStats(memo.content);
   return (
     <article
       className={`memo-card ${mode === "grid" ? "memo-card-grid" : ""}`}
@@ -374,6 +388,7 @@ function MemoCard({ memo, mode, onEdit, onRestore, onDelete, onCreateEvent }: Me
         {memo.is_pinned && <span className="memo-pin"><Pin size={13} />置顶</span>}
       </div>
       <h2>{memo.title}</h2>
+      {checklistStats.incomplete > 0 && <span className="memo-todo-badge">未完成待办 {checklistStats.incomplete}</span>}
       <p>{memo.content || "无正文"}</p>
       {memo.deleted_at ? (
         <div className="memo-card-actions">

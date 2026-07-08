@@ -730,6 +730,10 @@ main {
   box-shadow: 0 2px 8px rgb(30 48 88 / 12%);
 }
 
+.calendar-entry.overlap-entry {
+  justify-self: start;
+}
+
 .course-entry {
   border: 1px solid rgb(255 255 255 / 28%);
   color: white;
@@ -1774,6 +1778,11 @@ textarea {
   gap: 8px;
 }
 
+.admin-ai-usage-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0;
+}
+
 .admin-stats-grid article {
   display: grid;
   gap: 2px;
@@ -2204,6 +2213,18 @@ textarea {
 .memo-card h2 {
   margin: 10px 0 8px;
   font-size: 19px;
+}
+
+.memo-todo-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #2563eb;
+  background: #eaf2ff;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .memo-card p {

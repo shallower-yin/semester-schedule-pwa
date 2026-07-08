@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleOverview } from "../lib/overview";
 import { TodayPage } from "./TodayPage";
 
@@ -21,8 +21,13 @@ const baseOverview: ScheduleOverview = {
 };
 
 describe("今日页面下一项", () => {
+  beforeEach(() => {
+    mockMatchMedia(true);
+  });
+
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it("当天事项都完成后显示休息提示", () => {
@@ -47,6 +52,7 @@ describe("今日页面下一项", () => {
         occurrenceStates={[]}
         onOpenItem={vi.fn()}
         onOpenFocus={vi.fn()}
+        onAddEvent={vi.fn()}
       />
     );
 
@@ -78,6 +84,7 @@ describe("今日页面下一项", () => {
         occurrenceStates={[]}
         onOpenItem={vi.fn()}
         onOpenFocus={vi.fn()}
+        onAddEvent={vi.fn()}
       />
     );
 
@@ -123,10 +130,53 @@ describe("今日页面下一项", () => {
         occurrenceStates={[]}
         onOpenItem={vi.fn()}
         onOpenFocus={vi.fn()}
+        onAddEvent={vi.fn()}
       />
     );
 
     expect(screen.getAllByText("高数").length).toBeGreaterThan(0);
     expect(screen.queryByText("无事项，可以休息啦")).not.toBeInTheDocument();
   });
+
+  it("移动端长按今天页空白区域时带入今天日期和当前时间新增事项", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 8, 9, 10));
+    const onAddEvent = vi.fn();
+
+    render(
+      <TodayPage
+        overview={baseOverview}
+        events={[]}
+        occurrenceStates={[]}
+        onOpenItem={vi.fn()}
+        onOpenFocus={vi.fn()}
+        onAddEvent={onAddEvent}
+      />
+    );
+
+    const page = document.querySelector(".today-page") as HTMLElement;
+    fireEvent.pointerDown(page, { pointerType: "touch", clientX: 20, clientY: 20 });
+    act(() => {
+      vi.advanceTimersByTime(530);
+    });
+    fireEvent.pointerUp(page);
+
+    expect(onAddEvent).toHaveBeenCalledWith("2026-07-08", "09:30", "10:00");
+  });
 });
+
+function mockMatchMedia(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  });
+}

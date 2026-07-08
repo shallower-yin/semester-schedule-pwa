@@ -1,5 +1,5 @@
 import { Ban, Bell, BookOpen, Check, CheckCircle2, Coffee, Users } from "lucide-react";
-import type { PointerEvent, TouchEvent } from "react";
+import type { CSSProperties, PointerEvent, TouchEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { db, queueChange } from "../db";
@@ -51,6 +51,19 @@ const CATEGORY_ICONS = {
   bell: Bell
 };
 
+interface OverlapBlock {
+  key: string;
+  dayIndex: number;
+  start: string;
+  end: string;
+  allDay: boolean;
+}
+
+interface OverlapLayout {
+  index: number;
+  count: number;
+}
+
 export function WeekCalendar(props: WeekCalendarProps) {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -71,6 +84,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
       ? props.periods.filter((period) => period.weekday === props.selectedDay + 1)
       : props.periods
   );
+  const overlapLayouts = buildOverlapLayouts(props, courseMap);
 
   async function toggleClassCancellation(schedule: CourseSchedule, date: Date, courseName: string) {
     const occurrenceDate = toISODate(date);
@@ -163,6 +177,20 @@ export function WeekCalendar(props: WeekCalendarProps) {
     touchStart.current = null;
     if (Math.abs(deltaX) < 56 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) return;
     moveSelectedDay(deltaX > 0 ? 1 : -1);
+  }
+
+  function entryStyle(key: string, baseStyle: CSSProperties): CSSProperties {
+    const layout = overlapLayouts.get(key);
+    if (!layout || layout.count <= 1) return baseStyle;
+    const gap = 4;
+    return {
+      ...baseStyle,
+      justifySelf: "start",
+      width: `calc((100% - ${gap * (layout.count - 1)}px) / ${layout.count})`,
+      marginLeft: `calc(${layout.index} * ((100% - ${gap * (layout.count - 1)}px) / ${layout.count} + ${gap}px))`,
+      marginRight: 0,
+      zIndex: 2 + layout.index
+    };
   }
 
   return (
@@ -270,15 +298,16 @@ export function WeekCalendar(props: WeekCalendarProps) {
             );
             if (!startPeriod || !endPeriod) return [];
             const [firstRow, endRow] = rowRangeForTime(displayRows, startPeriod.start_time, endPeriod.end_time);
+            const occurrenceKey = `${schedule.id}-${toISODate(date)}`;
             return (
               <article
-                key={`${schedule.id}-${toISODate(date)}`}
-                className={`calendar-entry course-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${canceled ? "canceled" : ""}`}
-                style={{
+                key={occurrenceKey}
+                className={`calendar-entry course-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${canceled ? "canceled" : ""} ${(overlapLayouts.get(occurrenceKey)?.count ?? 0) > 1 ? "overlap-entry" : ""}`}
+                style={entryStyle(occurrenceKey, {
                   gridColumn: dayIndex + 2,
                   gridRow: `${firstRow + 3} / ${endRow + 3}`,
                   backgroundColor: course.color
-                }}
+                })}
                 onClick={() => props.onEditCourse(course)}
               >
                 <div className="entry-title"><BookOpen size={14} />{canceled ? `已停课 · ${course.name}` : course.name}</div>
@@ -309,15 +338,16 @@ export function WeekCalendar(props: WeekCalendarProps) {
             const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
             if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return [];
             const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
+            const occurrenceKey = `${eventItem.id}-${toISODate(date)}`;
             return (
               <article
-                key={`${eventItem.id}-${toISODate(date)}`}
-                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${isHabit ? "habit-entry" : ""}`}
-                style={{
+                key={occurrenceKey}
+                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${isHabit ? "habit-entry" : ""} ${(overlapLayouts.get(occurrenceKey)?.count ?? 0) > 1 ? "overlap-entry" : ""}`}
+                style={entryStyle(occurrenceKey, {
                   gridColumn: dayIndex + 2,
                   gridRow: eventItem.all_day ? 2 : `${firstRow + 3} / ${endRow + 3}`,
                   borderLeftColor: eventItem.color || category?.color || "#e36b32"
-                }}
+                })}
                 onClick={() => props.onEditEvent(eventItem)}
               >
                 <div className="entry-title"><Icon size={14} />{eventItem.title}</div>
@@ -343,4 +373,114 @@ export function WeekCalendar(props: WeekCalendarProps) {
       </div>
     </section>
   );
+}
+
+function buildOverlapLayouts(props: WeekCalendarProps, courseMap: Map<string, Course>): Map<string, OverlapLayout> {
+  const blocks: OverlapBlock[] = [];
+
+  props.dates.forEach((date, dayIndex) => {
+    const dateText = toISODate(date);
+    props.schedules.forEach((schedule) => {
+      if (!courseScheduleOccursOn(schedule, props.semester, date)) return;
+      const course = courseMap.get(schedule.course_id);
+      if (!course || course.deleted_at) return;
+      const canceled = props.cancellations.some(
+        (item) => item.course_schedule_id === schedule.id && item.occurrence_date === dateText && !item.deleted_at
+      );
+      if (canceled) return;
+      const startPeriod = props.periods.find(
+        (period) => period.weekday === schedule.weekday && period.period_number === schedule.start_period && !period.deleted_at
+      );
+      const endPeriod = props.periods.find(
+        (period) => period.weekday === schedule.weekday && period.period_number === schedule.end_period && !period.deleted_at
+      );
+      if (!startPeriod || !endPeriod) return;
+      blocks.push({
+        key: `${schedule.id}-${dateText}`,
+        dayIndex,
+        start: startPeriod.start_time,
+        end: endPeriod.end_time,
+        allDay: false
+      });
+    });
+
+    props.events.forEach((eventItem) => {
+      if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return;
+      const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
+      if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return;
+      blocks.push({
+        key: `${eventItem.id}-${dateText}`,
+        dayIndex,
+        start: eventItem.all_day ? "00:00" : eventItem.start_time ?? "00:00",
+        end: eventItem.all_day ? "23:59" : eventItem.end_time ?? eventItem.start_time ?? "23:59",
+        allDay: eventItem.all_day
+      });
+    });
+  });
+
+  return assignOverlapLayouts(blocks);
+}
+
+function assignOverlapLayouts(blocks: OverlapBlock[]): Map<string, OverlapLayout> {
+  const result = new Map<string, OverlapLayout>();
+  const grouped = new Map<string, OverlapBlock[]>();
+  for (const block of blocks) {
+    const key = `${block.dayIndex}-${block.allDay ? "all-day" : "timed"}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), block]);
+  }
+
+  for (const dayBlocks of grouped.values()) {
+    const sorted = [...dayBlocks].sort((left, right) => {
+      const startCompare = minutesOf(left.start) - minutesOf(right.start);
+      if (startCompare !== 0) return startCompare;
+      return minutesOf(right.end) - minutesOf(left.end);
+    });
+    let activeGroup: OverlapBlock[] = [];
+    let activeGroupEnd = -1;
+
+    const flush = () => {
+      if (!activeGroup.length) return;
+      applyLaneLayout(activeGroup, result);
+      activeGroup = [];
+      activeGroupEnd = -1;
+    };
+
+    for (const block of sorted) {
+      const start = minutesOf(block.start);
+      const end = minutesOf(block.end);
+      if (activeGroup.length && start > activeGroupEnd) flush();
+      activeGroup.push(block);
+      activeGroupEnd = Math.max(activeGroupEnd, end);
+    }
+    flush();
+  }
+  return result;
+}
+
+function applyLaneLayout(group: OverlapBlock[], result: Map<string, OverlapLayout>) {
+  if (group.length <= 1) return;
+  const laneEnds: number[] = [];
+  const placements: Array<{ block: OverlapBlock; index: number }> = [];
+  for (const block of group) {
+    const start = minutesOf(block.start);
+    const end = minutesOf(block.end);
+    let laneIndex = laneEnds.findIndex((laneEnd) => laneEnd < start);
+    if (laneIndex === -1) {
+      laneIndex = laneEnds.length;
+      laneEnds.push(end);
+    } else {
+      laneEnds[laneIndex] = end;
+    }
+    placements.push({ block, index: laneIndex });
+  }
+  const count = laneEnds.length;
+  if (count <= 1) return;
+  for (const placement of placements) {
+    result.set(placement.block.key, { index: placement.index, count });
+  }
+}
+
+function minutesOf(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
 }

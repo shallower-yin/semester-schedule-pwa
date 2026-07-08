@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { weekDates } from "../lib/date";
-import type { ClassPeriod, Semester } from "../types";
+import type { ClassPeriod, EventItem, Semester } from "../types";
 import { WeekCalendar } from "./WeekCalendar";
 
 const baseFields = {
@@ -77,9 +77,25 @@ describe("周视图移动端新增事项", () => {
 
     expect(onAddEvent).not.toHaveBeenCalled();
   });
+
+  it("同一时间的多个事项会并排显示", () => {
+    const onAddEvent = vi.fn();
+    renderWeekCalendar(onAddEvent, [
+      eventRecord("event-a", "重叠事项 A"),
+      eventRecord("event-b", "重叠事项 B")
+    ]);
+
+    const first = screen.getByText("重叠事项 A").closest("article");
+    const second = screen.getByText("重叠事项 B").closest("article");
+
+    expect(first).toHaveClass("overlap-entry");
+    expect(second).toHaveClass("overlap-entry");
+    expect(first).toHaveStyle("width: calc((100% - 4px) / 2)");
+    expect(second).toHaveStyle("width: calc((100% - 4px) / 2)");
+  });
 });
 
-function renderWeekCalendar(onAddEvent: ReturnType<typeof vi.fn>) {
+function renderWeekCalendar(onAddEvent: ReturnType<typeof vi.fn>, events: EventItem[] = []) {
   render(
     <WeekCalendar
       dates={weekDates(new Date(2026, 6, 6))}
@@ -87,7 +103,7 @@ function renderWeekCalendar(onAddEvent: ReturnType<typeof vi.fn>) {
       courses={[]}
       schedules={[]}
       cancellations={[]}
-      events={[]}
+      events={events}
       eventStatusFilter="all"
       categories={[]}
       occurrenceStates={[]}
@@ -99,6 +115,29 @@ function renderWeekCalendar(onAddEvent: ReturnType<typeof vi.fn>) {
       onEditCourse={vi.fn()}
     />
   );
+}
+
+function eventRecord(id: string, title: string): EventItem {
+  return {
+    ...baseFields,
+    id,
+    event_type: "event",
+    title,
+    start_date: "2026-07-06",
+    end_date: "2026-07-06",
+    start_time: "08:30",
+    end_time: "09:15",
+    all_day: false,
+    category_id: null,
+    color: "#e36b32",
+    note: "",
+    recurrence_type: "none",
+    recurrence_until: null,
+    recurrence_interval: 1,
+    reminder_enabled: false,
+    reminder_minutes_before: 10,
+    timezone: "Asia/Shanghai"
+  };
 }
 
 function mockMatchMedia(matches: boolean) {

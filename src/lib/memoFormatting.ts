@@ -5,6 +5,12 @@ interface MemoTextEdit {
   cursor: number;
 }
 
+export interface MemoChecklistStats {
+  total: number;
+  completed: number;
+  incomplete: number;
+}
+
 const uncheckedCircle = "○";
 const checkedCircle = "●";
 
@@ -91,6 +97,26 @@ export function toggleMemoChecklistAtCursor(content: string, cursor: number): Me
 
 export function stripMemoListPrefix(line: string): string {
   return line.replace(/^\s*(?:\d+[.)、]|[-*]\s+\[[ xX]\]|[-*]|[○◯●])\s*/, "");
+}
+
+export function getMemoChecklistStats(content: string): MemoChecklistStats {
+  return content.split(/\r?\n/).reduce<MemoChecklistStats>((stats, line) => {
+    const circleTodo = new RegExp(`^\\s*([${uncheckedCircle}◯${checkedCircle}])\\s+`).exec(line);
+    if (circleTodo) {
+      stats.total += 1;
+      if (circleTodo[1] === checkedCircle) stats.completed += 1;
+      else stats.incomplete += 1;
+      return stats;
+    }
+
+    const markdownTodo = /^\s*[-*]\s+\[( |x|X)\]\s+/.exec(line);
+    if (markdownTodo) {
+      stats.total += 1;
+      if (markdownTodo[1].toLowerCase() === "x") stats.completed += 1;
+      else stats.incomplete += 1;
+    }
+    return stats;
+  }, { total: 0, completed: 0, incomplete: 0 });
 }
 
 function formatSelectedLines(content: string, start: number, end: number, kind: MemoLineFormat): MemoTextEdit {

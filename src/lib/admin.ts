@@ -12,6 +12,17 @@ export interface AdminAiAccess {
   updated_at?: string;
 }
 
+export interface AdminAiUsage {
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+  lastUsedAt: string | null;
+}
+
 export interface AdminUserCounts {
   semesters: number;
   courses: number;
@@ -30,6 +41,7 @@ export interface AdminUserSummary {
   confirmedAt: string | null;
   counts: AdminUserCounts;
   aiAccess: AdminAiAccess | null;
+  aiUsage: AdminAiUsage;
 }
 
 export interface AdminSummary {
@@ -44,8 +56,9 @@ export interface AdminStatus {
 
 export interface AdminUserDetails {
   passwordVisible: false;
-  user: Omit<AdminUserSummary, "counts" | "aiAccess">;
+  user: Omit<AdminUserSummary, "counts" | "aiAccess" | "aiUsage">;
   aiAccess: AdminAiAccess | null;
+  aiUsage: AdminAiUsage;
   data: {
     semesters: Array<Record<string, unknown>>;
     courses: Array<Record<string, unknown>>;
@@ -85,6 +98,14 @@ interface AdminListUserRow {
   ai_note: string | null;
   ai_created_at: string | null;
   ai_updated_at: string | null;
+  ai_request_count: number | null;
+  ai_success_count: number | null;
+  ai_error_count: number | null;
+  ai_prompt_tokens: number | null;
+  ai_completion_tokens: number | null;
+  ai_total_tokens: number | null;
+  ai_estimated_cost_usd: number | string | null;
+  ai_last_used_at: string | null;
 }
 
 type AiAccessRpcRow = {
@@ -127,7 +148,17 @@ export async function getAdminSummary(): Promise<AdminSummary> {
         note: row.ai_note ?? null,
         created_at: row.ai_created_at ?? undefined,
         updated_at: row.ai_updated_at ?? undefined
-      } : null
+      } : null,
+      aiUsage: normalizeAiUsage({
+        requestCount: row.ai_request_count,
+        successCount: row.ai_success_count,
+        errorCount: row.ai_error_count,
+        promptTokens: row.ai_prompt_tokens,
+        completionTokens: row.ai_completion_tokens,
+        totalTokens: row.ai_total_tokens,
+        estimatedCostUsd: row.ai_estimated_cost_usd,
+        lastUsedAt: row.ai_last_used_at
+      })
     }))
   };
 }
@@ -144,7 +175,8 @@ export async function getAdminUserDetails(targetUserId: string): Promise<AdminUs
   if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
   const { data, error } = await supabase.rpc("admin_get_user_details", { p_target_user_id: targetUserId });
   if (error) throw new Error(formatAdminError(error.message));
-  return data as AdminUserDetails;
+  const result = data as AdminUserDetails;
+  return { ...result, aiUsage: normalizeAiUsage(result.aiUsage) };
 }
 
 export async function saveAdminAiAccess(input: SaveAdminAccessInput): Promise<{ aiAccess: AdminAiAccess | null }> {
@@ -170,6 +202,19 @@ function normalizeAiAccess(row: AiAccessRpcRow): AdminAiAccess {
     note: row.note ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at
+  };
+}
+
+function normalizeAiUsage(row: Partial<Record<keyof AdminAiUsage, unknown>> | null | undefined): AdminAiUsage {
+  return {
+    requestCount: Number(row?.requestCount ?? 0),
+    successCount: Number(row?.successCount ?? 0),
+    errorCount: Number(row?.errorCount ?? 0),
+    promptTokens: Number(row?.promptTokens ?? 0),
+    completionTokens: Number(row?.completionTokens ?? 0),
+    totalTokens: Number(row?.totalTokens ?? 0),
+    estimatedCostUsd: row?.estimatedCostUsd == null ? null : Number(row.estimatedCostUsd),
+    lastUsedAt: typeof row?.lastUsedAt === "string" ? row.lastUsedAt : null
   };
 }
 

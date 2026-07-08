@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMemoLineFormat, continueMemoListOnEnter, toggleMemoChecklistAtCursor } from "./memoFormatting";
+import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, toggleMemoChecklistAtCursor } from "./memoFormatting";
 
 describe("备忘录正文格式化", () => {
   it("在空正文中插入首个编号", () => {
@@ -58,5 +58,13 @@ describe("备忘录正文格式化", () => {
 
   it("点击待办正文文字时不切换状态", () => {
     expect(toggleMemoChecklistAtCursor("○ 鞋垫", "○ 鞋".length)).toBeNull();
+  });
+
+  it("统计备忘录中的未完成待办", () => {
+    expect(getMemoChecklistStats("○ 鞋垫\n● 防晒\n- [ ] 买纸巾\n- [x] 整理书包")).toEqual({
+      total: 4,
+      completed: 2,
+      incomplete: 2
+    });
   });
 });

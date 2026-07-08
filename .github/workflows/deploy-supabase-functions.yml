@@ -35,6 +35,8 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
+          DEEPSEEK_INPUT_PRICE_USD_PER_MILLION: ${{ vars.DEEPSEEK_INPUT_PRICE_USD_PER_MILLION }}
+          DEEPSEEK_OUTPUT_PRICE_USD_PER_MILLION: ${{ vars.DEEPSEEK_OUTPUT_PRICE_USD_PER_MILLION }}
           AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
@@ -52,6 +54,11 @@ jobs:
           fi
           if [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
+          fi
+          if [ -n "${DEEPSEEK_INPUT_PRICE_USD_PER_MILLION:-}" ] && [ -n "${DEEPSEEK_OUTPUT_PRICE_USD_PER_MILLION:-}" ]; then
+            supabase secrets set --project-ref "$PROJECT_REF" \
+              DEEPSEEK_INPUT_PRICE_USD_PER_MILLION="$DEEPSEEK_INPUT_PRICE_USD_PER_MILLION" \
+              DEEPSEEK_OUTPUT_PRICE_USD_PER_MILLION="$DEEPSEEK_OUTPUT_PRICE_USD_PER_MILLION"
           fi
 
       - name: Deploy reminder function
