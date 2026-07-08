@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       target_user_id:
-        description: "Supabase user UUID"
-        required: true
+        description: "Optional Supabase user UUID, takes precedence when set"
+        required: false
+        type: string
+      target_email:
+        description: "Optional account email, used when UUID is empty"
+        required: false
         type: string
       role:
         description: "Access role"
@@ -39,6 +43,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       PROJECT_REF: haifsnaupqhlvgfoyvlc
       TARGET_USER_ID: ${{ inputs.target_user_id }}
+      TARGET_EMAIL: ${{ inputs.target_email }}
       ACCESS_ROLE: ${{ inputs.role }}
       ACCESS_ENABLED: ${{ inputs.enabled }}
       ACCESS_EXPIRES_AT: ${{ inputs.expires_at }}
@@ -52,13 +57,17 @@ jobs:
           import os
           import uuid
 
-          target_user_id = os.environ["TARGET_USER_ID"].strip()
+          target_user_id = os.environ.get("TARGET_USER_ID", "").strip()
+          target_email = os.environ.get("TARGET_EMAIL", "").strip()
           role = os.environ["ACCESS_ROLE"].strip()
           enabled = os.environ["ACCESS_ENABLED"].strip().lower() == "true"
           expires_at = os.environ.get("ACCESS_EXPIRES_AT", "").strip() or None
           note = os.environ.get("ACCESS_NOTE", "").strip() or None
 
-          uuid.UUID(target_user_id)
+          if not target_user_id and not target_email:
+            raise ValueError("target_user_id or target_email is required")
+          if target_user_id:
+            uuid.UUID(target_user_id)
           if role not in {"member", "admin"}:
             raise ValueError("role must be member or admin")
 
@@ -67,16 +76,31 @@ jobs:
               return "null"
             return "'" + value.replace("'", "''") + "'"
 
+          target_user_id_expr = f"{literal(target_user_id)}::uuid" if target_user_id else "null::uuid"
+          target_email_expr = literal(target_email) if target_email else "null"
           query = f"""
+          with target as (
+            select coalesce(
+              {target_user_id_expr},
+              (
+                select auth_user.id
+                from auth.users as auth_user
+                where lower(auth_user.email) = lower({target_email_expr})
+                order by auth_user.created_at desc
+                limit 1
+              )
+            ) as user_id
+          )
           insert into public.ai_assistant_access (user_id, enabled, role, expires_at, note, updated_at)
-          values (
-            {literal(target_user_id)}::uuid,
+          select
+            target.user_id,
             {'true' if enabled else 'false'},
             {literal(role)},
             {literal(expires_at)}::timestamptz,
             {literal(note)},
             now()
-          )
+          from target
+          where target.user_id is not null
           on conflict (user_id) do update set
             enabled = excluded.enabled,
             role = excluded.role,
@@ -103,4 +127,7 @@ jobs:
             length == 1
             and .[0].role == $role
             and (.[0].enabled | tostring) == ($enabled | ascii_downcase)
-          ' /tmp/grant-ai-access-response.json > /dev/null
+          ' /tmp/grant-ai-access-response.json > /dev/null || {
+            echo "Grant failed: no matching user was found, or the returned access state did not match the requested state." >&2
+            exit 1
+          }
