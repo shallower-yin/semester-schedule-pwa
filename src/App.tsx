@@ -7,6 +7,7 @@ import {
   CalendarHeart,
   CalendarDays,
   CheckCircle2,
+  CircleHelp,
   ChevronLeft,
   ChevronRight,
   Cloud,
@@ -49,6 +50,7 @@ import { FocusPage } from "./components/FocusPage";
 import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
 import { HabitPage } from "./components/HabitPage";
 import { HeaderToolSettingsDialog } from "./components/HeaderToolSettingsDialog";
+import { HelpPage } from "./components/HelpPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
 import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
@@ -588,7 +590,8 @@ export default function App() {
     { id: "anniversaries", label: "纪念日", icon: <CalendarHeart size={19} /> },
     { id: "memos", label: "备忘录", icon: <NotebookText size={19} /> },
     { id: "focus", label: "专注", icon: <Target size={19} /> },
-    { id: "settings", label: "设置", icon: <Settings size={19} /> }
+    { id: "settings", label: "设置", icon: <Settings size={19} /> },
+    { id: "help", label: "使用说明", icon: <CircleHelp size={19} /> }
   ];
   const selectedMobileNavItems = navItems
     .filter((item) => mobileNavItems.includes(item.id))
@@ -670,7 +673,7 @@ export default function App() {
       )}
 
       <main>
-        {!semester && page !== "habits" && page !== "anniversaries" && page !== "memos" && page !== "focus" ? (
+        {!semester && page !== "habits" && page !== "anniversaries" && page !== "memos" && page !== "focus" && page !== "help" ? (
           <section className="empty-state welcome-state">
             <div className="empty-icon"><GraduationCap size={34} /></div>
             <h1>先建立你的学期</h1>
@@ -690,12 +693,19 @@ export default function App() {
           />
         ) : page === "focus" ? (
           <FocusPage ownerId={ownerId} />
+        ) : page === "help" ? (
+          <HelpPage />
         ) : page === "today" && todayOverview ? (
           <TodayPage
             overview={todayOverview}
+            anniversaries={anniversaries}
             events={events}
             occurrenceStates={occurrenceStates}
             onOpenItem={openOverviewItem}
+            onOpenAnniversary={(id) => {
+              setAnniversaryToOpen(id);
+              navigate("anniversaries");
+            }}
             onOpenFocus={() => navigate("focus")}
             onAddEvent={openNewEvent}
           />

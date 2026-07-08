@@ -260,7 +260,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 <div className="admin-stats-grid admin-ai-usage-grid">
                   <article><strong>{selectedUser.aiUsage.requestCount}</strong><span>AI 使用次数</span></article>
                   <article><strong>{formatTokenCount(selectedUser.aiUsage.totalTokens)}</strong><span>tokens</span></article>
-                  <article><strong>{formatCost(selectedUser.aiUsage.estimatedCostUsd)}</strong><span>估算费用</span></article>
+                  <article><strong>{formatCost(selectedUser.aiUsage.estimatedCostCny)}</strong><span>估算费用</span></article>
                   <article><strong>{formatDateTime(selectedUser.aiUsage.lastUsedAt)}</strong><span>最近使用</span></article>
                 </div>
 
@@ -350,8 +350,8 @@ function formatTokenCount(value: number): string {
 
 function formatCost(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
-  if (value === 0) return "$0";
-  return `$${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+  if (value === 0) return "￥0";
+  return `￥${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
 }
 
 function formatDateTime(value: string | null): string {

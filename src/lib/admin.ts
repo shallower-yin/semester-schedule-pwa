@@ -19,7 +19,7 @@ export interface AdminAiUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
-  estimatedCostUsd: number | null;
+  estimatedCostCny: number | null;
   lastUsedAt: string | null;
 }
 
@@ -104,7 +104,7 @@ interface AdminListUserRow {
   ai_prompt_tokens: number | null;
   ai_completion_tokens: number | null;
   ai_total_tokens: number | null;
-  ai_estimated_cost_usd: number | string | null;
+  ai_estimated_cost_cny: number | string | null;
   ai_last_used_at: string | null;
 }
 
@@ -156,7 +156,7 @@ export async function getAdminSummary(): Promise<AdminSummary> {
         promptTokens: row.ai_prompt_tokens,
         completionTokens: row.ai_completion_tokens,
         totalTokens: row.ai_total_tokens,
-        estimatedCostUsd: row.ai_estimated_cost_usd,
+        estimatedCostCny: row.ai_estimated_cost_cny,
         lastUsedAt: row.ai_last_used_at
       })
     }))
@@ -206,6 +206,8 @@ function normalizeAiAccess(row: AiAccessRpcRow): AdminAiAccess {
 }
 
 function normalizeAiUsage(row: Partial<Record<keyof AdminAiUsage, unknown>> | null | undefined): AdminAiUsage {
+  const legacyCost = (row as { estimatedCostUsd?: unknown } | null | undefined)?.estimatedCostUsd;
+  const estimatedCostCny = row?.estimatedCostCny ?? legacyCost;
   return {
     requestCount: Number(row?.requestCount ?? 0),
     successCount: Number(row?.successCount ?? 0),
@@ -213,7 +215,7 @@ function normalizeAiUsage(row: Partial<Record<keyof AdminAiUsage, unknown>> | nu
     promptTokens: Number(row?.promptTokens ?? 0),
     completionTokens: Number(row?.completionTokens ?? 0),
     totalTokens: Number(row?.totalTokens ?? 0),
-    estimatedCostUsd: row?.estimatedCostUsd == null ? null : Number(row.estimatedCostUsd),
+    estimatedCostCny: estimatedCostCny == null ? null : Number(estimatedCostCny),
     lastUsedAt: typeof row?.lastUsedAt === "string" ? row.lastUsedAt : null
   };
 }

@@ -1,25 +1,41 @@
-import { AlertCircle, CalendarCheck2, CheckCircle2, Clock3, Edit3, Target } from "lucide-react";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
-import type { EventItem, EventOccurrenceState } from "../types";
-import { addDays, parseLocalDate, startOfWeek, toISODate } from "../lib/date";
+import { AlertCircle, CalendarCheck2, CalendarHeart, CheckCircle2, Clock3, Edit3, Target } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
+import { anniversaryKindLabel, daysUntilAnniversary, nextAnniversaryOccurrence } from "../lib/anniversaries";
+import { addDays, formatMonthDay, parseLocalDate, startOfWeek, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
 import { formatFocusDuration } from "../lib/focus";
 import type { ScheduleOverview, ScheduleOverviewItem } from "../lib/overview";
 
 interface TodayPageProps {
   overview: ScheduleOverview;
+  anniversaries: Anniversary[];
   events: EventItem[];
   occurrenceStates: EventOccurrenceState[];
   onOpenItem: (item: ScheduleOverviewItem) => void;
+  onOpenAnniversary?: (id: string) => void;
   onOpenFocus: () => void;
   onAddEvent: (date: string, start: string, end: string, allDay?: boolean) => void;
 }
 
-export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOpenFocus, onAddEvent }: TodayPageProps) {
-  const today = new Date();
+export function TodayPage({ overview, anniversaries, events, occurrenceStates, onOpenItem, onOpenAnniversary, onOpenFocus, onAddEvent }: TodayPageProps) {
+  const today = parseLocalDate(overview.todayDate);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const quickAddTimer = useRef<number | null>(null);
   const quickAddOrigin = useRef<{ x: number; y: number } | null>(null);
+  const anniversaryReminders = useMemo(() => anniversaries
+    .filter((anniversary) => !anniversary.deleted_at)
+    .map((anniversary) => {
+      const days = daysUntilAnniversary(anniversary, today);
+      return {
+        anniversary,
+        days,
+        occurrence: nextAnniversaryOccurrence(anniversary, today)
+      };
+    })
+    .filter((item) => item.days >= 0 && item.days <= 10)
+    .sort((left, right) => left.days - right.days || left.anniversary.title.localeCompare(right.anniversary.title, "zh-Hans-CN"))
+    .slice(0, 6), [anniversaries, overview.todayDate]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 900px)");
@@ -101,6 +117,7 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
           <h1>今天</h1>
           <p>{overview.todayDate} · 集中处理课程、事项、习惯和逾期未完成。</p>
         </div>
+        <TodayAnniversaryReminders items={anniversaryReminders} onOpen={onOpenAnniversary} />
         <button className="button secondary compact" onClick={onOpenFocus}><Target size={17} />去专注</button>
       </div>
 
@@ -155,6 +172,37 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
         weekend={weekend}
         overdue
       />
+    </section>
+  );
+}
+
+interface TodayAnniversaryReminder {
+  anniversary: Anniversary;
+  days: number;
+  occurrence: Date;
+}
+
+function TodayAnniversaryReminders({ items, onOpen }: { items: TodayAnniversaryReminder[]; onOpen?: (id: string) => void }) {
+  if (!items.length) return null;
+  return (
+    <section className="today-anniversary-reminders" aria-label="近十天日子提醒">
+      {items.map((item) => (
+        <button
+          key={item.anniversary.id}
+          type="button"
+          style={{ "--anniversary-color": item.anniversary.color } as CSSProperties}
+          onClick={() => onOpen?.(item.anniversary.id)}
+        >
+          <CalendarHeart size={14} />
+          <span className="today-anniversary-text">
+            <small>{anniversaryKindLabel(item.anniversary.kind)} · {formatMonthDay(item.occurrence)}</small>
+            <strong>{item.anniversary.title}</strong>
+          </span>
+          <span className="today-anniversary-days">
+            {item.days === 0 ? <strong>今天</strong> : <><strong>{item.days}</strong><small>天后</small></>}
+          </span>
+        </button>
+      ))}
     </section>
   );
 }

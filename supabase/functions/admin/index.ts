@@ -37,7 +37,7 @@ interface AiUsageRow {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
-  estimated_cost_usd: number | string | null;
+  estimated_cost_cny: number | string | null;
 }
 
 interface AiUsageSummary {
@@ -47,7 +47,7 @@ interface AiUsageSummary {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
-  estimatedCostUsd: number | null;
+  estimatedCostCny: number | null;
   lastUsedAt: string | null;
 }
 
@@ -265,7 +265,7 @@ async function getSummary(serviceRoleKey: string) {
   });
   const accessByUser = new Map(accessRows.map((row) => [row.user_id, row]));
   const usageRows = await optionalRestGet<AiUsageRow>("ai_assistant_usage", serviceRoleKey, {
-    select: "user_id,requested_at,status,prompt_tokens,completion_tokens,total_tokens,estimated_cost_usd"
+    select: "user_id,requested_at,status,prompt_tokens,completion_tokens,total_tokens,estimated_cost_cny"
   });
   const usageByUser = aggregateAiUsage(usageRows);
 
@@ -299,7 +299,7 @@ async function getDetails(targetUserId: string, serviceRoleKey: string) {
       return null;
     }),
     optionalRestGet<AiUsageRow>("ai_assistant_usage", serviceRoleKey, {
-      select: "user_id,requested_at,status,prompt_tokens,completion_tokens,total_tokens,estimated_cost_usd",
+      select: "user_id,requested_at,status,prompt_tokens,completion_tokens,total_tokens,estimated_cost_cny",
       user_id: `eq.${targetUserId}`
     })
   ]);
@@ -334,7 +334,7 @@ function emptyAiUsage(): AiUsageSummary {
     promptTokens: 0,
     completionTokens: 0,
     totalTokens: 0,
-    estimatedCostUsd: null,
+    estimatedCostCny: null,
     lastUsedAt: null
   };
 }
@@ -349,8 +349,8 @@ function aggregateAiUsage(rows: AiUsageRow[]): Map<string, AiUsageSummary> {
     current.promptTokens += Number(row.prompt_tokens ?? 0);
     current.completionTokens += Number(row.completion_tokens ?? 0);
     current.totalTokens += Number(row.total_tokens ?? 0);
-    const cost = Number(row.estimated_cost_usd ?? NaN);
-    if (Number.isFinite(cost)) current.estimatedCostUsd = (current.estimatedCostUsd ?? 0) + cost;
+    const cost = Number(row.estimated_cost_cny ?? NaN);
+    if (Number.isFinite(cost)) current.estimatedCostCny = (current.estimatedCostCny ?? 0) + cost;
     if (!current.lastUsedAt || row.requested_at > current.lastUsedAt) current.lastUsedAt = row.requested_at;
     usageByUser.set(row.user_id, current);
   }

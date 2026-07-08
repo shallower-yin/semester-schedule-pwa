@@ -61,7 +61,7 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
             autoFocus
             rows={3}
             value={text}
-            placeholder="例如：明天 9：00 交作业"
+            placeholder="例如：明天 9：00 交作业（字段之间用空格）"
             onChange={(event) => setText(event.target.value)}
           />
         </label>

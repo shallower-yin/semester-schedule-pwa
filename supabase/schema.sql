@@ -266,6 +266,7 @@ create table if not exists public.ai_assistant_usage (
   completion_tokens integer not null default 0 check (completion_tokens >= 0),
   total_tokens integer not null default 0 check (total_tokens >= 0),
   estimated_cost_usd numeric(14, 8),
+  estimated_cost_cny numeric(14, 8),
   latency_ms integer check (latency_ms is null or latency_ms >= 0),
   question_chars integer check (question_chars is null or question_chars >= 0),
   error text

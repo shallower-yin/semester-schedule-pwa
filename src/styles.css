@@ -2562,6 +2562,74 @@ textarea {
   font-size: 12px;
 }
 
+.today-anniversary-reminders {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.today-anniversary-reminders button {
+  --anniversary-color: var(--primary);
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 230px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--anniversary-color) 28%, var(--border));
+  border-radius: 8px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--anniversary-color) 8%, var(--surface));
+  cursor: pointer;
+}
+
+.today-anniversary-reminders svg {
+  color: var(--anniversary-color);
+}
+
+.today-anniversary-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+
+.today-anniversary-text strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-anniversary-text small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.today-anniversary-days {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--anniversary-color);
+  white-space: nowrap;
+}
+
+.today-anniversary-days strong {
+  font-size: 19px;
+  line-height: 1;
+}
+
+.today-anniversary-days small {
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .today-list-section {
   margin-top: 16px;
 }
@@ -3567,6 +3635,92 @@ textarea {
   line-height: 1.55;
 }
 
+.help-page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.help-quick-start {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid rgb(var(--primary-rgb) / 18%);
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+.help-quick-start div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.help-quick-start span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.help-section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.help-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 20px rgb(30 48 88 / 5%);
+}
+
+.help-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.help-card ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: #4b5568;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.help-footer-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #166534;
+  background: #f0fdf4;
+}
+
+.help-footer-note div {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.help-footer-note span {
+  color: #3f7c56;
+  font-size: 12px;
+}
+
 .mobile-nav-option-list,
 .notification-diagnostic-list,
 .stats-list {
@@ -4348,6 +4502,23 @@ textarea {
 
   .today-heading p {
     display: none;
+  }
+
+  .today-anniversary-reminders {
+    order: 2;
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .today-anniversary-reminders button {
+    flex: 0 0 min(260px, 82vw);
+  }
+
+  .help-section-grid {
+    grid-template-columns: 1fr;
   }
 
   .today-item {

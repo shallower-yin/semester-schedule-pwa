@@ -47,7 +47,7 @@ interface AiAssistantUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
-  estimated_cost_usd: number | null;
+  estimated_cost_cny: number | null;
 }
 
 function optionalSecret(name: string): string {
@@ -345,7 +345,7 @@ function normalizeUsage(usage: Partial<AiAssistantUsage> | undefined): AiAssista
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     total_tokens: totalTokens,
-    estimated_cost_usd: estimateCost(promptTokens, completionTokens)
+    estimated_cost_cny: estimateCostCny(promptTokens, completionTokens)
   };
 }
 
@@ -354,14 +354,13 @@ function emptyUsage(): AiAssistantUsage {
     prompt_tokens: 0,
     completion_tokens: 0,
     total_tokens: 0,
-    estimated_cost_usd: null
+    estimated_cost_cny: null
   };
 }
 
-function estimateCost(promptTokens: number, completionTokens: number): number | null {
-  const inputPrice = Number(optionalSecret("DEEPSEEK_INPUT_PRICE_USD_PER_MILLION"));
-  const outputPrice = Number(optionalSecret("DEEPSEEK_OUTPUT_PRICE_USD_PER_MILLION"));
-  if (!Number.isFinite(inputPrice) || !Number.isFinite(outputPrice) || inputPrice < 0 || outputPrice < 0) return null;
+function estimateCostCny(promptTokens: number, completionTokens: number): number {
+  const inputPrice = 1;
+  const outputPrice = 2;
   return Number((((promptTokens / 1_000_000) * inputPrice) + ((completionTokens / 1_000_000) * outputPrice)).toFixed(8));
 }
 
@@ -378,6 +377,19 @@ async function logAiAssistantUsage(input: {
   const serviceRoleKey = serviceRoleSecret();
   if (!serviceRoleKey) return;
   try {
+    const payload = {
+      user_id: input.userId,
+      status: input.status,
+      access_method: input.accessMethod,
+      model: input.model,
+      prompt_tokens: input.usage.prompt_tokens,
+      completion_tokens: input.usage.completion_tokens,
+      total_tokens: input.usage.total_tokens,
+      estimated_cost_cny: input.usage.estimated_cost_cny,
+      latency_ms: input.latencyMs,
+      question_chars: input.questionChars,
+      error: input.error ? input.error.slice(0, 500) : null
+    };
     const response = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage`, {
       method: "POST",
       headers: {
@@ -386,22 +398,28 @@ async function logAiAssistantUsage(input: {
         "content-type": "application/json",
         prefer: "return=minimal"
       },
-      body: JSON.stringify({
-        user_id: input.userId,
-        status: input.status,
-        access_method: input.accessMethod,
-        model: input.model,
-        prompt_tokens: input.usage.prompt_tokens,
-        completion_tokens: input.usage.completion_tokens,
-        total_tokens: input.usage.total_tokens,
-        estimated_cost_usd: input.usage.estimated_cost_usd,
-        latency_ms: input.latencyMs,
-        question_chars: input.questionChars,
-        error: input.error ? input.error.slice(0, 500) : null
-      })
+      body: JSON.stringify(payload)
     });
     if (!response.ok) {
-      console.error(`记录 AI 用量失败：HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+      const text = await response.text();
+      if (text.includes("estimated_cost_cny")) {
+        const legacyPayload: Record<string, unknown> = { ...payload };
+        delete legacyPayload.estimated_cost_cny;
+        const retry = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage`, {
+          method: "POST",
+          headers: {
+            apikey: serviceRoleKey,
+            authorization: `Bearer ${serviceRoleKey}`,
+            "content-type": "application/json",
+            prefer: "return=minimal"
+          },
+          body: JSON.stringify(legacyPayload)
+        });
+        if (retry.ok) return;
+        console.error(`记录 AI 用量失败：HTTP ${retry.status} ${(await retry.text()).slice(0, 300)}`);
+        return;
+      }
+      console.error(`记录 AI 用量失败：HTTP ${response.status} ${text.slice(0, 300)}`);
     }
   } catch (error) {
     console.error(`记录 AI 用量失败：${error instanceof Error ? error.message : String(error)}`);

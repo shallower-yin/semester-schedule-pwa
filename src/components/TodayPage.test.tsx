@@ -1,6 +1,7 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleOverview } from "../lib/overview";
+import type { Anniversary } from "../types";
 import { TodayPage } from "./TodayPage";
 
 const baseOverview: ScheduleOverview = {
@@ -18,6 +19,26 @@ const baseOverview: ScheduleOverview = {
   upcomingItems: [],
   overdueIncompleteItems: [],
   weekFocusTrend: []
+};
+
+const baseAnniversary: Anniversary = {
+  id: "anniversary-1",
+  user_id: "user-1",
+  created_at: "2026-07-01T00:00:00.000Z",
+  updated_at: "2026-07-01T00:00:00.000Z",
+  deleted_at: null,
+  version: 1,
+  device_id: "test",
+  kind: "birthday",
+  title: "妈妈生日",
+  date: "2026-07-10",
+  color: "#db2777",
+  note: "",
+  reminder_enabled: false,
+  reminder_days_before: 0,
+  reminder_time: "09:00",
+  reminder_sent_for: null,
+  timezone: "Asia/Shanghai"
 };
 
 describe("今日页面下一项", () => {
@@ -48,6 +69,7 @@ describe("今日页面下一项", () => {
             occurrenceDate: "2026-07-08"
           }]
         }}
+        anniversaries={[]}
         events={[]}
         occurrenceStates={[]}
         onOpenItem={vi.fn()}
@@ -80,6 +102,7 @@ describe("今日页面下一项", () => {
             occurrenceDate: "2026-07-08"
           }]
         }}
+        anniversaries={[]}
         events={[]}
         occurrenceStates={[]}
         onOpenItem={vi.fn()}
@@ -126,6 +149,7 @@ describe("今日页面下一项", () => {
             }
           ]
         }}
+        anniversaries={[]}
         events={[]}
         occurrenceStates={[]}
         onOpenItem={vi.fn()}
@@ -138,6 +162,39 @@ describe("今日页面下一项", () => {
     expect(screen.queryByText("无事项，可以休息啦")).not.toBeInTheDocument();
   });
 
+  it("在顶部显示近十天的日子提醒", () => {
+    render(
+      <TodayPage
+        overview={{
+          ...baseOverview,
+          todayDate: "2026-07-09"
+        }}
+        anniversaries={[
+          baseAnniversary,
+          {
+            ...baseAnniversary,
+            id: "anniversary-far",
+            kind: "holiday",
+            title: "远期节日",
+            date: "2026-07-25",
+            color: "#059669"
+          }
+        ]}
+        events={[]}
+        occurrenceStates={[]}
+        onOpenItem={vi.fn()}
+        onOpenAnniversary={vi.fn()}
+        onOpenFocus={vi.fn()}
+        onAddEvent={vi.fn()}
+      />
+    );
+
+    const reminders = screen.getByLabelText("近十天日子提醒");
+    expect(within(reminders).getByText("妈妈生日")).toBeInTheDocument();
+    expect(within(reminders).getByText("1")).toBeInTheDocument();
+    expect(within(reminders).queryByText("远期节日")).not.toBeInTheDocument();
+  });
+
   it("移动端长按今天页空白区域时带入今天日期和当前时间新增事项", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 8, 9, 10));
@@ -146,6 +203,7 @@ describe("今日页面下一项", () => {
     render(
       <TodayPage
         overview={baseOverview}
+        anniversaries={[]}
         events={[]}
         occurrenceStates={[]}
         onOpenItem={vi.fn()}
