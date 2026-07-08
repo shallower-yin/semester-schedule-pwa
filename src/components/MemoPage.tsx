@@ -1,10 +1,10 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarPlus, CheckCircle2, Circle, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { CalendarPlus, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
-import { applyMemoLineFormat, continueMemoListOnEnter } from "../lib/memoFormatting";
+import { applyMemoLineFormat, continueMemoListOnEnter, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
 import { supabase } from "../lib/supabase";
 import type { EventItem, Memo, MemoFolder } from "../types";
 import { Modal } from "./Modal";
@@ -435,7 +435,6 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   const [isPinned, setIsPinned] = useState(memo?.is_pinned ?? false);
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const checklistItems = useMemo(() => parseChecklistItems(content), [content]);
 
   function focusTextareaAt(cursor: number) {
     window.setTimeout(() => {
@@ -492,19 +491,11 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
     focusTextareaAt(edit.cursor);
   }
 
-  function toggleChecklistItem(lineIndex: number) {
-    const lines = content.split(/\r?\n/);
-    const line = lines[lineIndex];
-    if (/^(\s*)([○◯●])(\s*)/.test(line)) {
-      lines[lineIndex] = line.replace(/^(\s*)([○◯●])(\s*)/, (_match, indent: string, marker: string, suffix: string) => (
-        `${indent}${marker === "●" ? "○" : "●"}${suffix || " "}`
-      ));
-    } else {
-      lines[lineIndex] = line.replace(/^(\s*[-*]\s+\[)( |x|X)(\]\s*)/, (_match, prefix: string, checked: string, suffix: string) => (
-        `${prefix}${checked.toLowerCase() === "x" ? " " : "x"}${suffix}`
-      ));
-    }
-    setContent(lines.join("\n"));
+  function handleContentClick(event: React.MouseEvent<HTMLTextAreaElement>) {
+    const edit = toggleMemoChecklistAtCursor(content, event.currentTarget.selectionStart);
+    if (!edit) return;
+    setContent(edit.content);
+    focusTextareaAt(edit.cursor);
   }
 
   return (
@@ -531,19 +522,10 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
             aria-label="正文"
             value={content}
             onChange={(event) => setContent(event.target.value)}
+            onClick={handleContentClick}
             onKeyDown={handleContentKeyDown}
           />
         </div>
-        {checklistItems.length > 0 && (
-          <div className="memo-checklist-preview" aria-label="待办清单">
-            {checklistItems.map((item) => (
-              <button key={item.lineIndex} type="button" className={item.checked ? "completed" : ""} onClick={() => toggleChecklistItem(item.lineIndex)}>
-                {item.checked ? <CheckCircle2 size={17} /> : <Circle size={17} />}
-                <span>{item.text}</span>
-              </button>
-            ))}
-          </div>
-        )}
         {message && <p className="auth-message error">{message}</p>}
         <div className="form-actions split">
           <div>{memo && <button type="button" className="button danger-button" onClick={() => void remove()}>删除备忘录</button>}</div>
@@ -555,30 +537,4 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
       </form>
     </Modal>
   );
-}
-
-interface ChecklistItem {
-  lineIndex: number;
-  checked: boolean;
-  text: string;
-}
-
-function parseChecklistItems(content: string): ChecklistItem[] {
-  return content.split(/\r?\n/).flatMap((line, lineIndex) => {
-    const circleMatch = /^\s*([○◯●])\s*(.*)$/.exec(line);
-    if (circleMatch) {
-      return [{
-        lineIndex,
-        checked: circleMatch[1] === "●",
-        text: circleMatch[2] || "未命名事项"
-      }];
-    }
-    const match = /^\s*[-*]\s+\[( |x|X)\]\s*(.*)$/.exec(line);
-    if (!match) return [];
-    return [{
-      lineIndex,
-      checked: match[1].toLowerCase() === "x",
-      text: match[2] || "未命名事项"
-    }];
-  });
 }

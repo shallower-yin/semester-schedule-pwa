@@ -62,6 +62,33 @@ export function continueMemoListOnEnter(content: string, selectionStart: number,
   return null;
 }
 
+export function toggleMemoChecklistAtCursor(content: string, cursor: number): MemoTextEdit | null {
+  const position = clamp(cursor, 0, content.length);
+  const lineStart = findLineStart(content, position);
+  const lineEnd = findLineEnd(content, position);
+  const line = content.slice(lineStart, lineEnd);
+
+  const circleTodo = new RegExp(`^(\\s*)([${uncheckedCircle}◯${checkedCircle}])(\\s*)`).exec(line);
+  if (circleTodo) {
+    const markerStart = lineStart + circleTodo[1].length;
+    const markerClickEnd = markerStart + circleTodo[2].length + circleTodo[3].length;
+    if (!isMarkerClick(position, lineStart, markerClickEnd)) return null;
+    const nextMarker = circleTodo[2] === checkedCircle ? uncheckedCircle : checkedCircle;
+    return replaceRange(content, markerStart, markerStart + circleTodo[2].length, nextMarker, position);
+  }
+
+  const markdownTodo = /^(\s*[-*]\s+\[)( |x|X)(\]\s*)/.exec(line);
+  if (markdownTodo) {
+    const markerStart = lineStart + markdownTodo[1].length;
+    const markerClickEnd = markerStart + markdownTodo[2].length + markdownTodo[3].length;
+    if (!isMarkerClick(position, lineStart, markerClickEnd)) return null;
+    const nextMarker = markdownTodo[2].toLowerCase() === "x" ? " " : "x";
+    return replaceRange(content, markerStart, markerStart + markdownTodo[2].length, nextMarker, position);
+  }
+
+  return null;
+}
+
 export function stripMemoListPrefix(line: string): string {
   return line.replace(/^\s*(?:\d+[.)、]|[-*]\s+\[[ xX]\]|[-*]|[○◯●])\s*/, "");
 }
@@ -94,6 +121,17 @@ function insertAtCursor(content: string, cursor: number, insert: string): MemoTe
     content: `${content.slice(0, cursor)}${insert}${content.slice(cursor)}`,
     cursor: cursor + insert.length
   };
+}
+
+function replaceRange(content: string, start: number, end: number, replacement: string, cursor: number): MemoTextEdit {
+  return {
+    content: `${content.slice(0, start)}${replacement}${content.slice(end)}`,
+    cursor: clamp(cursor, start, start + replacement.length)
+  };
+}
+
+function isMarkerClick(cursor: number, lineStart: number, markerClickEnd: number): boolean {
+  return cursor >= lineStart && cursor <= markerClickEnd;
 }
 
 function nextNumberBefore(content: string, cursor: number): number {

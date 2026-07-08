@@ -70,6 +70,20 @@ describe("备忘录视图", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     await waitFor(() => expect(textarea).toHaveValue("○ 防晒\n○ "));
   });
+
+  it("可以直接点击正文里的待办圆圈切换完成状态", async () => {
+    render(<MemoPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
+    const textarea = screen.getByLabelText("正文") as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "○ 防晒" } });
+    textarea.setSelectionRange(1, 1);
+    fireEvent.click(textarea);
+
+    await waitFor(() => expect(textarea).toHaveValue("● 防晒"));
+    expect(screen.queryByLabelText("待办清单")).not.toBeInTheDocument();
+  });
 });
 
 function memoRecord(index: number): Memo {

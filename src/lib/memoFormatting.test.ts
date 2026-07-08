@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMemoLineFormat, continueMemoListOnEnter } from "./memoFormatting";
+import { applyMemoLineFormat, continueMemoListOnEnter, toggleMemoChecklistAtCursor } from "./memoFormatting";
 
 describe("备忘录正文格式化", () => {
   it("在空正文中插入首个编号", () => {
@@ -44,5 +44,19 @@ describe("备忘录正文格式化", () => {
       content: "○ 鞋垫\n○ ",
       cursor: "○ 鞋垫\n○ ".length
     });
+  });
+
+  it("点击圆圈待办标记时切换完成状态", () => {
+    expect(toggleMemoChecklistAtCursor("○ 鞋垫", 1)?.content).toBe("● 鞋垫");
+    expect(toggleMemoChecklistAtCursor("● 鞋垫", 1)?.content).toBe("○ 鞋垫");
+  });
+
+  it("点击 Markdown 待办标记时切换完成状态", () => {
+    expect(toggleMemoChecklistAtCursor("- [ ] 鞋垫", 4)?.content).toBe("- [x] 鞋垫");
+    expect(toggleMemoChecklistAtCursor("- [x] 鞋垫", 4)?.content).toBe("- [ ] 鞋垫");
+  });
+
+  it("点击待办正文文字时不切换状态", () => {
+    expect(toggleMemoChecklistAtCursor("○ 鞋垫", "○ 鞋".length)).toBeNull();
   });
 });

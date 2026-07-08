@@ -2283,48 +2283,6 @@ textarea {
   margin-bottom: 8px;
 }
 
-.memo-checklist-preview {
-  display: grid;
-  gap: 7px;
-  padding: 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #f8fafc;
-}
-
-.memo-checklist-preview button {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 8px;
-  text-align: left;
-  background: transparent;
-  cursor: pointer;
-}
-
-.memo-checklist-preview button:hover {
-  background: white;
-}
-
-.memo-checklist-preview svg {
-  color: #9aa3b2;
-}
-
-.memo-checklist-preview .completed {
-  color: #7b8494;
-}
-
-.memo-checklist-preview .completed svg {
-  color: #10a66b;
-}
-
-.memo-checklist-preview .completed span {
-  text-decoration: line-through;
-}
-
 .habit-page {
   max-width: 1600px;
   margin: 0 auto;
