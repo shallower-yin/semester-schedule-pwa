@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarPlus, FileText, Folder, Grid3X3, List, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CalendarPlus, CheckCircle2, Circle, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
@@ -433,6 +433,8 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   const [folderId, setFolderId] = useState(memo?.folder_id ?? initialFolderId ?? "");
   const [isPinned, setIsPinned] = useState(memo?.is_pinned ?? false);
   const [message, setMessage] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const checklistItems = useMemo(() => parseChecklistItems(content), [content]);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -459,6 +461,35 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
     onClose();
   }
 
+  function applyLineFormat(kind: "numbered" | "checklist") {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? 0;
+    const end = textarea?.selectionEnd ?? content.length;
+    const hasSelection = start !== end;
+    const rangeStart = hasSelection ? content.lastIndexOf("\n", start - 1) + 1 : 0;
+    const rangeEnd = hasSelection
+      ? (content.indexOf("\n", end) === -1 ? content.length : content.indexOf("\n", end))
+      : content.length;
+    const target = content.slice(rangeStart, rangeEnd);
+    const lines = (target || "").split(/\r?\n/);
+    const transformed = lines.map((line, index) => {
+      const text = stripListPrefix(line);
+      if (!text.trim()) return line;
+      return kind === "numbered" ? `${index + 1}. ${text}` : `- [ ] ${text}`;
+    }).join("\n");
+    const nextContent = `${content.slice(0, rangeStart)}${transformed}${content.slice(rangeEnd)}`;
+    setContent(nextContent);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }
+
+  function toggleChecklistItem(lineIndex: number) {
+    const lines = content.split(/\r?\n/);
+    lines[lineIndex] = lines[lineIndex].replace(/^(\s*[-*]\s+\[)( |x|X)(\]\s*)/, (_match, prefix: string, checked: string, suffix: string) => (
+      `${prefix}${checked.toLowerCase() === "x" ? " " : "x"}${suffix}`
+    ));
+    setContent(lines.join("\n"));
+  }
+
   return (
     <Modal title={memo ? "编辑备忘录" : "新增备忘录"} onClose={onClose} wide>
       <form className="form-stack" onSubmit={save}>
@@ -470,7 +501,24 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
           </select>
         </label>
         <label className="checkbox-label"><input type="checkbox" checked={isPinned} onChange={(event) => setIsPinned(event.target.checked)} />置顶</label>
-        <label>正文<textarea className="memo-textarea" rows={12} value={content} onChange={(event) => setContent(event.target.value)} /></label>
+        <div className="memo-editor-field">
+          <span>正文</span>
+          <div className="memo-editor-toolbar">
+            <button type="button" className="button secondary compact" onClick={() => applyLineFormat("numbered")}><ListOrdered size={15} />编号</button>
+            <button type="button" className="button secondary compact" onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
+          </div>
+          <textarea ref={textareaRef} className="memo-textarea" rows={12} aria-label="正文" value={content} onChange={(event) => setContent(event.target.value)} />
+        </div>
+        {checklistItems.length > 0 && (
+          <div className="memo-checklist-preview" aria-label="待办清单">
+            {checklistItems.map((item) => (
+              <button key={item.lineIndex} type="button" className={item.checked ? "completed" : ""} onClick={() => toggleChecklistItem(item.lineIndex)}>
+                {item.checked ? <CheckCircle2 size={17} /> : <Circle size={17} />}
+                <span>{item.text}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {message && <p className="auth-message error">{message}</p>}
         <div className="form-actions split">
           <div>{memo && <button type="button" className="button danger-button" onClick={() => void remove()}>删除备忘录</button>}</div>
@@ -482,4 +530,26 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
       </form>
     </Modal>
   );
+}
+
+interface ChecklistItem {
+  lineIndex: number;
+  checked: boolean;
+  text: string;
+}
+
+function stripListPrefix(line: string): string {
+  return line.replace(/^\s*(?:\d+[.)]|[-*]\s+\[[ xX]\]|[-*])\s*/, "");
+}
+
+function parseChecklistItems(content: string): ChecklistItem[] {
+  return content.split(/\r?\n/).flatMap((line, lineIndex) => {
+    const match = /^\s*[-*]\s+\[( |x|X)\]\s*(.*)$/.exec(line);
+    if (!match) return [];
+    return [{
+      lineIndex,
+      checked: match[1].toLowerCase() === "x",
+      text: match[2] || "未命名事项"
+    }];
+  });
 }

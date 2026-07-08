@@ -24,6 +24,11 @@ export interface DeepSeekAssistantAction {
   reminderMinutesBefore?: number;
 }
 
+export interface DeepSeekAssistantHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
   const now = input.now ?? new Date();
   const from = addDays(now, -7);
@@ -93,12 +98,27 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
   };
 }
 
-export async function askDeepSeekAssistant(question: string, context: unknown, accessCode?: string): Promise<DeepSeekAssistantResult> {
+export async function askDeepSeekAssistant(
+  question: string,
+  context: unknown,
+  accessCode?: string,
+  history?: DeepSeekAssistantHistoryMessage[]
+): Promise<DeepSeekAssistantResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法使用 AI 助手。");
   const { data, error } = await supabase.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
-    body: { question, scheduleContext: context, accessCode: accessCode || undefined }
+    body: {
+      question,
+      scheduleContext: context,
+      accessCode: accessCode || undefined,
+      history: history?.slice(-6)
+    }
   });
-  if (error) throw new Error(error.message || "AI 助手请求失败。");
+  if (error) {
+    const message = error.message?.includes("non-2xx")
+      ? "请先登录并确认当前账号已开通，或输入访问口令。"
+      : error.message || "AI 助手请求失败。";
+    throw new Error(message);
+  }
   if (!data?.answer) throw new Error("AI 助手没有返回回答。");
   return data;
 }

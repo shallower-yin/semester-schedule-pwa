@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BarChart3, Bell, CheckCircle2, Edit3, Link2, Pause, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Pause, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
@@ -61,13 +61,16 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const effectiveSettings = storedSettings ?? settingsDraft;
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
   const todaySeconds = totalFocusSeconds(todaySessions);
-  const weekSeconds = useMemo(() => {
+  const weekSessions = useMemo(() => {
     const today = new Date();
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
-    return totalFocusSeconds(sessions.filter((session) => new Date(session.ended_at) >= monday));
+    return sessions.filter((session) => new Date(session.ended_at) >= monday);
   }, [sessions]);
+  const weekSeconds = totalFocusSeconds(weekSessions);
   const dailyTotals = useMemo(() => focusDailyTotals(sessions, 7, new Date()), [sessions]);
   const maxDailySeconds = Math.max(1, ...dailyTotals.map((item) => item.total_seconds));
+  const todayBreakdown = useMemo(() => focusBreakdown(todaySessions, events), [events, todaySessions]);
+  const weekBreakdown = useMemo(() => focusBreakdown(weekSessions, events), [events, weekSessions]);
   const elapsed = active ? elapsedFocusSeconds(active, now) : 0;
   const remaining = active ? remainingFocusSeconds(active, now) : null;
   const displaySeconds = active ? remaining ?? elapsed : plannedSecondsForMode(mode, effectiveSettings);
@@ -290,6 +293,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           </section>
 
           <section>
+            <h2><ListChecks size={18} />专注内容</h2>
+            <div className="focus-breakdown-grid">
+              <FocusBreakdownList title="今日" items={todayBreakdown} />
+              <FocusBreakdownList title="本周" items={weekBreakdown} />
+            </div>
+          </section>
+
+          <section>
             <h2>最近记录</h2>
             <div className="focus-record-list">
               {sessions
@@ -339,6 +350,44 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         />
       )}
     </section>
+  );
+}
+
+interface FocusBreakdownItem {
+  title: string;
+  seconds: number;
+  count: number;
+}
+
+function focusBreakdown(sessions: FocusSession[], events: EventItem[]): FocusBreakdownItem[] {
+  const eventTitleMap = new Map(events.map((event) => [event.id, event.title]));
+  const map = new Map<string, FocusBreakdownItem>();
+  for (const session of sessions) {
+    const title = session.linked_event_id
+      ? eventTitleMap.get(session.linked_event_id) ?? session.task_title ?? "已删除任务"
+      : session.task_title || focusModeLabel(session.mode);
+    const key = title.trim() || "未命名专注";
+    const item = map.get(key) ?? { title: key, seconds: 0, count: 0 };
+    item.seconds += session.duration_seconds;
+    item.count += 1;
+    map.set(key, item);
+  }
+  return Array.from(map.values())
+    .sort((left, right) => right.seconds - left.seconds)
+    .slice(0, 6);
+}
+
+function FocusBreakdownList({ title, items }: { title: string; items: FocusBreakdownItem[] }) {
+  return (
+    <div className="focus-breakdown-list">
+      <strong>{title}</strong>
+      {items.length ? items.map((item) => (
+        <article key={item.title}>
+          <span>{item.title}</span>
+          <small>{formatFocusDuration(item.seconds)} · {item.count} 次</small>
+        </article>
+      )) : <p>暂无记录。</p>}
+    </div>
   );
 }
 

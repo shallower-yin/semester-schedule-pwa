@@ -2,6 +2,7 @@ interface AiAssistantRequest {
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
+  history?: AiAssistantHistoryMessage[];
 }
 
 interface SupabaseUser {
@@ -33,6 +34,11 @@ interface AiAssistantAction {
 interface AiAssistantResponse {
   answer: string;
   actions: AiAssistantAction[];
+}
+
+interface AiAssistantHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 function optionalSecret(name: string): string {
@@ -80,7 +86,8 @@ Deno.serve(async (request) => {
       code: "AI_ACCESS_REQUIRED"
     }, 403);
 
-    const assistantResponse = await askDeepSeek(question, body.scheduleContext, user.email);
+    const history = sanitizeHistory(body.history);
+    const assistantResponse = await askDeepSeek(question, body.scheduleContext, history, user.email);
     return jsonResponse({
       answer: assistantResponse.answer,
       actions: assistantResponse.actions,
@@ -187,11 +194,19 @@ async function getAiAccessByServiceRole(userId: string, serviceRoleKey: string):
   return rows[0] ?? null;
 }
 
-async function askDeepSeek(question: string, scheduleContext: unknown, email?: string): Promise<AiAssistantResponse> {
+async function askDeepSeek(
+  question: string,
+  scheduleContext: unknown,
+  history: AiAssistantHistoryMessage[],
+  email?: string
+): Promise<AiAssistantResponse> {
   const apiKey = optionalSecret("DEEPSEEK_API_KEY");
   if (!apiKey) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const model = optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash";
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
+  const historyText = history.length
+    ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 3_000)
+    : "无";
   const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
     headers: {
@@ -206,6 +221,7 @@ async function askDeepSeek(question: string, scheduleContext: unknown, email?: s
           content: [
             "你是日程计划表的 AI 日程助手。",
             "只根据用户提供的日程上下文回答，不要编造不存在的课程、事项、纪念日或专注记录。",
+            "最近对话只用于理解指代，不要把它当成新的日程数据。",
             "回答要简洁、具体、可执行。涉及日期时使用明确日期。无法确定时直接说明。",
             "不要输出用户隐私无关内容，也不要声称自己能访问未提供的数据。",
             "你必须只返回 JSON 对象，不要使用 Markdown，不要输出额外解释。",
@@ -220,7 +236,7 @@ async function askDeepSeek(question: string, scheduleContext: unknown, email?: s
         },
         {
           role: "user",
-          content: `账号：${email ?? "unknown"}\n\n日程上下文 JSON：\n${contextText}\n\n用户问题：${question}`
+          content: `账号：${email ?? "unknown"}\n\n日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n用户问题：${question}`
         }
       ],
       thinking: { type: "disabled" },
@@ -235,6 +251,17 @@ async function askDeepSeek(question: string, scheduleContext: unknown, email?: s
   const content = data.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("AI 助手没有返回有效回答。");
   return parseAssistantResponse(content);
+}
+
+function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
+  if (!Array.isArray(history)) return [];
+  return history.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const role = record.role === "user" || record.role === "assistant" ? record.role : null;
+    const content = typeof record.content === "string" ? record.content.trim().slice(0, 500) : "";
+    return role && content ? [{ role, content }] : [];
+  }).slice(-6);
 }
 
 function parseAssistantResponse(content: string): AiAssistantResponse {

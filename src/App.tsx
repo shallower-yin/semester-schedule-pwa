@@ -54,7 +54,6 @@ import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { QuickEntryDialog } from "./components/QuickEntryDialog";
 import { ScheduleAssistantDialog } from "./components/ScheduleAssistantDialog";
-import { ScheduleOverviewPanel } from "./components/ScheduleOverview";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
 import { StatsDialog } from "./components/StatsDialog";
@@ -187,22 +186,6 @@ export default function App() {
 
   const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
   const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
-  const scheduleOverview = useMemo(
-    () => semester
-      ? buildScheduleOverview({
-        semester,
-        courses,
-        schedules,
-        cancellations,
-        events,
-        categories,
-        occurrenceStates,
-        periods,
-        focusSessions
-      }, overviewNow)
-      : null,
-    [categories, cancellations, courses, events, focusSessions, occurrenceStates, overviewNow, periods, schedules, semester]
-  );
   const todayOverview = useMemo(
     () => semester
       ? buildScheduleOverview({
@@ -736,19 +719,6 @@ export default function App() {
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
-            {scheduleOverview && (
-              <ScheduleOverviewPanel
-                overview={scheduleOverview}
-                onOpenFocus={() => navigate("focus")}
-                onOpenItem={openOverviewItem}
-                onShowIncomplete={() => {
-                  goToday();
-                  setScheduleFilter("all");
-                  setEventStatusFilter("incomplete");
-                  setScheduleQuery("");
-                }}
-              />
-            )}
             <section className="schedule-filter-bar" aria-label="日程搜索和筛选">
               <input
                 value={scheduleQuery}
