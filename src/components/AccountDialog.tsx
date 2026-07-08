@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, LogOut, RefreshCw } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db, queueChange } from "../db";
 import { toISODate } from "../lib/date";
@@ -16,6 +16,7 @@ import {
   type NotificationStatus
 } from "../lib/notifications";
 import { getSyncHealth, type SyncResult } from "../lib/sync";
+import { getAdminStatus, type AdminAiAccess } from "../lib/admin";
 import { Modal } from "./Modal";
 
 interface AccountDialogProps {
@@ -35,12 +36,34 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   const [diagnosticSteps, setDiagnosticSteps] = useState<NotificationDiagnosticStep[]>([]);
   const [enablingNotifications, setEnablingNotifications] = useState(false);
   const [healthRefreshKey, setHealthRefreshKey] = useState(0);
+  const [accountAccess, setAccountAccess] = useState<AdminAiAccess | null>(null);
+  const [accountTypeLoading, setAccountTypeLoading] = useState(true);
   const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, message, healthRefreshKey]);
 
   useEffect(() => {
     void getNotificationStatus().then(setNotificationStatus);
     void diagnoseNotifications().then(setDiagnosticSteps);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setAccountTypeLoading(true);
+    void getAdminStatus()
+      .then((status) => {
+        if (!active) return;
+        setAccountAccess(status.aiAccess);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAccountAccess(null);
+      })
+      .finally(() => {
+        if (active) setAccountTypeLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
 
   async function activateNotifications() {
     setEnablingNotifications(true);
@@ -173,6 +196,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         <div>
           <strong>{user.email}</strong>
           <span><CheckCircle2 size={14} />{user.email_confirmed_at ? "邮箱已验证" : "等待邮箱验证"}</span>
+          <span><ShieldCheck size={14} />账户类型：{accountTypeLoading ? "正在检查" : accountTypeLabel(accountAccess)}</span>
         </div>
       </div>
       <div className="sync-detail-card">
@@ -249,4 +273,10 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       </div>
     </Modal>
   );
+}
+
+function accountTypeLabel(access: AdminAiAccess | null): string {
+  if (!access?.enabled) return "普通用户";
+  if (access.expires_at && new Date(access.expires_at).getTime() <= Date.now()) return "普通用户";
+  return access.role === "admin" ? "管理员" : "会员";
 }

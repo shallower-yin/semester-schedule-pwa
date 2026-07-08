@@ -57,7 +57,8 @@ export interface AdminUserDetails {
 }
 
 export interface SaveAdminAccessInput {
-  targetUserId: string;
+  targetUserId?: string;
+  targetEmail?: string;
   enabled: boolean;
   role: AdminRole;
   expiresAt?: string | null;
@@ -118,7 +119,8 @@ export function getAdminUserDetails(targetUserId: string): Promise<AdminUserDeta
 export function saveAdminAiAccess(input: SaveAdminAccessInput): Promise<{ aiAccess: AdminAiAccess | null }> {
   return invokeAdmin<{ aiAccess: AdminAiAccess | null }>({
     action: "set-ai-access",
-    targetUserId: input.targetUserId,
+    targetUserId: input.targetUserId || undefined,
+    targetEmail: input.targetEmail || undefined,
     access: {
       enabled: input.enabled,
       role: input.role,

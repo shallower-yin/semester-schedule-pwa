@@ -29,6 +29,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [accessExpiresAt, setAccessExpiresAt] = useState("");
   const [accessNote, setAccessNote] = useState("");
   const [userQuery, setUserQuery] = useState("");
+  const [directIdentifier, setDirectIdentifier] = useState("");
 
   const selectedUser = useMemo(
     () => summary?.users.find((user) => user.id === selectedUserId) ?? null,
@@ -70,20 +71,28 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }
 
   async function saveAccess() {
-    if (!selectedUserId) return;
+    const identifier = directIdentifier.trim();
+    if (!selectedUserId && !identifier) {
+      setMessage("请选择用户，或输入邮箱/UID 后再保存权限。");
+      return;
+    }
     setSavingAccess(true);
     setMessage("");
     try {
+      const targetUserId = identifier ? (isLikelyUuid(identifier) ? identifier : undefined) : selectedUserId;
+      const targetEmail = identifier && !isLikelyUuid(identifier) ? identifier : undefined;
       await saveAdminAiAccess({
-        targetUserId: selectedUserId,
+        targetUserId,
+        targetEmail,
         enabled: accessEnabled,
         role: accessRole,
         expiresAt: accessExpiresAt || null,
         note: accessNote || null
       });
-      setMessage("AI 权限已保存。");
+      setDirectIdentifier("");
       await loadSummary();
-      await loadDetails(selectedUserId);
+      if (selectedUserId) await loadDetails(selectedUserId);
+      setMessage("AI 权限已保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 权限失败。");
     } finally {
@@ -128,6 +137,45 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         </div>
 
         {message && <p className="status-message">{message}</p>}
+
+        <section className="admin-access-editor admin-direct-access">
+          <div className="section-heading">
+            <div><h3><KeyRound size={18} /> 直接授权</h3><p>输入邮箱或 UID，可直接开通会员或管理员权限。</p></div>
+          </div>
+          <div className="form-grid">
+            <label>
+              邮箱或 UID
+              <input value={directIdentifier} onChange={(event) => setDirectIdentifier(event.target.value)} placeholder="user@example.com 或 UUID" />
+            </label>
+            <label>
+              启用
+              <select value={accessEnabled ? "1" : "0"} onChange={(event) => setAccessEnabled(event.target.value === "1")}>
+                <option value="1">启用</option>
+                <option value="0">关闭</option>
+              </select>
+            </label>
+            <label>
+              角色
+              <select value={accessRole} onChange={(event) => setAccessRole(event.target.value as AdminRole)}>
+                <option value="member">会员</option>
+                <option value="admin">管理员</option>
+              </select>
+            </label>
+            <label>
+              到期时间
+              <input type="datetime-local" value={accessExpiresAt} onChange={(event) => setAccessExpiresAt(event.target.value)} />
+            </label>
+            <label>
+              备注
+              <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：充值开通、手动赠送、本人账号" />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button className="button primary" onClick={() => void saveAccess()} disabled={savingAccess}>
+              <Save size={16} />保存权限
+            </button>
+          </div>
+        </section>
 
         <div className="admin-layout">
           <section className="admin-user-list" aria-label="用户列表">
@@ -275,6 +323,10 @@ function recordValue(value: unknown): string {
   if (value == null || value === "") return "-";
   if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 80)}...` : value;
   return String(value);
+}
+
+function isLikelyUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
 function accessLabel(access: AdminAiAccess | null): string {

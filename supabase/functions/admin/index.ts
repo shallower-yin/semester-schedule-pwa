@@ -3,6 +3,7 @@ type AdminAction = "whoami" | "summary" | "details" | "set-ai-access";
 interface AdminRequest {
   action?: AdminAction;
   targetUserId?: string;
+  targetEmail?: string;
   access?: {
     enabled?: boolean;
     role?: "member" | "admin";
@@ -115,8 +116,8 @@ Deno.serve(async (request) => {
       return jsonResponse(await getDetails(body.targetUserId, serviceRoleKey));
     }
     if (body.action === "set-ai-access") {
-      if (!body.targetUserId) return jsonResponse({ error: "缺少用户 ID。" }, 400);
-      return jsonResponse(await setAiAccess(body.targetUserId, body.access, serviceRoleKey));
+      if (!body.targetUserId && !body.targetEmail) return jsonResponse({ error: "缺少用户 ID 或邮箱。" }, 400);
+      return jsonResponse(await setAiAccess(body.targetUserId, body.targetEmail, body.access, serviceRoleKey));
     }
     return jsonResponse(await getSummary(serviceRoleKey));
   } catch (error) {
@@ -234,7 +235,7 @@ async function getSummary(serviceRoleKey: string) {
     }
   }
 
-  const accessRows = await restGet<AiAccessRow>("ai_assistant_access", serviceRoleKey, {
+  const accessRows = await optionalRestGet<AiAccessRow>("ai_assistant_access", serviceRoleKey, {
     select: "user_id,enabled,role,expires_at,note,created_at,updated_at"
   });
   const accessByUser = new Map(accessRows.map((row) => [row.user_id, row]));
@@ -263,7 +264,10 @@ async function getDetails(targetUserId: string, serviceRoleKey: string) {
     optionalRestGet("anniversaries", serviceRoleKey, { select: DETAIL_TABLES.anniversaries, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
     optionalRestGet("memos", serviceRoleKey, { select: DETAIL_TABLES.memos, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
     optionalRestGet("focus_sessions", serviceRoleKey, { select: DETAIL_TABLES.focus_sessions, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "started_at.desc" }),
-    getAiAccess(targetUserId, serviceRoleKey)
+    getAiAccess(targetUserId, serviceRoleKey).catch((error) => {
+      console.error(`跳过用户权限读取：${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    })
   ]);
 
   return {
@@ -287,10 +291,27 @@ async function getDetails(targetUserId: string, serviceRoleKey: string) {
   };
 }
 
-async function setAiAccess(targetUserId: string, access: AdminRequest["access"], serviceRoleKey: string) {
+async function resolveTargetUserId(targetUserId: string | undefined, targetEmail: string | undefined, serviceRoleKey: string): Promise<string> {
+  const normalizedId = targetUserId?.trim();
+  if (normalizedId) return normalizedId;
+  const email = targetEmail?.trim().toLowerCase();
+  if (!email) throw new Error("缺少用户 ID 或邮箱。");
+  const authData = await authAdminGet<{ users?: SupabaseUser[] }>("users?page=1&per_page=1000", serviceRoleKey);
+  const user = (authData.users ?? []).find((item) => item.email?.toLowerCase() === email);
+  if (!user) throw new Error("没有找到该邮箱对应的账号。");
+  return user.id;
+}
+
+async function setAiAccess(
+  targetUserId: string | undefined,
+  targetEmail: string | undefined,
+  access: AdminRequest["access"],
+  serviceRoleKey: string
+) {
+  const resolvedUserId = await resolveTargetUserId(targetUserId, targetEmail, serviceRoleKey);
   const role = access?.role === "admin" ? "admin" : "member";
   const body = {
-    user_id: targetUserId,
+    user_id: resolvedUserId,
     enabled: Boolean(access?.enabled),
     role,
     expires_at: access?.expiresAt || null,
