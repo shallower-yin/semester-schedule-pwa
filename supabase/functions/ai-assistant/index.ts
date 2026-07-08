@@ -122,19 +122,17 @@ async function checkAiAccess(
     return { allowed: true, method: bound ? "member" : "access-code", bound };
   }
 
-  const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_access`);
-  url.searchParams.set("select", "enabled,role,expires_at");
-  url.searchParams.set("user_id", `eq.${user.id}`);
-  url.searchParams.set("limit", "1");
-  const response = await fetch(url, {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/get_my_ai_access`, {
+    method: "POST",
     headers: {
       apikey: publishableKey,
-      authorization
-    }
+      authorization,
+      "content-type": "application/json"
+    },
+    body: "{}"
   });
   if (!response.ok) throw new Error("读取 AI 助手权限失败，请稍后再试。");
-  const rows = await response.json() as AiAccessRow[];
-  const row = rows[0];
+  const row = await response.json() as AiAccessRow | null;
   if (!row?.enabled) return { allowed: false, reason: "当前账号未开通 AI 助手。" };
   if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
     return { allowed: false, reason: "当前账号的 AI 助手权限已到期。" };
