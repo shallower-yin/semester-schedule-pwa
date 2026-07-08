@@ -310,6 +310,7 @@ begin
     execute format('create index if not exists %I on public.%I (user_id, server_updated_at)', table_name || '_user_sync_idx', table_name);
     execute format('revoke all on public.%I from anon', table_name);
     execute format('grant select, insert, update, delete on public.%I to authenticated', table_name);
+    execute format('grant select, insert, update, delete on public.%I to service_role', table_name);
   end loop;
 end
 $$;
@@ -358,5 +359,7 @@ with check (public.is_ai_assistant_admin());
 
 revoke all on public.ai_assistant_access from anon;
 grant select, insert, update, delete on public.ai_assistant_access to authenticated;
+grant select, insert, update, delete on public.ai_assistant_access to service_role;
 
 grant usage on schema public to authenticated;
+grant usage on schema public to service_role;
