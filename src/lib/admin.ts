@@ -101,7 +101,7 @@ export async function getAdminSummary(): Promise<AdminSummary> {
   if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
   const { data, error } = await supabase.rpc("admin_list_users");
   if (error) throw new Error(formatAdminError(error.message));
-  const rows = (data ?? []) as AdminListUserRow[];
+  const rows = Array.isArray(data) ? data as AdminListUserRow[] : [];
   return {
     passwordVisible: false,
     users: rows.map((row) => ({
@@ -134,15 +134,7 @@ export async function getAdminSummary(): Promise<AdminSummary> {
 
 export async function getAdminStatus(): Promise<AdminStatus> {
   if (!supabase) throw new Error("云端服务未配置，无法读取账号类型。");
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError) throw new Error("登录状态读取失败，请重新登录。");
-  const userId = sessionData.session?.user.id;
-  if (!userId) throw new Error("请先登录账号。");
-  const { data, error } = await supabase
-    .from("ai_assistant_access")
-    .select("user_id,enabled,role,expires_at,note,created_at,updated_at")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("get_my_ai_access");
   if (error) throw new Error(formatAdminError(error.message));
   const aiAccess = data ? normalizeAiAccess(data as AiAccessRpcRow) : null;
   return { isAdmin: isActiveAdmin(aiAccess), aiAccess };
@@ -166,8 +158,7 @@ export async function saveAdminAiAccess(input: SaveAdminAccessInput): Promise<{ 
     p_note: input.note || null
   });
   if (error) throw new Error(formatAdminError(error.message));
-  const rows = (data ?? []) as AiAccessRpcRow[];
-  return { aiAccess: rows[0] ? normalizeAiAccess(rows[0]) : null };
+  return { aiAccess: data ? normalizeAiAccess(data as AiAccessRpcRow) : null };
 }
 
 function normalizeAiAccess(row: AiAccessRpcRow): AdminAiAccess {
