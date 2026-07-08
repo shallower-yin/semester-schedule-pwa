@@ -46,6 +46,30 @@ describe("备忘录视图", () => {
     expect(screen.getByText("九宫格 1 / 1")).toBeInTheDocument();
     expect(within(grid).getByText("备忘录 10")).toBeInTheDocument();
   });
+
+  it("新增备忘录正文可以插入编号和待办并按回车续行", async () => {
+    render(<MemoPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
+    const textarea = screen.getByLabelText("正文") as HTMLTextAreaElement;
+
+    fireEvent.click(screen.getByRole("button", { name: "编号" }));
+    await waitFor(() => expect(textarea).toHaveValue("1. "));
+
+    fireEvent.change(textarea, { target: { value: "1. 鞋垫" } });
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(textarea).toHaveValue("1. 鞋垫\n2. "));
+
+    fireEvent.change(textarea, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "待办" }));
+    await waitFor(() => expect(textarea).toHaveValue("○ "));
+
+    fireEvent.change(textarea, { target: { value: "○ 防晒" } });
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(textarea).toHaveValue("○ 防晒\n○ "));
+  });
 });
 
 function memoRecord(index: number): Memo {

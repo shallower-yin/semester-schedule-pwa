@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
+import { applyMemoLineFormat, continueMemoListOnEnter } from "../lib/memoFormatting";
 import { supabase } from "../lib/supabase";
 import type { EventItem, Memo, MemoFolder } from "../types";
 import { Modal } from "./Modal";
@@ -436,6 +437,15 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const checklistItems = useMemo(() => parseChecklistItems(content), [content]);
 
+  function focusTextareaAt(cursor: number) {
+    window.setTimeout(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(cursor, cursor);
+    }, 0);
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (!title.trim()) {
@@ -463,30 +473,37 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
 
   function applyLineFormat(kind: "numbered" | "checklist") {
     const textarea = textareaRef.current;
-    const start = textarea?.selectionStart ?? 0;
-    const end = textarea?.selectionEnd ?? content.length;
-    const hasSelection = start !== end;
-    const rangeStart = hasSelection ? content.lastIndexOf("\n", start - 1) + 1 : 0;
-    const rangeEnd = hasSelection
-      ? (content.indexOf("\n", end) === -1 ? content.length : content.indexOf("\n", end))
-      : content.length;
-    const target = content.slice(rangeStart, rangeEnd);
-    const lines = (target || "").split(/\r?\n/);
-    const transformed = lines.map((line, index) => {
-      const text = stripListPrefix(line);
-      if (!text.trim()) return line;
-      return kind === "numbered" ? `${index + 1}. ${text}` : `- [ ] ${text}`;
-    }).join("\n");
-    const nextContent = `${content.slice(0, rangeStart)}${transformed}${content.slice(rangeEnd)}`;
-    setContent(nextContent);
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
+    const edit = applyMemoLineFormat(
+      content,
+      textarea?.selectionStart ?? content.length,
+      textarea?.selectionEnd ?? content.length,
+      kind
+    );
+    setContent(edit.content);
+    focusTextareaAt(edit.cursor);
+  }
+
+  function handleContentKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    const edit = continueMemoListOnEnter(content, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+    if (!edit) return;
+    event.preventDefault();
+    setContent(edit.content);
+    focusTextareaAt(edit.cursor);
   }
 
   function toggleChecklistItem(lineIndex: number) {
     const lines = content.split(/\r?\n/);
-    lines[lineIndex] = lines[lineIndex].replace(/^(\s*[-*]\s+\[)( |x|X)(\]\s*)/, (_match, prefix: string, checked: string, suffix: string) => (
-      `${prefix}${checked.toLowerCase() === "x" ? " " : "x"}${suffix}`
-    ));
+    const line = lines[lineIndex];
+    if (/^(\s*)([○◯●])(\s*)/.test(line)) {
+      lines[lineIndex] = line.replace(/^(\s*)([○◯●])(\s*)/, (_match, indent: string, marker: string, suffix: string) => (
+        `${indent}${marker === "●" ? "○" : "●"}${suffix || " "}`
+      ));
+    } else {
+      lines[lineIndex] = line.replace(/^(\s*[-*]\s+\[)( |x|X)(\]\s*)/, (_match, prefix: string, checked: string, suffix: string) => (
+        `${prefix}${checked.toLowerCase() === "x" ? " " : "x"}${suffix}`
+      ));
+    }
     setContent(lines.join("\n"));
   }
 
@@ -504,10 +521,18 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
         <div className="memo-editor-field">
           <span>正文</span>
           <div className="memo-editor-toolbar">
-            <button type="button" className="button secondary compact" onClick={() => applyLineFormat("numbered")}><ListOrdered size={15} />编号</button>
-            <button type="button" className="button secondary compact" onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
+            <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("numbered")}><ListOrdered size={15} />编号</button>
+            <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
           </div>
-          <textarea ref={textareaRef} className="memo-textarea" rows={12} aria-label="正文" value={content} onChange={(event) => setContent(event.target.value)} />
+          <textarea
+            ref={textareaRef}
+            className="memo-textarea"
+            rows={12}
+            aria-label="正文"
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
+            onKeyDown={handleContentKeyDown}
+          />
         </div>
         {checklistItems.length > 0 && (
           <div className="memo-checklist-preview" aria-label="待办清单">
@@ -538,12 +563,16 @@ interface ChecklistItem {
   text: string;
 }
 
-function stripListPrefix(line: string): string {
-  return line.replace(/^\s*(?:\d+[.)]|[-*]\s+\[[ xX]\]|[-*])\s*/, "");
-}
-
 function parseChecklistItems(content: string): ChecklistItem[] {
   return content.split(/\r?\n/).flatMap((line, lineIndex) => {
+    const circleMatch = /^\s*([○◯●])\s*(.*)$/.exec(line);
+    if (circleMatch) {
+      return [{
+        lineIndex,
+        checked: circleMatch[1] === "●",
+        text: circleMatch[2] || "未命名事项"
+      }];
+    }
     const match = /^\s*[-*]\s+\[( |x|X)\]\s*(.*)$/.exec(line);
     if (!match) return [];
     return [{
