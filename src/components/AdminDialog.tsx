@@ -28,11 +28,19 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [accessRole, setAccessRole] = useState<AdminRole>("member");
   const [accessExpiresAt, setAccessExpiresAt] = useState("");
   const [accessNote, setAccessNote] = useState("");
+  const [userQuery, setUserQuery] = useState("");
 
   const selectedUser = useMemo(
     () => summary?.users.find((user) => user.id === selectedUserId) ?? null,
     [selectedUserId, summary]
   );
+  const visibleUsers = useMemo(() => {
+    const query = userQuery.trim().toLowerCase();
+    if (!query) return summary?.users ?? [];
+    return (summary?.users ?? []).filter((user) =>
+      `${user.email}\n${user.id}\n${user.aiAccess?.note ?? ""}`.toLowerCase().includes(query)
+    );
+  }, [summary?.users, userQuery]);
 
   async function loadSummary() {
     setLoading(true);
@@ -113,6 +121,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
         <div className="admin-toolbar">
           <span><UsersRound size={17} /> {summary?.users.length ?? 0} 个账号</span>
+          <input value={userQuery} placeholder="搜索邮箱或 UID" onChange={(event) => setUserQuery(event.target.value)} />
           <button className="button secondary compact" onClick={() => void loadSummary()} disabled={loading}>
             <RefreshCw size={16} />刷新
           </button>
@@ -122,7 +131,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
         <div className="admin-layout">
           <section className="admin-user-list" aria-label="用户列表">
-            {loading && !summary ? <p>正在读取用户列表...</p> : summary?.users.map((user) => (
+            {loading && !summary ? <p>正在读取用户列表...</p> : visibleUsers.map((user) => (
               <button
                 key={user.id}
                 className={user.id === selectedUserId ? "admin-user-card active" : "admin-user-card"}
@@ -138,6 +147,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 </small>
               </button>
             ))}
+            {summary && !visibleUsers.length && <p>没有匹配账号。</p>}
           </section>
 
           <section className="admin-detail-panel">
@@ -165,7 +175,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
                 <section className="admin-access-editor">
                   <div className="section-heading">
-                    <div><h3><KeyRound size={18} /> AI 助手权限</h3><p>控制 AI 助手使用权限和管理后台入口。</p></div>
+                    <div><h3><KeyRound size={18} /> AI 助手权限</h3><p>会员可直接使用 AI 助手；管理员可进入管理后台。</p></div>
                   </div>
                   <div className="form-grid">
                     <label>
@@ -188,7 +198,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     </label>
                     <label>
                       备注
-                      <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：本人账号、临时开通" />
+                      <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：充值开通、手动赠送、本人账号" />
                     </label>
                   </div>
                   <div className="form-actions">

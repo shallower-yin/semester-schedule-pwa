@@ -74,6 +74,7 @@ import { setCurrentUserId, syncFields } from "./lib/identity";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
 import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
+import { getAdminStatus } from "./lib/admin";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
 import {
   clearCapturedInstallPrompt,
@@ -258,20 +259,11 @@ export default function App() {
       setIsAdmin(false);
       return;
     }
-    const client = supabase;
     let active = true;
     async function loadAdminFlag() {
-      const { data, error } = await client
-        .from("ai_assistant_access")
-        .select("enabled,role,expires_at")
-        .eq("user_id", user!.id)
-        .maybeSingle();
+      const status = await getAdminStatus().catch(() => null);
       if (!active) return;
-      if (error || !data?.enabled || data.role !== "admin") {
-        setIsAdmin(false);
-        return;
-      }
-      setIsAdmin(!data.expires_at || new Date(data.expires_at).getTime() > Date.now());
+      setIsAdmin(Boolean(status?.isAdmin));
     }
     void loadAdminFlag();
     return () => {
@@ -802,11 +794,6 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
                 <BrainCircuit /><span><strong>AI 助手</strong><small>智能分析日程安排，可按账号或访问口令控制使用权限</small></span><ChevronRight />
               </button>
-              {isAdmin && (
-                <button className="setting-card" onClick={() => setShowAdmin(true)}>
-                  <ShieldCheck /><span><strong>管理后台</strong><small>查看账号数据概览，管理 AI 助手和管理员权限</small></span><ChevronRight />
-                </button>
-              )}
               <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                 <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
               </button>
@@ -816,6 +803,11 @@ export default function App() {
               <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
                 {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
               </button>
+              {isAdmin && (
+                <button className="setting-card" onClick={() => setShowAdmin(true)}>
+                  <ShieldCheck /><span><strong>管理后台</strong><small>查看账号数据概览，管理 AI 助手和管理员权限</small></span><ChevronRight />
+                </button>
+              )}
             </div>
             <div className="local-data-card">
               <Download size={22} />

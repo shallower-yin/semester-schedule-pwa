@@ -1591,8 +1591,15 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   color: var(--muted);
   font-weight: 700;
+}
+
+.admin-toolbar input {
+  min-width: 180px;
+  max-width: 360px;
+  flex: 1 1 220px;
 }
 
 .admin-layout {
@@ -4356,6 +4363,15 @@ textarea {
   .admin-layout {
     grid-template-columns: 1fr;
     min-height: 0;
+  }
+
+  .admin-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-toolbar input {
+    max-width: none;
   }
 
   .admin-user-list,

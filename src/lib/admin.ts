@@ -37,6 +37,11 @@ export interface AdminSummary {
   users: AdminUserSummary[];
 }
 
+export interface AdminStatus {
+  isAdmin: boolean;
+  aiAccess: AdminAiAccess | null;
+}
+
 export interface AdminUserDetails {
   passwordVisible: false;
   user: Omit<AdminUserSummary, "counts" | "aiAccess">;
@@ -68,6 +73,10 @@ async function invokeAdmin<T>(body: Record<string, unknown>): Promise<T> {
 
 export function getAdminSummary(): Promise<AdminSummary> {
   return invokeAdmin<AdminSummary>({ action: "summary" });
+}
+
+export function getAdminStatus(): Promise<AdminStatus> {
+  return invokeAdmin<AdminStatus>({ action: "whoami" });
 }
 
 export function getAdminUserDetails(targetUserId: string): Promise<AdminUserDetails> {

@@ -1,4 +1,4 @@
-type AdminAction = "summary" | "details" | "set-ai-access";
+type AdminAction = "whoami" | "summary" | "details" | "set-ai-access";
 
 interface AdminRequest {
   action?: AdminAction;
@@ -102,10 +102,14 @@ Deno.serve(async (request) => {
     }
 
     const user = await getUser(authorization);
-    const adminAccess = await getAiAccess(user.id, serviceRoleKey);
-    if (!isActiveAdmin(adminAccess)) return jsonResponse({ error: "当前账号没有管理权限。" }, 403);
-
     const body = await request.json() as AdminRequest;
+    const adminAccess = await getAiAccess(user.id, serviceRoleKey);
+    const isAdmin = isActiveAdmin(adminAccess);
+    if (body.action === "whoami") {
+      return jsonResponse({ isAdmin, aiAccess: adminAccess });
+    }
+    if (!isAdmin) return jsonResponse({ error: "当前账号没有管理权限。" }, 403);
+
     if (body.action === "details") {
       if (!body.targetUserId) return jsonResponse({ error: "缺少用户 ID。" }, 400);
       return jsonResponse(await getDetails(body.targetUserId, serviceRoleKey));
