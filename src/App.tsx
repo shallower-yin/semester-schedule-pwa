@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Palette,
   Target,
   UserRound,
   WifiOff,
@@ -57,6 +58,7 @@ import { ScheduleAssistantDialog } from "./components/ScheduleAssistantDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
 import { StatsDialog } from "./components/StatsDialog";
+import { ThemeSkinDialog } from "./components/ThemeSkinDialog";
 import { TodayPage } from "./components/TodayPage";
 import { WeekCalendar } from "./components/WeekCalendar";
 import { db, queueChange } from "./db";
@@ -74,6 +76,7 @@ import { setCurrentUserId, syncFields } from "./lib/identity";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
 import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
+import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
 import { getAdminStatus } from "./lib/admin";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
 import {
@@ -116,6 +119,8 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [showHeaderToolSettings, setShowHeaderToolSettings] = useState(false);
+  const [showThemeSkinSettings, setShowThemeSkinSettings] = useState(false);
+  const [themeSkin, setThemeSkin] = useState<ThemeSkinId>(() => loadThemeSkin());
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
@@ -639,7 +644,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-skin={themeSkin}>
       <header className="app-header">
         <div className="brand">
           <button className="mobile-menu-button" onClick={() => setSidebarOpen(true)} aria-label="打开菜单"><Menu /></button>
@@ -773,6 +778,9 @@ export default function App() {
               <button className="setting-card" onClick={() => setShowMobileNavSettings(true)}>
                 <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
               </button>
+              <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
+                <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
+              </button>
               <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
                 <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
               </button>
@@ -840,6 +848,7 @@ export default function App() {
 
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && <PeriodSettingsDialog semester={semester!} onClose={() => setShowPeriodSettings(false)} />}
+      {showThemeSkinSettings && <ThemeSkinDialog value={themeSkin} onChange={setThemeSkin} onClose={() => setShowThemeSkinSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
       {showBatchEvents && <BatchEventsDialog events={events} categories={categories} occurrenceStates={occurrenceStates} onClose={() => setShowBatchEvents(false)} />}
       {showDataHealth && <DataHealthDialog ownerId={ownerId} onClose={() => setShowDataHealth(false)} />}

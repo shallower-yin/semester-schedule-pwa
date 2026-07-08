@@ -36,7 +36,7 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
 
   const weekend = toISODate(addDays(startOfWeek(today), 6));
   const tomorrow = toISODate(addDays(today, 1));
-  const nextAction = overview.overdueIncompleteItems[0] ?? overview.upcomingItems.find((item) => item.type === "event" && !item.completed) ?? overview.upcomingItems[0];
+  const nextAction = overview.overdueIncompleteItems[0] ?? overview.upcomingItems.find((item) => item.type === "course" || !item.completed) ?? null;
 
   async function postponeItems(items: ScheduleOverviewItem[], targetDate: string) {
     for (const item of items) {
@@ -61,16 +61,24 @@ export function TodayPage({ overview, events, occurrenceStates, onOpenItem, onOp
         <article><Target /><span><strong>{formatFocusDuration(overview.todayFocusSeconds)}</strong><small>今日专注</small></span></article>
       </div>
 
-      {nextAction && (
-        <section className="next-action-panel">
+      <section className={`next-action-panel ${nextAction ? "" : "resting"}`}>
+        {nextAction ? (
+          <>
+            <div>
+              <span>接下来</span>
+              <strong>{nextAction.title}</strong>
+              <small>{nextAction.timeLabel} · {nextAction.subtitle}</small>
+            </div>
+            <button className="button primary compact" onClick={() => onOpenItem(nextAction)}><Edit3 size={15} />处理</button>
+          </>
+        ) : (
           <div>
             <span>接下来</span>
-            <strong>{nextAction.title}</strong>
-            <small>{nextAction.timeLabel} · {nextAction.subtitle}</small>
+            <strong>无事项，可以休息啦</strong>
+            <small>今天需要处理的事项已经清空。</small>
           </div>
-          <button className="button primary compact" onClick={() => onOpenItem(nextAction)}><Edit3 size={15} />处理</button>
-        </section>
-      )}
+        )}
+      </section>
 
       <TodayList
         title="今日安排"
