@@ -1,0 +1,106 @@
+name: Grant AI access
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_user_id:
+        description: "Supabase user UUID"
+        required: true
+        type: string
+      role:
+        description: "Access role"
+        required: true
+        default: "member"
+        type: choice
+        options:
+          - member
+          - admin
+      enabled:
+        description: "Enable access"
+        required: true
+        default: true
+        type: boolean
+      expires_at:
+        description: "Optional ISO timestamp, empty means no expiry"
+        required: false
+        type: string
+      note:
+        description: "Optional admin note"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  grant:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: haifsnaupqhlvgfoyvlc
+      TARGET_USER_ID: ${{ inputs.target_user_id }}
+      ACCESS_ROLE: ${{ inputs.role }}
+      ACCESS_ENABLED: ${{ inputs.enabled }}
+      ACCESS_EXPIRES_AT: ${{ inputs.expires_at }}
+      ACCESS_NOTE: ${{ inputs.note }}
+    steps:
+      - name: Build query
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import uuid
+
+          target_user_id = os.environ["TARGET_USER_ID"].strip()
+          role = os.environ["ACCESS_ROLE"].strip()
+          enabled = os.environ["ACCESS_ENABLED"].strip().lower() == "true"
+          expires_at = os.environ.get("ACCESS_EXPIRES_AT", "").strip() or None
+          note = os.environ.get("ACCESS_NOTE", "").strip() or None
+
+          uuid.UUID(target_user_id)
+          if role not in {"member", "admin"}:
+            raise ValueError("role must be member or admin")
+
+          def literal(value):
+            if value is None:
+              return "null"
+            return "'" + value.replace("'", "''") + "'"
+
+          query = f"""
+          insert into public.ai_assistant_access (user_id, enabled, role, expires_at, note, updated_at)
+          values (
+            {literal(target_user_id)}::uuid,
+            {'true' if enabled else 'false'},
+            {literal(role)},
+            {literal(expires_at)}::timestamptz,
+            {literal(note)},
+            now()
+          )
+          on conflict (user_id) do update set
+            enabled = excluded.enabled,
+            role = excluded.role,
+            expires_at = excluded.expires_at,
+            note = excluded.note,
+            updated_at = now()
+          returning user_id, enabled, role, expires_at, note;
+          """
+          with open("/tmp/grant-ai-access-query.json", "w", encoding="utf-8") as handle:
+            json.dump({"query": query}, handle)
+          PY
+
+      - name: Grant access
+        run: |
+          set -euo pipefail
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/grant-ai-access-query.json \
+            --output /tmp/grant-ai-access-response.json
+          jq -e --arg role "$ACCESS_ROLE" --arg enabled "$ACCESS_ENABLED" '
+            length == 1
+            and .[0].role == $role
+            and (.[0].enabled | tostring) == ($enabled | ascii_downcase)
+          ' /tmp/grant-ai-access-response.json > /dev/null
