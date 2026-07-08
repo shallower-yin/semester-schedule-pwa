@@ -70,6 +70,11 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     }
   }
 
+  function selectUser(userId: string) {
+    setSelectedUserId(userId);
+    setDetails(null);
+  }
+
   async function saveAccess() {
     const identifier = directIdentifier.trim();
     if (!selectedUserId && !identifier) {
@@ -91,7 +96,6 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       });
       setDirectIdentifier("");
       await loadSummary();
-      if (selectedUserId) await loadDetails(selectedUserId);
       setMessage("AI 权限已保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 权限失败。");
@@ -105,17 +109,12 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }, []);
 
   useEffect(() => {
-    if (!selectedUserId) return;
-    void loadDetails(selectedUserId);
-  }, [selectedUserId]);
-
-  useEffect(() => {
-    const access = details?.aiAccess ?? selectedUser?.aiAccess ?? null;
+    const access = selectedUser?.aiAccess ?? details?.aiAccess ?? null;
     setAccessEnabled(Boolean(access?.enabled));
     setAccessRole(access?.role ?? "member");
     setAccessExpiresAt(access?.expires_at ? access.expires_at.slice(0, 16) : "");
     setAccessNote(access?.note ?? "");
-  }, [details?.aiAccess, selectedUser?.aiAccess]);
+  }, [selectedUser?.aiAccess, details?.aiAccess]);
 
   return (
     <Modal title="管理后台" onClose={onClose} wide>
@@ -183,7 +182,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               <button
                 key={user.id}
                 className={user.id === selectedUserId ? "admin-user-card active" : "admin-user-card"}
-                onClick={() => setSelectedUserId(user.id)}
+                onClick={() => selectUser(user.id)}
               >
                 <span>
                   <strong>{user.email || "未显示邮箱"}</strong>
@@ -210,16 +209,6 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     <Eye size={16} />查看数据
                   </button>
                 </header>
-
-                <div className="admin-stats-grid">
-                  <article><strong>{selectedUser.counts.semesters}</strong><span>学期</span></article>
-                  <article><strong>{selectedUser.counts.courses}</strong><span>课程</span></article>
-                  <article><strong>{selectedUser.counts.events}</strong><span>事项</span></article>
-                  <article><strong>{selectedUser.counts.habits}</strong><span>习惯</span></article>
-                  <article><strong>{selectedUser.counts.anniversaries}</strong><span>纪念日</span></article>
-                  <article><strong>{selectedUser.counts.memos}</strong><span>备忘录</span></article>
-                  <article><strong>{selectedUser.counts.focusSessions}</strong><span>专注</span></article>
-                </div>
 
                 <section className="admin-access-editor">
                   <div className="section-heading">
@@ -256,14 +245,25 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                   </div>
                 </section>
 
-                {detailLoading ? <p>正在读取用户数据...</p> : details && (
-                  <div className="admin-data-sections">
-                    <AdminRecordSection title="课程" records={details.data.courses} fields={["name", "teacher", "classroom", "note"]} />
-                    <AdminRecordSection title="事项/习惯" records={details.data.events} fields={["title", "event_type", "start_date", "end_date", "note"]} />
-                    <AdminRecordSection title="纪念日" records={details.data.anniversaries} fields={["title", "kind", "date", "note"]} />
-                    <AdminRecordSection title="备忘录" records={details.data.memos} fields={["title", "content"]} />
-                    <AdminRecordSection title="专注记录" records={details.data.focusSessions} fields={["task_title", "mode", "duration_seconds", "started_at"]} />
-                  </div>
+                {detailLoading ? <p>正在读取用户数据...</p> : details && details.user.id === selectedUser.id && (
+                  <>
+                    <div className="admin-stats-grid">
+                      <article><strong>{selectedUser.counts.semesters}</strong><span>学期</span></article>
+                      <article><strong>{selectedUser.counts.courses}</strong><span>课程</span></article>
+                      <article><strong>{selectedUser.counts.events}</strong><span>事项</span></article>
+                      <article><strong>{selectedUser.counts.habits}</strong><span>习惯</span></article>
+                      <article><strong>{selectedUser.counts.anniversaries}</strong><span>纪念日</span></article>
+                      <article><strong>{selectedUser.counts.memos}</strong><span>备忘录</span></article>
+                      <article><strong>{selectedUser.counts.focusSessions}</strong><span>专注</span></article>
+                    </div>
+                    <div className="admin-data-sections">
+                      <AdminRecordSection title="课程" records={details.data.courses} fields={["name", "teacher", "classroom", "note"]} />
+                      <AdminRecordSection title="事项/习惯" records={details.data.events} fields={["title", "event_type", "start_date", "end_date", "note"]} />
+                      <AdminRecordSection title="纪念日" records={details.data.anniversaries} fields={["title", "kind", "date", "note"]} />
+                      <AdminRecordSection title="备忘录" records={details.data.memos} fields={["title", "content"]} />
+                      <AdminRecordSection title="专注记录" records={details.data.focusSessions} fields={["task_title", "mode", "duration_seconds", "started_at"]} />
+                    </div>
+                  </>
                 )}
               </>
             ) : (
