@@ -122,6 +122,18 @@ async function checkAiAccess(
     return { allowed: true, method: bound ? "member" : "access-code", bound };
   }
 
+  const serviceRoleKey = optionalSecret("SUPABASE_SERVICE_ROLE_KEY");
+  const row = serviceRoleKey
+    ? await getAiAccessByServiceRole(user.id, serviceRoleKey)
+    : await getAiAccessByUserRpc(authorization);
+  if (!row?.enabled) return { allowed: false, reason: "当前账号未开通 AI 助手。" };
+  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
+    return { allowed: false, reason: "当前账号的 AI 助手权限已到期。" };
+  }
+  return { allowed: true, method: row.role };
+}
+
+async function getAiAccessByUserRpc(authorization: string): Promise<AiAccessRow | null> {
   const response = await fetch(`${supabaseUrl}/rest/v1/rpc/get_my_ai_access`, {
     method: "POST",
     headers: {
@@ -132,12 +144,7 @@ async function checkAiAccess(
     body: "{}"
   });
   if (!response.ok) throw new Error("读取 AI 助手权限失败，请稍后再试。");
-  const row = await response.json() as AiAccessRow | null;
-  if (!row?.enabled) return { allowed: false, reason: "当前账号未开通 AI 助手。" };
-  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
-    return { allowed: false, reason: "当前账号的 AI 助手权限已到期。" };
-  }
-  return { allowed: true, method: row.role };
+  return await response.json() as AiAccessRow | null;
 }
 
 async function bindMemberAccess(userId: string): Promise<boolean> {
