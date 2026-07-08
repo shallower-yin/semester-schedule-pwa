@@ -68,7 +68,7 @@ export function AuthDialog({ initialMode = "login", onClose }: AuthDialogProps) 
     }
   }
 
-  async function sendMagicLink() {
+  async function sendPasswordlessEmail() {
     if (!supabase || !email.trim()) return showMessage("请先填写邮箱地址。", true);
     setBusy(true);
     try {
@@ -77,7 +77,7 @@ export function AuthDialog({ initialMode = "login", onClose }: AuthDialogProps) 
         options: { emailRedirectTo: appUrl }
       });
       if (error) throw error;
-      showMessage("魔法链接已发送，请检查邮箱。");
+      showMessage("免密登录邮件已发送，请检查邮箱。");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "发送失败。", true);
     } finally {
@@ -117,7 +117,7 @@ export function AuthDialog({ initialMode = "login", onClose }: AuthDialogProps) 
 
         {mode === "login" && (
           <>
-            <button type="button" className="button secondary" disabled={busy} onClick={sendMagicLink}>发送邮箱魔法链接</button>
+            <button type="button" className="button secondary" disabled={busy} onClick={sendPasswordlessEmail}>免密邮箱登录</button>
             <div className="auth-links">
               <button type="button" onClick={() => { setMode("register"); showMessage(""); }}>注册账号</button>
               <button type="button" onClick={() => { setMode("forgot"); showMessage(""); }}>忘记密码</button>
