@@ -96,7 +96,7 @@ Deno.serve(async (request) => {
       answer: assistantResponse.answer,
       actions: assistantResponse.actions,
       access: access.method,
-      accessBound: access.bound
+      accessBound: false
     });
   } catch (error) {
     console.error(error);
@@ -122,8 +122,7 @@ async function checkAiAccess(
 ): Promise<{ allowed: boolean; method?: string; reason?: string; bound?: boolean }> {
   const configuredCode = optionalSecret("AI_ASSISTANT_ACCESS_CODE");
   if (configuredCode && accessCode && accessCode === configuredCode) {
-    const bound = await bindMemberAccess(user.id);
-    return { allowed: true, method: bound ? "member" : "access-code", bound };
+    return { allowed: true, method: "access-code", bound: false };
   }
 
   const serviceRoleKey = serviceRoleSecret();
@@ -149,42 +148,6 @@ async function getAiAccessByUserRpc(authorization: string): Promise<AiAccessRow 
   });
   if (!response.ok) throw new Error("读取 AI 助手权限失败，请稍后再试。");
   return await response.json() as AiAccessRow | null;
-}
-
-async function bindMemberAccess(userId: string): Promise<boolean> {
-  const serviceRoleKey = serviceRoleSecret();
-  if (!serviceRoleKey) return false;
-  try {
-    const existing = await getAiAccessByServiceRole(userId, serviceRoleKey);
-    const body = {
-      user_id: userId,
-      enabled: true,
-      role: existing?.role === "admin" ? "admin" : "member",
-      expires_at: existing?.role === "admin" ? existing.expires_at : null,
-      note: existing?.note || "访问口令开通",
-      updated_at: new Date().toISOString()
-    };
-    const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_access`);
-    url.searchParams.set("on_conflict", "user_id");
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        apikey: serviceRoleKey,
-        authorization: `Bearer ${serviceRoleKey}`,
-        "content-type": "application/json",
-        prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify(body)
-    });
-    if (!response.ok) {
-      console.error(`绑定 AI 助手权限失败：HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
-      return false;
-    }
-    return true;
-  } catch (error) {
-    console.error(error);
-    return false;
-  }
 }
 
 async function getAiAccessByServiceRole(userId: string, serviceRoleKey: string): Promise<AiAccessRow | null> {

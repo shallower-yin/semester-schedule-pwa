@@ -62,11 +62,10 @@ export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: 
     setMessages((current) => [...current, { id: `u-${Date.now()}`, role: "user", content: trimmed }]);
     try {
       const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history);
-      if (result.accessBound) setAccessCode("");
+      if (result.access === "access-code") setAccessCode("");
       const created = await createEventsFromActions(result.actions ?? [], trimmed, ownerId);
       const content = [
         result.answer,
-        result.accessBound ? "已为当前账号开通 AI 助手，下次可不填访问口令。" : "",
         created.length ? `已创建事项：${created.map((item) => item.title).join("、")}` : ""
       ].filter(Boolean).join("\n");
       setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "assistant", content }]);
@@ -113,12 +112,12 @@ export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: 
           <BrainCircuit size={19} />
           <div>
             <strong>{userEmail ? `当前账号：${userEmail}` : "需要先登录账号"}</strong>
-            <span>只有会员或管理员账号，或输入指定访问口令后，才可以使用 AI 助手。</span>
+            <span>会员和管理员可直接使用 AI 助手；访问口令可用于临时体验。</span>
           </div>
         </section>
         <label className="ai-access-code">
           <KeyRound size={16} />
-          <input value={accessCode} placeholder="访问口令，已开通账号可不填" onChange={(event) => setAccessCode(event.target.value)} />
+          <input value={accessCode} placeholder="访问口令，临时体验可填" onChange={(event) => setAccessCode(event.target.value)} />
         </label>
         <div className="assistant-examples" aria-label="AI 助手问日程样例">
           {SCHEDULE_ASSISTANT_EXAMPLES.map((example) => (

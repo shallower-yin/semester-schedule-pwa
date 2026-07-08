@@ -13,6 +13,7 @@ jobs:
       SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
       PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
     steps:
       - name: Verify AI access roles
         run: |
@@ -22,6 +23,7 @@ jobs:
           const supabaseUrl = requiredEnv("SUPABASE_URL");
           const publishableKey = requiredEnv("PUBLISHABLE_KEY");
           const serviceRoleKey = requiredEnv("SERVICE_ROLE_KEY");
+          const aiAccessCode = process.env.AI_ASSISTANT_ACCESS_CODE?.trim() || "";
           const runId = process.env.GITHUB_RUN_ID || Date.now().toString();
           const createdUsers = [];
 
@@ -161,6 +163,24 @@ jobs:
             console.log(`PASS ${user.label}: AI allowed as ${expectedAccess}`);
           }
 
+          async function expectAiAccessCodeDoesNotGrantMembership(user, token) {
+            if (!aiAccessCode) {
+              console.log("SKIP access-code smoke: AI_ASSISTANT_ACCESS_CODE is not configured");
+              return;
+            }
+            const result = await invokeFunction("ai-assistant", token, {
+              question: "请用一句话说明我当前没有提供具体日程。",
+              scheduleContext: { today: "2026-07-08", upcomingDays: [] },
+              history: [],
+              accessCode: aiAccessCode
+            });
+            assert(result.status === 200, `${user.label} should use AI with access code, got HTTP ${result.status}: ${JSON.stringify(result.payload).slice(0, 300)}`);
+            assert(result.payload?.access === "access-code", `${user.label} access should be access-code, got ${result.payload?.access}`);
+            assert(result.payload?.accessBound !== true, `${user.label} access code should not bind membership`);
+            await expectAiDenied(user, token);
+            console.log(`PASS ${user.label}: access code is temporary and does not grant membership`);
+          }
+
           async function expectAdminStatus(user, token, expectedAdmin) {
             const whoami = await invokeFunction("admin", token, { action: "whoami" });
             assert(whoami.status === 200, `${user.label} whoami failed: HTTP ${whoami.status}`);
@@ -194,6 +214,7 @@ jobs:
 
             await expectAiDenied(normal, normalToken);
             await expectAdminStatus(normal, normalToken, false);
+            await expectAiAccessCodeDoesNotGrantMembership(normal, normalToken);
             await expectAiDenied(disabled, disabledToken);
             await expectAdminStatus(disabled, disabledToken, false);
             await expectAiDenied(expired, expiredToken);
