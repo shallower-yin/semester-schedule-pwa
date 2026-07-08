@@ -176,6 +176,20 @@ async function restGet<T>(
   return JSON.parse(text) as T[];
 }
 
+async function optionalRestGet<T>(
+  table: string,
+  serviceRoleKey: string,
+  params: Record<string, string>,
+  limit = 1000
+): Promise<T[]> {
+  try {
+    return await restGet<T>(table, serviceRoleKey, params, limit);
+  } catch (error) {
+    console.error(`跳过 ${table} 可选数据读取：${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+}
+
 async function getAiAccess(userId: string, serviceRoleKey: string): Promise<AiAccessRow | null> {
   const rows = await restGet<AiAccessRow>("ai_assistant_access", serviceRoleKey, {
     select: "user_id,enabled,role,expires_at,note,created_at,updated_at",
@@ -207,7 +221,7 @@ async function getSummary(serviceRoleKey: string) {
   const counts = new Map<string, UserCounts>();
 
   for (const config of SUMMARY_TABLES) {
-    const records = await restGet<{ user_id: string; event_type?: string }>(config.table, serviceRoleKey, {
+    const records = await optionalRestGet<{ user_id: string; event_type?: string }>(config.table, serviceRoleKey, {
       select: config.table === "events" ? "user_id,event_type" : "user_id",
       deleted_at: "is.null"
     });
@@ -243,12 +257,12 @@ async function getDetails(targetUserId: string, serviceRoleKey: string) {
   const authData = await authAdminGet<{ users?: SupabaseUser[] }>("users?page=1&per_page=1000", serviceRoleKey);
   const user = (authData.users ?? []).find((item) => item.id === targetUserId) ?? null;
   const [semesters, courses, events, anniversaries, memos, focusSessions, aiAccess] = await Promise.all([
-    restGet( "semesters", serviceRoleKey, { select: DETAIL_TABLES.semesters, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
-    restGet("courses", serviceRoleKey, { select: DETAIL_TABLES.courses, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
-    restGet("events", serviceRoleKey, { select: DETAIL_TABLES.events, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
-    restGet("anniversaries", serviceRoleKey, { select: DETAIL_TABLES.anniversaries, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
-    restGet("memos", serviceRoleKey, { select: DETAIL_TABLES.memos, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
-    restGet("focus_sessions", serviceRoleKey, { select: DETAIL_TABLES.focus_sessions, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "started_at.desc" }),
+    optionalRestGet( "semesters", serviceRoleKey, { select: DETAIL_TABLES.semesters, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
+    optionalRestGet("courses", serviceRoleKey, { select: DETAIL_TABLES.courses, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
+    optionalRestGet("events", serviceRoleKey, { select: DETAIL_TABLES.events, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
+    optionalRestGet("anniversaries", serviceRoleKey, { select: DETAIL_TABLES.anniversaries, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
+    optionalRestGet("memos", serviceRoleKey, { select: DETAIL_TABLES.memos, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
+    optionalRestGet("focus_sessions", serviceRoleKey, { select: DETAIL_TABLES.focus_sessions, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "started_at.desc" }),
     getAiAccess(targetUserId, serviceRoleKey)
   ]);
 
