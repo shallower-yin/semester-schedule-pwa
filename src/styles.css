@@ -1279,9 +1279,29 @@ main {
   backdrop-filter: blur(8px);
 }
 
+.modal-title-row {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+}
+
 .modal-header h2 {
+  flex: 0 0 auto;
   margin: 0;
   font-size: 19px;
+}
+
+.modal-header-extra {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.modal-header > .icon-button {
+  flex: 0 0 auto;
 }
 
 .icon-button {
@@ -4200,7 +4220,7 @@ textarea {
 }
 
 .ai-assistant-dialog {
-  grid-template-rows: auto auto minmax(330px, 56vh) auto;
+  grid-template-rows: auto minmax(390px, 62vh) auto;
 }
 
 .ai-assistant-capability {
@@ -4339,6 +4359,23 @@ textarea {
   grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+}
+
+.ai-header-access-code {
+  display: grid;
+  width: min(260px, 100%);
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: #5f6b7a;
+}
+
+.ai-header-access-code input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 13px;
 }
 
 .mobile-sidebar-backdrop {
@@ -4889,6 +4926,18 @@ textarea {
     padding: 14px 16px;
   }
 
+  .modal-title-row {
+    gap: 8px;
+  }
+
+  .modal-header-extra {
+    justify-content: flex-end;
+  }
+
+  .ai-header-access-code {
+    width: min(180px, 100%);
+  }
+
   .toast-host {
     right: 12px;
     bottom: calc(92px + env(safe-area-inset-bottom));
@@ -5111,7 +5160,7 @@ textarea {
   }
 
   .ai-assistant-dialog {
-    grid-template-rows: auto auto minmax(260px, 48vh) auto;
+    grid-template-rows: auto minmax(330px, 56dvh) auto;
   }
 
   .assistant-input {

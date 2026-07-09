@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarPlus, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { CalendarPlus, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
@@ -16,7 +16,7 @@ interface MemoPageProps {
   onOpenMemoConsumed?: () => void;
 }
 
-type FolderFilter = "all" | "trash" | "uncheckedTodos" | string;
+type FolderFilter = "all" | "uncheckedTodos" | string;
 type MemoViewMode = "list" | "grid";
 const GRID_PAGE_SIZE = 9;
 
@@ -44,12 +44,18 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     onOpenMemoConsumed?.();
   }, [memos, onOpenMemoConsumed, openMemoId]);
 
+  useEffect(() => {
+    const legacyDeletedIds = memos.filter((memo) => memo.deleted_at).map((memo) => memo.id);
+    if (!legacyDeletedIds.length) return;
+    void hardDeleteLocalRecords("memos", legacyDeletedIds);
+  }, [memos]);
+
   const visibleMemos = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return memos
-      .filter((memo) => (filter === "trash" ? Boolean(memo.deleted_at) : !memo.deleted_at))
+      .filter((memo) => !memo.deleted_at)
       .filter((memo) => {
-        if (filter === "all" || filter === "trash") return true;
+        if (filter === "all") return true;
         if (filter === "uncheckedTodos") return getMemoChecklistStats(memo.content).incomplete > 0;
         return memo.folder_id === filter;
       })
@@ -64,7 +70,6 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
   }, [filter, memos, query]);
 
   const activeMemoCount = memos.filter((memo) => !memo.deleted_at).length;
-  const trashMemoCount = memos.filter((memo) => memo.deleted_at).length;
   const uncheckedTodoCount = memos
     .filter((memo) => !memo.deleted_at)
     .reduce((total, memo) => total + getMemoChecklistStats(memo.content).incomplete, 0);
@@ -74,7 +79,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
   const gridPageCount = Math.max(1, Math.ceil(visibleMemos.length / GRID_PAGE_SIZE));
   const activeGridPage = Math.min(gridPage, gridPageCount - 1);
   const gridMemos = visibleMemos.slice(activeGridPage * GRID_PAGE_SIZE, activeGridPage * GRID_PAGE_SIZE + GRID_PAGE_SIZE);
-  const emptyGridSlots = filter === "trash" ? 0 : GRID_PAGE_SIZE - gridMemos.length;
+  const emptyGridSlots = GRID_PAGE_SIZE - gridMemos.length;
 
   function selectFilter(nextFilter: FolderFilter) {
     setFilter(nextFilter);
@@ -126,40 +131,6 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     await db.memoFolders.put(updated);
     await queueChange("memoFolders", updated.id);
     setMessage(`已重命名文件夹为“${updated.name}”。`);
-  }
-
-  async function restoreMemo(memo: Memo) {
-    const restored = { ...memo, ...syncFields(memo), deleted_at: null };
-    await db.memos.put(restored);
-    await queueChange("memos", restored.id);
-  }
-
-  async function permanentlyDeleteMemo(memo: Memo) {
-    if (!window.confirm(`彻底删除备忘录“${memo.title}”？此操作不会进入回收站。`)) return;
-    try {
-      await hardDeleteLocalRecord("memos", memo.id);
-      setMessage("备忘录已彻底删除。");
-      showToast("备忘录已彻底删除。", "success");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "彻底删除失败";
-      setMessage(message);
-      showToast(message, "error");
-    }
-  }
-
-  async function emptyTrash() {
-    const trashed = memos.filter((memo) => memo.deleted_at);
-    if (!trashed.length) return;
-    if (!window.confirm(`彻底删除回收站中的 ${trashed.length} 条备忘录？`)) return;
-    try {
-      await hardDeleteLocalRecords("memos", trashed.map((memo) => memo.id));
-      setMessage(`已彻底删除 ${trashed.length} 条备忘录。`);
-      showToast(`已彻底删除 ${trashed.length} 条备忘录。`, "success");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "清空回收站失败";
-      setMessage(message);
-      showToast(message, "error");
-    }
   }
 
   async function createEventFromMemo(memo: Memo) {
@@ -259,11 +230,6 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
               </span>
             </button>
           ))}
-          {trashMemoCount > 0 && (
-            <button className={filter === "trash" ? "active" : ""} onClick={() => selectFilter("trash")}>
-              <Trash2 size={18} /><span>历史回收站</span><small>{trashMemoCount}</small>
-            </button>
-          )}
         </div>
       </aside>
 
@@ -274,7 +240,6 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
             <p>记录临时想法、复习计划和需要保留的文字资料。未完成待办 {uncheckedTodoCount} 项，分布在 {uncheckedTodoMemoCount} 条备忘录中。</p>
           </div>
           <div className="inline-actions">
-            {filter === "trash" && trashMemoCount > 0 && <button className="button danger-button compact" onClick={() => void emptyTrash()}><Trash2 size={16} />清空回收站</button>}
             <button className="button primary compact" onClick={() => setMemoToEdit(null)}><Plus size={17} />新增备忘录</button>
           </div>
         </div>
@@ -310,8 +275,6 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
                     memo={memo}
                     mode="grid"
                     onEdit={setMemoToEdit}
-                    onRestore={restoreMemo}
-                    onDelete={permanentlyDeleteMemo}
                     onCreateEvent={createEventFromMemo}
                   />
                 ))}
@@ -333,8 +296,6 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
                   memo={memo}
                   mode="list"
                   onEdit={setMemoToEdit}
-                  onRestore={restoreMemo}
-                  onDelete={permanentlyDeleteMemo}
                   onCreateEvent={createEventFromMemo}
                 />
               ))}
@@ -343,8 +304,8 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
         ) : (
           <div className="empty-state compact-empty">
             <FileText size={34} />
-            <h2>{filter === "trash" ? "历史回收站为空" : "还没有备忘录"}</h2>
-            <p>{filter === "trash" ? "现在删除会直接彻底删除，不再进入回收站。" : "新增一条备忘录，用来保存想法、材料或复习笔记。"}</p>
+            <h2>还没有备忘录</h2>
+            <p>新增一条备忘录，用来保存想法、材料或复习笔记。</p>
           </div>
         )}
       </div>
@@ -353,7 +314,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
         <MemoDialog
           folders={folders}
           memo={memoToEdit ?? undefined}
-          initialFolderId={filter !== "all" && filter !== "trash" ? filter : null}
+          initialFolderId={filter !== "all" && filter !== "uncheckedTodos" ? filter : null}
           onClose={() => setMemoToEdit(undefined)}
         />
       )}
@@ -365,18 +326,16 @@ interface MemoCardProps {
   memo: Memo;
   mode: MemoViewMode;
   onEdit: (memo: Memo) => void;
-  onRestore: (memo: Memo) => Promise<void>;
-  onDelete: (memo: Memo) => Promise<void>;
   onCreateEvent: (memo: Memo) => Promise<void>;
 }
 
-function MemoCard({ memo, mode, onEdit, onRestore, onDelete, onCreateEvent }: MemoCardProps) {
+function MemoCard({ memo, mode, onEdit, onCreateEvent }: MemoCardProps) {
   const checklistStats = getMemoChecklistStats(memo.content);
   return (
     <article
       className={`memo-card ${mode === "grid" ? "memo-card-grid" : ""}`}
       role="listitem"
-      onClick={() => !memo.deleted_at && onEdit(memo)}
+      onClick={() => onEdit(memo)}
     >
       <div className="memo-card-topline">
         <time>{memo.updated_at.slice(0, 10).replaceAll("-", "/")}</time>
@@ -385,40 +344,17 @@ function MemoCard({ memo, mode, onEdit, onRestore, onDelete, onCreateEvent }: Me
       <h2>{memo.title}</h2>
       {checklistStats.incomplete > 0 && <span className="memo-todo-badge">未完成待办 {checklistStats.incomplete}</span>}
       <p>{memo.content || "无正文"}</p>
-      {memo.deleted_at ? (
-        <div className="memo-card-actions">
-          <button
-            className="button secondary compact"
-            onClick={(event) => {
-              event.stopPropagation();
-              void onRestore(memo);
-            }}
-          >
-            <RotateCcw size={15} />恢复
-          </button>
-          <button
-            className="button danger-button compact"
-            onClick={(event) => {
-              event.stopPropagation();
-              void onDelete(memo);
-            }}
-          >
-            <Trash2 size={15} />彻底删除
-          </button>
-        </div>
-      ) : (
-        <div className="memo-card-actions">
-          <button
-            className="button secondary compact"
-            onClick={(event) => {
-              event.stopPropagation();
-              void onCreateEvent(memo);
-            }}
-          >
-            <CalendarPlus size={15} />转事项
-          </button>
-        </div>
-      )}
+      <div className="memo-card-actions">
+        <button
+          className="button secondary compact"
+          onClick={(event) => {
+            event.stopPropagation();
+            void onCreateEvent(memo);
+          }}
+        >
+          <CalendarPlus size={15} />转事项
+        </button>
+      </div>
     </article>
   );
 }

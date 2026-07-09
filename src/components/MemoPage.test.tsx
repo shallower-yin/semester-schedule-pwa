@@ -108,6 +108,20 @@ describe("备忘录视图", () => {
     expect(screen.queryByText("已完成清单")).not.toBeInTheDocument();
     expect(screen.queryByText("普通记录")).not.toBeInTheDocument();
   });
+
+  it("进入备忘录时把历史软删除记录转为硬删除同步队列", async () => {
+    await db.memos.bulkAdd([
+      memoRecord(1),
+      { ...memoRecord(2), title: "旧回收站记录", deleted_at: "2026-07-09T09:00:00.000Z" }
+    ]);
+
+    render(<MemoPage ownerId="local" />);
+
+    await waitFor(async () => expect(await db.memos.get("memo-2")).toBeUndefined());
+    const deleteQueue = await db.syncQueue.where("record_id").equals("memo-2").toArray();
+    expect(deleteQueue.some((item) => item.table_name === "memos" && item.operation === "delete")).toBe(true);
+    expect(screen.queryByText("历史回收站")).not.toBeInTheDocument();
+  });
 });
 
 function memoRecord(index: number): Memo {

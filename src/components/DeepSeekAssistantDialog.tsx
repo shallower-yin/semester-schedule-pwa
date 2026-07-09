@@ -112,13 +112,19 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }
 
   return (
-    <Modal title="AI 助手" onClose={onClose} wide>
+    <Modal
+      title="AI 助手"
+      onClose={onClose}
+      wide
+      headerExtra={(
+        <label className="ai-header-access-code">
+          <KeyRound size={14} />
+          <input value={accessCode} placeholder="访问口令" onChange={(event) => setAccessCode(event.target.value)} />
+        </label>
+      )}
+    >
       <div ref={rootRef} className="assistant-dialog ai-assistant-dialog">
         <p className="ai-assistant-capability">可询问安排、冲突、未完成、专注统计和使用方法；也可直接创建事项、习惯、纪念日、生日、节日和备忘录。</p>
-        <label className="ai-access-code">
-          <KeyRound size={16} />
-          <input value={accessCode} placeholder="访问口令，临时体验可填" onChange={(event) => setAccessCode(event.target.value)} />
-        </label>
         <div className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
