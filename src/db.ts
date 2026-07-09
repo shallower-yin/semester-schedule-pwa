@@ -320,9 +320,13 @@ export async function queueChange(table_name: SyncTableName, record_id: string, 
     .where("table_name")
     .equals(table_name)
     .and((item) => item.record_id === record_id)
-    .first();
+    .toArray();
+  const retainedId = existing[0]?.id ?? crypto.randomUUID();
+  if (existing.length > 1) {
+    await db.syncQueue.bulkDelete(existing.slice(1).map((item) => item.id));
+  }
   await db.syncQueue.put({
-    id: existing?.id ?? crypto.randomUUID(),
+    id: retainedId,
     table_name,
     record_id,
     operation,

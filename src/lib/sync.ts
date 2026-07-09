@@ -125,9 +125,13 @@ async function putQueueItem(table_name: SyncTableName, record_id: string, operat
     .where("table_name")
     .equals(table_name)
     .and((item) => item.record_id === record_id)
-    .first();
+    .toArray();
+  const retained = existing[0] ?? queueRecord(table_name, record_id, operation);
+  if (existing.length > 1) {
+    await db.syncQueue.bulkDelete(existing.slice(1).map((item) => item.id));
+  }
   await db.syncQueue.put({
-    ...(existing ?? queueRecord(table_name, record_id, operation)),
+    ...retained,
     operation,
     queued_at: new Date().toISOString(),
     attempts: 0,
