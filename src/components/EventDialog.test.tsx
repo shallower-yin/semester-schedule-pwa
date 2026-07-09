@@ -60,6 +60,7 @@ describe("事项编辑弹窗", () => {
     );
 
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "连续训练" } });
+    fireEvent.change(screen.getByLabelText("地点"), { target: { value: "图书馆二楼" } });
     fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-07-27" } });
     fireEvent.click(screen.getByRole("button", { name: "保存事项" }));
 
@@ -68,7 +69,8 @@ describe("事项编辑弹窗", () => {
       expect(saved).toEqual(expect.objectContaining({
         event_type: "event",
         start_date: "2026-07-25",
-        end_date: "2026-07-27"
+        end_date: "2026-07-27",
+        location: "图书馆二楼"
       }));
     });
     await waitFor(() => expect(onClose).toHaveBeenCalled());

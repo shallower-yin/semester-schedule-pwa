@@ -38,6 +38,7 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
       all_day: false,
       category_id: null,
       color: "#e36b32",
+      location: "",
       note: `由快速录入创建：${text.trim()}`,
       recurrence_type: "none",
       recurrence_until: null,

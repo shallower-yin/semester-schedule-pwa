@@ -83,7 +83,7 @@ const SUMMARY_TABLES = [
 const DETAIL_TABLES = {
   semesters: "id,name,start_date,total_weeks,is_current,updated_at",
   courses: "id,semester_id,name,teacher,classroom,color,note,updated_at",
-  events: "id,event_type,title,start_date,start_time,end_date,end_time,all_day,color,note,recurrence_type,reminder_enabled,updated_at",
+  events: "id,event_type,title,start_date,start_time,end_date,end_time,all_day,color,location,note,recurrence_type,reminder_enabled,updated_at",
   anniversaries: "id,kind,title,date,color,note,reminder_enabled,reminder_days_before,reminder_time,updated_at",
   memos: "id,title,content,is_pinned,updated_at",
   focus_sessions: "id,mode,task_title,duration_seconds,started_at,ended_at,completed,interrupted"

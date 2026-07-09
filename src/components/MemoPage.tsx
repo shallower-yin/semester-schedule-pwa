@@ -146,6 +146,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
       all_day: false,
       category_id: null,
       color: "#e36b32",
+      location: "",
       note: memo.content,
       recurrence_type: "none",
       recurrence_until: null,

@@ -125,6 +125,7 @@ create table if not exists public.events (
   all_day boolean not null default false,
   category_id uuid,
   color text not null default '#e36b32',
+  location text not null default '',
   note text not null default '',
   recurrence_type text not null default 'none' check (recurrence_type in ('none', 'daily', 'weekdays', 'weekly', 'monthly', 'interval')),
   recurrence_until date,

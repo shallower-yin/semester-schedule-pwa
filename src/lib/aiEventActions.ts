@@ -31,6 +31,7 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
     all_day: allDay,
     category_id: null,
     color: "#e36b32",
+    location: typeof action.location === "string" ? action.location.trim().slice(0, 200) : "",
     note: [action.note?.trim(), `由 AI 助手创建：${sourceText}`].filter(Boolean).join("\n"),
     recurrence_type: recurrenceType,
     recurrence_until: recurrenceType === "none" ? null : (recurrenceUntil && recurrenceUntil >= action.startDate ? recurrenceUntil : action.startDate),

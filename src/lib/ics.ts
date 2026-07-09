@@ -24,7 +24,7 @@ export function buildIcsCalendar(input: BuildIcsInput): string {
         stamp: nowStamp,
         title: eventItem.title,
         description: eventItem.note,
-        location: "",
+        location: eventItem.location ?? "",
         date,
         startTime: eventItem.all_day ? null : eventItem.start_time,
         endTime: eventItem.all_day ? null : eventItem.end_time

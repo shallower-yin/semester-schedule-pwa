@@ -23,6 +23,7 @@ export interface DeepSeekCreateEventAction {
   startTime?: string | null;
   endTime?: string | null;
   allDay?: boolean;
+  location?: string | null;
   note?: string | null;
   recurrenceType?: EventRecurrenceType;
   recurrenceUntil?: string | null;
@@ -116,6 +117,7 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
             type: eventItem.event_type,
             time: eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`,
             category: eventItem.category_id ? categoryMap.get(eventItem.category_id)?.name ?? "未知分类" : "未分类",
+            location: eventItem.location ?? "",
             completed: completion.completed,
             note: eventItem.note
           }];
@@ -128,6 +130,7 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
       startDate: eventItem.start_date,
       endDate: eventItem.end_date,
       time: eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`,
+      location: eventItem.location ?? "",
       recurrence: eventItem.recurrence_type,
       recurrenceUntil: eventItem.recurrence_until,
       recurrenceInterval: eventItem.recurrence_interval,

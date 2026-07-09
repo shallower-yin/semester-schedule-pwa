@@ -31,6 +31,7 @@ interface AiCreateEventAction {
   startTime?: string | null;
   endTime?: string | null;
   allDay?: boolean;
+  location?: string | null;
   note?: string | null;
   recurrenceType?: EventRecurrenceType;
   recurrenceUntil?: string | null;
@@ -427,7 +428,7 @@ async function askDeepSeek(
             "你必须只返回 JSON 对象，不要使用 Markdown，不要输出额外解释。",
             "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
             "当用户明确要求新增、创建、记录、加入日程、提醒、安排待办、创建日子或写备忘录时，把可创建内容放入 actions。",
-            "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"note\":\"备注\",\"recurrenceType\":\"none|daily|weekdays|weekly|monthly|interval\",\"recurrenceUntil\":\"YYYY-MM-DD 或 null\",\"recurrenceInterval\":1,\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
+            "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"location\":\"地点，可空\",\"note\":\"备注\",\"recurrenceType\":\"none|daily|weekdays|weekly|monthly|interval\",\"recurrenceUntil\":\"YYYY-MM-DD 或 null\",\"recurrenceInterval\":1,\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
             "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"date\":\"YYYY-MM-DD\",\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
             "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
             "如果用户说创建春节、端午节、中秋节、清明节等常见节日，应按北京时间所在年份或用户指定年份给出对应公历日期；如果没有把握，可以返回 create_anniversary 且 date 为 null，应用会用内置日历校准常见节日。",
@@ -516,6 +517,7 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
     startTime: allDay ? null : startTime,
     endTime: allDay ? null : endTime,
     allDay,
+    location: typeof record.location === "string" ? record.location.trim().slice(0, 200) : "",
     note: typeof record.note === "string" ? record.note.slice(0, 500) : "",
     recurrenceType,
     recurrenceUntil,

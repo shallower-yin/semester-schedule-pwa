@@ -185,12 +185,19 @@ export function WeekCalendar(props: WeekCalendarProps) {
     const gap = 4;
     return {
       ...baseStyle,
+      "--overlap-count": layout.count,
       justifySelf: "start",
       width: `calc((100% - ${gap * (layout.count - 1)}px) / ${layout.count})`,
       marginLeft: `calc(${layout.index} * ((100% - ${gap * (layout.count - 1)}px) / ${layout.count} + ${gap}px))`,
       marginRight: 0,
       zIndex: 2 + layout.index
-    };
+    } as CSSProperties & { "--overlap-count": number };
+  }
+
+  function overlapClass(key: string): string {
+    const count = overlapLayouts.get(key)?.count ?? 0;
+    if (count <= 1) return "";
+    return `overlap-entry ${count === 2 ? "overlap-two" : "overlap-many"}`;
   }
 
   return (
@@ -304,7 +311,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
             return (
               <article
                 key={occurrenceKey}
-                className={`calendar-entry course-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${canceled ? "canceled" : ""} ${(overlapLayouts.get(occurrenceKey)?.count ?? 0) > 1 ? "overlap-entry" : ""}`}
+                className={`calendar-entry course-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${canceled ? "canceled" : ""} ${overlapClass(occurrenceKey)}`}
                 style={entryStyle(occurrenceKey, {
                   gridColumn: dayIndex + 2,
                   gridRow: `${firstRow + 3} / ${endRow + 3}`,
@@ -344,7 +351,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
             return (
               <article
                 key={occurrenceKey}
-                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${isHabit ? "habit-entry" : ""} ${(overlapLayouts.get(occurrenceKey)?.count ?? 0) > 1 ? "overlap-entry" : ""}`}
+                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${isHabit ? "habit-entry" : ""} ${overlapClass(occurrenceKey)}`}
                 style={entryStyle(occurrenceKey, {
                   gridColumn: dayIndex + 2,
                   gridRow: eventItem.all_day ? 2 : `${firstRow + 3} / ${endRow + 3}`,
@@ -355,6 +362,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
                 <div className="entry-title"><Icon size={14} />{eventItem.title}</div>
                 {completed && <div className="entry-status">已完成</div>}
                 {!eventItem.all_day && <div className="entry-time">{eventItem.start_time}–{eventItem.end_time}</div>}
+                {eventItem.location?.trim() && <div className="entry-location">{eventItem.location.trim()}</div>}
                 {(isHabit || category) && <div className="entry-category">{isHabit ? "习惯" : category?.name}</div>}
                 {eventItem.reminder_enabled && <div className="entry-reminder"><Bell size={11} />提前 {eventItem.reminder_minutes_before} 分钟</div>}
                 <button

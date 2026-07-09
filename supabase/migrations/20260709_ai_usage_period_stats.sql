@@ -1,3 +1,6 @@
+alter table public.events
+  add column if not exists location text not null default '';
+
 create or replace function public.admin_list_users()
 returns jsonb
 language plpgsql
@@ -169,7 +172,7 @@ begin
     'data', jsonb_build_object(
       'semesters', coalesce((select jsonb_agg(to_jsonb(item)) from (select semester.id, semester.name, semester.start_date, semester.total_weeks, semester.is_current, semester.updated_at from public.semesters semester where semester.user_id = p_target_user_id and semester.deleted_at is null order by semester.updated_at desc limit 20) item), '[]'::jsonb),
       'courses', coalesce((select jsonb_agg(to_jsonb(item)) from (select course.id, course.semester_id, course.name, course.teacher, course.classroom, course.color, course.note, course.updated_at from public.courses course where course.user_id = p_target_user_id and course.deleted_at is null order by course.updated_at desc limit 20) item), '[]'::jsonb),
-      'events', coalesce((select jsonb_agg(to_jsonb(item)) from (select event.id, event.event_type, event.title, event.start_date, event.start_time, event.end_date, event.end_time, event.all_day, event.color, event.note, event.recurrence_type, event.reminder_enabled, event.updated_at from public.events event where event.user_id = p_target_user_id and event.deleted_at is null order by event.updated_at desc limit 20) item), '[]'::jsonb),
+      'events', coalesce((select jsonb_agg(to_jsonb(item)) from (select event.id, event.event_type, event.title, event.start_date, event.start_time, event.end_date, event.end_time, event.all_day, event.color, event.location, event.note, event.recurrence_type, event.reminder_enabled, event.updated_at from public.events event where event.user_id = p_target_user_id and event.deleted_at is null order by event.updated_at desc limit 20) item), '[]'::jsonb),
       'anniversaries', coalesce((select jsonb_agg(to_jsonb(item)) from (select anniversary.id, anniversary.kind, anniversary.title, anniversary.date, anniversary.color, anniversary.note, anniversary.reminder_enabled, anniversary.reminder_days_before, anniversary.reminder_time, anniversary.updated_at from public.anniversaries anniversary where anniversary.user_id = p_target_user_id and anniversary.deleted_at is null order by anniversary.updated_at desc limit 20) item), '[]'::jsonb),
       'memos', coalesce((select jsonb_agg(to_jsonb(item)) from (select memo.id, memo.title, memo.content, memo.is_pinned, memo.updated_at from public.memos memo where memo.user_id = p_target_user_id and memo.deleted_at is null order by memo.updated_at desc limit 20) item), '[]'::jsonb),
       'focusSessions', coalesce((select jsonb_agg(to_jsonb(item)) from (select focus_session.id, focus_session.mode, focus_session.task_title, focus_session.duration_seconds, focus_session.started_at, focus_session.ended_at, focus_session.completed, focus_session.interrupted from public.focus_sessions focus_session where focus_session.user_id = p_target_user_id and focus_session.deleted_at is null order by focus_session.started_at desc limit 20) item), '[]'::jsonb)

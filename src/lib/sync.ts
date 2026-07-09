@@ -182,6 +182,7 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       event_type: record.event_type ?? "event",
       start_time: record.start_time ? String(record.start_time).slice(0, 5) : null,
       end_time: record.end_time ? String(record.end_time).slice(0, 5) : null,
+      location: String(record.location ?? ""),
       reminder_enabled: Boolean(record.reminder_enabled),
       reminder_minutes_before: Number(record.reminder_minutes_before ?? 10),
       recurrence_interval: Number(record.recurrence_interval ?? 1),

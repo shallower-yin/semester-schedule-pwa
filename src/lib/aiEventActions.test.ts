@@ -10,6 +10,7 @@ describe("AI 助手创建事项动作", () => {
       startTime: "09:00",
       endTime: "09:00",
       allDay: false,
+      location: "图书馆二楼",
       note: "数学作业",
       reminderEnabled: true,
       reminderMinutesBefore: 30
@@ -24,6 +25,7 @@ describe("AI 助手创建事项动作", () => {
       start_time: "09:00",
       end_time: "09:00",
       all_day: false,
+      location: "图书馆二楼",
       reminder_enabled: true,
       reminder_minutes_before: 30
     });

@@ -149,6 +149,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         all_day: false,
         category_id: null,
         color: "#3157d5",
+        location: "",
         note: "由账号与同步中的提醒测试创建，用于检查本地提醒和应用关闭后的提醒。",
         recurrence_type: "none" as const,
         recurrence_until: null,

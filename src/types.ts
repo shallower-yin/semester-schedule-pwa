@@ -73,6 +73,7 @@ export interface EventItem extends SyncFields {
   all_day: boolean;
   category_id: string | null;
   color: string;
+  location?: string | null;
   note: string;
   recurrence_type: EventRecurrenceType;
   recurrence_until: ISODate | null;

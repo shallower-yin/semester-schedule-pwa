@@ -794,6 +794,7 @@ main {
 
 .entry-meta,
 .entry-time,
+.entry-location,
 .entry-category,
 .entry-reminder,
 .entry-status {
@@ -823,6 +824,11 @@ main {
 }
 
 .entry-category {
+  font-weight: 650;
+}
+
+.entry-location {
+  color: #526071;
   font-weight: 650;
 }
 
@@ -4744,13 +4750,13 @@ textarea {
 
   .calendar-entry.day-column.mobile-selected {
     display: grid;
-    min-height: 66px;
+    min-height: 54px;
     align-content: start;
-    gap: 3px;
-    margin: 5px 6px;
-    padding: 9px 40px 9px 11px;
-    border-radius: 12px;
-    box-shadow: 0 8px 20px rgb(30 48 88 / 14%);
+    gap: 2px;
+    margin: 4px 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    box-shadow: 0 5px 14px rgb(30 48 88 / 12%);
   }
 
   .course-entry.day-column.mobile-selected {
@@ -4764,23 +4770,30 @@ textarea {
 
   .calendar-entry.day-column.mobile-selected .entry-title {
     align-items: flex-start;
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1.35;
     white-space: normal;
+  }
+
+  .event-entry.day-column.mobile-selected .entry-title svg {
+    display: none;
   }
 
   .calendar-entry.day-column.mobile-selected .entry-meta,
   .calendar-entry.day-column.mobile-selected .entry-time,
+  .calendar-entry.day-column.mobile-selected .entry-location,
   .calendar-entry.day-column.mobile-selected .entry-category,
   .calendar-entry.day-column.mobile-selected .entry-reminder {
     margin-top: 1px;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.35;
     white-space: normal;
   }
 
-  .calendar-entry.day-column.mobile-selected .entry-status {
-    margin-top: 2px;
+  .event-entry.day-column.mobile-selected .entry-status,
+  .event-entry.day-column.mobile-selected .entry-reminder,
+  .event-entry.day-column.mobile-selected .entry-icon-button {
+    display: none;
   }
 
   .calendar-entry.day-column.mobile-selected .entry-icon-button {
@@ -4794,6 +4807,43 @@ textarea {
 
   .event-entry.day-column.mobile-selected .entry-icon-button {
     background: #eef2f8;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-two {
+    min-height: 48px;
+    padding: 7px 8px;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-two .entry-category,
+  .calendar-entry.day-column.mobile-selected.overlap-two .entry-meta {
+    display: none;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-many {
+    min-height: 44px;
+    padding: 6px 7px;
+    border-left-width: 4px;
+    border-radius: 9px;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-title {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.25;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-meta,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-time,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-location,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-category,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-reminder,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-status,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-icon-button {
+    display: none;
   }
 
   .calendar-cell.day-column.mobile-selected:active {

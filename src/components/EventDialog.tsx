@@ -43,6 +43,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [allDay, setAllDay] = useState(eventItem?.all_day ?? initialAllDay);
   const [categoryId, setCategoryId] = useState(eventItem?.category_id ?? "");
   const [color, setColor] = useState(eventItem?.color ?? "#e36b32");
+  const [location, setLocation] = useState(eventItem?.location ?? "");
   const [note, setNote] = useState(eventItem?.note ?? "");
   const [recurrence, setRecurrence] = useState<EventRecurrenceType>(eventItem?.recurrence_type ?? "none");
   const [recurrenceUntil, setRecurrenceUntil] = useState(eventItem?.recurrence_until ?? eventItem?.start_date ?? initialDate);
@@ -90,6 +91,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     setAllDay(template.all_day);
     setCategoryId(template.category_id ?? "");
     setColor(template.color);
+    setLocation(template.location ?? "");
     setNote(template.note);
     setRecurrence(template.recurrence_type);
     setRecurrenceInterval(template.recurrence_interval);
@@ -113,6 +115,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       all_day: allDay,
       category_id: categoryId || null,
       color,
+      location: location.trim(),
       note: note.trim(),
       recurrence_type: recurrence,
       recurrence_interval: Math.max(1, recurrenceInterval),
@@ -199,6 +202,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       all_day: allDay,
       category_id: categoryId || null,
       color,
+      location: location.trim(),
       note: note.trim(),
       recurrence_type: recurrence,
       recurrence_until: recurrence === "none" ? null : recurrenceUntil,
@@ -314,6 +318,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       content: [
         `日期：${date}${endDate !== date ? ` 至 ${endDate}` : ""}`,
         allDay ? "时间：全天" : `时间：${startTime}-${endTime}`,
+        location.trim() ? `地点：${location.trim()}` : "",
         note.trim()
       ].filter(Boolean).join("\n"),
       is_pinned: false
@@ -362,6 +367,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </label>
           <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
         </div>
+        <label>地点<input value={location} placeholder="可不填" onChange={(event) => setLocation(event.target.value)} /></label>
         <label>重复
           <select value={recurrence} onChange={(event) => setRecurrence(event.target.value as EventRecurrenceType)}>
             <option value="none">{eventType === "habit" ? "每天打卡" : "日期范围内每天"}</option>
