@@ -4378,19 +4378,19 @@ textarea {
 
 .ai-header-access-code {
   display: grid;
-  width: min(260px, 100%);
-  grid-template-columns: 18px minmax(0, 1fr);
+  width: min(210px, 100%);
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   color: #5f6b7a;
 }
 
 .ai-header-access-code input {
-  height: 34px;
-  padding: 0 10px;
+  height: 30px;
+  padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 9px;
-  font-size: 13px;
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 .mobile-sidebar-backdrop {
@@ -4950,7 +4950,7 @@ textarea {
   }
 
   .ai-header-access-code {
-    width: min(180px, 100%);
+    width: min(148px, 100%);
   }
 
   .toast-host {
