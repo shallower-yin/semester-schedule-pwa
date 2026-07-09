@@ -19,6 +19,7 @@ interface AiAccessRow {
 }
 
 type AnniversaryKind = "anniversary" | "birthday" | "holiday";
+type EventRecurrenceType = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "interval";
 type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction;
 
 interface AiCreateEventAction {
@@ -31,6 +32,9 @@ interface AiCreateEventAction {
   endTime?: string | null;
   allDay?: boolean;
   note?: string | null;
+  recurrenceType?: EventRecurrenceType;
+  recurrenceUntil?: string | null;
+  recurrenceInterval?: number;
   reminderEnabled?: boolean;
   reminderMinutesBefore?: number;
 }
@@ -423,10 +427,11 @@ async function askDeepSeek(
             "你必须只返回 JSON 对象，不要使用 Markdown，不要输出额外解释。",
             "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
             "当用户明确要求新增、创建、记录、加入日程、提醒、安排待办、创建日子或写备忘录时，把可创建内容放入 actions。",
-            "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"note\":\"备注\",\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
+            "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"note\":\"备注\",\"recurrenceType\":\"none|daily|weekdays|weekly|monthly|interval\",\"recurrenceUntil\":\"YYYY-MM-DD 或 null\",\"recurrenceInterval\":1,\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
             "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"date\":\"YYYY-MM-DD\",\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
             "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
-            "如果用户说创建春节、端午节、中秋节等常见节日，应按北京时间所在年份或用户指定年份给出对应公历日期；不确定日期时 answer 里说明并不要创建 action。",
+            "如果用户说创建春节、端午节、中秋节、清明节等常见节日，应按北京时间所在年份或用户指定年份给出对应公历日期；如果没有把握，可以返回 create_anniversary 且 date 为 null，应用会用内置日历校准常见节日。",
+            "如果用户创建习惯并指定每天、工作日、每周、每月或每隔几天，必须写入 recurrenceType；指定结束日期时写入 recurrenceUntil。没有指定重复时 recurrenceType 为 none。",
             "如果事项缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
             "如果事项给了日期但没有时间，创建全天事项，startTime/endTime 为 null，allDay 为 true。",
             "如果事项给了开始时间但没给结束时间，endTime 等于 startTime。",
@@ -498,6 +503,10 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
   const startTime = normalizeTime(record.startTime);
   const endTime = normalizeTime(record.endTime) ?? startTime;
   const allDay = typeof record.allDay === "boolean" ? record.allDay : !startTime;
+  const recurrenceType = normalizeRecurrenceType(record.recurrenceType);
+  const recurrenceUntil = recurrenceType === "none"
+    ? null
+    : isoDateValue(record.recurrenceUntil) ?? endDate;
   return [{
     type: "create_event",
     eventType: record.eventType === "habit" ? "habit" : "event",
@@ -508,6 +517,9 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
     endTime: allDay ? null : endTime,
     allDay,
     note: typeof record.note === "string" ? record.note.slice(0, 500) : "",
+    recurrenceType,
+    recurrenceUntil,
+    recurrenceInterval: recurrenceType === "interval" ? clampNumber(record.recurrenceInterval, 1, 366, 1) : 1,
     reminderEnabled: Boolean(record.reminderEnabled),
     reminderMinutesBefore: clampNumber(record.reminderMinutesBefore, 0, 7 * 24 * 60, 10)
   }];
@@ -542,6 +554,20 @@ function sanitizeMemoAction(record: Record<string, unknown>): AiAssistantAction[
 
 function normalizeAnniversaryKind(value: unknown): AnniversaryKind {
   return value === "anniversary" || value === "birthday" || value === "holiday" ? value : "anniversary";
+}
+
+function normalizeRecurrenceType(value: unknown): EventRecurrenceType {
+  return value === "daily"
+    || value === "weekdays"
+    || value === "weekly"
+    || value === "monthly"
+    || value === "interval"
+    ? value
+    : "none";
+}
+
+function isoDateValue(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : null;
 }
 
 function normalizeTime(value: unknown): string | null {

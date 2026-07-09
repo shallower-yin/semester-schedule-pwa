@@ -4242,7 +4242,8 @@ textarea {
 }
 
 .ai-assistant-dialog {
-  grid-template-rows: auto minmax(390px, 62vh) auto;
+  grid-template-rows: auto minmax(470px, 70vh) auto;
+  gap: 10px;
 }
 
 .ai-assistant-capability {
@@ -4293,7 +4294,7 @@ textarea {
 .assistant-messages p {
   position: relative;
   margin: 0;
-  padding: 9px 10px;
+  padding: 9px 66px 9px 10px;
   border-radius: 9px;
   white-space: pre-wrap;
   line-height: 1.55;
@@ -4325,11 +4326,13 @@ textarea {
 }
 
 .assistant-inline-actions {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: 8px;
-  vertical-align: middle;
+  opacity: 0.76;
 }
 
 .assistant-inline-actions .icon-button {
@@ -4345,6 +4348,11 @@ textarea {
   border-color: rgb(255 255 255 / 34%);
   color: white;
   background: rgb(255 255 255 / 16%);
+}
+
+.assistant-messages p:hover .assistant-inline-actions,
+.assistant-messages p:focus-within .assistant-inline-actions {
+  opacity: 1;
 }
 
 .assistant-input {
@@ -5182,7 +5190,8 @@ textarea {
   }
 
   .ai-assistant-dialog {
-    grid-template-rows: auto minmax(330px, 56dvh) auto;
+    grid-template-rows: auto minmax(400px, 62dvh) auto;
+    gap: 9px;
   }
 
   .assistant-input {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anniversaryFromAiAction, eventItemFromAiAction, memoFromAiAction, recordsFromAiActions, resolveHoliday } from "./aiEventActions";
+import { anniversaryFromAiAction, eventItemFromAiAction, memoFromAiAction, recordsFromAiActions, resolveHoliday, resolveHolidays } from "./aiEventActions";
 
 describe("AI 助手创建事项动作", () => {
   it("把 AI 返回的定时事项转换为本地事项", () => {
@@ -51,12 +51,19 @@ describe("AI 助手创建事项动作", () => {
       type: "create_event",
       eventType: "habit",
       title: "背单词",
-      startDate: "2026-07-09"
+      startDate: "2026-07-09",
+      endDate: "2026-07-31",
+      recurrenceType: "daily",
+      recurrenceUntil: "2026-07-31"
     }, "创建背单词习惯", "user-1");
 
     expect(event).toMatchObject({
       event_type: "habit",
-      title: "背单词"
+      title: "背单词",
+      start_date: "2026-07-09",
+      end_date: "2026-07-09",
+      recurrence_type: "daily",
+      recurrence_until: "2026-07-31"
     });
   });
 
@@ -127,5 +134,27 @@ describe("AI 助手创建事项动作", () => {
         date: "2026-02-17"
       }
     });
+  });
+
+  it("一句话创建多个常见节日", () => {
+    expect(resolveHolidays("创建 2026 年春节、端午节和清明节").map((item) => item.title)).toEqual([
+      "清明节",
+      "春节",
+      "端午节"
+    ]);
+
+    const records = recordsFromAiActions([], "创建 2026 年春节、端午节", "user-1");
+    expect(records.map((item) => item.record.title)).toEqual(["春节", "端午节"]);
+  });
+
+  it("模型把多个节日合成一个 action 时不重复创建已解析节日", () => {
+    const records = recordsFromAiActions([{
+      type: "create_anniversary",
+      title: "春节、端午节和清明节",
+      kind: "holiday",
+      date: null
+    }], "创建 2026 年春节、端午节和清明节", "user-1");
+
+    expect(records.map((item) => item.record.title)).toEqual(["清明节", "春节", "端午节"]);
   });
 });

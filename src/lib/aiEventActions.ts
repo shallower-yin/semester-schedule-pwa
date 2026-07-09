@@ -1,6 +1,6 @@
 import { syncFields } from "./identity";
 import type { DeepSeekAssistantAction } from "./deepSeekAssistant";
-import type { Anniversary, AnniversaryKind, EventItem, Memo } from "../types";
+import type { Anniversary, AnniversaryKind, EventItem, EventRecurrenceType, Memo } from "../types";
 
 export type AiCreatedRecord =
   | { table: "events"; record: EventItem }
@@ -14,23 +14,27 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
   const allDay = Boolean(action.allDay || !action.startTime);
   const startTime = allDay ? null : normalizeTime(action.startTime) ?? "09:00";
   const endTime = allDay ? null : normalizeTime(action.endTime) ?? startTime;
-  const endDate = action.endDate && isISODate(action.endDate) ? action.endDate : action.startDate;
+  const rangeEndDate = action.endDate && isISODate(action.endDate) ? action.endDate : action.startDate;
+  const recurrenceType = normalizeRecurrenceType(action.recurrenceType);
+  const recurrenceUntil = recurrenceType === "none"
+    ? null
+    : normalizeDate(action.recurrenceUntil) ?? rangeEndDate;
   return {
     ...syncFields(),
     user_id: ownerId,
     event_type: action.eventType === "habit" ? "habit" : "event",
     title,
     start_date: action.startDate,
-    end_date: endDate < action.startDate ? action.startDate : endDate,
+    end_date: recurrenceType === "none" ? (rangeEndDate < action.startDate ? action.startDate : rangeEndDate) : action.startDate,
     start_time: startTime,
     end_time: endTime,
     all_day: allDay,
     category_id: null,
     color: "#e36b32",
     note: [action.note?.trim(), `由 AI 助手创建：${sourceText}`].filter(Boolean).join("\n"),
-    recurrence_type: "none",
-    recurrence_until: null,
-    recurrence_interval: 1,
+    recurrence_type: recurrenceType,
+    recurrence_until: recurrenceType === "none" ? null : (recurrenceUntil && recurrenceUntil >= action.startDate ? recurrenceUntil : action.startDate),
+    recurrence_interval: recurrenceType === "interval" ? clampNumber(action.recurrenceInterval, 1, 366, 1) : 1,
     reminder_enabled: Boolean(action.reminderEnabled),
     reminder_minutes_before: clampReminder(action.reminderMinutesBefore),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
@@ -88,19 +92,33 @@ export function recordsFromAiActions(actions: DeepSeekAssistantAction[], sourceT
 }
 
 function expandHolidayActions(actions: DeepSeekAssistantAction[], sourceText: string, now: Date): DeepSeekAssistantAction[] {
-  const hasAnniversary = actions.some((action) => action.type === "create_anniversary");
-  if (hasAnniversary || !/(创建|新增|添加|记录|加入).*(节|春节|端午|中秋|元旦|国庆|生日|纪念日)/.test(sourceText)) return actions;
-  const resolved = resolveHoliday(sourceText, now);
-  if (!resolved) return actions;
-  return [...actions, {
-    type: "create_anniversary",
-    title: resolved.title,
-    kind: resolved.kind,
-    date: resolved.date,
-    reminderEnabled: false,
-    reminderDaysBefore: 0,
-    reminderTime: "09:00"
-  }];
+  if (!/(创建|新增|添加|记录|加入).*(节|春节|端午|中秋|元旦|国庆|生日|纪念日)/.test(sourceText)) return actions;
+  const resolved = resolveHolidays(sourceText, now);
+  if (!resolved.length) return actions;
+  const existing = new Set(actions
+    .filter((action) => action.type === "create_anniversary")
+    .flatMap((action) => {
+      const matchedHoliday = resolveHoliday(action.title, now);
+      return [
+        action.title.trim(),
+        action.date ?? "",
+        matchedHoliday?.title ?? "",
+        matchedHoliday?.date ?? ""
+      ];
+    })
+    .filter(Boolean));
+  const generated = resolved
+    .filter((holiday) => !existing.has(holiday.title) && !existing.has(holiday.date))
+    .map<DeepSeekAssistantAction>((holiday) => ({
+      type: "create_anniversary",
+      title: holiday.title,
+      kind: holiday.kind,
+      date: holiday.date,
+      reminderEnabled: false,
+      reminderDaysBefore: 0,
+      reminderTime: "09:00"
+    }));
+  return [...actions, ...generated].slice(0, 5);
 }
 
 function isISODate(value: string): boolean {
@@ -115,6 +133,20 @@ function normalizeTime(value: string | null | undefined): string | null {
   const minute = Number(match[2]);
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function normalizeDate(value: string | null | undefined): string | null {
+  return value && isISODate(value) ? value : null;
+}
+
+function normalizeRecurrenceType(value: unknown): EventRecurrenceType {
+  return value === "daily"
+    || value === "weekdays"
+    || value === "weekly"
+    || value === "monthly"
+    || value === "interval"
+    ? value
+    : "none";
 }
 
 function clampReminder(value: number | undefined): number {
@@ -169,23 +201,39 @@ const LUNAR_HOLIDAYS: Array<{ names: string[]; title: string; month: string; day
 ];
 
 export function resolveHoliday(text: string, now = new Date()): ResolvedHoliday | null {
+  return resolveHolidays(text, now)[0] ?? null;
+}
+
+export function resolveHolidays(text: string, now = new Date()): ResolvedHoliday[] {
   const normalized = text.replace(/\s+/g, "");
   const year = extractYear(normalized, now);
-  const solar = SOLAR_HOLIDAYS.find((holiday) => holiday.names.some((name) => normalized.includes(name)));
-  if (solar) return { title: solar.title, kind: "holiday", date: formatDate(year, solar.month, solar.day) };
+  const holidays: ResolvedHoliday[] = [];
+  for (const solar of SOLAR_HOLIDAYS) {
+    if (solar.names.some((name) => normalized.includes(name))) {
+      holidays.push({ title: solar.title, kind: "holiday", date: formatDate(year, solar.month, solar.day) });
+    }
+  }
+
+  if (/清明节|清明/.test(normalized)) {
+    holidays.push({ title: "清明节", kind: "holiday", date: formatDate(year, 4, qingmingDay(year)) });
+  }
 
   if (/(除夕|大年三十)/.test(normalized)) {
     const spring = lunarDateInGregorianYear(year, "正月", 1);
-    if (!spring) return null;
-    const date = new Date(`${spring}T00:00:00+08:00`);
-    date.setDate(date.getDate() - 1);
-    return { title: "除夕", kind: "holiday", date: toISODateInBeijing(date) };
+    if (spring) {
+      const date = new Date(`${spring}T00:00:00+08:00`);
+      date.setDate(date.getDate() - 1);
+      holidays.push({ title: "除夕", kind: "holiday", date: toISODateInBeijing(date) });
+    }
   }
 
-  const lunar = LUNAR_HOLIDAYS.find((holiday) => holiday.names.some((name) => normalized.includes(name)));
-  if (!lunar) return null;
-  const date = lunarDateInGregorianYear(year, lunar.month, lunar.day);
-  return date ? { title: lunar.title, kind: "holiday", date } : null;
+  for (const lunar of LUNAR_HOLIDAYS) {
+    if (!lunar.names.some((name) => normalized.includes(name))) continue;
+    const date = lunarDateInGregorianYear(year, lunar.month, lunar.day);
+    if (date) holidays.push({ title: lunar.title, kind: "holiday", date });
+  }
+
+  return uniqueHolidays(holidays);
 }
 
 function isHolidayText(text: string): boolean {
@@ -200,6 +248,21 @@ function extractYear(text: string, now: Date): number {
 
 function formatDate(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function qingmingDay(year: number): number {
+  const y = year % 100;
+  return Math.floor(y * 0.2422 + 4.81) - Math.floor(y / 4);
+}
+
+function uniqueHolidays(holidays: ResolvedHoliday[]): ResolvedHoliday[] {
+  const seen = new Set<string>();
+  return holidays.filter((holiday) => {
+    const key = `${holiday.title}:${holiday.date}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function lunarDateInGregorianYear(year: number, monthName: string, day: number): string | null {

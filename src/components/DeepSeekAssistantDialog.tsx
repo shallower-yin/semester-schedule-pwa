@@ -27,14 +27,6 @@ function aiAssistantHistoryKey(ownerId: string) {
   return `semester-schedule-ai-assistant-history:${ownerId}`;
 }
 
-function welcomeMessage(): Message {
-  return {
-    id: "welcome",
-    role: "assistant",
-    content: "我是 AI 助手，可以回答日程和使用问题，也能帮你创建事项、习惯、纪念日、生日、节日和备忘录。"
-  };
-}
-
 export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAssistantDialogProps) {
   const [messages, setMessages] = useState<Message[]>(() => loadAssistantHistory(ownerId));
   const [question, setQuestion] = useState("");
@@ -107,7 +99,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }
 
   function clearHistory() {
-    setMessages([welcomeMessage()]);
+    setMessages([]);
     showToast("历史已清空。", "success");
   }
 
@@ -119,12 +111,12 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       headerExtra={(
         <label className="ai-header-access-code">
           <KeyRound size={14} />
-          <input value={accessCode} placeholder="访问口令" onChange={(event) => setAccessCode(event.target.value)} />
+          <input value={accessCode} placeholder="访问口令" aria-label="访问口令" onChange={(event) => setAccessCode(event.target.value)} />
         </label>
       )}
     >
       <div ref={rootRef} className="assistant-dialog ai-assistant-dialog">
-        <p className="ai-assistant-capability">可询问安排、冲突、未完成、专注统计和使用方法；也可直接创建事项、习惯、纪念日、生日、节日和备忘录。</p>
+        <p className="ai-assistant-capability">可问安排、冲突、未完成、专注统计和使用方法；也能创建事项、习惯、纪念日、生日、节日和备忘录。</p>
         <div className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
@@ -132,14 +124,12 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
               <div className="assistant-message-body">
                 <p>
                   {message.content}
-                  {message.id !== "welcome" && (
-                    <span className="assistant-inline-actions">
-                      <button type="button" className="icon-button" title="复制" onClick={() => void copyMessage(message.content)}><Clipboard size={13} /></button>
-                      {message.role === "user" && (
-                        <button type="button" className="icon-button" title="重新编辑" onClick={() => editMessage(message.content)}><PencilLine size={13} /></button>
-                      )}
-                    </span>
-                  )}
+                  <span className="assistant-inline-actions">
+                    <button type="button" className="icon-button" title="复制" aria-label="复制这条消息" onClick={() => void copyMessage(message.content)}><Clipboard size={13} /></button>
+                    {message.role === "user" && (
+                      <button type="button" className="icon-button" title="重新编辑" aria-label="重新编辑这条消息" onClick={() => editMessage(message.content)}><PencilLine size={13} /></button>
+                    )}
+                  </span>
                 </p>
               </div>
             </article>
@@ -163,7 +153,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
             onChange={(event) => setQuestion(event.target.value)}
           />
           <button className="button primary" disabled={loading}><Send size={16} />发送</button>
-          {messages.length > 1 && (
+          {messages.length > 0 && (
             <button type="button" className="button secondary" disabled={loading} onClick={clearHistory}><Trash2 size={15} />清空</button>
           )}
         </form>
@@ -176,29 +166,25 @@ function loadAssistantHistory(ownerId: string): Message[] {
   try {
     const raw = localStorage.getItem(aiAssistantHistoryKey(ownerId));
     const saved = raw ? JSON.parse(raw) as Message[] : [];
-    const validSaved = saved.filter((message) =>
+    return saved.filter((message) =>
       message
       && message.id !== "welcome"
       && (message.role === "user" || message.role === "assistant")
       && typeof message.content === "string"
       && message.content.trim()
     ).slice(-HISTORY_LIMIT);
-    return [welcomeMessage(), ...validSaved];
   } catch {
-    return [welcomeMessage()];
+    return [];
   }
 }
 
 function saveAssistantHistory(ownerId: string, messages: Message[]) {
-  const saved = messages
-    .filter((message) => message.id !== "welcome")
-    .slice(-HISTORY_LIMIT);
+  const saved = messages.slice(-HISTORY_LIMIT);
   localStorage.setItem(aiAssistantHistoryKey(ownerId), JSON.stringify(saved));
 }
 
 function messagesToHistory(messages: Message[]): DeepSeekAssistantHistoryMessage[] {
   return messages
-    .filter((message) => message.id !== "welcome")
     .slice(-CONTEXT_LIMIT)
     .map((message) => ({ role: message.role, content: message.content.slice(0, 500) }));
 }

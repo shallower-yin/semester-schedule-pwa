@@ -3,7 +3,7 @@ import type { ScheduleAssistantInput } from "./scheduleAssistant";
 import { addDays, courseScheduleOccursOn, eventOccursOn, toISODate } from "./date";
 import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
-import type { AnniversaryKind } from "../types";
+import type { AnniversaryKind, EventRecurrenceType } from "../types";
 
 export interface DeepSeekAssistantResult {
   answer: string;
@@ -24,6 +24,9 @@ export interface DeepSeekCreateEventAction {
   endTime?: string | null;
   allDay?: boolean;
   note?: string | null;
+  recurrenceType?: EventRecurrenceType;
+  recurrenceUntil?: string | null;
+  recurrenceInterval?: number;
   reminderEnabled?: boolean;
   reminderMinutesBefore?: number;
 }
@@ -53,15 +56,17 @@ export interface DeepSeekAssistantHistoryMessage {
 
 export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
   const now = input.now ?? new Date();
-  const from = addDays(now, -7);
-  const to = addDays(now, 14);
+  const today = toBeijingISODate(now);
+  const beijingToday = new Date(`${today}T00:00:00+08:00`);
+  const from = addDays(beijingToday, -7);
+  const to = addDays(beijingToday, 14);
   const semester = input.semester;
   const courseMap = new Map(input.courses.filter((course) => !course.deleted_at).map((course) => [course.id, course]));
   const categoryMap = new Map(input.categories.filter((category) => !category.deleted_at).map((category) => [category.id, category]));
   return {
     generatedAt: new Date().toISOString(),
     generatedAtBeijing: new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }),
-    today: toISODate(now),
+    today,
     timezone: "Asia/Shanghai",
     appGuide: [
       "可以创建普通事项、习惯、纪念日、生日、节日和备忘录。",
@@ -87,7 +92,7 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
         weeks: schedule.weeks
       }))
     })),
-    upcomingDays: Array.from({ length: 15 }, (_, index) => addDays(now, index)).map((date) => {
+    upcomingDays: Array.from({ length: 15 }, (_, index) => addDays(beijingToday, index)).map((date) => {
       const dateText = toISODate(date);
       return {
         date: dateText,
@@ -124,6 +129,8 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
       endDate: eventItem.end_date,
       time: eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`,
       recurrence: eventItem.recurrence_type,
+      recurrenceUntil: eventItem.recurrence_until,
+      recurrenceInterval: eventItem.recurrence_interval,
       note: eventItem.note
     })),
     anniversaries: (input.anniversaries ?? []).filter((item) => !item.deleted_at).slice(0, 80).map((item) => ({
@@ -138,8 +145,17 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
       pinned: item.is_pinned,
       preview: item.content.slice(0, 240)
     })),
-    focusLast7Days: focusDailyTotals(input.focusSessions, 7, now)
+    focusLast7Days: focusDailyTotals(input.focusSessions, 7, beijingToday)
   };
+}
+
+function toBeijingISODate(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
 }
 
 export async function askDeepSeekAssistant(
