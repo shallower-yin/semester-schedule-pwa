@@ -93,7 +93,7 @@ export function recordsFromAiActions(actions: DeepSeekAssistantAction[], sourceT
 }
 
 function expandHolidayActions(actions: DeepSeekAssistantAction[], sourceText: string, now: Date): DeepSeekAssistantAction[] {
-  if (!/(创建|新增|添加|记录|加入).*(节|春节|端午|中秋|元旦|国庆|生日|纪念日)/.test(sourceText)) return actions;
+  if (!looksLikeCreateDate(sourceText)) return actions;
   const resolved = resolveHolidays(sourceText, now);
   if (!resolved.length) return actions;
   const existing = new Set(actions
@@ -120,6 +120,12 @@ function expandHolidayActions(actions: DeepSeekAssistantAction[], sourceText: st
       reminderTime: "09:00"
     }));
   return [...actions, ...generated].slice(0, 5);
+}
+
+function looksLikeCreateDate(text: string): boolean {
+  const normalized = text.replace(/\s+/g, "");
+  if (!/(创建|新增|添加|记录|加入)/.test(normalized)) return false;
+  return /(节|春节|端午|中秋|元旦|国庆|清明|除夕|大年三十|元宵|七夕|重阳|腊八|圣诞|平安夜|情人|劳动|五一|教师|儿童|母亲|父亲|生日|纪念日)/.test(normalized);
 }
 
 function isISODate(value: string): boolean {
@@ -201,6 +207,11 @@ const LUNAR_HOLIDAYS: Array<{ names: string[]; title: string; month: string; day
   { names: ["腊八节", "腊八"], title: "腊八节", month: "腊月", day: 8 }
 ];
 
+const WEEKDAY_HOLIDAYS: Array<{ names: string[]; title: string; month: number; weekday: number; nth: number }> = [
+  { names: ["母亲节", "母亲"], title: "母亲节", month: 5, weekday: 0, nth: 2 },
+  { names: ["父亲节", "父亲"], title: "父亲节", month: 6, weekday: 0, nth: 3 }
+];
+
 export function resolveHoliday(text: string, now = new Date()): ResolvedHoliday | null {
   return resolveHolidays(text, now)[0] ?? null;
 }
@@ -234,6 +245,15 @@ export function resolveHolidays(text: string, now = new Date()): ResolvedHoliday
     if (date) holidays.push({ title: lunar.title, kind: "holiday", date });
   }
 
+  for (const holiday of WEEKDAY_HOLIDAYS) {
+    if (!holiday.names.some((name) => normalized.includes(name))) continue;
+    holidays.push({
+      title: holiday.title,
+      kind: "holiday",
+      date: nthWeekdayOfMonth(year, holiday.month, holiday.weekday, holiday.nth)
+    });
+  }
+
   return uniqueHolidays(holidays);
 }
 
@@ -254,6 +274,12 @@ function formatDate(year: number, month: number, day: number): string {
 function qingmingDay(year: number): number {
   const y = year % 100;
   return Math.floor(y * 0.2422 + 4.81) - Math.floor(y / 4);
+}
+
+function nthWeekdayOfMonth(year: number, month: number, weekday: number, nth: number): string {
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const offset = (weekday - firstWeekday + 7) % 7;
+  return formatDate(year, month, 1 + offset + (nth - 1) * 7);
 }
 
 function uniqueHolidays(holidays: ResolvedHoliday[]): ResolvedHoliday[] {

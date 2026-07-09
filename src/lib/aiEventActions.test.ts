@@ -149,6 +149,23 @@ describe("AI 助手创建动作", () => {
     expect(records.map((item) => item.record.title)).toEqual(["春节", "端午节"]);
   });
 
+  it("支持省略节字的清明、除夕和按星期计算的节日", () => {
+    expect(resolveHoliday("创建 2026 年清明")).toEqual({
+      title: "清明节",
+      kind: "holiday",
+      date: "2026-04-05"
+    });
+    expect(resolveHoliday("创建 2026 年除夕")).toEqual({
+      title: "除夕",
+      kind: "holiday",
+      date: "2026-02-16"
+    });
+    expect(resolveHolidays("创建 2026 年母亲节和父亲节").map((item) => `${item.title}:${item.date}`)).toEqual([
+      "母亲节:2026-05-10",
+      "父亲节:2026-06-21"
+    ]);
+  });
+
   it("模型把多个节日合成一个 action 时不重复创建已解析节日", () => {
     const records = recordsFromAiActions([{
       type: "create_anniversary",

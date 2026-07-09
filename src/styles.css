@@ -4399,9 +4399,10 @@ textarea {
 }
 
 .ai-assistant-dialog {
-  height: min(76vh, 680px);
+  height: 100%;
+  min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
 }
 
 .ai-assistant-capability {
@@ -4431,8 +4432,9 @@ textarea {
   display: flex;
   overflow-y: auto;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  min-height: 0;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #f8fafc;
@@ -4519,6 +4521,10 @@ textarea {
   gap: 8px;
 }
 
+.assistant-clear-button {
+  padding-inline: 12px;
+}
+
 .ai-access-panel {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
@@ -4560,6 +4566,10 @@ textarea {
 
 .ai-assistant-modal {
   width: min(100%, 860px);
+  height: min(90vh, 780px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .ai-assistant-modal .modal-header {
@@ -4581,7 +4591,10 @@ textarea {
 }
 
 .ai-assistant-modal .modal-body {
-  padding: 16px;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 12px 16px 16px;
 }
 
 .ai-header-access-code input {
@@ -5454,9 +5467,9 @@ textarea {
   }
 
   .ai-assistant-dialog {
-    height: calc(100dvh - 156px);
+    height: 100%;
     grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: 9px;
+    gap: 8px;
   }
 
   .assistant-input {
@@ -5465,6 +5478,18 @@ textarea {
 
   .assistant-input input {
     grid-column: 1 / -1;
+  }
+
+  .assistant-clear-button span {
+    display: none;
+  }
+
+  .ai-assistant-modal {
+    height: min(94dvh, calc(100dvh - 14px));
+  }
+
+  .ai-assistant-modal .modal-body {
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
   }
 
   .admin-layout {

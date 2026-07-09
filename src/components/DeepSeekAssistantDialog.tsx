@@ -117,7 +117,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       )}
     >
       <div ref={rootRef} className="assistant-dialog ai-assistant-dialog">
-        <p className="ai-assistant-capability">可问安排、冲突、未完成、专注统计和使用方法；也能创建事项、习惯、纪念日、生日、节日和备忘录。</p>
+        <p className="ai-assistant-capability">可查询安排、冲突、未完成、专注和使用方法；可创建事项、习惯、纪念日、生日、节日和备忘录，时间按北京时间处理。</p>
         <div className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
@@ -155,7 +155,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           />
           <button className="button primary" disabled={loading}><Send size={16} />发送</button>
           {messages.length > 0 && (
-            <button type="button" className="button secondary" disabled={loading} onClick={clearHistory}><Trash2 size={15} />清空</button>
+            <button type="button" className="button secondary assistant-clear-button" aria-label="清空历史" disabled={loading} onClick={clearHistory}><Trash2 size={15} /><span>清空</span></button>
           )}
         </form>
       </div>

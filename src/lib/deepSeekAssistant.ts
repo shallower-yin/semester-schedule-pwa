@@ -65,12 +65,14 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
   const courseMap = new Map(input.courses.filter((course) => !course.deleted_at).map((course) => [course.id, course]));
   const categoryMap = new Map(input.categories.filter((category) => !category.deleted_at).map((category) => [category.id, category]));
   return {
-    generatedAt: new Date().toISOString(),
-    generatedAtBeijing: new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }),
+    generatedAt: now.toISOString(),
+    generatedAtBeijing: now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }),
     today,
     timezone: "Asia/Shanghai",
     appGuide: [
+      "AI 助手可以查询日程、检查冲突、查未完成、汇总专注，也可以回答本工具怎么使用。",
       "可以创建普通事项、习惯、纪念日、生日、节日和备忘录。",
+      "创建春节、端午节、中秋节、清明节、除夕等常见节日时，按北京时间所在年份或用户指定年份换算公历日期。",
       "学期是可选功能；没有学期也能使用今天、日程、习惯、纪念日、备忘录、专注和设置。",
       "普通事项支持日期、时间、全天、完成状态、重复、地点和提醒。",
       "纪念日、生日、节日支持提前几天和指定时间提醒。",
