@@ -83,7 +83,7 @@ export function TodayPage({
   const weekend = toISODate(addDays(startOfWeek(today), 6));
   const tomorrow = toISODate(addDays(today, 1));
   const nextAction = overview.overdueIncompleteItems[0] ?? overview.upcomingItems.find((item) => item.type === "course" || !item.completed) ?? null;
-  const showQuickStart = !nextAction && overview.todayItemCount === 0 && overview.overdueIncompleteItems.length === 0 && anniversaryReminders.length === 0;
+  const showQuickStart = !nextAction && overview.todayItemCount === 0 && overview.overdueIncompleteItems.length === 0;
 
   async function postponeItems(items: ScheduleOverviewItem[], targetDate: string) {
     for (const item of items) {

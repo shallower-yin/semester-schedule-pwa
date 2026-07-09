@@ -195,6 +195,34 @@ describe("今日页面下一项", () => {
     expect(within(reminders).queryByText("远期节日")).not.toBeInTheDocument();
   });
 
+  it("新用户无事项时显示三个开始入口", () => {
+    render(
+      <TodayPage
+        overview={{
+          ...baseOverview,
+          todayItemCount: 0,
+          todayEventCount: 0,
+          todayIncompleteEventCount: 0,
+          todayCompletedEventCount: 0,
+          upcomingItems: []
+        }}
+        anniversaries={[baseAnniversary]}
+        events={[]}
+        occurrenceStates={[]}
+        onOpenItem={vi.fn()}
+        onOpenFocus={vi.fn()}
+        onAddEvent={vi.fn()}
+        onQuickEntry={vi.fn()}
+        onCreateSemester={vi.fn()}
+        hasSemesters={false}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /新增事项/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /快速录入/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /创建学期/ })).toBeInTheDocument();
+  });
+
   it("移动端长按今天页空白区域时带入今天日期和当前时间新增事项", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 8, 9, 10));

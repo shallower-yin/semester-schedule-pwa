@@ -1,8 +1,9 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, Download, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db, queueChange } from "../db";
+import { createBackup, downloadBackup } from "../lib/backup";
 import { toISODate } from "../lib/date";
 import { syncFields } from "../lib/identity";
 import { supabase } from "../lib/supabase";
@@ -189,6 +190,12 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     setHealthRefreshKey((value) => value + 1);
   }
 
+  async function exportBackup() {
+    downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
+  }
+
+  const hasSyncProblem = Boolean(message && !/完成|重新拉取|已接管/.test(message)) || Boolean(syncHealth?.failed);
+
   return (
     <Modal title="账号与同步" onClose={onClose}>
       <div className="account-summary">
@@ -234,6 +241,13 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
           <p>没有等待上传的数据。若手机和电脑不一致，可以点击“重新拉取云端”。</p>
         )}
       </div>
+      {hasSyncProblem && (
+        <div className="sync-recovery-actions" aria-label="同步失败处理">
+          <button className="button secondary compact" disabled={syncing} onClick={() => void runSync()}><RefreshCw size={16} />重试</button>
+          <button className="button secondary compact" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={16} />重新拉取云端</button>
+          <button className="button secondary compact" onClick={() => void exportBackup()}><Download size={16} />导出备份</button>
+        </div>
+      )}
       <div className="notification-status-card">
         <BellRing size={20} />
         <div>

@@ -84,6 +84,7 @@ import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
 import { getAdminStatus } from "./lib/admin";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
+import { getLastBackupAt } from "./lib/backupStatus";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -116,6 +117,19 @@ function formatSyncDateTime(value: string | null): string {
     minute: "2-digit",
     hour12: false
   });
+}
+
+function formatBackupDateTime(value: string | null): string {
+  if (!value) return "尚未导出备份";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "尚未导出备份";
+  return `上次导出 ${date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  })}`;
 }
 
 export default function App() {
@@ -617,12 +631,14 @@ export default function App() {
   const selectedMobileNavItems = navItems
     .filter((item) => mobileNavItems.includes(item.id))
     .sort((left, right) => mobileNavItems.indexOf(left.id) - mobileNavItems.indexOf(right.id));
+  const lastBackupText = formatBackupDateTime(getLastBackupAt());
   const syncSummary = useMemo(() => {
     const pendingText = pendingChanges > 0 ? `${pendingChanges} 条本地变更待同步` : "暂无待上传数据";
     const hasSyncError = Boolean(syncMessage && !/完成|重新拉取|已接管/.test(syncMessage));
     if (!authReady) {
       return {
         tone: "neutral",
+        state: "checking",
         title: "正在检查账号",
         detail: "本地数据照常可用，正在确认当前登录状态。"
       };
@@ -630,6 +646,7 @@ export default function App() {
     if (!supabaseConfigured) {
       return {
         tone: "warning",
+        state: "local",
         title: "仅本地使用",
         detail: `云端同步未配置，数据会保存在当前设备。${pendingText}。`
       };
@@ -637,6 +654,7 @@ export default function App() {
     if (!user) {
       return {
         tone: "warning",
+        state: "signed-out",
         title: "未登录同步账号",
         detail: `本地保存正常，登录后可在手机和电脑间同步。${pendingText}。`
       };
@@ -644,6 +662,7 @@ export default function App() {
     if (syncing) {
       return {
         tone: "neutral",
+        state: "syncing",
         title: "正在同步",
         detail: `${user.email} · 正在上传和拉取云端数据。`
       };
@@ -651,20 +670,23 @@ export default function App() {
     if (hasSyncError) {
       return {
         tone: "warning",
-        title: "同步需要处理",
-        detail: `${user.email} · ${syncMessage}`
+        state: "error",
+        title: "同步失败",
+        detail: `${user.email} · ${syncMessage || "请重试或重新拉取云端。"}`
       };
     }
     if (pendingChanges > 0) {
       return {
         tone: "warning",
-        title: "有待同步数据",
+        state: "pending",
+        title: "待同步",
         detail: `${user.email} · ${pendingText}。`
       };
     }
     return {
       tone: "success",
-      title: "同步正常",
+      state: "synced",
+      title: "已同步",
       detail: `${user.email} · 上次同步 ${formatSyncDateTime(lastSync)}。`
     };
   }, [authReady, lastSync, pendingChanges, syncMessage, syncing, user]);
@@ -678,7 +700,7 @@ export default function App() {
           <span>
             {!authReady ? "正在检查账号…" :
               syncing ? "正在同步…" :
-              user ? `${user.email} · ${pendingChanges} 项待同步` :
+              user ? `${user.email} · ${syncSummary.title}${pendingChanges > 0 ? ` ${pendingChanges} 项` : ""}` :
               supabaseConfigured ? "登录并同步" :
               `仅本地 · ${pendingChanges} 项待同步`}
           </span>
@@ -859,7 +881,7 @@ export default function App() {
           <section className="content-page">
             <div className="page-heading"><div><h1>设置</h1><p>管理账号同步、数据备份、界面设置和可选学生功能。</p></div></div>
             <div className="settings-sections">
-              {renderSettingsSection("常用", "登录同步、版本更新和备份放在最容易找到的位置。", (
+              {renderSettingsSection("常用", "账号、版本、皮肤和备份放在最容易找到的位置。", (
                 <>
                   <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
                     {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
@@ -868,27 +890,17 @@ export default function App() {
                     <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowBackup(true)}>
-                    <Database /><span><strong>JSON 数据备份</strong><small>主动导入或导出本地数据</small></span><ChevronRight />
+                    <Database /><span><strong>数据备份</strong><small>{lastBackupText}</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
+                    <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
                     <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
                   </button>
                 </>
               ))}
-              {renderSettingsSection("界面", "调整外观和常用入口，让手机端保持简洁。", (
-                <>
-                  <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
-                    <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
-                  </button>
-                  <button className="setting-card" onClick={() => setShowMobileNavSettings(true)}>
-                    <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
-                  </button>
-                  <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
-                    <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
-                  </button>
-                </>
-              ))}
-              {renderSettingsSection("日程与学习", "普通事项不依赖学期；课程、节次和课表导入属于可选学生功能。", (
+              {renderSettingsSection("日程", "普通事项不依赖学期；课程、节次和课表导入属于可选学生功能。", (
                 <>
                   <button className="setting-card" onClick={() => setSemesterToEdit(semester ?? null)}>
                     <GraduationCap /><span><strong>学期设置（可选）</strong><small>{semester ? `${semester.name} · ${semester.total_weeks} 周` : "不创建也能使用普通日程；学生课程功能可在这里开启"}</small></span><ChevronRight />
@@ -904,7 +916,7 @@ export default function App() {
                   </button>
                 </>
               ))}
-              {renderSettingsSection("工具与高级", "辅助分析和维护功能集中放置，减少日常页面干扰。", (
+              {renderSettingsSection("高级", "辅助分析、界面入口和维护功能集中放置，减少日常页面干扰。", (
                 <>
                   <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
                     <Bot /><span><strong>日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
@@ -914,6 +926,12 @@ export default function App() {
                   </button>
                   <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                     <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowMobileNavSettings(true)}>
+                    <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
+                    <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => void hardReloadApp()} disabled={updatingApp}>
                     <RefreshCw /><span><strong>清缓存重载</strong><small>手机 PWA 更新没生效时使用，会重新获取最新资源</small></span><ChevronRight />
@@ -931,12 +949,28 @@ export default function App() {
                 <p>{syncSummary.detail}</p>
               </div>
               <div className="sync-summary-actions">
-                <button className="button secondary compact" onClick={() => user ? void handleSync() : setAuthDialogMode("login")} disabled={syncing || !authReady}>
-                  <RefreshCw size={16} />{user ? "立即同步" : "登录同步"}
-                </button>
-                <button className="button secondary compact" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
-                  详情
-                </button>
+                {syncSummary.state === "error" && user ? (
+                  <>
+                    <button className="button secondary compact" onClick={() => void handleSync()} disabled={syncing || !authReady}>
+                      <RefreshCw size={16} />重试
+                    </button>
+                    <button className="button secondary compact" onClick={() => void handlePullRemote()} disabled={syncing || !authReady}>
+                      重新拉取云端
+                    </button>
+                    <button className="button secondary compact" onClick={() => setShowBackup(true)}>
+                      导出备份
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="button secondary compact" onClick={() => user ? void handleSync() : setAuthDialogMode("login")} disabled={syncing || !authReady}>
+                      <RefreshCw size={16} />{user ? "立即同步" : "登录同步"}
+                    </button>
+                    <button className="button secondary compact" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
+                      详情
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             <section className="semester-manager">

@@ -1103,7 +1103,9 @@ main {
 .sync-summary-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .muted-note {
@@ -3569,6 +3571,17 @@ textarea {
   word-break: break-word;
 }
 
+.sync-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 15px;
+  padding: 10px;
+  border: 1px solid #f0d4bd;
+  border-radius: 10px;
+  background: #fffaf4;
+}
+
 .notification-status-card {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
@@ -4663,7 +4676,8 @@ textarea {
 
   .sync-summary-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    justify-content: stretch;
   }
 
   .memo-page,
