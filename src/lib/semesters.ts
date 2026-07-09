@@ -1,6 +1,4 @@
 import { db, queueChange } from "../db";
-import type { SyncFields } from "../types";
-import { syncFields } from "./identity";
 
 export interface DeleteSemesterResult {
   semesters: number;
@@ -21,55 +19,41 @@ export async function deleteSemesterCascade(semesterId: string): Promise<DeleteS
 
   await db.transaction("rw", [db.semesters, db.classPeriods, db.courses, db.courseSchedules, db.courseCancellations, db.syncQueue], async () => {
     const semester = await db.semesters.get(semesterId);
-    if (semester && !semester.deleted_at) {
-      await db.semesters.put({ ...softDeleted(semester), is_current: false });
-      await queueChange("semesters", semester.id);
-      result.semesters += 1;
-    }
-
-    const periods = await db.classPeriods.where("semester_id").equals(semesterId).filter((item) => !item.deleted_at).toArray();
-    for (const period of periods) {
-      await db.classPeriods.put(softDeleted(period));
-      await queueChange("classPeriods", period.id);
-      result.classPeriods += 1;
-    }
-
-    const courses = await db.courses.where("semester_id").equals(semesterId).filter((item) => !item.deleted_at).toArray();
+    const periods = await db.classPeriods.where("semester_id").equals(semesterId).toArray();
+    const courses = await db.courses.where("semester_id").equals(semesterId).toArray();
     const courseIds = new Set(courses.map((course) => course.id));
-    for (const course of courses) {
-      await db.courses.put(softDeleted(course));
-      await queueChange("courses", course.id);
-      result.courses += 1;
-    }
-
     const schedules = courseIds.size
-      ? await db.courseSchedules.filter((item) => courseIds.has(item.course_id) && !item.deleted_at).toArray()
+      ? await db.courseSchedules.filter((item) => courseIds.has(item.course_id)).toArray()
       : [];
     const scheduleIds = new Set(schedules.map((schedule) => schedule.id));
-    for (const schedule of schedules) {
-      await db.courseSchedules.put(softDeleted(schedule));
-      await queueChange("courseSchedules", schedule.id);
-      result.courseSchedules += 1;
-    }
-
     const cancellations = scheduleIds.size
-      ? await db.courseCancellations.filter((item) => scheduleIds.has(item.course_schedule_id) && !item.deleted_at).toArray()
+      ? await db.courseCancellations.filter((item) => scheduleIds.has(item.course_schedule_id)).toArray()
       : [];
+
     for (const cancellation of cancellations) {
-      await db.courseCancellations.put(softDeleted(cancellation));
-      await queueChange("courseCancellations", cancellation.id);
-      result.courseCancellations += 1;
+      await queueChange("courseCancellations", cancellation.id, "delete");
+    }
+    if (cancellations.length) await db.courseCancellations.bulkDelete(cancellations.map((item) => item.id));
+    result.courseCancellations = cancellations.length;
+
+    for (const schedule of schedules) await queueChange("courseSchedules", schedule.id, "delete");
+    if (schedules.length) await db.courseSchedules.bulkDelete(schedules.map((item) => item.id));
+    result.courseSchedules = schedules.length;
+
+    for (const period of periods) await queueChange("classPeriods", period.id, "delete");
+    if (periods.length) await db.classPeriods.bulkDelete(periods.map((item) => item.id));
+    result.classPeriods = periods.length;
+
+    for (const course of courses) await queueChange("courses", course.id, "delete");
+    if (courses.length) await db.courses.bulkDelete(courses.map((item) => item.id));
+    result.courses = courses.length;
+
+    if (semester) {
+      await queueChange("semesters", semester.id, "delete");
+      await db.semesters.delete(semester.id);
+      result.semesters = 1;
     }
   });
 
   return result;
-}
-
-function softDeleted<T extends SyncFields>(record: T): T {
-  const fields = syncFields(record);
-  return {
-    ...record,
-    ...fields,
-    deleted_at: fields.updated_at
-  };
 }

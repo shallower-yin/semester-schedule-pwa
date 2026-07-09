@@ -32,7 +32,7 @@ describe("学期删除", () => {
     await db.syncQueue.clear();
   });
 
-  it("软删除学期以及课程相关数据，但不影响普通事项", async () => {
+  it("硬删除学期以及课程相关数据，但不影响普通事项", async () => {
     const semester: Semester = {
       ...fields("semester-1"),
       name: "2026 春",
@@ -108,13 +108,12 @@ describe("学期删除", () => {
       courseCancellations: 1
     });
 
-    expect((await db.semesters.get(semester.id))?.deleted_at).not.toBeNull();
-    expect((await db.semesters.get(semester.id))?.is_current).toBe(false);
-    expect((await db.classPeriods.get(period.id))?.deleted_at).not.toBeNull();
-    expect((await db.courses.get(course.id))?.deleted_at).not.toBeNull();
-    expect((await db.courseSchedules.get(schedule.id))?.deleted_at).not.toBeNull();
-    expect((await db.courseCancellations.get(cancellation.id))?.deleted_at).not.toBeNull();
+    expect(await db.semesters.get(semester.id)).toBeUndefined();
+    expect(await db.classPeriods.get(period.id)).toBeUndefined();
+    expect(await db.courses.get(course.id)).toBeUndefined();
+    expect(await db.courseSchedules.get(schedule.id)).toBeUndefined();
+    expect(await db.courseCancellations.get(cancellation.id)).toBeUndefined();
     expect((await db.events.get(eventItem.id))?.deleted_at).toBeNull();
-    expect(await db.syncQueue.count()).toBe(5);
+    expect((await db.syncQueue.toArray()).map((item) => item.operation)).toEqual(["delete", "delete", "delete", "delete", "delete"]);
   });
 });

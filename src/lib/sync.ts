@@ -22,6 +22,22 @@ export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: s
 
 const TABLES = SYNC_TABLES;
 
+const DELETE_TABLES = [
+  "courseCancellations",
+  "courseSchedules",
+  "classPeriods",
+  "courses",
+  "semesters",
+  "eventOccurrenceStates",
+  "focusSessions",
+  "events",
+  "memos",
+  "memoFolders",
+  "anniversaries",
+  "categories",
+  "focusSettings"
+].map((tableName) => TABLES.find((table) => table.local === tableName)).filter(Boolean) as typeof TABLES;
+
 export const SYNC_TABLE_LABELS = Object.fromEntries(
   SYNC_TABLES.map((table) => [table.local, table.label])
 ) as Record<SyncTableName, string>;
@@ -211,9 +227,11 @@ async function downloadRemoteTables(userId: string): Promise<number> {
       throw new Error(`${config.remote} 下载失败：${error.message}`);
     }
     const records = (data ?? []).map((record) => normalizeRemoteRecord(config.local, record));
-    if (records.length) {
+    const activeRecords = records.filter((record) => !record.deleted_at);
+    const activeRemoteIds = new Set(activeRecords.map((record) => String(record.id)));
+    if (activeRecords.length) {
       if (config.local === "eventOccurrenceStates") {
-        const occurrenceRecords = records as unknown as EventOccurrenceState[];
+        const occurrenceRecords = activeRecords as unknown as EventOccurrenceState[];
         await db.transaction("rw", db.eventOccurrenceStates, db.syncQueue, async () => {
           for (const record of occurrenceRecords) {
             const localMatches = await db.eventOccurrenceStates
@@ -234,10 +252,11 @@ async function downloadRemoteTables(userId: string): Promise<number> {
           }
         });
       } else {
-        await db.table(config.local).bulkPut(records);
+        await db.table(config.local).bulkPut(activeRecords);
       }
-      downloaded += records.length;
+      downloaded += activeRecords.length;
     }
+    await deleteLocalRecordsMissingFromRemote(config.local, userId, activeRemoteIds);
   }
 
   await deduplicateCategories(userId);
@@ -261,9 +280,25 @@ async function runSync(userId: string): Promise<SyncResult> {
     queueByTable.set(item.table_name, items);
   }
 
+  for (const config of DELETE_TABLES) {
+    const items = queueByTable.get(config.local) ?? [];
+    for (const item of items.filter((queuedItem) => queuedItem.operation === "delete")) {
+      const result = await supabase.from(config.remote).delete().eq("id", item.record_id).eq("user_id", userId);
+      if (result.error) {
+        await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: result.error.message });
+        if (result.error.code === "PGRST205" || result.error.message.includes("schema cache")) {
+          throw new Error("Supabase 数据表尚未初始化，请先执行 schema.sql");
+        }
+        throw new Error(`${config.remote} 删除失败：${result.error.message}`);
+      }
+      await db.syncQueue.delete(item.id);
+      uploaded += 1;
+    }
+  }
+
   for (const config of TABLES) {
     const items = queueByTable.get(config.local) ?? [];
-    for (const item of items) {
+    for (const item of items.filter((queuedItem) => queuedItem.operation !== "delete")) {
       const localRecord = await db.table(config.local).get(item.record_id);
       if (!localRecord || localRecord.user_id !== userId) {
         await db.syncQueue.delete(item.id);
@@ -330,6 +365,16 @@ async function runSync(userId: string): Promise<SyncResult> {
   const completedAt = new Date().toISOString();
   localStorage.setItem(`semester-schedule-last-sync:${userId}`, completedAt);
   return { uploaded, downloaded, completed_at: completedAt };
+}
+
+async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, userId: string, activeRemoteIds: Set<string>) {
+  const queuedItems = await db.syncQueue.where("table_name").equals(tableName).toArray();
+  const pendingIds = new Set(queuedItems.map((item) => item.record_id));
+  const localRecords = await db.table(tableName).filter((record) => record.user_id === userId).toArray();
+  const staleIds = localRecords
+    .filter((record) => !activeRemoteIds.has(String(record.id)) && !pendingIds.has(String(record.id)))
+    .map((record) => String(record.id));
+  if (staleIds.length) await db.table(tableName).bulkDelete(staleIds);
 }
 
 export async function pullRemoteNow(userId: string): Promise<SyncResult> {

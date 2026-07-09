@@ -585,7 +585,7 @@ export default function App() {
   }
 
   async function deleteSemester(target: Semester) {
-    const confirmed = window.confirm(`确定删除“${target.name}”吗？该学期下的课程、节次、课程安排和停课标记会一并删除；普通事项、习惯、纪念日和备忘录不受影响。`);
+    const confirmed = window.confirm(`确定彻底删除“${target.name}”吗？该学期下的课程、节次、课程安排和停课标记会一并删除；普通事项、习惯、纪念日和备忘录不受影响。`);
     if (!confirmed) return;
     await deleteSemesterCascade(target.id);
     if (semester?.id === target.id) setAnchorDate(new Date());
