@@ -4,9 +4,11 @@ import type {
   Course,
   CourseCancellation,
   CourseSchedule,
+  Anniversary,
   EventItem,
   EventOccurrenceState,
   FocusSession,
+  Memo,
   Semester
 } from "../types";
 import { addDays, courseScheduleOccursOn, eventOccursOn, formatMonthDay, parseLocalDate, startOfWeek, toISODate, weekdayOf } from "./date";
@@ -22,6 +24,8 @@ export interface ScheduleAssistantInput {
   events: EventItem[];
   categories: Category[];
   occurrenceStates: EventOccurrenceState[];
+  anniversaries?: Anniversary[];
+  memos?: Memo[];
   periods: ClassPeriod[];
   focusSessions: FocusSession[];
   now?: Date;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eventItemFromAiAction } from "./aiEventActions";
+import { anniversaryFromAiAction, eventItemFromAiAction, memoFromAiAction, recordsFromAiActions, resolveHoliday } from "./aiEventActions";
 
 describe("AI 助手创建事项动作", () => {
   it("把 AI 返回的定时事项转换为本地事项", () => {
@@ -46,6 +46,20 @@ describe("AI 助手创建事项动作", () => {
     });
   });
 
+  it("明确创建习惯时写入 habit 类型", () => {
+    const event = eventItemFromAiAction({
+      type: "create_event",
+      eventType: "habit",
+      title: "背单词",
+      startDate: "2026-07-09"
+    }, "创建背单词习惯", "user-1");
+
+    expect(event).toMatchObject({
+      event_type: "habit",
+      title: "背单词"
+    });
+  });
+
   it("拒绝无效日期", () => {
     const event = eventItemFromAiAction({
       type: "create_event",
@@ -54,5 +68,64 @@ describe("AI 助手创建事项动作", () => {
     }, "明天添加错误事项", "user-1");
 
     expect(event).toBeNull();
+  });
+
+  it("把 AI 返回的生日或纪念日转换为本地日子", () => {
+    const anniversary = anniversaryFromAiAction({
+      type: "create_anniversary",
+      title: "妈妈生日",
+      kind: "birthday",
+      date: "2026-08-12",
+      reminderEnabled: true,
+      reminderDaysBefore: 3,
+      reminderTime: "08:30"
+    }, "创建妈妈生日", "user-1");
+
+    expect(anniversary).toMatchObject({
+      user_id: "user-1",
+      kind: "birthday",
+      title: "妈妈生日",
+      date: "2026-08-12",
+      reminder_enabled: true,
+      reminder_days_before: 3,
+      reminder_time: "08:30"
+    });
+  });
+
+  it("把 AI 返回的备忘录转换为本地备忘录", () => {
+    const memo = memoFromAiAction({
+      type: "create_memo",
+      title: "购物清单",
+      content: "牛奶\n面包",
+      isPinned: true
+    }, "创建购物清单备忘录", "user-1");
+
+    expect(memo).toMatchObject({
+      user_id: "user-1",
+      title: "购物清单",
+      content: expect.stringContaining("牛奶"),
+      is_pinned: true
+    });
+    expect(memo?.content).toContain("由 AI 助手创建");
+  });
+
+  it("自动解析常见农历节日并创建节日", () => {
+    const holiday = resolveHoliday("创建 2026 年端午节");
+    expect(holiday).toEqual({
+      title: "端午节",
+      kind: "holiday",
+      date: "2026-06-19"
+    });
+
+    const records = recordsFromAiActions([], "创建 2026 年春节", "user-1", new Date("2026-07-09T08:00:00+08:00"));
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      table: "anniversaries",
+      record: {
+        title: "春节",
+        kind: "holiday",
+        date: "2026-02-17"
+      }
+    });
   });
 });

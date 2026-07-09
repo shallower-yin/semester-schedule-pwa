@@ -2,9 +2,8 @@ import { BrainCircuit, Clipboard, KeyRound, PencilLine, Send, Trash2, UserRound 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
-import { eventItemFromAiAction } from "../lib/aiEventActions";
-import { SCHEDULE_ASSISTANT_EXAMPLES, type ScheduleAssistantInput } from "../lib/scheduleAssistant";
-import type { EventItem } from "../types";
+import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
+import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { Modal } from "./Modal";
 
 interface Message {
@@ -31,16 +30,17 @@ function welcomeMessage(): Message {
   return {
     id: "welcome",
     role: "assistant",
-    content: "我是 AI 日程助手，可以根据你的日程摘要回答安排、冲突、未完成事项和时间规划问题。"
+    content: "我是 AI 助手，可以回答日程和使用问题，也能帮你创建事项、习惯、纪念日、生日、节日和备忘录。"
   };
 }
 
-export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: DeepSeekAssistantDialogProps) {
+export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAssistantDialogProps) {
   const [messages, setMessages] = useState<Message[]>(() => loadAssistantHistory(ownerId));
   const [question, setQuestion] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
 
@@ -51,6 +51,10 @@ export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: 
   useEffect(() => {
     saveAssistantHistory(ownerId, messages);
   }, [messages, ownerId]);
+
+  useEffect(() => {
+    window.setTimeout(() => rootRef.current?.closest(".modal")?.scrollTo({ top: 0 }), 0);
+  }, []);
 
   async function ask(text = question) {
     const trimmed = text.trim();
@@ -63,10 +67,10 @@ export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: 
     try {
       const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history);
       if (result.access === "access-code") setAccessCode("");
-      const created = await createEventsFromActions(result.actions ?? [], trimmed, ownerId);
+      const created = await createRecordsFromActions(result.actions ?? [], trimmed, ownerId);
       const content = [
         result.answer,
-        created.length ? `已创建事项：${created.map((item) => item.title).join("、")}` : ""
+        created.length ? createdSummary(created) : ""
       ].filter(Boolean).join("\n");
       setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "assistant", content }]);
     } catch (error) {
@@ -107,41 +111,29 @@ export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: 
 
   return (
     <Modal title="AI 助手" onClose={onClose} wide>
-      <div className="assistant-dialog ai-assistant-dialog">
-        <section className="ai-access-panel">
-          <BrainCircuit size={19} />
-          <div>
-            <strong>{userEmail ? `当前账号：${userEmail}` : "需要先登录账号"}</strong>
-            <span>会员和管理员可直接使用 AI 助手；访问口令可用于临时体验。</span>
-          </div>
-        </section>
+      <div ref={rootRef} className="assistant-dialog ai-assistant-dialog">
+        <p className="ai-assistant-capability">可询问安排、冲突、未完成、专注统计和使用方法；也可直接创建事项、习惯、纪念日、生日、节日和备忘录。</p>
         <label className="ai-access-code">
           <KeyRound size={16} />
           <input value={accessCode} placeholder="访问口令，临时体验可填" onChange={(event) => setAccessCode(event.target.value)} />
         </label>
-        <div className="assistant-examples" aria-label="AI 助手问日程样例">
-          {SCHEDULE_ASSISTANT_EXAMPLES.map((example) => (
-            <button key={example} type="button" disabled={loading} onClick={() => ask(example)}>{example}</button>
-          ))}
-          {messages.length > 1 && (
-            <button type="button" disabled={loading} onClick={clearHistory}><Trash2 size={13} />清空历史</button>
-          )}
-        </div>
-        {feedback && <p className="assistant-feedback">{feedback}</p>}
+        <p className="assistant-feedback" aria-live="polite">{feedback}</p>
         <div className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
               {message.role === "assistant" ? <BrainCircuit size={18} /> : <UserRound size={18} />}
               <div className="assistant-message-body">
-                <p>{message.content}</p>
-                {message.id !== "welcome" && (
-                  <div className="assistant-message-actions">
-                    <button type="button" className="icon-button" title="复制" onClick={() => void copyMessage(message.content)}><Clipboard size={14} /></button>
-                    {message.role === "user" && (
-                      <button type="button" className="icon-button" title="重新编辑" onClick={() => editMessage(message.content)}><PencilLine size={14} /></button>
-                    )}
-                  </div>
-                )}
+                <p>
+                  {message.content}
+                  {message.id !== "welcome" && (
+                    <span className="assistant-inline-actions">
+                      <button type="button" className="icon-button" title="复制" onClick={() => void copyMessage(message.content)}><Clipboard size={13} /></button>
+                      {message.role === "user" && (
+                        <button type="button" className="icon-button" title="重新编辑" onClick={() => editMessage(message.content)}><PencilLine size={13} /></button>
+                      )}
+                    </span>
+                  )}
+                </p>
               </div>
             </article>
           ))}
@@ -158,13 +150,15 @@ export function DeepSeekAssistantDialog({ input, ownerId, userEmail, onClose }: 
         }}>
           <input
             ref={inputRef}
-            autoFocus
             value={question}
             disabled={loading}
-            placeholder="例如：明天 9:00 添加交作业"
+            placeholder="例如：创建端午节，或明天 9:00 添加交作业"
             onChange={(event) => setQuestion(event.target.value)}
           />
           <button className="button primary" disabled={loading}><Send size={16} />发送</button>
+          {messages.length > 1 && (
+            <button type="button" className="button secondary" disabled={loading} onClick={clearHistory}><Trash2 size={15} />清空</button>
+          )}
         </form>
       </div>
     </Modal>
@@ -213,14 +207,27 @@ function copyTextFallback(content: string) {
   textarea.remove();
 }
 
-async function createEventsFromActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string): Promise<EventItem[]> {
-  const created: EventItem[] = [];
-  for (const action of actions) {
-    const record = eventItemFromAiAction(action, sourceText, ownerId);
-    if (!record) continue;
-    await db.events.put(record);
-    await queueChange("events", record.id);
-    created.push(record);
+async function createRecordsFromActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string): Promise<AiCreatedRecord[]> {
+  const created = recordsFromAiActions(actions, sourceText, ownerId);
+  for (const item of created) {
+    if (item.table === "events") await db.events.put(item.record);
+    if (item.table === "anniversaries") await db.anniversaries.put(item.record);
+    if (item.table === "memos") await db.memos.put(item.record);
+    await queueChange(item.table, item.record.id);
   }
   return created;
+}
+
+function createdSummary(created: AiCreatedRecord[]): string {
+  const labels = {
+    events: "事项",
+    anniversaries: "日子",
+    memos: "备忘录"
+  } as const;
+  return Object.entries(labels).flatMap(([table, label]) => {
+    const titles = created
+      .filter((item) => item.table === table)
+      .map((item) => item.record.title);
+    return titles.length ? [`已创建${label}：${titles.join("、")}`] : [];
+  }).join("\n");
 }

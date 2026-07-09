@@ -1016,6 +1016,8 @@ export default function App() {
             events,
             categories,
             occurrenceStates,
+            anniversaries,
+            memos,
             periods,
             focusSessions
           }}
@@ -1032,6 +1034,8 @@ export default function App() {
             events,
             categories,
             occurrenceStates,
+            anniversaries,
+            memos,
             periods,
             focusSessions
           }}

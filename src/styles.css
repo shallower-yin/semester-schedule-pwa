@@ -4111,7 +4111,14 @@ textarea {
 }
 
 .ai-assistant-dialog {
-  grid-template-rows: auto auto auto minmax(190px, 34vh) auto;
+  grid-template-rows: auto auto minmax(0, 18px) minmax(300px, 48vh) auto;
+}
+
+.ai-assistant-capability {
+  margin: 0;
+  color: #526071;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .assistant-examples {
@@ -4153,6 +4160,7 @@ textarea {
 }
 
 .assistant-messages p {
+  position: relative;
   margin: 0;
   padding: 9px 10px;
   border-radius: 9px;
@@ -4185,7 +4193,31 @@ textarea {
   background: var(--surface);
 }
 
+.assistant-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.assistant-inline-actions .icon-button {
+  width: 25px;
+  height: 25px;
+  border: 1px solid #e3e7ef;
+  border-radius: 8px;
+  color: #526071;
+  background: var(--surface);
+}
+
+.assistant-messages article.user .assistant-inline-actions .icon-button {
+  border-color: rgb(255 255 255 / 34%);
+  color: white;
+  background: rgb(255 255 255 / 16%);
+}
+
 .assistant-feedback {
+  min-height: 16px;
   margin: -4px 0;
   color: var(--muted);
   font-size: 12px;
@@ -4193,7 +4225,7 @@ textarea {
 
 .assistant-input {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
 }
 
@@ -4990,11 +5022,15 @@ textarea {
   }
 
   .ai-assistant-dialog {
-    grid-template-rows: auto auto auto minmax(150px, 25vh) auto;
+    grid-template-rows: auto auto minmax(0, 18px) minmax(220px, 42vh) auto;
   }
 
   .assistant-input {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr auto;
+  }
+
+  .assistant-input input {
+    grid-column: 1 / -1;
   }
 
   .admin-layout {

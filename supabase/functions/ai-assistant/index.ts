@@ -18,8 +18,12 @@ interface AiAccessRow {
   note?: string | null;
 }
 
-interface AiAssistantAction {
+type AnniversaryKind = "anniversary" | "birthday" | "holiday";
+type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction;
+
+interface AiCreateEventAction {
   type: "create_event";
+  eventType?: "event" | "habit";
   title: string;
   startDate: string;
   endDate?: string | null;
@@ -29,6 +33,24 @@ interface AiAssistantAction {
   note?: string | null;
   reminderEnabled?: boolean;
   reminderMinutesBefore?: number;
+}
+
+interface AiCreateAnniversaryAction {
+  type: "create_anniversary";
+  title: string;
+  kind?: AnniversaryKind;
+  date?: string | null;
+  note?: string | null;
+  reminderEnabled?: boolean;
+  reminderDaysBefore?: number;
+  reminderTime?: string | null;
+}
+
+interface AiCreateMemoAction {
+  type: "create_memo";
+  title: string;
+  content?: string | null;
+  isPinned?: boolean;
 }
 
 interface AiAssistantResponse {
@@ -216,6 +238,16 @@ async function askDeepSeek(
   const historyText = history.length
     ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 3_000)
     : "无";
+  const beijingNow = new Date().toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
   const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
     headers: {
@@ -228,18 +260,24 @@ async function askDeepSeek(
         {
           role: "system",
           content: [
-            "你是日程计划表的 AI 日程助手。",
-            "只根据用户提供的日程上下文回答，不要编造不存在的课程、事项、纪念日或专注记录。",
+            "你是日程计划表的 AI 助手。",
+            `当前北京时间：${beijingNow}。所有“今天、明天、今年、下周”等相对时间都必须按北京时间理解。`,
+            "你可以回答两类问题：1）根据用户提供的数据回答安排、冲突、未完成、专注统计、纪念日和备忘录；2）回答本工具怎么使用。",
+            "工具能力：普通事项支持日期、时间、全天、完成、重复和提醒；习惯可打卡和统计；纪念日/生日/节日支持提前几天和指定时间提醒；备忘录支持文件夹、置顶、编号和待办；学期是可选学生功能。",
+            "只根据用户提供的日程上下文回答，不要编造不存在的课程、事项、纪念日、备忘录或专注记录。",
             "最近对话只用于理解指代，不要把它当成新的日程数据。",
             "回答要简洁、具体、可执行。涉及日期时使用明确日期。无法确定时直接说明。",
             "不要输出用户隐私无关内容，也不要声称自己能访问未提供的数据。",
             "你必须只返回 JSON 对象，不要使用 Markdown，不要输出额外解释。",
             "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
-            "当用户明确要求新增、创建、记录、加入日程、提醒或安排待办事项时，把可创建的事项放入 actions。",
-            "actions 只允许 create_event，格式：{\"type\":\"create_event\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"note\":\"备注\",\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
-            "如果缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
-            "如果用户给了日期但没有时间，创建全天事项，startTime/endTime 为 null，allDay 为 true。",
-            "如果用户给了开始时间但没给结束时间，endTime 等于 startTime。",
+            "当用户明确要求新增、创建、记录、加入日程、提醒、安排待办、创建日子或写备忘录时，把可创建内容放入 actions。",
+            "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"note\":\"备注\",\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
+            "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"date\":\"YYYY-MM-DD\",\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
+            "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
+            "如果用户说创建春节、端午节、中秋节等常见节日，应按北京时间所在年份或用户指定年份给出对应公历日期；不确定日期时 answer 里说明并不要创建 action。",
+            "如果事项缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
+            "如果事项给了日期但没有时间，创建全天事项，startTime/endTime 为 null，allDay 为 true。",
+            "如果事项给了开始时间但没给结束时间，endTime 等于 startTime。",
             "最多返回 5 个 actions。"
           ].join("\n")
         },
@@ -298,6 +336,8 @@ function parseAssistantResponse(content: string): AiAssistantResponse {
 function sanitizeAction(action: unknown): AiAssistantAction[] {
   if (!action || typeof action !== "object") return [];
   const record = action as Record<string, unknown>;
+  if (record.type === "create_anniversary") return sanitizeAnniversaryAction(record);
+  if (record.type === "create_memo") return sanitizeMemoAction(record);
   if (record.type !== "create_event") return [];
   const title = typeof record.title === "string" ? record.title.trim() : "";
   const startDate = typeof record.startDate === "string" ? record.startDate.trim() : "";
@@ -308,6 +348,7 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
   const allDay = typeof record.allDay === "boolean" ? record.allDay : !startTime;
   return [{
     type: "create_event",
+    eventType: record.eventType === "habit" ? "habit" : "event",
     title,
     startDate,
     endDate,
@@ -318,6 +359,37 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
     reminderEnabled: Boolean(record.reminderEnabled),
     reminderMinutesBefore: clampNumber(record.reminderMinutesBefore, 0, 7 * 24 * 60, 10)
   }];
+}
+
+function sanitizeAnniversaryAction(record: Record<string, unknown>): AiAssistantAction[] {
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  const date = typeof record.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(record.date.trim()) ? record.date.trim() : null;
+  if (!title) return [];
+  return [{
+    type: "create_anniversary",
+    title,
+    kind: normalizeAnniversaryKind(record.kind),
+    date,
+    note: typeof record.note === "string" ? record.note.slice(0, 500) : "",
+    reminderEnabled: Boolean(record.reminderEnabled),
+    reminderDaysBefore: clampNumber(record.reminderDaysBefore, 0, 365, 0),
+    reminderTime: normalizeTime(record.reminderTime) ?? "09:00"
+  }];
+}
+
+function sanitizeMemoAction(record: Record<string, unknown>): AiAssistantAction[] {
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  if (!title) return [];
+  return [{
+    type: "create_memo",
+    title,
+    content: typeof record.content === "string" ? record.content.slice(0, 10_000) : "",
+    isPinned: Boolean(record.isPinned)
+  }];
+}
+
+function normalizeAnniversaryKind(value: unknown): AnniversaryKind {
+  return value === "anniversary" || value === "birthday" || value === "holiday" ? value : "anniversary";
 }
 
 function normalizeTime(value: unknown): string | null {

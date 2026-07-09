@@ -3,6 +3,7 @@ import type { ScheduleAssistantInput } from "./scheduleAssistant";
 import { addDays, courseScheduleOccursOn, eventOccursOn, toISODate } from "./date";
 import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
+import type { AnniversaryKind } from "../types";
 
 export interface DeepSeekAssistantResult {
   answer: string;
@@ -11,8 +12,11 @@ export interface DeepSeekAssistantResult {
   actions?: DeepSeekAssistantAction[];
 }
 
-export interface DeepSeekAssistantAction {
+export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction;
+
+export interface DeepSeekCreateEventAction {
   type: "create_event";
+  eventType?: "event" | "habit";
   title: string;
   startDate: string;
   endDate?: string | null;
@@ -22,6 +26,24 @@ export interface DeepSeekAssistantAction {
   note?: string | null;
   reminderEnabled?: boolean;
   reminderMinutesBefore?: number;
+}
+
+export interface DeepSeekCreateAnniversaryAction {
+  type: "create_anniversary";
+  title: string;
+  kind?: AnniversaryKind;
+  date?: string | null;
+  note?: string | null;
+  reminderEnabled?: boolean;
+  reminderDaysBefore?: number;
+  reminderTime?: string | null;
+}
+
+export interface DeepSeekCreateMemoAction {
+  type: "create_memo";
+  title: string;
+  content?: string | null;
+  isPinned?: boolean;
 }
 
 export interface DeepSeekAssistantHistoryMessage {
@@ -38,7 +60,16 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
   const categoryMap = new Map(input.categories.filter((category) => !category.deleted_at).map((category) => [category.id, category]));
   return {
     generatedAt: new Date().toISOString(),
+    generatedAtBeijing: new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }),
     today: toISODate(now),
+    timezone: "Asia/Shanghai",
+    appGuide: [
+      "可以创建普通事项、习惯、纪念日、生日、节日和备忘录。",
+      "学期是可选功能；没有学期也能使用今天、日程、习惯、纪念日、备忘录、专注和设置。",
+      "普通事项支持日期、时间、全天、完成状态、重复和提醒。",
+      "纪念日、生日、节日支持提前几天和指定时间提醒。",
+      "备忘录支持文件夹、置顶、编号和待办清单。"
+    ],
     semester: semester ? {
       name: semester.name,
       startDate: semester.start_date,
@@ -94,6 +125,18 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
       time: eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`,
       recurrence: eventItem.recurrence_type,
       note: eventItem.note
+    })),
+    anniversaries: (input.anniversaries ?? []).filter((item) => !item.deleted_at).slice(0, 80).map((item) => ({
+      title: item.title,
+      kind: item.kind,
+      date: item.date,
+      reminder: item.reminder_enabled ? `${item.reminder_days_before} 天前 ${item.reminder_time}` : "未提醒",
+      note: item.note
+    })),
+    memos: (input.memos ?? []).filter((item) => !item.deleted_at).slice(0, 60).map((item) => ({
+      title: item.title,
+      pinned: item.is_pinned,
+      preview: item.content.slice(0, 240)
     })),
     focusLast7Days: focusDailyTotals(input.focusSessions, 7, now)
   };
