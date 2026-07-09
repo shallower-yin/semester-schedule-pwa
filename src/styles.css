@@ -1694,6 +1694,21 @@ textarea {
   line-height: 1.5;
 }
 
+.backup-snapshot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.backup-snapshot-row .inline-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .backup-preview {
   display: grid;
   gap: 12px;

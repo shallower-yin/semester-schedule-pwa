@@ -169,3 +169,11 @@ export interface BackupFile {
   exported_at: ISODateTime;
   data: Record<SyncTableName, unknown[]>;
 }
+
+export interface LocalBackupSnapshot {
+  id: string;
+  created_at: ISODateTime;
+  reason: "scheduled" | "manual";
+  record_count: number;
+  backup: BackupFile;
+}

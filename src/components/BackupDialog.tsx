@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { db, queueChange } from "../db";
 import { BACKUP_TABLES, createBackup, downloadBackup, OPTIONAL_TABLES_IN_OLD_BACKUPS } from "../lib/backup";
+import { createLocalBackupSnapshot, getLatestLocalBackupSnapshot } from "../lib/autoBackup";
 import { getCurrentUserId } from "../lib/identity";
 import { SYNC_TABLE_LABELS } from "../lib/sync";
 import { showToast } from "../lib/toast";
@@ -34,11 +36,36 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [importing, setImporting] = useState(false);
+  const [creatingSnapshot, setCreatingSnapshot] = useState(false);
+  const latestSnapshot = useLiveQuery(() => getLatestLocalBackupSnapshot(), []);
 
   async function exportBackup() {
     downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
     setMessage("备份文件已导出。");
     showToast("备份文件已导出。", "success");
+  }
+
+  async function createSnapshotNow() {
+    if (creatingSnapshot) return;
+    setCreatingSnapshot(true);
+    try {
+      await createLocalBackupSnapshot("manual");
+      setMessage("本机快照已生成。");
+      showToast("本机快照已生成。", "success");
+    } catch (error) {
+      const message = error instanceof Error ? `生成失败：${error.message}` : "生成失败";
+      setMessage(message);
+      showToast(message, "error");
+    } finally {
+      setCreatingSnapshot(false);
+    }
+  }
+
+  function exportLatestSnapshot() {
+    if (!latestSnapshot) return;
+    downloadBackup(latestSnapshot.backup, `本机自动快照-${latestSnapshot.created_at.slice(0, 10)}.json`);
+    setMessage("最近快照已导出。");
+    showToast("最近快照已导出。", "success");
   }
 
   async function previewBackup(file?: File) {
@@ -127,6 +154,23 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
   return (
     <Modal title="数据备份" onClose={onClose}>
       <div className="backup-options">
+        <section>
+          <h3>本机自动快照</h3>
+          <p>应用会定期在本机保留最近 3 份快照，不上传，也不自动下载文件。</p>
+          <div className="backup-snapshot-row">
+            <span>
+              {latestSnapshot
+                ? `最近：${new Date(latestSnapshot.created_at).toLocaleString("zh-CN")} · ${latestSnapshot.record_count} 条`
+                : "尚未生成本机快照"}
+            </span>
+            <div className="inline-actions">
+              <button className="button secondary compact" disabled={creatingSnapshot} onClick={() => void createSnapshotNow()}>
+                {creatingSnapshot ? "生成中…" : "立即生成快照"}
+              </button>
+              <button className="button secondary compact" disabled={!latestSnapshot} onClick={exportLatestSnapshot}>导出最近快照</button>
+            </div>
+          </div>
+        </section>
         <section>
           <h3>导出 JSON</h3>
           <p>导出学期、节次、课程、事项、纪念日、备忘录、专注记录和停课记录。建议定期保存到安全位置。</p>

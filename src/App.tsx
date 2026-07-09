@@ -85,6 +85,7 @@ import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
 import { getAdminStatus } from "./lib/admin";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
+import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
 import {
@@ -122,10 +123,10 @@ function formatSyncDateTime(value: string | null): string {
 }
 
 function formatBackupDateTime(value: string | null): string {
-  if (!value) return "尚未导出备份";
+  if (!value) return "尚未备份";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "尚未导出备份";
-  return `上次导出 ${date.toLocaleString("zh-CN", {
+  if (Number.isNaN(date.getTime())) return "尚未备份";
+  return `上次备份 ${date.toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -388,6 +389,10 @@ export default function App() {
       window.removeEventListener(BACKUP_STATUS_CHANGED_EVENT, refreshBackupStatus);
       window.removeEventListener("storage", refreshBackupStatus);
     };
+  }, []);
+
+  useEffect(() => {
+    void ensureScheduledLocalBackup().catch(() => undefined);
   }, []);
 
   useEffect(() => {
