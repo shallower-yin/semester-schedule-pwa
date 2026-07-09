@@ -3772,6 +3772,27 @@ textarea {
   justify-content: center;
 }
 
+.install-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.install-overview div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 8px;
+  border: 1px solid rgb(var(--primary-rgb) / 18%);
+  border-radius: 10px;
+  color: var(--primary);
+  background: var(--accent-soft);
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .install-result,
 .install-note {
   margin: 0;
@@ -3794,13 +3815,26 @@ textarea {
   background: #edf8f2;
 }
 
-.install-platform {
+.install-platform-grid {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.install-platform {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
   padding: 13px;
   border: 1px solid var(--border);
   border-radius: 11px;
+}
+
+.install-platform header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
 }
 
 .install-platform h3 {
@@ -3808,12 +3842,40 @@ textarea {
   font-size: 14px;
 }
 
-.install-platform ol {
+.install-platform p {
   margin: 0;
-  padding-left: 20px;
   color: #586174;
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.5;
+}
+
+.install-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.install-steps article {
+  display: grid;
+  grid-template-columns: 22px 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid #edf0f6;
+  border-radius: 9px;
+  background: #fbfcff;
+}
+
+.install-steps article > span {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: white;
+  background: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .install-platform code {
@@ -5182,6 +5244,10 @@ textarea {
     left: 12px;
     justify-content: space-between;
   }
+
+  .install-platform-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 580px) {
@@ -5253,6 +5319,14 @@ textarea {
   .period-toolbar > div {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .install-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .install-overview div {
+    justify-content: flex-start;
   }
 
   .form-actions.split {
