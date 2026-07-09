@@ -4,6 +4,7 @@ import { db, queueChange } from "../db";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
 import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
+import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 
 interface Message {
@@ -39,7 +40,6 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [question, setQuestion] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
@@ -62,7 +62,6 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     const history = messagesToHistory(messages);
     setLoading(true);
     setQuestion("");
-    setFeedback("");
     setMessages((current) => [...current, { id: `u-${Date.now()}`, role: "user", content: trimmed }]);
     try {
       const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history);
@@ -73,12 +72,15 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         created.length ? createdSummary(created) : ""
       ].filter(Boolean).join("\n");
       setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "assistant", content }]);
+      if (created.length) showToast(createdSummary(created).replace(/\n/g, "；"), "success");
     } catch (error) {
+      const message = error instanceof Error ? error.message : "暂时不能使用 AI 助手。";
       setMessages((current) => [...current, {
         id: `e-${Date.now()}`,
         role: "assistant",
-        content: error instanceof Error ? `暂时不能使用 AI 助手：${error.message}` : "暂时不能使用 AI 助手。"
+        content: `暂时不能使用 AI 助手：${message}`
       }]);
+      showToast(message, "error");
     } finally {
       setLoading(false);
     }
@@ -91,22 +93,22 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       } else {
         copyTextFallback(content);
       }
-      setFeedback("已复制。");
+      showToast("已复制。", "success");
     } catch {
       copyTextFallback(content);
-      setFeedback("已复制。");
+      showToast("已复制。", "success");
     }
   }
 
   function editMessage(content: string) {
     setQuestion(content);
-    setFeedback("已放回输入框，可修改后重新发送。");
+    showToast("已放回输入框，可修改后重新发送。", "info");
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   function clearHistory() {
     setMessages([welcomeMessage()]);
-    setFeedback("历史已清空。");
+    showToast("历史已清空。", "success");
   }
 
   return (
@@ -117,7 +119,6 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           <KeyRound size={16} />
           <input value={accessCode} placeholder="访问口令，临时体验可填" onChange={(event) => setAccessCode(event.target.value)} />
         </label>
-        <p className="assistant-feedback" aria-live="polite">{feedback}</p>
         <div className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>

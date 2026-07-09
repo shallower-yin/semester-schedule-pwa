@@ -64,6 +64,7 @@ import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportD
 import { StatsDialog } from "./components/StatsDialog";
 import { ThemeSkinDialog } from "./components/ThemeSkinDialog";
 import { TodayPage } from "./components/TodayPage";
+import { ToastHost } from "./components/ToastHost";
 import { WeekCalendar } from "./components/WeekCalendar";
 import { db, queueChange } from "./db";
 import {
@@ -85,6 +86,7 @@ import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkin
 import { getAdminStatus } from "./lib/admin";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
 import { getLastBackupAt } from "./lib/backupStatus";
+import { showToast } from "./lib/toast";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -434,9 +436,12 @@ export default function App() {
       const result = await syncNow(user.id);
       setLastSync(result.completed_at);
       setSyncMessage(`同步完成：上传 ${result.uploaded} 条，下载 ${result.downloaded} 条。`);
+      showToast(`同步完成：上传 ${result.uploaded} 条，下载 ${result.downloaded} 条。`, "success");
       return result;
     } catch (error) {
-      setSyncMessage(error instanceof Error ? error.message : "同步失败");
+      const message = error instanceof Error ? error.message : "同步失败";
+      setSyncMessage(message);
+      showToast(message, "error");
     } finally {
       setSyncing(false);
     }
@@ -453,9 +458,12 @@ export default function App() {
       const result = await pullRemoteNow(user.id);
       setLastSync(result.completed_at);
       setSyncMessage(`已重新拉取云端：下载 ${result.downloaded} 条。`);
+      showToast(`已重新拉取云端：下载 ${result.downloaded} 条。`, "success");
       return result;
     } catch (error) {
-      setSyncMessage(error instanceof Error ? error.message : "拉取云端失败");
+      const message = error instanceof Error ? error.message : "拉取云端失败";
+      setSyncMessage(message);
+      showToast(message, "error");
     } finally {
       setSyncing(false);
     }
@@ -514,7 +522,9 @@ export default function App() {
         navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
       }
       setUpdatingApp(false);
-      setUpdateMessage(error instanceof Error ? `更新失败：${error.message}` : "更新失败，请稍后重试。");
+      const message = error instanceof Error ? `更新失败：${error.message}` : "更新失败，请稍后重试。";
+      setUpdateMessage(message);
+      showToast(message, "error");
     }
   }
 
@@ -1194,6 +1204,7 @@ export default function App() {
           onClose={() => setShowGlobalSearch(false)}
         />
       )}
+      <ToastHost />
     </div>
   );
 }

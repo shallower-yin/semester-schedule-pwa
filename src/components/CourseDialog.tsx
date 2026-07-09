@@ -6,6 +6,7 @@ import { WEEKDAY_NAMES } from "../data/defaults";
 import { findCourseEventConflicts, findCourseScheduleConflicts } from "../lib/conflicts";
 import { hardDeleteCoursesCascade, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { showToast } from "../lib/toast";
 import type { Course, CourseSchedule, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
 
@@ -186,6 +187,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
   async function removeCourse() {
     if (!course || !window.confirm(`确定彻底删除课程“${course.name}”吗？该课程的上课安排和停课标记会一并删除，且无法恢复。`)) return;
     await hardDeleteCoursesCascade([course.id]);
+    showToast("课程已彻底删除。", "success");
     onClose();
   }
 

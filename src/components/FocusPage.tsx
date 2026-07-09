@@ -14,6 +14,7 @@ import {
 } from "../lib/focus";
 import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { showToast } from "../lib/toast";
 import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
 import { Modal } from "./Modal";
 
@@ -177,6 +178,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     setTaskTitle("");
     setLinkedEventId("");
     setMessage(completed ? `已完成 ${formatFocusDuration(duration)} 专注。` : `已保存 ${formatFocusDuration(duration)} 专注记录。`);
+    showToast(completed ? `已完成 ${formatFocusDuration(duration)} 专注。` : `已保存 ${formatFocusDuration(duration)} 专注记录。`, "success");
     if (completed) notifyFocusComplete(record.task_title, effectiveSettings.sound_enabled);
   }
 
@@ -186,6 +188,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     void exitFocusFullscreen();
     setActive(null);
     setMessage("已放弃当前专注。");
+    showToast("已放弃当前专注。", "info");
   }
 
   async function saveSettings() {
@@ -196,12 +199,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     await db.focusSettings.put(record);
     await queueChange("focusSettings", record.id);
     setMessage("专注设置已保存。");
+    showToast("专注设置已保存。", "success");
   }
 
   async function deleteSession(session: FocusSession) {
     if (!window.confirm(`确定彻底删除专注记录“${session.task_title || focusModeLabel(session.mode)}”吗？此操作无法恢复。`)) return;
     await hardDeleteLocalRecord("focusSessions", session.id);
     setMessage("专注记录已彻底删除。");
+    showToast("专注记录已彻底删除。", "success");
   }
 
   return (

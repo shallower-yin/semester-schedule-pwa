@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { db, queueChange } from "../db";
 import { parseQuickEntry, QUICK_ENTRY_EXAMPLES } from "../lib/quickEntry";
 import { syncFields } from "../lib/identity";
+import { showToast } from "../lib/toast";
 import type { EventItem } from "../types";
 import { Modal } from "./Modal";
 
@@ -48,6 +49,7 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
     await db.events.put(record);
     await queueChange("events", record.id);
     setSaving(false);
+    showToast("事项已创建。", "success");
     onCreated(record);
     onClose();
   }

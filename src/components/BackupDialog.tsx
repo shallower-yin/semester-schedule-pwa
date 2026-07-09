@@ -3,6 +3,7 @@ import { db, queueChange } from "../db";
 import { BACKUP_TABLES, createBackup, downloadBackup, OPTIONAL_TABLES_IN_OLD_BACKUPS } from "../lib/backup";
 import { getCurrentUserId } from "../lib/identity";
 import { SYNC_TABLE_LABELS } from "../lib/sync";
+import { showToast } from "../lib/toast";
 import type { BackupFile, SyncTableName } from "../types";
 import { Modal } from "./Modal";
 
@@ -37,6 +38,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
   async function exportBackup() {
     downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
     setMessage("备份文件已导出。");
+    showToast("备份文件已导出。", "success");
   }
 
   async function previewBackup(file?: File) {
@@ -111,9 +113,12 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
       });
 
       setMessage(`导入完成：合并 ${preview.total} 条记录；当前账号相关记录已加入同步队列。`);
+      showToast(`导入完成：合并 ${preview.total} 条记录。`, "success");
       setPreview(null);
     } catch (error) {
-      setMessage(error instanceof Error ? `导入失败：${error.message}` : "导入失败");
+      const message = error instanceof Error ? `导入失败：${error.message}` : "导入失败";
+      setMessage(message);
+      showToast(message, "error");
     } finally {
       setImporting(false);
     }

@@ -12,6 +12,7 @@ import {
 } from "../lib/schoolTimetableImport";
 import { hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { showToast } from "../lib/toast";
 import type { ClassPeriod, Course, CourseSchedule, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
 
@@ -126,8 +127,11 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
           `新增 ${result.createdCourses} 门课程、更新 ${result.updatedCourses} 门课程；新增 ${result.createdSchedules} 条安排、更新 ${result.updatedSchedules} 条安排、跳过 ${result.skippedSchedules} 条重复安排；写入 ${result.periodCount} 个节次` +
           `${result.updatedSemester ? "，并更新了学期日期/名称/周数" : ""}。登录后会自动同步到其他设备。`
       );
+      showToast(`课表导入完成：新增 ${result.createdCourses} 门课程、${result.createdSchedules} 条安排。`, "success");
     } catch (applyError) {
-      setError(applyError instanceof Error ? applyError.message : "导入失败。");
+      const message = applyError instanceof Error ? applyError.message : "导入失败。";
+      setError(message);
+      showToast(message, "error");
     } finally {
       setImporting(false);
     }

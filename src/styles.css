@@ -3722,6 +3722,56 @@ textarea {
   cursor: pointer;
 }
 
+.toast-host {
+  position: fixed;
+  z-index: 120;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  width: min(360px, calc(100vw - 28px));
+  gap: 8px;
+  pointer-events: none;
+}
+
+.app-toast {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+  pointer-events: auto;
+}
+
+.app-toast span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-toast.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.app-toast.error {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #991b1b;
+}
+
+.app-toast.info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
 .quick-entry-dialog,
 .mobile-nav-settings {
   display: flex;
@@ -4150,7 +4200,7 @@ textarea {
 }
 
 .ai-assistant-dialog {
-  grid-template-rows: auto auto minmax(0, 18px) minmax(300px, 48vh) auto;
+  grid-template-rows: auto auto minmax(330px, 56vh) auto;
 }
 
 .ai-assistant-capability {
@@ -4253,13 +4303,6 @@ textarea {
   border-color: rgb(255 255 255 / 34%);
   color: white;
   background: rgb(255 255 255 / 16%);
-}
-
-.assistant-feedback {
-  min-height: 16px;
-  margin: -4px 0;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .assistant-input {
@@ -4846,6 +4889,12 @@ textarea {
     padding: 14px 16px;
   }
 
+  .toast-host {
+    right: 12px;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    width: calc(100vw - 24px);
+  }
+
   .form-stack {
     gap: 12px;
   }
@@ -5062,7 +5111,7 @@ textarea {
   }
 
   .ai-assistant-dialog {
-    grid-template-rows: auto auto minmax(0, 18px) minmax(220px, 42vh) auto;
+    grid-template-rows: auto auto minmax(260px, 48vh) auto;
   }
 
   .assistant-input {

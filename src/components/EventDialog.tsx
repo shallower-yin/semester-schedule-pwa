@@ -11,6 +11,7 @@ import { deleteEventTemplate, loadEventTemplates, saveEventTemplate } from "../l
 import { hardDeleteEventsCascade } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
+import { showToast } from "../lib/toast";
 import type { EventItem, EventOccurrenceState, EventRecurrenceType, EventType, Memo } from "../types";
 import { Modal } from "./Modal";
 
@@ -278,6 +279,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   async function remove() {
     if (!eventItem || !window.confirm(`确定彻底删除${itemLabel}“${eventItem.title}”吗？相关完成状态和提醒记录会一并删除，且无法恢复。`)) return;
     await hardDeleteEventsCascade([eventItem.id]);
+    showToast(`已彻底删除${itemLabel}。`, "success");
     onClose();
   }
 
@@ -291,6 +293,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     };
     await db.events.put(record);
     await queueChange("events", record.id);
+    showToast(`已复制${itemLabel}。`, "success");
     onClose();
   }
 
@@ -300,6 +303,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     await db.eventOccurrenceStates.put(record);
     await queueChange("eventOccurrenceStates", record.id);
     setCompletionMessage(completed ? "已标记今天完成。" : "已标记今天未完成。");
+    showToast(completed ? "已标记今天完成。" : "已标记今天未完成。", "success");
   }
 
   async function createMemoFromEvent() {
@@ -317,6 +321,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     await db.memos.put(record);
     await queueChange("memos", record.id);
     setCompletionMessage("已转为备忘录。");
+    showToast("已转为备忘录。", "success");
   }
 
   return (

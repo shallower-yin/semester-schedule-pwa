@@ -21,6 +21,7 @@ import { formatMonthDay, toISODate } from "../lib/date";
 import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { enableNotifications } from "../lib/notifications";
+import { showToast } from "../lib/toast";
 import type { Anniversary, AnniversaryKind } from "../types";
 import { Modal } from "./Modal";
 
@@ -316,6 +317,7 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
   async function remove() {
     if (!anniversary || !window.confirm(`确定彻底删除“${anniversary.title}”吗？该日子的提醒记录会一并删除，且无法恢复。`)) return;
     await hardDeleteLocalRecord("anniversaries", anniversary.id);
+    showToast("日子已彻底删除。", "success");
     onClose();
   }
 

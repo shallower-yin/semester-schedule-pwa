@@ -6,6 +6,7 @@ import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
+import { showToast } from "../lib/toast";
 import type { EventItem, Memo, MemoFolder } from "../types";
 import { Modal } from "./Modal";
 
@@ -114,6 +115,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
       }
       await hardDeleteLocalRecord("memoFolders", folder.id);
     });
+    showToast("文件夹已彻底删除。", "success");
     selectFilter("all");
   }
 
@@ -137,8 +139,11 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     try {
       await hardDeleteLocalRecord("memos", memo.id);
       setMessage("备忘录已彻底删除。");
+      showToast("备忘录已彻底删除。", "success");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "彻底删除失败");
+      const message = error instanceof Error ? error.message : "彻底删除失败";
+      setMessage(message);
+      showToast(message, "error");
     }
   }
 
@@ -149,8 +154,11 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     try {
       await hardDeleteLocalRecords("memos", trashed.map((memo) => memo.id));
       setMessage(`已彻底删除 ${trashed.length} 条备忘录。`);
+      showToast(`已彻底删除 ${trashed.length} 条备忘录。`, "success");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "清空回收站失败");
+      const message = error instanceof Error ? error.message : "清空回收站失败";
+      setMessage(message);
+      showToast(message, "error");
     }
   }
 
@@ -178,6 +186,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     await db.events.put(eventItem);
     await queueChange("events", eventItem.id);
     setMessage(`已从“${memo.title}”创建今天事项。`);
+    showToast("已创建今天事项。", "success");
   }
 
   return (
@@ -461,6 +470,7 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   async function remove() {
     if (!memo || !window.confirm(`确定彻底删除备忘录“${memo.title}”吗？此操作无法恢复。`)) return;
     await hardDeleteLocalRecord("memos", memo.id);
+    showToast("备忘录已彻底删除。", "success");
     onClose();
   }
 

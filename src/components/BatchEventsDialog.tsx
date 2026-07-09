@@ -4,6 +4,7 @@ import { eventOccursOn, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
 import { hardDeleteEventsCascade } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { showToast } from "../lib/toast";
 import type { Category, EventItem, EventOccurrenceState } from "../types";
 import { Modal } from "./Modal";
 
@@ -32,6 +33,7 @@ export function BatchEventsDialog({ events, categories, occurrenceStates, onClos
       if (eventOccursOn(eventItem, today)) await setEventCompletedForDate(eventItem, occurrenceStates, today, true);
     }
     setMessage(`已标记 ${selectedEvents.length} 个事项/习惯。`);
+    showToast(`已标记 ${selectedEvents.length} 个事项/习惯。`, "success");
   }
 
   async function moveToDate() {
@@ -39,6 +41,7 @@ export function BatchEventsDialog({ events, categories, occurrenceStates, onClos
     if (!target) return;
     for (const eventItem of selectedEvents) await postponeEventToDate(eventItem, target);
     setMessage(`已移动 ${selectedEvents.length} 个事项/习惯到 ${target}。`);
+    showToast(`已移动 ${selectedEvents.length} 个事项/习惯到 ${target}。`, "success");
   }
 
   async function updateCategory() {
@@ -50,6 +53,7 @@ export function BatchEventsDialog({ events, categories, occurrenceStates, onClos
       }
     });
     setMessage(`已更新 ${selectedEvents.length} 个事项/习惯的分类。`);
+    showToast(`已更新 ${selectedEvents.length} 个事项/习惯的分类。`, "success");
   }
 
   async function deleteSelected() {
@@ -57,6 +61,7 @@ export function BatchEventsDialog({ events, categories, occurrenceStates, onClos
     await hardDeleteEventsCascade(selectedEvents.map((eventItem) => eventItem.id));
     setSelectedIds([]);
     setMessage("已彻底删除选中项。");
+    showToast("已彻底删除选中项。", "success");
   }
 
   return (
