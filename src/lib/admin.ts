@@ -21,6 +21,16 @@ export interface AdminAiUsage {
   totalTokens: number;
   estimatedCostCny: number | null;
   lastUsedAt: string | null;
+  today: AdminAiUsagePeriod;
+  month: AdminAiUsagePeriod;
+}
+
+export interface AdminAiUsagePeriod {
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  totalTokens: number;
+  estimatedCostCny: number | null;
 }
 
 export interface AdminUserCounts {
@@ -106,6 +116,16 @@ interface AdminListUserRow {
   ai_total_tokens: number | null;
   ai_estimated_cost_cny: number | string | null;
   ai_last_used_at: string | null;
+  ai_today_request_count: number | null;
+  ai_today_success_count: number | null;
+  ai_today_error_count: number | null;
+  ai_today_total_tokens: number | null;
+  ai_today_estimated_cost_cny: number | string | null;
+  ai_month_request_count: number | null;
+  ai_month_success_count: number | null;
+  ai_month_error_count: number | null;
+  ai_month_total_tokens: number | null;
+  ai_month_estimated_cost_cny: number | string | null;
 }
 
 type AiAccessRpcRow = {
@@ -157,7 +177,21 @@ export async function getAdminSummary(): Promise<AdminSummary> {
         completionTokens: row.ai_completion_tokens,
         totalTokens: row.ai_total_tokens,
         estimatedCostCny: row.ai_estimated_cost_cny,
-        lastUsedAt: row.ai_last_used_at
+        lastUsedAt: row.ai_last_used_at,
+        today: {
+          requestCount: row.ai_today_request_count,
+          successCount: row.ai_today_success_count,
+          errorCount: row.ai_today_error_count,
+          totalTokens: row.ai_today_total_tokens,
+          estimatedCostCny: row.ai_today_estimated_cost_cny
+        },
+        month: {
+          requestCount: row.ai_month_request_count,
+          successCount: row.ai_month_success_count,
+          errorCount: row.ai_month_error_count,
+          totalTokens: row.ai_month_total_tokens,
+          estimatedCostCny: row.ai_month_estimated_cost_cny
+        }
       })
     }))
   };
@@ -216,7 +250,20 @@ function normalizeAiUsage(row: Partial<Record<keyof AdminAiUsage, unknown>> | nu
     completionTokens: Number(row?.completionTokens ?? 0),
     totalTokens: Number(row?.totalTokens ?? 0),
     estimatedCostCny: estimatedCostCny == null ? null : Number(estimatedCostCny),
-    lastUsedAt: typeof row?.lastUsedAt === "string" ? row.lastUsedAt : null
+    lastUsedAt: typeof row?.lastUsedAt === "string" ? row.lastUsedAt : null,
+    today: normalizeAiUsagePeriod((row as { today?: unknown } | null | undefined)?.today),
+    month: normalizeAiUsagePeriod((row as { month?: unknown } | null | undefined)?.month)
+  };
+}
+
+function normalizeAiUsagePeriod(row: unknown): AdminAiUsagePeriod {
+  const record = row && typeof row === "object" ? row as Record<string, unknown> : {};
+  return {
+    requestCount: Number(record.requestCount ?? 0),
+    successCount: Number(record.successCount ?? 0),
+    errorCount: Number(record.errorCount ?? 0),
+    totalTokens: Number(record.totalTokens ?? 0),
+    estimatedCostCny: record.estimatedCostCny == null ? null : Number(record.estimatedCostCny)
   };
 }
 

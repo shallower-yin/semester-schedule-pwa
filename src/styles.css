@@ -1855,11 +1855,6 @@ textarea {
   gap: 8px;
 }
 
-.admin-ai-usage-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 14px 0;
-}
-
 .admin-stats-grid article {
   display: grid;
   gap: 2px;
@@ -1874,6 +1869,37 @@ textarea {
 }
 
 .admin-stats-grid span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-ai-usage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.admin-ai-usage-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.admin-ai-usage-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-ai-usage-card strong {
+  font-size: 18px;
+}
+
+.admin-ai-usage-card small {
   color: var(--muted);
   font-size: 12px;
 }
@@ -5067,6 +5093,10 @@ textarea {
   }
 
   .admin-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-ai-usage-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

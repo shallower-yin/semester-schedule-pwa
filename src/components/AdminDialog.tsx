@@ -193,7 +193,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                   课程 {user.counts.courses} · 事项 {user.counts.events} · 习惯 {user.counts.habits} · 纪念日 {user.counts.anniversaries}
                 </small>
                 <small>
-                  AI {user.aiUsage.requestCount} 次 · {formatTokenCount(user.aiUsage.totalTokens)} tokens · 最近 {formatDateTime(user.aiUsage.lastUsedAt)}
+                  AI 今日 {user.aiUsage.today.requestCount} 次 · 本月 {user.aiUsage.month.requestCount} 次 · 累计 {user.aiUsage.requestCount} 次
                 </small>
               </button>
             ))}
@@ -249,11 +249,15 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                   </div>
                 </section>
 
-                <div className="admin-stats-grid admin-ai-usage-grid">
-                  <article><strong>{selectedUser.aiUsage.requestCount}</strong><span>AI 使用次数</span></article>
-                  <article><strong>{formatTokenCount(selectedUser.aiUsage.totalTokens)}</strong><span>tokens</span></article>
-                  <article><strong>{formatCost(selectedUser.aiUsage.estimatedCostCny)}</strong><span>估算费用</span></article>
-                  <article><strong>{formatDateTime(selectedUser.aiUsage.lastUsedAt)}</strong><span>最近使用</span></article>
+                <div className="admin-ai-usage-summary">
+                  <AiUsageCard title="今日" requests={selectedUser.aiUsage.today.requestCount} tokens={selectedUser.aiUsage.today.totalTokens} cost={selectedUser.aiUsage.today.estimatedCostCny} />
+                  <AiUsageCard title="本月" requests={selectedUser.aiUsage.month.requestCount} tokens={selectedUser.aiUsage.month.totalTokens} cost={selectedUser.aiUsage.month.estimatedCostCny} />
+                  <AiUsageCard title="累计" requests={selectedUser.aiUsage.requestCount} tokens={selectedUser.aiUsage.totalTokens} cost={selectedUser.aiUsage.estimatedCostCny} />
+                  <article className="admin-ai-usage-card">
+                    <span>最近使用</span>
+                    <strong>{formatDateTime(selectedUser.aiUsage.lastUsedAt)}</strong>
+                    <small>成功 {selectedUser.aiUsage.successCount} · 失败 {selectedUser.aiUsage.errorCount}</small>
+                  </article>
                 </div>
 
                 {detailLoading ? <p>正在读取用户数据...</p> : details && details.user.id === selectedUser.id && (
@@ -284,6 +288,16 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+function AiUsageCard({ title, requests, tokens, cost }: { title: string; requests: number; tokens: number; cost: number | null }) {
+  return (
+    <article className="admin-ai-usage-card">
+      <span>{title}</span>
+      <strong>{requests} 次</strong>
+      <small>{formatTokenCount(tokens)} · {formatCost(cost)}</small>
+    </article>
   );
 }
 

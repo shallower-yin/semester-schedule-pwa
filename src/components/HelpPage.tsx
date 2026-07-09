@@ -8,7 +8,9 @@ import {
   FileText,
   GraduationCap,
   NotebookText,
+  RefreshCw,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Target
 } from "lucide-react";
@@ -69,6 +71,24 @@ const guideSections = [
     ]
   },
   {
+    title: "隐私与数据",
+    icon: <ShieldCheck size={18} />,
+    items: [
+      "日程数据优先保存在当前设备，登录后会同步到你的账号云端。",
+      "AI 助手只读取当前账号的日程摘要、纪念日、备忘录预览、专注统计和你输入的问题。",
+      "删除操作会彻底删除对应数据；跨设备数据会在同步后一起删除。"
+    ]
+  },
+  {
+    title: "安装与更新",
+    icon: <Smartphone size={18} />,
+    items: [
+      "安卓 Chrome 可通过浏览器菜单添加到主屏幕。",
+      "Windows Edge 或 Chrome 可通过安装入口保存为独立应用。",
+      "更新没生效时，在设置里使用应用版本或清缓存重载。"
+    ]
+  },
+  {
     title: "AI 与权限",
     icon: <Bot size={18} />,
     items: [
@@ -121,10 +141,11 @@ export function HelpPage() {
         <ShieldCheck size={18} />
         <div>
           <strong>数据优先保存在本机</strong>
-          <span>联网并登录后会自动同步。长期使用建议偶尔主动导出 JSON 备份。</span>
+          <span>联网并登录后会自动同步。长期使用建议偶尔主动导出备份文件。</span>
         </div>
         <Database size={18} />
         <CheckCircle2 size={18} />
+        <RefreshCw size={18} />
       </section>
     </section>
   );
