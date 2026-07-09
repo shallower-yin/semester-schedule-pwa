@@ -6,12 +6,13 @@ interface ModalProps extends PropsWithChildren {
   onClose: () => void;
   wide?: boolean;
   headerExtra?: ReactNode;
+  className?: string;
 }
 
-export function Modal({ title, onClose, wide = false, headerExtra, children }: ModalProps) {
+export function Modal({ title, onClose, wide = false, headerExtra, className = "", children }: ModalProps) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className={`modal ${wide ? "modal-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+      <section className={`modal ${wide ? "modal-wide" : ""} ${className}`.trim()} role="dialog" aria-modal="true" aria-label={title}>
         <header className="modal-header">
           <div className="modal-title-row">
             <h2>{title}</h2>

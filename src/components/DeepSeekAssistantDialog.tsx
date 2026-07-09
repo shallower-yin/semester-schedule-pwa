@@ -108,6 +108,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       title="AI 助手"
       onClose={onClose}
       wide
+      className="ai-assistant-modal"
       headerExtra={(
         <label className="ai-header-access-code">
           <KeyRound size={14} />
