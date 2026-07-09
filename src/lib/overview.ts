@@ -136,6 +136,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
     return endedAt >= weekStart && endedAt < nextWeekStart;
   });
   const sortedItems = [...eventItems, ...courseItems].sort((left, right) => {
+    if (left.completed !== right.completed) return left.completed ? 1 : -1;
     const timeCompare = left.sortTime.localeCompare(right.sortTime);
     if (timeCompare !== 0) return timeCompare;
     return left.title.localeCompare(right.title, "zh-Hans-CN");

@@ -1064,34 +1064,44 @@ main {
   border-radius: 10px;
 }
 
-.semester-list button {
+.semester-list-row {
   display: flex;
-  min-height: 58px;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 13px;
-  border: 0;
   border-bottom: 1px solid #e9edf3;
-  text-align: left;
   background: white;
-  cursor: pointer;
 }
 
-.semester-list button:last-child {
+.semester-list-row:last-child {
   border-bottom: 0;
 }
 
-.semester-list button:hover {
+.semester-list-row:hover {
   background: #f8faff;
 }
 
-.semester-list button.active {
+.semester-list-row.active {
   color: var(--primary);
   background: #f1f5ff;
 }
 
-.semester-list button > span:first-child {
+.semester-list-main {
   display: flex;
+  min-height: 58px;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 13px;
+  border: 0;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.semester-list-main > span:first-child {
+  display: flex;
+  min-width: 0;
   flex-direction: column;
 }
 
@@ -1100,9 +1110,17 @@ main {
   color: var(--muted);
 }
 
-.semester-list button > span:last-child {
+.semester-list-main > span:last-child {
+  flex: 0 0 auto;
   font-size: 12px;
   font-weight: 700;
+}
+
+.semester-list-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding-right: 8px;
 }
 
 .empty-state {

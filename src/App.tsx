@@ -18,6 +18,7 @@ import {
   LogIn,
   Menu,
   NotebookText,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -27,6 +28,7 @@ import {
   Sparkles,
   Palette,
   Target,
+  Trash2,
   UserRound,
   WifiOff,
   X
@@ -75,6 +77,7 @@ import {
 import { uniqueCategoriesByName } from "./lib/categories";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
+import { deleteSemesterCascade } from "./lib/semesters";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
 import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
@@ -581,6 +584,13 @@ export default function App() {
     setAnchorDate(new Date());
   }
 
+  async function deleteSemester(target: Semester) {
+    const confirmed = window.confirm(`确定删除“${target.name}”吗？该学期下的课程、节次、课程安排和停课标记会一并删除；普通事项、习惯、纪念日和备忘录不受影响。`);
+    if (!confirmed) return;
+    await deleteSemesterCascade(target.id);
+    if (semester?.id === target.id) setAnchorDate(new Date());
+  }
+
   const navItems: Array<{ id: PageId; label: string; icon: ReactNode }> = [
     { id: "today", label: "今天", icon: <CalendarCheck2 size={19} /> },
     { id: "calendar", label: "日程", icon: <CalendarDays size={19} /> },
@@ -828,10 +838,20 @@ export default function App() {
               </div>
               <div className="semester-list">
                 {semesters.map((item) => (
-                  <button key={item.id} className={item.is_current ? "active" : ""} onClick={() => void activateSemester(item)}>
-                    <span><strong>{item.name}</strong><small>{item.start_date} · {item.total_weeks} 周</small></span>
-                    <span>{item.is_current ? "当前" : "切换"}</span>
-                  </button>
+                  <div key={item.id} className={`semester-list-row ${item.is_current ? "active" : ""}`}>
+                    <button className="semester-list-main" onClick={() => void activateSemester(item)}>
+                      <span><strong>{item.name}</strong><small>{item.start_date} · {item.total_weeks} 周</small></span>
+                      <span>{item.is_current ? "当前" : "切换"}</span>
+                    </button>
+                    <div className="semester-list-actions">
+                      <button type="button" className="icon-button" aria-label={`编辑${item.name}`} onClick={() => setSemesterToEdit(item)}>
+                        <Pencil size={15} />
+                      </button>
+                      <button type="button" className="icon-button danger" aria-label={`删除${item.name}`} onClick={() => void deleteSemester(item)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
                 ))}
                 {!semesters.length && <p className="muted-note">暂无学期。非学生用户可以忽略这里，直接在日程里添加事项。</p>}
               </div>

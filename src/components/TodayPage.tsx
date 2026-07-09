@@ -1,7 +1,7 @@
 import { AlertCircle, CalendarCheck2, CalendarHeart, CheckCircle2, Clock3, Edit3, Target } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
-import { anniversaryKindLabel, daysUntilAnniversary, nextAnniversaryOccurrence } from "../lib/anniversaries";
+import { daysUntilAnniversary, nextAnniversaryOccurrence } from "../lib/anniversaries";
 import { addDays, formatMonthDay, parseLocalDate, startOfWeek, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
 import { formatFocusDuration } from "../lib/focus";
@@ -195,7 +195,7 @@ function TodayAnniversaryReminders({ items, onOpen }: { items: TodayAnniversaryR
         >
           <CalendarHeart size={14} />
           <span className="today-anniversary-text">
-            <small>{anniversaryKindLabel(item.anniversary.kind)} · {formatMonthDay(item.occurrence)}</small>
+            <small>{formatMonthDay(item.occurrence)}</small>
             <strong>{item.anniversary.title}</strong>
           </span>
           <span className="today-anniversary-days">
