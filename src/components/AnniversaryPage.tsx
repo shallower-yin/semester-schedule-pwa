@@ -18,6 +18,7 @@ import {
   yearsSinceAnniversary
 } from "../lib/anniversaries";
 import { formatMonthDay, toISODate } from "../lib/date";
+import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { enableNotifications } from "../lib/notifications";
 import type { Anniversary, AnniversaryKind } from "../types";
@@ -313,9 +314,8 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
   }
 
   async function remove() {
-    if (!anniversary || !window.confirm(`删除“${anniversary.title}”？`)) return;
-    await db.anniversaries.put({ ...anniversary, ...syncFields(anniversary), deleted_at: new Date().toISOString() });
-    await queueChange("anniversaries", anniversary.id, "delete");
+    if (!anniversary || !window.confirm(`确定彻底删除“${anniversary.title}”吗？该日子的提醒记录会一并删除，且无法恢复。`)) return;
+    await hardDeleteLocalRecord("anniversaries", anniversary.id);
     onClose();
   }
 
@@ -356,7 +356,7 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
         <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         {message && <p className={message.includes("失败") || message.includes("请") || message.includes("不支持") ? "auth-message error" : "auth-message"}>{message}</p>}
         <div className="form-actions split">
-          <div>{anniversary && <button type="button" className="button danger-button" onClick={() => void remove()}><Trash2 size={16} />删除</button>}</div>
+          <div>{anniversary && <button type="button" className="button danger-button" onClick={() => void remove()}><Trash2 size={16} />彻底删除</button>}</div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>
             <button className="button primary" disabled={saving || enablingReminder}>

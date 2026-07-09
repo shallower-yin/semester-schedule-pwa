@@ -10,6 +10,7 @@ import {
   type ImportedCourseSchedule,
   type ImportedTimetable
 } from "../lib/schoolTimetableImport";
+import { hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import type { ClassPeriod, Course, CourseSchedule, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
@@ -109,7 +110,7 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
       setError("请先指定第一周第一天的日期。");
       return;
     }
-    if (importMode === "replace" && !window.confirm("将替换当前学期已有课程和课程安排，普通事项不会删除。继续导入？")) return;
+    if (importMode === "replace" && !window.confirm("将彻底删除当前学期已有课程、课程安排和停课标记，再导入新课表；普通事项不会删除。继续导入？")) return;
     setImporting(true);
     setMessage("");
     setError("");
@@ -184,7 +185,7 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
                 导入模式
                 <select value={importMode} onChange={(event) => setImportMode(event.target.value as ImportMode)}>
                   <option value="merge">合并防重复：更新已有课程并补充新安排</option>
-                  <option value="replace">替换当前学期课表：先软删除旧课程再导入</option>
+                  <option value="replace">替换当前学期课表：彻底删除旧课程再导入</option>
                   <option value="append">仅追加：不检查重复，全部作为新课程导入</option>
                 </select>
                 <small>默认建议使用“合并防重复”。如果学校课表整体变动很大，再使用“替换”。</small>
@@ -377,7 +378,6 @@ export async function applyTimetableImport(
   const courseGroups = groupCourses(timetable.schedules, semester.id, timetable.termName);
   const maxWeek = Math.max(semester.total_weeks, ...timetable.schedules.flatMap((schedule) => schedule.weeks));
   const periodBlocks = options.updatePeriods ? buildClassPeriodBlocks(semester.id, timetable.periods) : [];
-  const deletedAt = new Date().toISOString();
   let replacedCourses = false;
   let updatedSemester = false;
   let createdCourses = 0;
@@ -411,27 +411,15 @@ export async function applyTimetableImport(
       const existingScheduleIds = new Set(existingSchedules.map((schedule) => schedule.id));
       const existingCancellations = await db.courseCancellations.filter((item) => existingScheduleIds.has(item.course_schedule_id) && !item.deleted_at).toArray();
 
-      for (const cancellation of existingCancellations) {
-        await db.courseCancellations.put({ ...cancellation, ...syncFields(cancellation), deleted_at: deletedAt });
-        await queueChange("courseCancellations", cancellation.id, "delete");
-      }
-      for (const schedule of existingSchedules) {
-        await db.courseSchedules.put({ ...schedule, ...syncFields(schedule), deleted_at: deletedAt });
-        await queueChange("courseSchedules", schedule.id, "delete");
-      }
-      for (const course of activeCourses) {
-        await db.courses.put({ ...course, ...syncFields(course), deleted_at: deletedAt });
-        await queueChange("courses", course.id, "delete");
-      }
+      await hardDeleteLocalRecords("courseCancellations", existingCancellations.map((item) => item.id));
+      await hardDeleteLocalRecords("courseSchedules", existingSchedules.map((item) => item.id));
+      await hardDeleteLocalRecords("courses", activeCourses.map((item) => item.id));
       replacedCourses = activeCourses.length > 0;
     }
 
     if (options.updatePeriods) {
       const existingPeriods = await db.classPeriods.where("semester_id").equals(semester.id).toArray();
-      for (const period of existingPeriods.filter((item) => !item.deleted_at)) {
-        await db.classPeriods.put({ ...period, ...syncFields(period), deleted_at: deletedAt });
-        await queueChange("classPeriods", period.id, "delete");
-      }
+      await hardDeleteLocalRecords("classPeriods", existingPeriods.filter((item) => !item.deleted_at).map((item) => item.id));
       for (const block of periodBlocks) {
         await db.classPeriods.put(block);
         await queueChange("classPeriods", block.id);

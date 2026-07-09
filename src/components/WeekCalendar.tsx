@@ -12,6 +12,7 @@ import {
 } from "../lib/date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { eventOccurrenceMatchesStatus, type EventStatusFilter } from "../lib/eventStatusFilter";
+import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { buildDisplayRows, rowRangeForTime } from "../lib/timeBlocks";
 import type {
@@ -93,8 +94,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
     );
     if (existing) {
       if (!window.confirm(`恢复 ${formatMonthDay(date)} 的“${courseName}”课程？`)) return;
-      await db.courseCancellations.put({ ...existing, ...syncFields(existing), deleted_at: new Date().toISOString() });
-      await queueChange("courseCancellations", existing.id, "delete");
+      await hardDeleteLocalRecord("courseCancellations", existing.id);
       return;
     }
     if (!window.confirm(`将 ${formatMonthDay(date)} 的“${courseName}”标记为停课？`)) return;

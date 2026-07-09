@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { db, queueChange } from "../db";
 import { eventOccursOn, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
+import { hardDeleteEventsCascade } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import type { Category, EventItem, EventOccurrenceState } from "../types";
 import { Modal } from "./Modal";
@@ -52,17 +53,10 @@ export function BatchEventsDialog({ events, categories, occurrenceStates, onClos
   }
 
   async function deleteSelected() {
-    if (!window.confirm(`删除选中的 ${selectedEvents.length} 个事项/习惯？`)) return;
-    const deletedAt = new Date().toISOString();
-    await db.transaction("rw", db.events, db.syncQueue, async () => {
-      for (const eventItem of selectedEvents) {
-        const deleted = { ...eventItem, ...syncFields(eventItem), deleted_at: deletedAt };
-        await db.events.put(deleted);
-        await queueChange("events", deleted.id, "delete");
-      }
-    });
+    if (!window.confirm(`确定彻底删除选中的 ${selectedEvents.length} 个事项/习惯吗？相关完成状态和提醒记录会一并删除，且无法恢复。`)) return;
+    await hardDeleteEventsCascade(selectedEvents.map((eventItem) => eventItem.id));
     setSelectedIds([]);
-    setMessage("已删除选中项。");
+    setMessage("已彻底删除选中项。");
   }
 
   return (

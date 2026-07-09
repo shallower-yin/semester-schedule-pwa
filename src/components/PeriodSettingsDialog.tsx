@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Coffee, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { db, queueChange } from "../db";
 import { WEEKDAY_NAMES } from "../data/defaults";
+import { hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import type { ClassPeriod, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
@@ -141,12 +142,7 @@ export function PeriodSettingsDialog({ semester, onClose }: PeriodSettingsDialog
           await queueChange("classPeriods", record.id);
         }
       }
-      for (const id of removedIds) {
-        const existing = await db.classPeriods.get(id);
-        if (!existing) continue;
-        await db.classPeriods.put({ ...existing, ...syncFields(existing), deleted_at: new Date().toISOString() });
-        await queueChange("classPeriods", id, "delete");
-      }
+      await hardDeleteLocalRecords("classPeriods", removedIds);
     });
     setSaving(false);
     onClose();

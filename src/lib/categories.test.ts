@@ -72,7 +72,7 @@ describe("分类去重", () => {
 
     expect(await deduplicateCategories(userId)).toBe(1);
     expect((await db.events.get("55555555-5555-4555-8555-555555555555"))?.category_id).toBe(keeper.id);
-    expect((await db.categories.get(duplicate.id))?.deleted_at).not.toBeNull();
+    expect(await db.categories.get(duplicate.id)).toBeUndefined();
     expect(await db.syncQueue.count()).toBe(2);
   });
 });

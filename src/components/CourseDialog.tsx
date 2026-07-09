@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { db, queueChange } from "../db";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { findCourseEventConflicts, findCourseScheduleConflicts } from "../lib/conflicts";
+import { hardDeleteCoursesCascade, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import type { Course, CourseSchedule, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
@@ -150,14 +151,19 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
         return;
       }
     }
-    await db.transaction("rw", db.courses, db.courseSchedules, db.syncQueue, async () => {
+    await db.transaction("rw", db.courses, db.courseSchedules, db.courseCancellations, db.syncQueue, async () => {
       await db.courses.put(courseRecord);
       await queueChange("courses", courseRecord.id);
       const oldSchedules = course ? await db.courseSchedules.where("course_id").equals(course.id).toArray() : [];
       const retainedIds = new Set(schedules.flatMap((item) => (item.id ? [item.id] : [])));
-      for (const old of oldSchedules.filter((item) => !retainedIds.has(item.id))) {
-        await db.courseSchedules.put({ ...old, ...syncFields(old), deleted_at: new Date().toISOString() });
-        await queueChange("courseSchedules", old.id, "delete");
+      const removedScheduleIds = oldSchedules.filter((item) => !retainedIds.has(item.id)).map((item) => item.id);
+      if (removedScheduleIds.length) {
+        const removedScheduleIdSet = new Set(removedScheduleIds);
+        const cancellations = await db.courseCancellations
+          .filter((item) => removedScheduleIdSet.has(item.course_schedule_id))
+          .toArray();
+        await hardDeleteLocalRecords("courseCancellations", cancellations.map((item) => item.id));
+        await hardDeleteLocalRecords("courseSchedules", removedScheduleIds);
       }
       for (const item of schedules) {
         const existing = oldSchedules.find((old) => old.id === item.id);
@@ -178,17 +184,8 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
   }
 
   async function removeCourse() {
-    if (!course || !window.confirm(`删除课程“${course.name}”？`)) return;
-    const deletedAt = new Date().toISOString();
-    await db.transaction("rw", db.courses, db.courseSchedules, db.syncQueue, async () => {
-      await db.courses.put({ ...course, ...syncFields(course), deleted_at: deletedAt });
-      await queueChange("courses", course.id, "delete");
-      const childSchedules = await db.courseSchedules.where("course_id").equals(course.id).toArray();
-      for (const child of childSchedules) {
-        await db.courseSchedules.put({ ...child, ...syncFields(child), deleted_at: deletedAt });
-        await queueChange("courseSchedules", child.id, "delete");
-      }
-    });
+    if (!course || !window.confirm(`确定彻底删除课程“${course.name}”吗？该课程的上课安排和停课标记会一并删除，且无法恢复。`)) return;
+    await hardDeleteCoursesCascade([course.id]);
     onClose();
   }
 
@@ -262,7 +259,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
         {message && <p className="auth-message">{message}</p>}
 
         <div className="form-actions split">
-          <div>{course && <button type="button" className="button danger-button" onClick={removeCourse}>删除课程</button>}</div>
+          <div>{course && <button type="button" className="button danger-button" onClick={removeCourse}>彻底删除课程</button>}</div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>
             <button className="button primary" disabled={saving}>{saving ? "保存中…" : "保存课程"}</button>

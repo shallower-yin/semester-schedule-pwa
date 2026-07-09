@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
+import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
-import { supabase } from "../lib/supabase";
 import type { EventItem, Memo, MemoFolder } from "../types";
 import { Modal } from "./Modal";
 
@@ -104,17 +104,15 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
   }
 
   async function removeFolder(folder: MemoFolder) {
-    if (!window.confirm(`删除文件夹“${folder.name}”？文件夹内备忘录会移到“全部”。`)) return;
+    if (!window.confirm(`确定彻底删除文件夹“${folder.name}”吗？文件夹内备忘录会移到“全部”，文件夹本身无法恢复。`)) return;
     await db.transaction("rw", db.memoFolders, db.memos, db.syncQueue, async () => {
-      const deletedFolder = { ...folder, ...syncFields(folder), deleted_at: new Date().toISOString() };
-      await db.memoFolders.put(deletedFolder);
-      await queueChange("memoFolders", deletedFolder.id, "delete");
       const folderMemos = await db.memos.where("folder_id").equals(folder.id).filter((memo) => memo.user_id === ownerId && !memo.deleted_at).toArray();
       for (const memo of folderMemos) {
         const updated = { ...memo, ...syncFields(memo), deleted_at: memo.deleted_at, folder_id: null };
         await db.memos.put(updated);
         await queueChange("memos", updated.id);
       }
+      await hardDeleteLocalRecord("memoFolders", folder.id);
     });
     selectFilter("all");
   }
@@ -137,16 +135,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
   async function permanentlyDeleteMemo(memo: Memo) {
     if (!window.confirm(`彻底删除备忘录“${memo.title}”？此操作不会进入回收站。`)) return;
     try {
-      await permanentlyDeleteRemoteRow("memos", memo.id, memo.user_id);
-      await db.transaction("rw", db.memos, db.syncQueue, async () => {
-        await db.memos.delete(memo.id);
-        const queued = await db.syncQueue
-          .where("table_name")
-          .equals("memos")
-          .and((item) => item.record_id === memo.id)
-          .toArray();
-        await db.syncQueue.bulkDelete(queued.map((item) => item.id));
-      });
+      await hardDeleteLocalRecord("memos", memo.id);
       setMessage("备忘录已彻底删除。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "彻底删除失败");
@@ -158,12 +147,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     if (!trashed.length) return;
     if (!window.confirm(`彻底删除回收站中的 ${trashed.length} 条备忘录？`)) return;
     try {
-      for (const memo of trashed) await permanentlyDeleteRemoteRow("memos", memo.id, memo.user_id);
-      await db.transaction("rw", db.memos, db.syncQueue, async () => {
-        await db.memos.bulkDelete(trashed.map((memo) => memo.id));
-        const queued = await db.syncQueue.where("table_name").equals("memos").toArray();
-        await db.syncQueue.bulkDelete(queued.filter((item) => trashed.some((memo) => memo.id === item.record_id)).map((item) => item.id));
-      });
+      await hardDeleteLocalRecords("memos", trashed.map((memo) => memo.id));
       setMessage(`已彻底删除 ${trashed.length} 条备忘录。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "清空回收站失败");
@@ -266,9 +250,11 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
               </span>
             </button>
           ))}
-          <button className={filter === "trash" ? "active" : ""} onClick={() => selectFilter("trash")}>
-            <Trash2 size={18} /><span>回收站</span><small>{trashMemoCount}</small>
-          </button>
+          {trashMemoCount > 0 && (
+            <button className={filter === "trash" ? "active" : ""} onClick={() => selectFilter("trash")}>
+              <Trash2 size={18} /><span>历史回收站</span><small>{trashMemoCount}</small>
+            </button>
+          )}
         </div>
       </aside>
 
@@ -348,8 +334,8 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
         ) : (
           <div className="empty-state compact-empty">
             <FileText size={34} />
-            <h2>{filter === "trash" ? "回收站为空" : "还没有备忘录"}</h2>
-            <p>{filter === "trash" ? "删除的备忘录会在这里保留。" : "新增一条备忘录，用来保存想法、材料或复习笔记。"}</p>
+            <h2>{filter === "trash" ? "历史回收站为空" : "还没有备忘录"}</h2>
+            <p>{filter === "trash" ? "现在删除会直接彻底删除，不再进入回收站。" : "新增一条备忘录，用来保存想法、材料或复习笔记。"}</p>
           </div>
         )}
       </div>
@@ -428,14 +414,6 @@ function MemoCard({ memo, mode, onEdit, onRestore, onDelete, onCreateEvent }: Me
   );
 }
 
-async function permanentlyDeleteRemoteRow(table: "memos" | "memo_folders", id: string, userId: string) {
-  if (userId === "local") return;
-  if (!navigator.onLine) throw new Error("当前离线，无法彻底删除云端记录。请联网后重试。");
-  if (!supabase) throw new Error("云端未配置，无法彻底删除已登录账号的数据。");
-  const { error } = await supabase.from(table).delete().eq("id", id).eq("user_id", userId);
-  if (error) throw new Error(`${table} 云端彻底删除失败：${error.message}`);
-}
-
 interface MemoDialogProps {
   folders: MemoFolder[];
   memo?: Memo;
@@ -481,9 +459,8 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   }
 
   async function remove() {
-    if (!memo || !window.confirm(`删除备忘录“${memo.title}”？`)) return;
-    await db.memos.put({ ...memo, ...syncFields(memo), deleted_at: new Date().toISOString() });
-    await queueChange("memos", memo.id, "delete");
+    if (!memo || !window.confirm(`确定彻底删除备忘录“${memo.title}”吗？此操作无法恢复。`)) return;
+    await hardDeleteLocalRecord("memos", memo.id);
     onClose();
   }
 
@@ -568,7 +545,7 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
         </div>
         {message && <p className="auth-message error">{message}</p>}
         <div className="form-actions split">
-          <div>{memo && <button type="button" className="button danger-button" onClick={() => void remove()}>删除备忘录</button>}</div>
+          <div>{memo && <button type="button" className="button danger-button" onClick={() => void remove()}>彻底删除备忘录</button>}</div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>
             <button className="button primary">保存备忘录</button>

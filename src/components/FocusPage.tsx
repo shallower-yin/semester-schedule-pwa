@@ -12,6 +12,7 @@ import {
   totalFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
+import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
 import { Modal } from "./Modal";
@@ -198,11 +199,9 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   }
 
   async function deleteSession(session: FocusSession) {
-    if (!window.confirm(`删除专注记录“${session.task_title || focusModeLabel(session.mode)}”？`)) return;
-    const updated = { ...session, ...syncFields(session), deleted_at: new Date().toISOString() };
-    await db.focusSessions.put(updated);
-    await queueChange("focusSessions", updated.id, "delete");
-    setMessage("专注记录已删除。");
+    if (!window.confirm(`确定彻底删除专注记录“${session.task_title || focusModeLabel(session.mode)}”吗？此操作无法恢复。`)) return;
+    await hardDeleteLocalRecord("focusSessions", session.id);
+    setMessage("专注记录已彻底删除。");
   }
 
   return (

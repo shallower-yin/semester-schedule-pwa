@@ -8,6 +8,7 @@ import { addDays, parseLocalDate, toISODate } from "../lib/date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { validateEventDraft } from "../lib/eventValidation";
 import { deleteEventTemplate, loadEventTemplates, saveEventTemplate } from "../lib/eventTemplates";
+import { hardDeleteEventsCascade } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
 import type { EventItem, EventOccurrenceState, EventRecurrenceType, EventType, Memo } from "../types";
@@ -275,9 +276,8 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   }
 
   async function remove() {
-    if (!eventItem || !window.confirm(`删除${itemLabel}“${eventItem.title}”？`)) return;
-    await db.events.put({ ...eventItem, ...syncFields(eventItem), deleted_at: new Date().toISOString() });
-    await queueChange("events", eventItem.id, "delete");
+    if (!eventItem || !window.confirm(`确定彻底删除${itemLabel}“${eventItem.title}”吗？相关完成状态和提醒记录会一并删除，且无法恢复。`)) return;
+    await hardDeleteEventsCascade([eventItem.id]);
     onClose();
   }
 
