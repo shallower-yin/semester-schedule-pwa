@@ -722,7 +722,7 @@ main {
   z-index: 2;
   min-width: 0;
   margin: 3px 4px;
-  padding: 7px 24px 7px 8px;
+  padding: 7px 10px 7px 8px;
   overflow: hidden;
   border-radius: 7px;
   text-align: left;
@@ -769,6 +769,13 @@ main {
   text-decoration: line-through;
 }
 
+.event-entry.completed .entry-time,
+.event-entry.completed .entry-location,
+.event-entry.completed .entry-category,
+.event-entry.completed .entry-reminder {
+  color: #7b8798;
+}
+
 .all-day-entry {
   margin: 5px;
   padding-top: 5px;
@@ -811,16 +818,6 @@ main {
   display: flex;
   align-items: center;
   gap: 3px;
-}
-
-.entry-status {
-  display: inline-flex;
-  width: fit-content;
-  padding: 2px 6px;
-  border-radius: 999px;
-  color: #2f6846;
-  background: #e8f6ee;
-  font-weight: 750;
 }
 
 .entry-category {
@@ -4915,6 +4912,10 @@ textarea {
     white-space: normal;
   }
 
+  .event-entry.day-column.mobile-selected .entry-category {
+    display: none;
+  }
+
   .event-entry.day-column.mobile-selected .entry-status,
   .event-entry.day-column.mobile-selected .entry-reminder,
   .event-entry.day-column.mobile-selected .entry-icon-button {
@@ -4944,13 +4945,17 @@ textarea {
     display: none;
   }
 
+  .calendar-entry.day-column.mobile-selected.overlap-three,
   .calendar-entry.day-column.mobile-selected.overlap-many {
-    min-height: 44px;
+    align-self: start;
+    min-height: 30px;
     padding: 6px 7px;
     border-left-width: 4px;
     border-radius: 9px;
+    box-shadow: 0 3px 10px rgb(30 48 88 / 10%);
   }
 
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-title,
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-title {
     display: -webkit-box;
     overflow: hidden;
@@ -4961,8 +4966,13 @@ textarea {
     white-space: normal;
   }
 
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-location,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-category,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-meta,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-reminder,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-status,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-icon-button,
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-meta,
-  .calendar-entry.day-column.mobile-selected.overlap-many .entry-time,
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-location,
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-category,
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-reminder,

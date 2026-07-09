@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { weekDates } from "../lib/date";
-import type { ClassPeriod, EventItem, Semester } from "../types";
+import type { ClassPeriod, EventItem, EventOccurrenceState, Semester } from "../types";
 import { WeekCalendar } from "./WeekCalendar";
 
 const baseFields = {
@@ -94,6 +94,44 @@ describe("周视图移动端新增事项", () => {
     expect(second).toHaveStyle("width: calc((100% - 4px) / 2)");
   });
 
+  it("手机端三个及以上同时间事项改为纵向短条", () => {
+    const onAddEvent = vi.fn();
+    renderWeekCalendar(onAddEvent, [
+      eventRecord("event-a", "重叠事项 A"),
+      eventRecord("event-b", "重叠事项 B"),
+      eventRecord("event-c", "重叠事项 C")
+    ]);
+
+    const first = screen.getByText("重叠事项 A").closest("article");
+    const third = screen.getByText("重叠事项 C").closest("article");
+
+    expect(first).toHaveClass("overlap-three");
+    expect(third).toHaveClass("overlap-three");
+    expect(first).toHaveStyle("width: calc(100% - 12px)");
+    expect(third).toHaveStyle("transform: translateY(104px)");
+  });
+
+  it("事项卡片保留地点，完成后只用标题删除线表达状态", () => {
+    const onAddEvent = vi.fn();
+    const eventItem = eventRecord("event-location", "图书馆自习", { location: "图书馆二楼" });
+    const state: EventOccurrenceState = {
+      ...baseFields,
+      id: "state-1",
+      event_id: eventItem.id,
+      occurrence_date: "2026-07-06",
+      completed: true,
+      reminder_sent_at: null
+    };
+    renderWeekCalendar(onAddEvent, [eventItem], semester, periods, [state]);
+
+    const card = screen.getByText("图书馆自习").closest("article");
+
+    expect(screen.getByText("图书馆二楼")).toBeInTheDocument();
+    expect(card).toHaveClass("completed");
+    expect(screen.queryByText("已完成")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "标记为未完成" })).not.toBeInTheDocument();
+  });
+
   it("没有学期时仍能显示普通事项并点击空白时间新增", () => {
     const onAddEvent = vi.fn();
     renderWeekCalendar(onAddEvent, [eventRecord("event-no-semester", "无学期事项")], null, []);
@@ -110,7 +148,8 @@ function renderWeekCalendar(
   onAddEvent: ReturnType<typeof vi.fn>,
   events: EventItem[] = [],
   activeSemester: Semester | null = semester,
-  activePeriods: ClassPeriod[] = periods
+  activePeriods: ClassPeriod[] = periods,
+  occurrenceStates: EventOccurrenceState[] = []
 ) {
   render(
     <WeekCalendar
@@ -122,7 +161,7 @@ function renderWeekCalendar(
       events={events}
       eventStatusFilter="all"
       categories={[]}
-      occurrenceStates={[]}
+      occurrenceStates={occurrenceStates}
       periods={activePeriods}
       selectedDay={0}
       onSelectedDayChange={vi.fn()}
@@ -133,7 +172,7 @@ function renderWeekCalendar(
   );
 }
 
-function eventRecord(id: string, title: string): EventItem {
+function eventRecord(id: string, title: string, overrides: Partial<EventItem> = {}): EventItem {
   return {
     ...baseFields,
     id,
@@ -152,7 +191,8 @@ function eventRecord(id: string, title: string): EventItem {
     recurrence_interval: 1,
     reminder_enabled: false,
     reminder_minutes_before: 10,
-    timezone: "Asia/Shanghai"
+    timezone: "Asia/Shanghai",
+    ...overrides
   };
 }
 
