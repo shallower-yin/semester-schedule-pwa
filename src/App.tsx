@@ -95,7 +95,8 @@ import {
   type BeforeInstallPromptEvent
 } from "./lib/pwaInstall";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { adoptAnonymousData, getLastSync, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
+import { adoptAnonymousData, getLastSync, getSyncHealth, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
+import { buildSyncStatus } from "./lib/syncStatus";
 import type { Anniversary, Course, EventItem, EventType, Memo, PageId, Semester } from "./types";
 
 type Page = PageId;
@@ -225,6 +226,7 @@ export default function App() {
     [semester?.id, ownerId]
   ) ?? [];
   const pendingChanges = useLiveQuery(() => db.syncQueue.count(), []) ?? 0;
+  const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, syncMessage, syncing, user?.id]) ?? null;
 
   const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
   const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
@@ -659,63 +661,18 @@ export default function App() {
     .sort((left, right) => mobileNavItems.indexOf(left.id) - mobileNavItems.indexOf(right.id));
   const lastBackupText = formatBackupDateTime(lastBackupAt);
   const syncSummary = useMemo(() => {
-    const pendingText = pendingChanges > 0 ? `${pendingChanges} 条本地变更待同步` : "暂无待同步数据";
-    const hasSyncError = Boolean(syncMessage && !/完成|重新拉取|已接管/.test(syncMessage));
-    if (!authReady) {
-      return {
-        tone: "neutral",
-        state: "checking",
-        title: "正在检查账号",
-        detail: "本地数据照常可用，正在确认当前登录状态。"
-      };
-    }
-    if (!supabaseConfigured) {
-      return {
-        tone: "warning",
-        state: "local",
-        title: "仅本地使用",
-        detail: `云端同步未配置，数据会保存在当前设备。${pendingText}。`
-      };
-    }
-    if (!user) {
-      return {
-        tone: "warning",
-        state: "signed-out",
-        title: "未登录同步账号",
-        detail: `本地保存正常，登录后可在手机和电脑间同步。${pendingText}。`
-      };
-    }
-    if (syncing) {
-      return {
-        tone: "neutral",
-        state: "syncing",
-        title: "正在同步",
-        detail: `${user.email} · 正在上传和拉取云端数据。`
-      };
-    }
-    if (hasSyncError) {
-      return {
-        tone: "warning",
-        state: "error",
-        title: "同步失败",
-        detail: `${user.email} · ${syncMessage || "请重试或重新拉取云端。"}`
-      };
-    }
-    if (pendingChanges > 0) {
-      return {
-        tone: "warning",
-        state: "pending",
-        title: "待同步",
-        detail: `${user.email} · ${pendingText}。`
-      };
-    }
-    return {
-      tone: "success",
-      state: "synced",
-      title: "已同步",
-      detail: `${user.email} · 上次同步 ${formatSyncDateTime(lastSync)}。`
-    };
-  }, [authReady, lastSync, pendingChanges, syncMessage, syncing, user]);
+    return buildSyncStatus({
+      authReady,
+      cloudConfigured: supabaseConfigured,
+      signedIn: Boolean(user),
+      userEmail: user?.email,
+      syncing,
+      pendingChanges,
+      failedChanges: syncHealth?.failed ?? 0,
+      message: syncMessage,
+      lastSyncText: formatSyncDateTime(lastSync)
+    });
+  }, [authReady, lastSync, pendingChanges, syncHealth?.failed, syncMessage, syncing, user]);
   const headerTools: Array<{ id: HeaderToolId; label: string; node: ReactNode }> = [
     {
       id: "account",

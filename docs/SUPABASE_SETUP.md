@@ -80,7 +80,7 @@ AI 助手权限需要执行：
 - GitHub 后台提醒任务需要 Legacy API Keys 中的 `anon` key，并将其保存为仓库 Secret `SUPABASE_ANON_KEY`；不要使用 `service_role`。
 - 不要把 Secret key、`service_role`、数据库密码放入 `.env.local` 或发给他人。
 - 所有业务表启用 RLS，策略限定 `auth.uid() = user_id`。
-- 删除采用 `deleted_at` 软删除，云端触发器拒绝较旧的 `updated_at` 覆盖较新记录。
+- 应用内删除采用硬删除，并通过同步队列删除云端对应记录；历史 `deleted_at` 记录会在同步时清理。
 - Supabase Auth 负责账号凭据托管，应用不保存密码原文；管理员只能重置、删除或禁用账号。
 
 ## AI 助手

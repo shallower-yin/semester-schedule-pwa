@@ -3542,6 +3542,44 @@ textarea {
   font-size: 12px;
 }
 
+.account-sync-state-card {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 12px;
+  border: 1px solid #d8dfec;
+  border-radius: 11px;
+  color: #344055;
+  background: #f7f9fc;
+}
+
+.account-sync-state-card.warning {
+  border-color: #f2d6a7;
+  color: #80510d;
+  background: #fff8ea;
+}
+
+.account-sync-state-card.success {
+  border-color: #b9dfca;
+  color: #1f6b45;
+  background: #f1fbf5;
+}
+
+.account-sync-state-card strong,
+.account-sync-state-card span {
+  display: block;
+}
+
+.account-sync-state-card span {
+  margin-top: 3px;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.82;
+}
+
 .sync-detail-card {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -6,7 +6,7 @@ import { db, queueChange } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
 import { toISODate } from "../lib/date";
 import { syncFields } from "../lib/identity";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseConfigured } from "../lib/supabase";
 import {
   diagnoseNotifications,
   disableNotificationsForCurrentDevice,
@@ -18,6 +18,7 @@ import {
 } from "../lib/notifications";
 import { getSyncHealth, type SyncResult } from "../lib/sync";
 import { getAdminStatus, type AdminAiAccess } from "../lib/admin";
+import { buildSyncStatus } from "../lib/syncStatus";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 
@@ -197,6 +198,17 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   }
 
   const hasSyncProblem = Boolean(message && !/完成|重新拉取|已接管/.test(message)) || Boolean(syncHealth?.failed);
+  const syncStatus = buildSyncStatus({
+    authReady: true,
+    cloudConfigured: supabaseConfigured,
+    signedIn: true,
+    userEmail: user.email,
+    syncing,
+    pendingChanges,
+    failedChanges: syncHealth?.failed ?? 0,
+    message,
+    lastSyncText: formatAccountSyncDate(lastSync)
+  });
 
   return (
     <Modal title="账号与同步" onClose={onClose}>
@@ -206,6 +218,13 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
           <strong>{user.email}</strong>
           <span><CheckCircle2 size={14} />{user.email_confirmed_at ? "邮箱已验证" : "等待邮箱验证"}</span>
           <span><ShieldCheck size={14} />账户类型：{accountTypeLoading ? "正在检查" : accountTypeLabel(accountAccess)}</span>
+        </div>
+      </div>
+      <div className={`account-sync-state-card ${syncStatus.tone}`}>
+        {syncStatus.state === "error" ? <AlertTriangle size={20} /> : syncStatus.state === "synced" ? <CheckCircle2 size={20} /> : <Cloud size={20} />}
+        <div>
+          <strong>{syncStatus.title}</strong>
+          <span>{syncStatus.detail}</span>
         </div>
       </div>
       <div className="sync-detail-card">
@@ -243,9 +262,9 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
           <p>没有等待同步的数据。若手机和电脑不一致，可以点击“重新拉取云端”。</p>
         )}
       </div>
-      {hasSyncProblem && (
+      {(hasSyncProblem || syncStatus.needsRecoveryActions) && (
         <div className="sync-recovery-actions" aria-label="同步失败处理">
-          <button className="button secondary compact" disabled={syncing} onClick={() => void runSync()}><RefreshCw size={16} />重试</button>
+          <button className="button secondary compact" disabled={syncing} onClick={() => void runSync()}><RefreshCw size={16} />重试同步</button>
           <button className="button secondary compact" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={16} />重新拉取云端</button>
           <button className="button secondary compact" onClick={() => void exportBackup()}><Download size={16} />导出备份</button>
         </div>
@@ -283,7 +302,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void scheduleRealReminderTest()}>
           <BellRing size={17} />创建 1 分钟后提醒测试
         </button>
-        <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : "立即同步"}</button>
+        <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : syncStatus.primaryAction === "retry" ? "重试同步" : "立即同步"}</button>
         <button className="button secondary" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={17} />重新拉取云端</button>
         <button className="button secondary" onClick={logout}><LogOut size={17} />退出登录</button>
       </div>
@@ -295,4 +314,11 @@ function accountTypeLabel(access: AdminAiAccess | null): string {
   if (!access?.enabled) return "普通用户";
   if (access.expires_at && new Date(access.expires_at).getTime() <= Date.now()) return "普通用户";
   return access.role === "admin" ? "管理员" : "会员";
+}
+
+function formatAccountSyncDate(value: string | null): string {
+  if (!value) return "暂无同步记录";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "暂无同步记录";
+  return date.toLocaleString("zh-CN");
 }
