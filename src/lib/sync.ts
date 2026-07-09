@@ -321,7 +321,7 @@ async function releaseLocalReferencesForHardDeletes(userId: string, idsByTable: 
 }
 
 async function releaseRemoteReferencesForHardDeletes(userId: string, idsByTable: Map<SyncTableName, Set<string>>) {
-  if (!supabase) throw new Error("Supabase 尚未配置");
+  if (!supabase) throw new Error("云端服务尚未配置");
   const eventIds = [...idsFor(idsByTable, "events")];
   if (eventIds.length) {
     const result = await supabase
@@ -344,7 +344,7 @@ async function releaseRemoteReferencesForHardDeletes(userId: string, idsByTable:
 }
 
 async function deleteRemoteRecordsById(userId: string, idsByTable: Map<SyncTableName, Set<string>>): Promise<number> {
-  if (!supabase) throw new Error("Supabase 尚未配置");
+  if (!supabase) throw new Error("云端服务尚未配置");
   let deleted = 0;
   await releaseRemoteReferencesForHardDeletes(userId, idsByTable);
   for (const config of DELETE_TABLES) {
@@ -383,7 +383,7 @@ export async function purgeLocalSoftDeletedRecords(userId: string): Promise<numb
 }
 
 async function downloadRemoteTables(userId: string): Promise<number> {
-  if (!supabase) throw new Error("Supabase 尚未配置");
+  if (!supabase) throw new Error("云端服务尚未配置");
   let downloaded = 0;
   const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
 
@@ -391,7 +391,7 @@ async function downloadRemoteTables(userId: string): Promise<number> {
     const { data, error } = await supabase.from(config.remote).select("*").eq("user_id", userId);
     if (error) {
       if (error.code === "PGRST205" || error.message.includes("schema cache")) {
-        throw new Error("Supabase 数据表尚未初始化，请先执行 schema.sql");
+        throw new Error("云端数据表尚未初始化，请联系管理员处理");
       }
       throw new Error(`${config.remote} 下载失败：${error.message}`);
     }
@@ -441,7 +441,7 @@ async function downloadRemoteTables(userId: string): Promise<number> {
 }
 
 async function runSync(userId: string): Promise<SyncResult> {
-  if (!supabase) throw new Error("Supabase 尚未配置");
+  if (!supabase) throw new Error("云端服务尚未配置");
   if (!navigator.onLine) throw new Error("当前处于离线状态");
 
   let uploaded = 0;
@@ -473,7 +473,7 @@ async function runSync(userId: string): Promise<SyncResult> {
       if (result.error) {
         await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: result.error.message });
         if (result.error.code === "PGRST205" || result.error.message.includes("schema cache")) {
-          throw new Error("Supabase 数据表尚未初始化，请先执行 schema.sql");
+          throw new Error("云端数据表尚未初始化，请联系管理员处理");
         }
         throw new Error(`${config.remote} 删除失败：${result.error.message}`);
       }
@@ -522,7 +522,7 @@ async function runSync(userId: string): Promise<SyncResult> {
       if (error) {
         await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: error.message });
         if (error.code === "PGRST205" || error.message.includes("schema cache")) {
-          throw new Error("Supabase 数据表尚未初始化，请先执行 schema.sql");
+          throw new Error("云端数据表尚未初始化，请联系管理员处理");
         }
         throw new Error(`${config.remote} 上传失败：${error.message}`);
       }
@@ -564,7 +564,7 @@ async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, use
 }
 
 export async function pullRemoteNow(userId: string): Promise<SyncResult> {
-  if (!supabase) throw new Error("Supabase 尚未配置");
+  if (!supabase) throw new Error("云端服务尚未配置");
   if (!navigator.onLine) throw new Error("当前处于离线状态");
   const downloaded = await downloadRemoteTables(userId);
   const completedAt = new Date().toISOString();

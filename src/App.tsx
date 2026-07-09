@@ -85,7 +85,7 @@ import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
 import { getAdminStatus } from "./lib/admin";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
-import { getLastBackupAt } from "./lib/backupStatus";
+import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
 import {
   clearCapturedInstallPrompt,
@@ -167,6 +167,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(() => getLastBackupAt());
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() => getCapturedInstallPrompt());
   const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
@@ -377,6 +378,16 @@ export default function App() {
   useEffect(() => {
     const timer = window.setInterval(() => setOverviewNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const refreshBackupStatus = () => setLastBackupAt(getLastBackupAt());
+    window.addEventListener(BACKUP_STATUS_CHANGED_EVENT, refreshBackupStatus);
+    window.addEventListener("storage", refreshBackupStatus);
+    return () => {
+      window.removeEventListener(BACKUP_STATUS_CHANGED_EVENT, refreshBackupStatus);
+      window.removeEventListener("storage", refreshBackupStatus);
+    };
   }, []);
 
   useEffect(() => {
@@ -641,7 +652,7 @@ export default function App() {
   const selectedMobileNavItems = navItems
     .filter((item) => mobileNavItems.includes(item.id))
     .sort((left, right) => mobileNavItems.indexOf(left.id) - mobileNavItems.indexOf(right.id));
-  const lastBackupText = formatBackupDateTime(getLastBackupAt());
+  const lastBackupText = formatBackupDateTime(lastBackupAt);
   const syncSummary = useMemo(() => {
     const pendingText = pendingChanges > 0 ? `${pendingChanges} 条本地变更待同步` : "暂无待上传数据";
     const hasSyncError = Boolean(syncMessage && !/完成|重新拉取|已接管/.test(syncMessage));

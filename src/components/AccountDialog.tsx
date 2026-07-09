@@ -18,6 +18,7 @@ import {
 } from "../lib/notifications";
 import { getSyncHealth, type SyncResult } from "../lib/sync";
 import { getAdminStatus, type AdminAiAccess } from "../lib/admin";
+import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 
 interface AccountDialogProps {
@@ -192,6 +193,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
 
   async function exportBackup() {
     downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
+    showToast("备份文件已导出。", "success");
   }
 
   const hasSyncProblem = Boolean(message && !/完成|重新拉取|已接管/.test(message)) || Boolean(syncHealth?.failed);

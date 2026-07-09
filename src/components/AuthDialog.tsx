@@ -26,7 +26,7 @@ export function AuthDialog({ initialMode = "login", onClose }: AuthDialogProps) 
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!supabase) return showMessage("Supabase 尚未配置。", true);
+    if (!supabase) return showMessage("云端服务尚未配置。", true);
     if ((mode === "register" || mode === "recovery") && password !== confirmPassword) {
       return showMessage("两次输入的密码不一致。", true);
     }
