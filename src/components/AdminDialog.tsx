@@ -190,9 +190,6 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 </span>
                 <span className={accessBadgeClass(user.aiAccess)}>{accessLabel(user.aiAccess)}</span>
                 <small>
-                  课程 {user.counts.courses} · 事项 {user.counts.events} · 习惯 {user.counts.habits} · 纪念日 {user.counts.anniversaries}
-                </small>
-                <small>
                   AI 今日 {user.aiUsage.today.requestCount} 次 · 本月 {user.aiUsage.month.requestCount} 次 · 累计 {user.aiUsage.requestCount} 次
                 </small>
               </button>
@@ -213,6 +210,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                     {detailLoading ? "读取中" : details?.user.id === selectedUser.id ? "隐藏数据" : "查看数据"}
                   </button>
                 </header>
+                {details?.user.id !== selectedUser.id && (
+                  <p className="admin-data-note">当前仅显示账号与 AI 权限；点击“查看数据”后再显示该账号的日程数据概览。</p>
+                )}
 
                 <section className="admin-access-editor">
                   <div className="section-heading">

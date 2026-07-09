@@ -1884,6 +1884,13 @@ textarea {
   font-size: 13px;
 }
 
+.admin-data-note {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .admin-stats-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
