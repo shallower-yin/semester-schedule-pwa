@@ -49,6 +49,16 @@ interface AiUsageSummary {
   totalTokens: number;
   estimatedCostCny: number | null;
   lastUsedAt: string | null;
+  today: AiUsagePeriodSummary;
+  month: AiUsagePeriodSummary;
+}
+
+interface AiUsagePeriodSummary {
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  totalTokens: number;
+  estimatedCostCny: number | null;
 }
 
 interface UserCounts {
@@ -335,26 +345,65 @@ function emptyAiUsage(): AiUsageSummary {
     completionTokens: 0,
     totalTokens: 0,
     estimatedCostCny: null,
-    lastUsedAt: null
+    lastUsedAt: null,
+    today: emptyAiUsagePeriod(),
+    month: emptyAiUsagePeriod()
+  };
+}
+
+function emptyAiUsagePeriod(): AiUsagePeriodSummary {
+  return {
+    requestCount: 0,
+    successCount: 0,
+    errorCount: 0,
+    totalTokens: 0,
+    estimatedCostCny: null
   };
 }
 
 function aggregateAiUsage(rows: AiUsageRow[]): Map<string, AiUsageSummary> {
   const usageByUser = new Map<string, AiUsageSummary>();
+  const todayStart = beijingPeriodStart("day");
+  const monthStart = beijingPeriodStart("month");
   for (const row of rows) {
     const current = usageByUser.get(row.user_id) ?? emptyAiUsage();
+    const requestedAt = new Date(row.requested_at).getTime();
+    const cost = Number(row.estimated_cost_cny ?? NaN);
     current.requestCount += 1;
     if (row.status === "success") current.successCount += 1;
     if (row.status === "error") current.errorCount += 1;
     current.promptTokens += Number(row.prompt_tokens ?? 0);
     current.completionTokens += Number(row.completion_tokens ?? 0);
     current.totalTokens += Number(row.total_tokens ?? 0);
-    const cost = Number(row.estimated_cost_cny ?? NaN);
     if (Number.isFinite(cost)) current.estimatedCostCny = (current.estimatedCostCny ?? 0) + cost;
     if (!current.lastUsedAt || row.requested_at > current.lastUsedAt) current.lastUsedAt = row.requested_at;
+    if (requestedAt >= todayStart) addUsageToPeriod(current.today, row, cost);
+    if (requestedAt >= monthStart) addUsageToPeriod(current.month, row, cost);
     usageByUser.set(row.user_id, current);
   }
   return usageByUser;
+}
+
+function addUsageToPeriod(period: AiUsagePeriodSummary, row: AiUsageRow, cost: number) {
+  period.requestCount += 1;
+  if (row.status === "success") period.successCount += 1;
+  if (row.status === "error") period.errorCount += 1;
+  period.totalTokens += Number(row.total_tokens ?? 0);
+  if (Number.isFinite(cost)) period.estimatedCostCny = (period.estimatedCostCny ?? 0) + cost;
+}
+
+function beijingPeriodStart(period: "day" | "month"): number {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = period === "month" ? "01" : parts.find((part) => part.type === "day")?.value ?? "01";
+  return new Date(`${year}-${month}-${day}T00:00:00+08:00`).getTime();
 }
 
 async function resolveTargetUserId(targetUserId: string | undefined, targetEmail: string | undefined, serviceRoleKey: string): Promise<string> {

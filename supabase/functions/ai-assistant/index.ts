@@ -72,6 +72,26 @@ interface AiAssistantUsage {
   estimated_cost_cny: number | null;
 }
 
+type AiAccessMethod = "access-code" | "member" | "admin";
+
+interface AiQuotaUsageRow {
+  status: "success" | "error";
+  requested_at: string;
+  total_tokens: number | null;
+  estimated_cost_cny?: number | string | null;
+}
+
+interface AiQuotaSnapshot {
+  requests: number;
+  totalTokens: number;
+  estimatedCostCny: number;
+}
+
+interface AiQuotaLimits {
+  daily: number;
+  monthly: number;
+}
+
 function optionalSecret(name: string): string {
   return Deno.env.get(name)?.trim() ?? "";
 }
@@ -128,6 +148,25 @@ Deno.serve(async (request) => {
     }, 403);
     accessMethod = access.method ?? "";
 
+    const serviceRoleKey = serviceRoleSecret();
+    const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey);
+    if (!quota.allowed) {
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "error",
+        accessMethod,
+        model: optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash",
+        usage: emptyUsage(),
+        latencyMs: Date.now() - startedAt,
+        questionChars,
+        error: quota.reason
+      });
+      return jsonResponse({
+        error: quota.reason,
+        code: "AI_QUOTA_EXCEEDED"
+      }, 429);
+    }
+
     const history = sanitizeHistory(body.history);
     const assistantResponse = await askDeepSeek(question, body.scheduleContext, history, user.email);
     await logAiAssistantUsage({
@@ -178,21 +217,134 @@ async function checkAiAccess(
   user: SupabaseUser,
   authorization: string,
   accessCode: string | undefined
-): Promise<{ allowed: boolean; method?: string; reason?: string; bound?: boolean }> {
+): Promise<{ allowed: boolean; method?: AiAccessMethod; reason?: string; bound?: boolean }> {
+  const serviceRoleKey = serviceRoleSecret();
+  const row = serviceRoleKey
+    ? await getAiAccessByServiceRole(user.id, serviceRoleKey)
+    : await getAiAccessByUserRpc(authorization);
+  if (row?.enabled && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now())) {
+    return { allowed: true, method: row.role };
+  }
+
   const configuredCode = optionalSecret("AI_ASSISTANT_ACCESS_CODE");
   if (configuredCode && accessCode && accessCode === configuredCode) {
     return { allowed: true, method: "access-code", bound: false };
   }
 
-  const serviceRoleKey = serviceRoleSecret();
-  const row = serviceRoleKey
-    ? await getAiAccessByServiceRole(user.id, serviceRoleKey)
-    : await getAiAccessByUserRpc(authorization);
-  if (!row?.enabled) return { allowed: false, reason: "当前账号未开通 AI 助手。" };
-  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
+  if (row?.enabled && row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
     return { allowed: false, reason: "当前账号的 AI 助手权限已到期。" };
   }
-  return { allowed: true, method: row.role };
+  return { allowed: false, reason: "当前账号未开通 AI 助手。" };
+}
+
+async function checkAiQuota(
+  userId: string,
+  method: string,
+  serviceRoleKey: string
+): Promise<{ allowed: boolean; reason?: string; today?: AiQuotaSnapshot; month?: AiQuotaSnapshot }> {
+  const accessMethod = method === "admin" || method === "member" || method === "access-code" ? method : "access-code";
+  const limits = quotaLimitsFor(accessMethod);
+  if (limits.daily === Number.POSITIVE_INFINITY && limits.monthly === Number.POSITIVE_INFINITY) {
+    return { allowed: true };
+  }
+  if (!serviceRoleKey) {
+    console.warn("AI quota check skipped: service role key is not configured.");
+    return { allowed: true };
+  }
+
+  const monthStart = beijingPeriodStart("month");
+  const todayStart = beijingPeriodStart("day");
+  const rows = await getAiUsageRows(userId, monthStart.iso, serviceRoleKey);
+  const month = summarizeAiUsage(rows);
+  const today = summarizeAiUsage(rows.filter((row) => new Date(row.requested_at).getTime() >= todayStart.time));
+
+  if (today.requests >= limits.daily) {
+    return {
+      allowed: false,
+      today,
+      month,
+      reason: `AI 助手今日可用次数已用完（${today.requests}/${limits.daily}），明天可继续使用。`
+    };
+  }
+  if (month.requests >= limits.monthly) {
+    return {
+      allowed: false,
+      today,
+      month,
+      reason: `AI 助手本月可用次数已用完（${month.requests}/${limits.monthly}），下月可继续使用。`
+    };
+  }
+  return { allowed: true, today, month };
+}
+
+function quotaLimitsFor(method: AiAccessMethod): AiQuotaLimits {
+  if (method === "admin") {
+    return {
+      daily: readQuotaLimit("AI_ASSISTANT_ADMIN_DAILY_LIMIT", 200),
+      monthly: readQuotaLimit("AI_ASSISTANT_ADMIN_MONTHLY_LIMIT", 3000)
+    };
+  }
+  if (method === "member") {
+    return {
+      daily: readQuotaLimit("AI_ASSISTANT_MEMBER_DAILY_LIMIT", 50),
+      monthly: readQuotaLimit("AI_ASSISTANT_MEMBER_MONTHLY_LIMIT", 800)
+    };
+  }
+  return {
+    daily: readQuotaLimit("AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT", 3),
+    monthly: readQuotaLimit("AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT", 20)
+  };
+}
+
+function readQuotaLimit(name: string, fallback: number): number {
+  const raw = optionalSecret(name);
+  if (!raw) return fallback;
+  if (/^(0|off|false|unlimited)$/i.test(raw)) return Number.POSITIVE_INFINITY;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function beijingPeriodStart(period: "day" | "month"): { iso: string; time: number } {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = period === "month" ? "01" : parts.find((part) => part.type === "day")?.value ?? "01";
+  const date = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
+  return { iso: date.toISOString(), time: date.getTime() };
+}
+
+async function getAiUsageRows(userId: string, sinceIso: string, serviceRoleKey: string): Promise<AiQuotaUsageRow[]> {
+  const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_usage`);
+  url.searchParams.set("select", "status,requested_at,total_tokens,estimated_cost_cny");
+  url.searchParams.set("user_id", `eq.${userId}`);
+  url.searchParams.set("requested_at", `gte.${sinceIso}`);
+  url.searchParams.set("limit", "10000");
+  const response = await fetch(url, {
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`
+    }
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    console.warn(`AI quota query failed: HTTP ${response.status} ${text.slice(0, 200)}`);
+    return [];
+  }
+  return await response.json() as AiQuotaUsageRow[];
+}
+
+function summarizeAiUsage(rows: AiQuotaUsageRow[]): AiQuotaSnapshot {
+  return rows.reduce<AiQuotaSnapshot>((summary, row) => ({
+    requests: summary.requests + 1,
+    totalTokens: summary.totalTokens + Math.max(0, Number(row.total_tokens ?? 0)),
+    estimatedCostCny: summary.estimatedCostCny + Math.max(0, Number(row.estimated_cost_cny ?? 0))
+  }), { requests: 0, totalTokens: 0, estimatedCostCny: 0 });
 }
 
 async function getAiAccessByUserRpc(authorization: string): Promise<AiAccessRow | null> {

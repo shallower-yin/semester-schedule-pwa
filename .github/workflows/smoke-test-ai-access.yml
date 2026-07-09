@@ -188,6 +188,11 @@ jobs:
             const summary = await invokeFunction("admin", token, { action: "summary" });
             if (expectedAdmin) {
               assert(summary.status === 200, `${user.label} summary should be allowed, got HTTP ${summary.status}`);
+              const firstUser = Array.isArray(summary.payload?.users) ? summary.payload.users[0] : null;
+              if (firstUser?.aiUsage) {
+                assert(typeof firstUser.aiUsage.today?.requestCount === "number", `${user.label} summary should include today's AI usage`);
+                assert(typeof firstUser.aiUsage.month?.requestCount === "number", `${user.label} summary should include monthly AI usage`);
+              }
             } else {
               assert(summary.status === 403, `${user.label} summary should be forbidden, got HTTP ${summary.status}`);
             }

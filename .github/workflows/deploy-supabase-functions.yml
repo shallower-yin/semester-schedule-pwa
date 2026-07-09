@@ -37,12 +37,24 @@ jobs:
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
           AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT || '3' }}
+          AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT: ${{ vars.AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT || '20' }}
+          AI_ASSISTANT_MEMBER_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_MEMBER_DAILY_LIMIT || '50' }}
+          AI_ASSISTANT_MEMBER_MONTHLY_LIMIT: ${{ vars.AI_ASSISTANT_MEMBER_MONTHLY_LIMIT || '800' }}
+          AI_ASSISTANT_ADMIN_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_ADMIN_DAILY_LIMIT || '200' }}
+          AI_ASSISTANT_ADMIN_MONTHLY_LIMIT: ${{ vars.AI_ASSISTANT_ADMIN_MONTHLY_LIMIT || '3000' }}
         run: |
           supabase secrets set --project-ref "$PROJECT_REF" \
             REMINDER_DISPATCHER_TOKEN="${{ secrets.REMINDER_DISPATCHER_TOKEN }}" \
             VAPID_PUBLIC_KEY="${{ vars.VITE_VAPID_PUBLIC_KEY }}" \
             VAPID_PRIVATE_KEY="${{ secrets.VAPID_PRIVATE_KEY }}" \
-            APP_URL="https://shallower-yin.github.io/semester-schedule-pwa/"
+            APP_URL="https://shallower-yin.github.io/semester-schedule-pwa/" \
+            AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT" \
+            AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT" \
+            AI_ASSISTANT_MEMBER_DAILY_LIMIT="$AI_ASSISTANT_MEMBER_DAILY_LIMIT" \
+            AI_ASSISTANT_MEMBER_MONTHLY_LIMIT="$AI_ASSISTANT_MEMBER_MONTHLY_LIMIT" \
+            AI_ASSISTANT_ADMIN_DAILY_LIMIT="$AI_ASSISTANT_ADMIN_DAILY_LIMIT" \
+            AI_ASSISTANT_ADMIN_MONTHLY_LIMIT="$AI_ASSISTANT_ADMIN_MONTHLY_LIMIT"
           supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
           if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY"
