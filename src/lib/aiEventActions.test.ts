@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { anniversaryFromAiAction, eventItemFromAiAction, memoFromAiAction, recordsFromAiActions, resolveHoliday, resolveHolidays } from "./aiEventActions";
 
-describe("AI 助手创建事项动作", () => {
+describe("AI 助手创建动作", () => {
   it("把 AI 返回的定时事项转换为本地事项", () => {
     const event = eventItemFromAiAction({
       type: "create_event",

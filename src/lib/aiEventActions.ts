@@ -242,7 +242,7 @@ function isHolidayText(text: string): boolean {
 }
 
 function extractYear(text: string, now: Date): number {
-  const explicit = /(\d{4})年/.exec(text)?.[1];
+  const explicit = /(\d{4})年?/.exec(text)?.[1];
   if (explicit) return Number(explicit);
   return Number(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric" }).format(now));
 }

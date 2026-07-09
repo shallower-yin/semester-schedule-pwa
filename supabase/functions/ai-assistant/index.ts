@@ -65,6 +65,11 @@ interface AiAssistantResponse {
   usage: AiAssistantUsage;
 }
 
+interface ParsedAssistantResponse {
+  answer: string;
+  actions: AiAssistantAction[];
+}
+
 interface AiAssistantHistoryMessage {
   role: "user" | "assistant";
   content: string;
@@ -420,7 +425,7 @@ async function askDeepSeek(
             "你是日程计划表的 AI 助手。",
             `当前北京时间：${beijingNow}。所有“今天、明天、今年、下周”等相对时间都必须按北京时间理解。`,
             "你可以回答两类问题：1）根据用户提供的数据回答安排、冲突、未完成、专注统计、纪念日和备忘录；2）回答本工具怎么使用。",
-            "工具能力：普通事项支持日期、时间、全天、完成、重复和提醒；习惯可打卡和统计；纪念日/生日/节日支持提前几天和指定时间提醒；备忘录支持文件夹、置顶、编号和待办；学期是可选学生功能。",
+            "工具能力：普通事项支持日期、时间、全天、完成、重复、地点和提醒；习惯可打卡和统计；纪念日/生日/节日支持提前几天和指定时间提醒；备忘录支持文件夹、置顶、编号和待办；学期是可选学生功能。",
             "只根据用户提供的日程上下文回答，不要编造不存在的课程、事项、纪念日、备忘录或专注记录。",
             "最近对话只用于理解指代，不要把它当成新的日程数据。",
             "回答要简洁、具体、可执行。涉及日期时使用明确日期。无法确定时直接说明。",
@@ -476,7 +481,7 @@ function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
   }).slice(-6);
 }
 
-function parseAssistantResponse(content: string): AiAssistantResponse {
+function parseAssistantResponse(content: string): ParsedAssistantResponse {
   const cleaned = content
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")

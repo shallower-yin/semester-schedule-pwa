@@ -4286,7 +4286,8 @@ textarea {
 }
 
 .ai-assistant-dialog {
-  grid-template-rows: auto minmax(470px, 70vh) auto;
+  height: min(76vh, 680px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
 }
 
@@ -4437,11 +4438,15 @@ textarea {
 
 .ai-header-access-code {
   display: grid;
-  width: 152px;
+  width: 148px;
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: 4px;
   color: #5f6b7a;
+}
+
+.ai-assistant-modal {
+  width: min(100%, 860px);
 }
 
 .ai-assistant-modal .modal-header {
@@ -4460,6 +4465,10 @@ textarea {
 
 .ai-assistant-modal .modal-header h2 {
   white-space: nowrap;
+}
+
+.ai-assistant-modal .modal-body {
+  padding: 16px;
 }
 
 .ai-header-access-code input {
@@ -5306,7 +5315,8 @@ textarea {
   }
 
   .ai-assistant-dialog {
-    grid-template-rows: auto minmax(400px, 62dvh) auto;
+    height: calc(100dvh - 156px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 9px;
   }
 
