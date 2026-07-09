@@ -982,10 +982,10 @@ main {
 
 .setting-card {
   display: flex;
-  min-height: 96px;
+  min-height: 82px;
   align-items: center;
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 14px;
   text-align: left;
@@ -1000,7 +1000,7 @@ main {
 
 .setting-card > svg:first-child {
   box-sizing: content-box;
-  padding: 10px;
+  padding: 9px;
   border-radius: 10px;
   color: var(--primary);
   background: #edf2ff;
@@ -1018,8 +1018,9 @@ main {
 }
 
 .setting-card small {
-  margin-top: 5px;
+  margin-top: 4px;
   color: var(--muted);
+  line-height: 1.35;
 }
 
 .local-data-card {
@@ -2622,6 +2623,25 @@ textarea {
 
 .today-list-section {
   margin-top: 16px;
+}
+
+.today-empty-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 78%, #eef3ff);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.today-empty-note svg {
+  flex: 0 0 auto;
+  color: #7d8ba3;
 }
 
 .today-list {
@@ -4467,6 +4487,30 @@ textarea {
 
   .settings-grid {
     grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .setting-card {
+    min-height: 72px;
+    gap: 10px;
+    padding: 12px 13px;
+    border-radius: 12px;
+  }
+
+  .setting-card > svg:first-child {
+    width: 18px;
+    height: 18px;
+    padding: 8px;
+    border-radius: 9px;
+  }
+
+  .setting-card small {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 3px;
+    font-size: 12px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .memo-page,
@@ -4488,6 +4532,20 @@ textarea {
 
   .today-heading {
     margin-bottom: 10px;
+  }
+
+  .today-list-section {
+    margin-top: 14px;
+  }
+
+  .today-list-section .section-heading p {
+    display: none;
+  }
+
+  .today-empty-note {
+    display: flex;
+    margin-top: 7px;
+    padding: 9px 11px;
   }
 
   .today-heading p {

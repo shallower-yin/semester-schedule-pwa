@@ -256,7 +256,7 @@ function TodayList({ title, items, emptyText, tomorrow, weekend, overdue, onOpen
           ))}
         </div>
       ) : (
-        <div className="empty-state compact-empty"><CalendarCheck2 size={34} /><h2>{emptyText}</h2></div>
+        <p className="today-empty-note"><CalendarCheck2 size={16} />{emptyText}</p>
       )}
     </section>
   );
