@@ -1,4 +1,4 @@
-import { AlertCircle, CalendarCheck2, CalendarHeart, CheckCircle2, Clock3, Edit3, Target } from "lucide-react";
+import { AlertCircle, CalendarCheck2, CalendarHeart, CheckCircle2, Clock3, Edit3, GraduationCap, Plus, Sparkles, Target } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
 import { daysUntilAnniversary, nextAnniversaryOccurrence } from "../lib/anniversaries";
@@ -16,9 +16,24 @@ interface TodayPageProps {
   onOpenAnniversary?: (id: string) => void;
   onOpenFocus: () => void;
   onAddEvent: (date: string, start: string, end: string, allDay?: boolean) => void;
+  onQuickEntry?: () => void;
+  onCreateSemester?: () => void;
+  hasSemesters?: boolean;
 }
 
-export function TodayPage({ overview, anniversaries, events, occurrenceStates, onOpenItem, onOpenAnniversary, onOpenFocus, onAddEvent }: TodayPageProps) {
+export function TodayPage({
+  overview,
+  anniversaries,
+  events,
+  occurrenceStates,
+  onOpenItem,
+  onOpenAnniversary,
+  onOpenFocus,
+  onAddEvent,
+  onQuickEntry,
+  onCreateSemester,
+  hasSemesters
+}: TodayPageProps) {
   const today = parseLocalDate(overview.todayDate);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const quickAddTimer = useRef<number | null>(null);
@@ -68,6 +83,7 @@ export function TodayPage({ overview, anniversaries, events, occurrenceStates, o
   const weekend = toISODate(addDays(startOfWeek(today), 6));
   const tomorrow = toISODate(addDays(today, 1));
   const nextAction = overview.overdueIncompleteItems[0] ?? overview.upcomingItems.find((item) => item.type === "course" || !item.completed) ?? null;
+  const showQuickStart = !nextAction && overview.todayItemCount === 0 && overview.overdueIncompleteItems.length === 0 && anniversaryReminders.length === 0;
 
   async function postponeItems(items: ScheduleOverviewItem[], targetDate: string) {
     for (const item of items) {
@@ -146,6 +162,24 @@ export function TodayPage({ overview, anniversaries, events, occurrenceStates, o
           </div>
         )}
       </section>
+
+      {showQuickStart && (
+        <section className="today-quick-start" aria-label="快速开始">
+          <button type="button" className="button primary compact" onClick={() => onAddEvent(overview.todayDate, "09:00", "10:00")}>
+            <Plus size={16} />新增事项
+          </button>
+          {onQuickEntry && (
+            <button type="button" className="button secondary compact" onClick={onQuickEntry}>
+              <Sparkles size={16} />快速录入
+            </button>
+          )}
+          {!hasSemesters && onCreateSemester && (
+            <button type="button" className="button secondary compact" onClick={onCreateSemester}>
+              <GraduationCap size={16} />创建学期
+            </button>
+          )}
+        </section>
+      )}
 
       <TodayList
         title="今日安排"

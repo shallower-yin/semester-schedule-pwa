@@ -105,6 +105,19 @@ interface EventDraft {
   eventType: EventType;
 }
 
+function formatSyncDateTime(value: string | null): string {
+  if (!value) return "暂无同步记录";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "暂无同步记录";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
 export default function App() {
   const appVersion = `版本 ${__APP_VERSION__} · 提交 ${__APP_COMMIT__}`;
   const [page, setPage] = useState<Page>("today");
@@ -604,6 +617,57 @@ export default function App() {
   const selectedMobileNavItems = navItems
     .filter((item) => mobileNavItems.includes(item.id))
     .sort((left, right) => mobileNavItems.indexOf(left.id) - mobileNavItems.indexOf(right.id));
+  const syncSummary = useMemo(() => {
+    const pendingText = pendingChanges > 0 ? `${pendingChanges} 条本地变更待同步` : "暂无待上传数据";
+    const hasSyncError = Boolean(syncMessage && !/完成|重新拉取|已接管/.test(syncMessage));
+    if (!authReady) {
+      return {
+        tone: "neutral",
+        title: "正在检查账号",
+        detail: "本地数据照常可用，正在确认当前登录状态。"
+      };
+    }
+    if (!supabaseConfigured) {
+      return {
+        tone: "warning",
+        title: "仅本地使用",
+        detail: `云端同步未配置，数据会保存在当前设备。${pendingText}。`
+      };
+    }
+    if (!user) {
+      return {
+        tone: "warning",
+        title: "未登录同步账号",
+        detail: `本地保存正常，登录后可在手机和电脑间同步。${pendingText}。`
+      };
+    }
+    if (syncing) {
+      return {
+        tone: "neutral",
+        title: "正在同步",
+        detail: `${user.email} · 正在上传和拉取云端数据。`
+      };
+    }
+    if (hasSyncError) {
+      return {
+        tone: "warning",
+        title: "同步需要处理",
+        detail: `${user.email} · ${syncMessage}`
+      };
+    }
+    if (pendingChanges > 0) {
+      return {
+        tone: "warning",
+        title: "有待同步数据",
+        detail: `${user.email} · ${pendingText}。`
+      };
+    }
+    return {
+      tone: "success",
+      title: "同步正常",
+      detail: `${user.email} · 上次同步 ${formatSyncDateTime(lastSync)}。`
+    };
+  }, [authReady, lastSync, pendingChanges, syncMessage, syncing, user]);
   const headerTools: Array<{ id: HeaderToolId; label: string; node: ReactNode }> = [
     {
       id: "account",
@@ -645,6 +709,20 @@ export default function App() {
   const selectedHeaderTools = headerTools
     .filter((item) => headerToolItems.includes(item.id))
     .sort((left, right) => headerToolItems.indexOf(left.id) - headerToolItems.indexOf(right.id));
+
+  function renderSettingsSection(title: string, description: string, children: ReactNode) {
+    return (
+      <section className="settings-section">
+        <div className="settings-section-header">
+          <div>
+            <h2>{title}</h2>
+            <p>{description}</p>
+          </div>
+        </div>
+        <div className="settings-grid">{children}</div>
+      </section>
+    );
+  }
 
   function renderNavigation(items: typeof navItems) {
     return items.map((item) => (
@@ -709,6 +787,9 @@ export default function App() {
             }}
             onOpenFocus={() => navigate("focus")}
             onAddEvent={openNewEvent}
+            onQuickEntry={() => setShowQuickEntry(true)}
+            onCreateSemester={() => setSemesterToEdit(null)}
+            hasSemesters={semesters.length > 0}
           />
         ) : page === "calendar" ? (
           <>
@@ -777,59 +858,86 @@ export default function App() {
         ) : (
           <section className="content-page">
             <div className="page-heading"><div><h1>设置</h1><p>管理账号同步、数据备份、界面设置和可选学生功能。</p></div></div>
-            <div className="settings-grid">
-              <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
-                <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => needRefresh ? void applyAppUpdate() : window.location.reload()} disabled={updatingApp}>
-                <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => void hardReloadApp()} disabled={updatingApp}>
-                <RefreshCw /><span><strong>清缓存重载</strong><small>手机 PWA 更新没生效时使用，会重新获取最新资源</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setShowMobileNavSettings(true)}>
-                <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
-                <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
-                <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setSemesterToEdit(semester ?? null)}>
-                <GraduationCap /><span><strong>学期设置（可选）</strong><small>{semester ? `${semester.name} · ${semester.total_weeks} 周` : "不创建也能使用普通日程；学生课程功能可在这里开启"}</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => semester ? setShowPeriodSettings(true) : setSemesterToEdit(null)}>
-                <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>{semester ? "自由添加、删除和排序节次或午休" : "创建学期后可自定义课程节次；普通日程会使用默认时间网格"}</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setShowBackup(true)}>
-                <Database /><span><strong>JSON 数据备份</strong><small>主动导入或导出本地数据</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => semester ? setShowStats(true) : navigate("focus")}>
-                <Target /><span><strong>统计与日历导出</strong><small>{semester ? "查看完成率、专注趋势，并导出 ICS" : "无学期时可先在专注页查看专注统计"}</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
-                <Bot /><span><strong>日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
-                <BrainCircuit /><span><strong>AI 助手</strong><small>智能分析日程安排，可按账号或访问口令控制使用权限</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => setShowDataHealth(true)}>
-                <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => semester ? setShowSchoolImport(true) : setSemesterToEdit(null)}>
-                <FileSpreadsheet /><span><strong>天津大学课表提取器</strong><small>{semester ? "提取学校导出的 HTML-XLS 课表" : "需要先创建学期，用于保存课程周数和节次"}</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
-                {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
-              </button>
-              <button className="setting-card" onClick={() => user ? setShowAdmin(true) : setAuthDialogMode("login")}>
-                <ShieldCheck /><span><strong>管理后台</strong><small>{isAdmin ? "查看账号数据概览，管理 AI 助手和管理员权限" : "登录后可查看账号权限与管理功能"}</small></span><ChevronRight />
-              </button>
+            <div className="settings-sections">
+              {renderSettingsSection("常用", "登录同步、版本更新和备份放在最容易找到的位置。", (
+                <>
+                  <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
+                    {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => needRefresh ? void applyAppUpdate() : window.location.reload()} disabled={updatingApp}>
+                    <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowBackup(true)}>
+                    <Database /><span><strong>JSON 数据备份</strong><small>主动导入或导出本地数据</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
+                    <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
+                  </button>
+                </>
+              ))}
+              {renderSettingsSection("界面", "调整外观和常用入口，让手机端保持简洁。", (
+                <>
+                  <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
+                    <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowMobileNavSettings(true)}>
+                    <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
+                    <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
+                  </button>
+                </>
+              ))}
+              {renderSettingsSection("日程与学习", "普通事项不依赖学期；课程、节次和课表导入属于可选学生功能。", (
+                <>
+                  <button className="setting-card" onClick={() => setSemesterToEdit(semester ?? null)}>
+                    <GraduationCap /><span><strong>学期设置（可选）</strong><small>{semester ? `${semester.name} · ${semester.total_weeks} 周` : "不创建也能使用普通日程；学生课程功能可在这里开启"}</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => semester ? setShowPeriodSettings(true) : setSemesterToEdit(null)}>
+                    <SlidersHorizontal /><span><strong>每日时间块设置</strong><small>{semester ? "自由添加、删除和排序节次或午休" : "创建学期后可自定义课程节次；普通日程会使用默认时间网格"}</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => semester ? setShowStats(true) : navigate("focus")}>
+                    <Target /><span><strong>统计与日历导出</strong><small>{semester ? "查看完成率、专注趋势，并导出 ICS" : "无学期时可先在专注页查看专注统计"}</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => semester ? setShowSchoolImport(true) : setSemesterToEdit(null)}>
+                    <FileSpreadsheet /><span><strong>天津大学课表提取器</strong><small>{semester ? "提取学校导出的 HTML-XLS 课表" : "需要先创建学期，用于保存课程周数和节次"}</small></span><ChevronRight />
+                  </button>
+                </>
+              ))}
+              {renderSettingsSection("工具与高级", "辅助分析和维护功能集中放置，减少日常页面干扰。", (
+                <>
+                  <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
+                    <Bot /><span><strong>日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
+                    <BrainCircuit /><span><strong>AI 助手</strong><small>智能分析日程安排，可按账号或访问口令控制使用权限</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => setShowDataHealth(true)}>
+                    <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => void hardReloadApp()} disabled={updatingApp}>
+                    <RefreshCw /><span><strong>清缓存重载</strong><small>手机 PWA 更新没生效时使用，会重新获取最新资源</small></span><ChevronRight />
+                  </button>
+                  <button className="setting-card" onClick={() => user ? setShowAdmin(true) : setAuthDialogMode("login")}>
+                    <ShieldCheck /><span><strong>管理后台</strong><small>{isAdmin ? "查看账号数据概览，管理 AI 助手和管理员权限" : "登录后可查看账号权限与管理功能"}</small></span><ChevronRight />
+                  </button>
+                </>
+              ))}
             </div>
-            <div className="local-data-card">
-              <Download size={22} />
-              <div><strong>本地优先已启用</strong><p>课程和事项会立即保存到 IndexedDB。当前有 {pendingChanges} 条本地变更{user ? "等待上传" : "，登录后可上传"}。</p></div>
+            <div className={`local-data-card sync-summary-card ${syncSummary.tone}`}>
+              {!supabaseConfigured ? <WifiOff size={22} /> : user ? <Cloud size={22} /> : <LogIn size={22} />}
+              <div>
+                <strong>{syncSummary.title}</strong>
+                <p>{syncSummary.detail}</p>
+              </div>
+              <div className="sync-summary-actions">
+                <button className="button secondary compact" onClick={() => user ? void handleSync() : setAuthDialogMode("login")} disabled={syncing || !authReady}>
+                  <RefreshCw size={16} />{user ? "立即同步" : "登录同步"}
+                </button>
+                <button className="button secondary compact" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
+                  详情
+                </button>
+              </div>
             </div>
             <section className="semester-manager">
               <div className="section-heading">

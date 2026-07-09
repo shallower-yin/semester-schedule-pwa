@@ -980,6 +980,36 @@ main {
   gap: 12px;
 }
 
+.settings-sections {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-section-header h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 17px;
+}
+
+.settings-section-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .setting-card {
   display: flex;
   min-height: 82px;
@@ -1026,6 +1056,7 @@ main {
 .local-data-card {
   display: flex;
   margin-top: 16px;
+  align-items: center;
   gap: 13px;
   padding: 16px 18px;
   border: 1px solid #cfe4d9;
@@ -1038,6 +1069,41 @@ main {
   margin: 4px 0 0;
   color: #42725c;
   font-size: 13px;
+}
+
+.sync-summary-card {
+  justify-content: space-between;
+}
+
+.sync-summary-card > div:first-of-type {
+  min-width: 0;
+  flex: 1;
+}
+
+.sync-summary-card.neutral {
+  border-color: #d8dfec;
+  color: #344055;
+  background: #f7f9fc;
+}
+
+.sync-summary-card.neutral p {
+  color: #657084;
+}
+
+.sync-summary-card.warning {
+  border-color: #f2d6a7;
+  color: #80510d;
+  background: #fff8ea;
+}
+
+.sync-summary-card.warning p {
+  color: #8a632c;
+}
+
+.sync-summary-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .muted-note {
@@ -2660,6 +2726,17 @@ textarea {
 .today-empty-note svg {
   flex: 0 0 auto;
   color: #7d8ba3;
+}
+
+.today-quick-start {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.today-quick-start .button {
+  min-width: 116px;
 }
 
 .today-list {
@@ -4508,6 +4585,22 @@ textarea {
     gap: 10px;
   }
 
+  .settings-sections {
+    gap: 16px;
+  }
+
+  .settings-section {
+    gap: 10px;
+  }
+
+  .settings-section-header h2 {
+    font-size: 15px;
+  }
+
+  .settings-section-header p {
+    font-size: 12px;
+  }
+
   .setting-card {
     min-height: 72px;
     gap: 10px;
@@ -4529,6 +4622,16 @@ textarea {
     font-size: 12px;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+  }
+
+  .sync-summary-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sync-summary-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .memo-page,
@@ -4564,6 +4667,15 @@ textarea {
     display: flex;
     margin-top: 7px;
     padding: 9px 11px;
+  }
+
+  .today-quick-start {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-quick-start .button {
+    min-width: 0;
   }
 
   .today-heading p {
