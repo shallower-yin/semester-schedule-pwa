@@ -1275,6 +1275,11 @@ main {
   line-height: 1.6;
 }
 
+.empty-state .button {
+  min-width: 128px;
+  justify-content: center;
+}
+
 .compact-empty {
   margin-top: 40px;
   padding: 45px;

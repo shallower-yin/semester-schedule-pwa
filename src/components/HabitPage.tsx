@@ -67,7 +67,8 @@ export function HabitPage({ habits, occurrenceStates, onAddHabit, onEditHabit }:
         <div className="empty-state compact-empty">
           <CheckCircle2 size={34} />
           <h2>还没有习惯</h2>
-          <p>新增一个习惯，设置一段日期范围和提醒时间，然后每天打卡。</p>
+          <p>先添加一个想坚持的习惯，再按日期打卡和统计。</p>
+          <button type="button" className="button primary compact" onClick={onAddHabit}><Plus size={17} />添加第一个习惯</button>
         </div>
       )}
     </section>

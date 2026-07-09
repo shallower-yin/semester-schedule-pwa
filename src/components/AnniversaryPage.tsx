@@ -127,7 +127,12 @@ export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryC
           <div className="empty-state compact-empty">
             <CalendarHeart size={34} />
             <h2>{query || filter !== "all" ? "没有匹配的日子" : "还没有纪念日"}</h2>
-            <p>{query || filter !== "all" ? "换一个关键词或分类再看看。" : "新增一个生日、纪念日或节日，并按需要设置提醒。"}</p>
+            <p>{query || filter !== "all" ? "清空筛选后再查看全部日子。" : "先添加一个生日、纪念日或节日，再按需要设置提醒。"}</p>
+            {query || filter !== "all" ? (
+              <button type="button" className="button secondary compact" onClick={() => { setQuery(""); setFilter("all"); }}>清空筛选</button>
+            ) : (
+              <button type="button" className="button primary compact" onClick={() => setAnniversaryToEdit(null)}><Plus size={17} />添加第一个日子</button>
+            )}
           </div>
         )}
       </div>

@@ -32,7 +32,12 @@ export function CourseManagerDialog({ courses, schedules, onAdd, onEdit, onClose
           ))}
         </div>
       ) : (
-        <div className="empty-state compact-empty"><BookOpen size={30} /><h2>还没有课程</h2><p>新增课程后会与临时事项一起显示在日程中。</p></div>
+        <div className="empty-state compact-empty">
+          <BookOpen size={30} />
+          <h2>还没有课程</h2>
+          <p>先新增一门课程，再添加上课周次、星期和节次。</p>
+          <button type="button" className="button primary compact" onClick={onAdd}><Plus size={17} />添加第一门课程</button>
+        </div>
       )}
     </Modal>
   );

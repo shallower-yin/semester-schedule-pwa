@@ -305,8 +305,13 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
         ) : (
           <div className="empty-state compact-empty">
             <FileText size={34} />
-            <h2>还没有备忘录</h2>
-            <p>新增一条备忘录，用来保存想法、材料或复习笔记。</p>
+            <h2>{query || filter !== "all" ? "没有匹配的备忘录" : "还没有备忘录"}</h2>
+            <p>{query || filter !== "all" ? "清空筛选后再查看全部备忘录。" : "先新增一条备忘录，用来保存想法、材料或复习笔记。"}</p>
+            {query || filter !== "all" ? (
+              <button type="button" className="button secondary compact" onClick={() => { updateQuery(""); selectFilter("all"); }}>清空筛选</button>
+            ) : (
+              <button type="button" className="button primary compact" onClick={() => setMemoToEdit(null)}><Plus size={17} />开始记录</button>
+            )}
           </div>
         )}
       </div>
