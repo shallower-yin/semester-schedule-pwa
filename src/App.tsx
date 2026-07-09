@@ -973,7 +973,7 @@ export default function App() {
                       <button type="button" className="icon-button" aria-label={`编辑${item.name}`} onClick={() => setSemesterToEdit(item)}>
                         <Pencil size={15} />
                       </button>
-                      <button type="button" className="icon-button danger" aria-label={`删除${item.name}`} onClick={() => void deleteSemester(item)}>
+                      <button type="button" className="icon-button danger" aria-label={`彻底删除${item.name}`} onClick={() => void deleteSemester(item)}>
                         <Trash2 size={15} />
                       </button>
                     </div>

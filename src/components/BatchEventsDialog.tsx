@@ -80,7 +80,7 @@ export function BatchEventsDialog({ events, categories, occurrenceStates, onClos
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
           <button className="button secondary compact" disabled={!selectedEvents.length} onClick={() => void updateCategory()}>改分类</button>
-          <button className="button danger-button compact" disabled={!selectedEvents.length} onClick={() => void deleteSelected()}>删除</button>
+          <button className="button danger-button compact" disabled={!selectedEvents.length} onClick={() => void deleteSelected()}>彻底删除</button>
         </div>
         {message && <p className="status-message">{message}</p>}
         <div className="batch-list">

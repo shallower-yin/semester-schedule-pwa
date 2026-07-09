@@ -443,7 +443,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           <div className="inline-actions">
             {eventItem && <button type="button" className="button secondary" onClick={() => void duplicate()}><Copy size={16} />复制事项</button>}
             <button type="button" className="button secondary" onClick={() => void createMemoFromEvent()}><FileText size={16} />转备忘录</button>
-            {eventItem && <button type="button" className="button danger-button" onClick={remove}>删除{itemLabel}</button>}
+            {eventItem && <button type="button" className="button danger-button" onClick={remove}>彻底删除{itemLabel}</button>}
           </div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>

@@ -317,7 +317,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
                     <span>{focusModeLabel(session.mode)} · {formatFocusDuration(session.duration_seconds)} · {new Date(session.ended_at).toLocaleString()}</span>
                     <div className="focus-record-actions">
                       <button className="button secondary compact" onClick={() => setSessionToEdit(session)}><Edit3 size={14} />编辑</button>
-                      <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />删除</button>
+                      <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />彻底删除</button>
                     </div>
                   </article>
                 ))}

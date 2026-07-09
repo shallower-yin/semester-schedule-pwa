@@ -3989,6 +3989,12 @@ textarea {
   gap: 12px;
 }
 
+.help-faq-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .help-card {
   padding: 16px;
   border: 1px solid var(--border);
@@ -4013,6 +4019,10 @@ textarea {
   color: #4b5568;
   font-size: 13px;
   line-height: 1.55;
+}
+
+.help-faq-item ul {
+  gap: 5px;
 }
 
 .help-footer-note {
@@ -5048,7 +5058,8 @@ textarea {
     font-size: 16px;
   }
 
-  .help-section-grid {
+  .help-section-grid,
+  .help-faq-list {
     grid-template-columns: 1fr;
   }
 
