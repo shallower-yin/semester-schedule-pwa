@@ -1,5 +1,6 @@
 import { db, queueChange } from "../db";
 import type { SyncTableName } from "../types";
+import { syncFields } from "./identity";
 
 function uniqueIds(ids: string[]): string[] {
   return [...new Set(ids.filter(Boolean))];
@@ -20,11 +21,19 @@ export async function hardDeleteLocalRecords(tableName: SyncTableName, recordIds
 export async function hardDeleteEventsCascade(eventIds: string[]): Promise<void> {
   const ids = uniqueIds(eventIds);
   if (!ids.length) return;
-  await db.transaction("rw", db.events, db.eventOccurrenceStates, db.syncQueue, async () => {
+  await db.transaction("rw", db.events, db.eventOccurrenceStates, db.focusSessions, db.syncQueue, async () => {
     const stateIds: string[] = [];
     for (const eventId of ids) {
       const states = await db.eventOccurrenceStates.where("event_id").equals(eventId).toArray();
       stateIds.push(...states.map((state) => state.id));
+    }
+    const linkedSessions = await db.focusSessions
+      .filter((session) => Boolean(session.linked_event_id) && ids.includes(String(session.linked_event_id)))
+      .toArray();
+    for (const session of linkedSessions) {
+      const updated = { ...session, ...syncFields(session), linked_event_id: null };
+      await db.focusSessions.put(updated);
+      await queueChange("focusSessions", updated.id);
     }
     await hardDeleteLocalRecords("eventOccurrenceStates", stateIds);
     await hardDeleteLocalRecords("events", ids);

@@ -1,6 +1,7 @@
 import { db } from "../db";
 import type { EventOccurrenceState, SyncQueueItem, SyncTableName } from "../types";
 import { deduplicateCategories } from "./categories";
+import { syncFields } from "./identity";
 import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
 import { supabase } from "./supabase";
 
@@ -107,16 +108,31 @@ export interface SyncResult {
 
 let activeSync: Promise<SyncResult> | null = null;
 
-function queueRecord(table_name: SyncTableName, record_id: string): SyncQueueItem {
+function queueRecord(table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert"): SyncQueueItem {
   return {
     id: crypto.randomUUID(),
     table_name,
     record_id,
-    operation: "upsert",
+    operation,
     queued_at: new Date().toISOString(),
     attempts: 0,
     last_error: null
   };
+}
+
+async function putQueueItem(table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert") {
+  const existing = await db.syncQueue
+    .where("table_name")
+    .equals(table_name)
+    .and((item) => item.record_id === record_id)
+    .first();
+  await db.syncQueue.put({
+    ...(existing ?? queueRecord(table_name, record_id, operation)),
+    operation,
+    queued_at: new Date().toISOString(),
+    attempts: 0,
+    last_error: null
+  });
 }
 
 export async function adoptAnonymousData(userId: string): Promise<number> {
@@ -214,9 +230,162 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
   return record;
 }
 
+function emptyDeleteMap(): Map<SyncTableName, Set<string>> {
+  return new Map(SYNC_TABLES.map((table) => [table.local, new Set<string>()]));
+}
+
+function addDeleteId(idsByTable: Map<SyncTableName, Set<string>>, tableName: SyncTableName, id: unknown) {
+  if (!id) return;
+  idsByTable.get(tableName)?.add(String(id));
+}
+
+function idsFor(idsByTable: Map<SyncTableName, Set<string>>, tableName: SyncTableName): Set<string> {
+  return idsByTable.get(tableName) ?? new Set<string>();
+}
+
+function recordsFor(recordsByTable: Map<SyncTableName, Record<string, unknown>[]>, tableName: SyncTableName): Record<string, unknown>[] {
+  return recordsByTable.get(tableName) ?? [];
+}
+
+function collectHardDeleteIds(recordsByTable: Map<SyncTableName, Record<string, unknown>[]>): Map<SyncTableName, Set<string>> {
+  const idsByTable = emptyDeleteMap();
+
+  for (const table of SYNC_TABLES) {
+    for (const record of recordsFor(recordsByTable, table.local)) {
+      if (record.deleted_at) addDeleteId(idsByTable, table.local, record.id);
+    }
+  }
+
+  const semesterIds = idsFor(idsByTable, "semesters");
+  for (const period of recordsFor(recordsByTable, "classPeriods")) {
+    if (semesterIds.has(String(period.semester_id))) addDeleteId(idsByTable, "classPeriods", period.id);
+  }
+  for (const course of recordsFor(recordsByTable, "courses")) {
+    if (semesterIds.has(String(course.semester_id))) addDeleteId(idsByTable, "courses", course.id);
+  }
+
+  const courseIds = idsFor(idsByTable, "courses");
+  for (const schedule of recordsFor(recordsByTable, "courseSchedules")) {
+    if (courseIds.has(String(schedule.course_id))) addDeleteId(idsByTable, "courseSchedules", schedule.id);
+  }
+
+  const scheduleIds = idsFor(idsByTable, "courseSchedules");
+  for (const cancellation of recordsFor(recordsByTable, "courseCancellations")) {
+    if (scheduleIds.has(String(cancellation.course_schedule_id))) addDeleteId(idsByTable, "courseCancellations", cancellation.id);
+  }
+
+  const eventIds = idsFor(idsByTable, "events");
+  for (const state of recordsFor(recordsByTable, "eventOccurrenceStates")) {
+    if (eventIds.has(String(state.event_id))) addDeleteId(idsByTable, "eventOccurrenceStates", state.id);
+  }
+
+  return idsByTable;
+}
+
+async function releaseLocalReferencesForHardDeletes(userId: string, idsByTable: Map<SyncTableName, Set<string>>) {
+  const eventIds = idsFor(idsByTable, "events");
+  const deletedFocusSessionIds = idsFor(idsByTable, "focusSessions");
+  if (eventIds.size) {
+    const sessions = await db.focusSessions
+      .filter((session) =>
+        session.user_id === userId
+        && Boolean(session.linked_event_id)
+        && eventIds.has(String(session.linked_event_id))
+        && !deletedFocusSessionIds.has(session.id)
+      )
+      .toArray();
+    for (const session of sessions) {
+      const updated = { ...session, ...syncFields(session), linked_event_id: null };
+      await db.focusSessions.put(updated);
+      await putQueueItem("focusSessions", updated.id);
+    }
+  }
+
+  const folderIds = idsFor(idsByTable, "memoFolders");
+  const deletedMemoIds = idsFor(idsByTable, "memos");
+  if (folderIds.size) {
+    const memos = await db.memos
+      .filter((memo) =>
+        memo.user_id === userId
+        && Boolean(memo.folder_id)
+        && folderIds.has(String(memo.folder_id))
+        && !deletedMemoIds.has(memo.id)
+      )
+      .toArray();
+    for (const memo of memos) {
+      const updated = { ...memo, ...syncFields(memo), folder_id: null };
+      await db.memos.put(updated);
+      await putQueueItem("memos", updated.id);
+    }
+  }
+}
+
+async function releaseRemoteReferencesForHardDeletes(userId: string, idsByTable: Map<SyncTableName, Set<string>>) {
+  if (!supabase) throw new Error("Supabase 尚未配置");
+  const eventIds = [...idsFor(idsByTable, "events")];
+  if (eventIds.length) {
+    const result = await supabase
+      .from("focus_sessions")
+      .update({ linked_event_id: null })
+      .eq("user_id", userId)
+      .in("linked_event_id", eventIds);
+    if (result.error) throw new Error(`专注记录解除关联失败：${result.error.message}`);
+  }
+
+  const folderIds = [...idsFor(idsByTable, "memoFolders")];
+  if (folderIds.length) {
+    const result = await supabase
+      .from("memos")
+      .update({ folder_id: null })
+      .eq("user_id", userId)
+      .in("folder_id", folderIds);
+    if (result.error) throw new Error(`备忘录文件夹解除关联失败：${result.error.message}`);
+  }
+}
+
+async function deleteRemoteRecordsById(userId: string, idsByTable: Map<SyncTableName, Set<string>>): Promise<number> {
+  if (!supabase) throw new Error("Supabase 尚未配置");
+  let deleted = 0;
+  await releaseRemoteReferencesForHardDeletes(userId, idsByTable);
+  for (const config of DELETE_TABLES) {
+    const ids = [...idsFor(idsByTable, config.local)];
+    if (!ids.length) continue;
+    const result = await supabase.from(config.remote).delete().eq("user_id", userId).in("id", ids);
+    if (result.error) throw new Error(`${config.remote} 删除失败：${result.error.message}`);
+    deleted += ids.length;
+  }
+  return deleted;
+}
+
+export async function purgeLocalSoftDeletedRecords(userId: string): Promise<number> {
+  const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
+  for (const { local } of TABLES) {
+    const records = await db.table(local).filter((record) => record.user_id === userId).toArray();
+    recordsByTable.set(local, records);
+  }
+  const idsByTable = collectHardDeleteIds(recordsByTable);
+  const deleteIds = [...idsByTable.values()].flatMap((ids) => [...ids]);
+  if (!deleteIds.length) return 0;
+
+  const transactionTables = [...TABLES.map(({ local }) => db.table(local)), db.syncQueue];
+  await db.transaction("rw", transactionTables, async () => {
+    await releaseLocalReferencesForHardDeletes(userId, idsByTable);
+    for (const config of DELETE_TABLES) {
+      const ids = [...idsFor(idsByTable, config.local)];
+      if (!ids.length) continue;
+      for (const id of ids) {
+        await putQueueItem(config.local, id, "delete");
+      }
+      await db.table(config.local).bulkDelete(ids);
+    }
+  });
+  return deleteIds.length;
+}
+
 async function downloadRemoteTables(userId: string): Promise<number> {
   if (!supabase) throw new Error("Supabase 尚未配置");
   let downloaded = 0;
+  const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
 
   for (const config of TABLES) {
     const { data, error } = await supabase.from(config.remote).select("*").eq("user_id", userId);
@@ -227,7 +396,15 @@ async function downloadRemoteTables(userId: string): Promise<number> {
       throw new Error(`${config.remote} 下载失败：${error.message}`);
     }
     const records = (data ?? []).map((record) => normalizeRemoteRecord(config.local, record));
-    const activeRecords = records.filter((record) => !record.deleted_at);
+    recordsByTable.set(config.local, records);
+  }
+
+  const hardDeleteIds = collectHardDeleteIds(recordsByTable);
+  await deleteRemoteRecordsById(userId, hardDeleteIds);
+
+  for (const config of TABLES) {
+    const deletedIds = idsFor(hardDeleteIds, config.local);
+    const activeRecords = recordsFor(recordsByTable, config.local).filter((record) => !record.deleted_at && !deletedIds.has(String(record.id)));
     const activeRemoteIds = new Set(activeRecords.map((record) => String(record.id)));
     if (activeRecords.length) {
       if (config.local === "eventOccurrenceStates") {
@@ -270,6 +447,7 @@ async function runSync(userId: string): Promise<SyncResult> {
   let uploaded = 0;
   let downloaded = 0;
 
+  await purgeLocalSoftDeletedRecords(userId);
   await deduplicateLocalOccurrenceStates(userId);
 
   const queued = await db.syncQueue.orderBy("queued_at").toArray();
@@ -279,6 +457,14 @@ async function runSync(userId: string): Promise<SyncResult> {
     items.push(item);
     queueByTable.set(item.table_name, items);
   }
+
+  const queuedDeleteIds = emptyDeleteMap();
+  for (const [tableName, items] of queueByTable.entries()) {
+    for (const item of items.filter((queuedItem) => queuedItem.operation === "delete")) {
+      addDeleteId(queuedDeleteIds, tableName, item.record_id);
+    }
+  }
+  await releaseRemoteReferencesForHardDeletes(userId, queuedDeleteIds);
 
   for (const config of DELETE_TABLES) {
     const items = queueByTable.get(config.local) ?? [];

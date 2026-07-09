@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
-import type { Course, CourseCancellation, CourseSchedule, EventItem, EventOccurrenceState, SyncFields } from "../types";
+import type { Course, CourseCancellation, CourseSchedule, EventItem, EventOccurrenceState, FocusSession, SyncFields } from "../types";
 import { setCurrentUserId } from "./identity";
 import { hardDeleteCoursesCascade, hardDeleteEventsCascade } from "./hardDelete";
 
@@ -25,6 +25,7 @@ describe("硬删除辅助函数", () => {
     setCurrentUserId(userId);
     await db.events.clear();
     await db.eventOccurrenceStates.clear();
+    await db.focusSessions.clear();
     await db.courses.clear();
     await db.courseSchedules.clear();
     await db.courseCancellations.clear();
@@ -58,16 +59,31 @@ describe("硬删除辅助函数", () => {
       completed: true,
       reminder_sent_at: null
     };
+    const focusSession: FocusSession = {
+      ...fields("focus-1"),
+      mode: "pomodoro",
+      task_title: "交作业",
+      linked_event_id: eventItem.id,
+      planned_seconds: 1500,
+      duration_seconds: 1500,
+      started_at: "2026-07-09T08:00:00.000Z",
+      ended_at: "2026-07-09T08:25:00.000Z",
+      completed: true,
+      interrupted: false
+    };
     await db.events.put(eventItem);
     await db.eventOccurrenceStates.put(state);
+    await db.focusSessions.put(focusSession);
 
     await hardDeleteEventsCascade([eventItem.id]);
 
     expect(await db.events.get(eventItem.id)).toBeUndefined();
     expect(await db.eventOccurrenceStates.get(state.id)).toBeUndefined();
+    expect((await db.focusSessions.get(focusSession.id))?.linked_event_id).toBeNull();
     expect((await db.syncQueue.toArray()).map((item) => `${item.table_name}:${item.operation}`).sort()).toEqual([
       "eventOccurrenceStates:delete",
-      "events:delete"
+      "events:delete",
+      "focusSessions:upsert"
     ]);
   });
 
