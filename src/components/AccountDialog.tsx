@@ -148,7 +148,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         all_day: false,
         category_id: null,
         color: "#3157d5",
-        note: "由账号与同步中的提醒测试创建，用于检查本地提醒和后台 Web Push。",
+        note: "由账号与同步中的提醒测试创建，用于检查本地提醒和应用关闭后的提醒。",
         recurrence_type: "none" as const,
         recurrence_until: null,
         recurrence_interval: 1,
@@ -158,7 +158,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       };
       await db.events.put(record);
       await queueChange("events", record.id);
-      setNotificationMessage(`已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台 Web Push。`);
+      setNotificationMessage(`已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台提醒。`);
     } catch (error) {
       setNotificationMessage(error instanceof Error ? error.message : "创建测试提醒失败");
     } finally {
@@ -171,7 +171,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     "not-allowed": "尚未允许",
     blocked: "已被浏览器阻止",
     "local-only": "仅应用打开时提醒",
-    "permission-only": "已允许，但未完成云端订阅",
+    "permission-only": "已允许，但未完成后台提醒",
     subscribed: "当前设备已订阅"
   }[notificationStatus ?? "not-allowed"];
 
@@ -209,16 +209,16 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         </div>
       </div>
       <div className="sync-detail-card">
-        <div><span>待上传</span><strong>{pendingChanges} 条</strong></div>
+        <div><span>待同步</span><strong>{pendingChanges} 条</strong></div>
         <div><span>异常项</span><strong>{syncHealth?.failed ?? 0} 条</strong></div>
         <div><span>上次同步</span><strong>{lastSync ? new Date(lastSync).toLocaleString("zh-CN") : "尚未同步"}</strong></div>
-        <div><span>最早排队</span><strong>{syncHealth?.oldest_queued_at ? new Date(syncHealth.oldest_queued_at).toLocaleString("zh-CN") : "无"}</strong></div>
+        <div><span>最早待同步</span><strong>{syncHealth?.oldest_queued_at ? new Date(syncHealth.oldest_queued_at).toLocaleString("zh-CN") : "无"}</strong></div>
       </div>
       <div className={`sync-health-card ${syncHealth?.failed ? "has-error" : ""}`}>
         <div className="sync-health-title">
           {syncHealth?.failed ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
           <div>
-            <strong>{syncHealth?.pending ? "同步队列诊断" : "同步队列正常"}</strong>
+            <strong>{syncHealth?.pending ? "同步诊断" : "同步状态正常"}</strong>
             <span>
               {syncHealth
                 ? `${syncHealth.online ? "在线" : "离线"} · ${syncHealth.cloud_configured ? "云端已配置" : "云端未配置"} · ${new Date(syncHealth.checked_at).toLocaleTimeString("zh-CN")}`
@@ -233,14 +233,14 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
               <article key={table.table_name}>
                 <div>
                   <strong>{table.label}</strong>
-                  <span>{table.pending} 条待上传 · 失败 {table.failed} 条 · 尝试 {table.attempts} 次</span>
+                  <span>{table.pending} 条待同步 · 失败 {table.failed} 条 · 尝试 {table.attempts} 次</span>
                 </div>
                 {table.last_error && <p>{table.last_error}</p>}
               </article>
             ))}
           </div>
         ) : (
-          <p>没有等待上传的数据。若手机和电脑不一致，可以点击“重新拉取云端”。</p>
+          <p>没有等待同步的数据。若手机和电脑不一致，可以点击“重新拉取云端”。</p>
         )}
       </div>
       {hasSyncProblem && (

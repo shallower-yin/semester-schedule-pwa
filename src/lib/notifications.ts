@@ -59,7 +59,7 @@ export async function getNotificationStatus(): Promise<NotificationStatus> {
     const registration = await withTimeout(
       navigator.serviceWorker.ready,
       6_000,
-      "等待 Service Worker 超时"
+      "等待应用后台服务超时"
     );
     const subscription = await withTimeout(
       registration.pushManager.getSubscription(),
@@ -157,7 +157,7 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
       id: "support",
       label: "浏览器能力",
       status: "error",
-      detail: "当前浏览器不支持 Notification 或 Service Worker。"
+      detail: "当前浏览器不支持系统通知或应用后台服务。"
     }];
   }
 
@@ -175,14 +175,14 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
 
   try {
     const registration = await withTimeout(navigator.serviceWorker.ready, 6_000, "等待应用后台服务超时");
-    steps.push({ id: "service-worker", label: "后台服务", status: "ok", detail: registration.active ? "Service Worker 已激活。" : "Service Worker 已就绪。" });
+    steps.push({ id: "service-worker", label: "后台服务", status: "ok", detail: registration.active ? "应用后台服务已激活。" : "应用后台服务已就绪。" });
 
     if (!("PushManager" in window)) {
-      steps.push({ id: "push-service", label: "系统推送", status: "warning", detail: "当前环境不支持 PushManager，只能在应用打开时提醒。" });
+      steps.push({ id: "push-service", label: "系统推送", status: "warning", detail: "当前环境不支持关闭应用后的提醒，只能在应用打开时提醒。" });
       return steps;
     }
     if (!supabase || getCurrentUserId() === "local" || !vapidPublicKey) {
-      steps.push({ id: "push-service", label: "系统推送", status: "warning", detail: "未登录或未配置推送公钥，只能在应用打开时提醒。" });
+      steps.push({ id: "push-service", label: "系统推送", status: "warning", detail: "未登录或未完成提醒配置，只能在应用打开时提醒。" });
       return steps;
     }
     const subscription = await withTimeout(registration.pushManager.getSubscription(), 6_000, "读取系统推送订阅超时");
@@ -194,9 +194,9 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
     });
     steps.push({
       id: "cloud",
-      label: "云端订阅",
+      label: "后台提醒",
       status: subscription ? "ok" : "warning",
-      detail: subscription ? "已具备云端后台推送所需订阅信息。" : "未订阅时，应用关闭后的 Web Push 不会触发。"
+      detail: subscription ? "应用关闭后的提醒已准备好。" : "未启用时，应用关闭后不会收到提醒。"
     });
   } catch (error) {
     steps.push({

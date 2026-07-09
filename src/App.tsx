@@ -659,7 +659,7 @@ export default function App() {
     .sort((left, right) => mobileNavItems.indexOf(left.id) - mobileNavItems.indexOf(right.id));
   const lastBackupText = formatBackupDateTime(lastBackupAt);
   const syncSummary = useMemo(() => {
-    const pendingText = pendingChanges > 0 ? `${pendingChanges} 条本地变更待同步` : "暂无待上传数据";
+    const pendingText = pendingChanges > 0 ? `${pendingChanges} 条本地变更待同步` : "暂无待同步数据";
     const hasSyncError = Boolean(syncMessage && !/完成|重新拉取|已接管/.test(syncMessage));
     if (!authReady) {
       return {

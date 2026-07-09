@@ -86,7 +86,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   async function saveAccess() {
     const identifier = directIdentifier.trim();
     if (!selectedUserId && !identifier) {
-      setMessage("请选择用户，或输入邮箱/UID 后再保存权限。");
+      setMessage("请选择用户，或输入邮箱/账号 ID 后再保存权限。");
       return;
     }
     setSavingAccess(true);
@@ -129,7 +129,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       <div className="admin-dialog">
         <div className="admin-toolbar">
           <span><UsersRound size={17} /> {summary?.users.length ?? 0} 个账号</span>
-          <input value={userQuery} placeholder="搜索邮箱或 UID" onChange={(event) => setUserQuery(event.target.value)} />
+          <input value={userQuery} placeholder="搜索邮箱或账号 ID" onChange={(event) => setUserQuery(event.target.value)} />
           <button className="button secondary compact" onClick={() => void loadSummary()} disabled={loading}>
             <RefreshCw size={16} />刷新
           </button>
@@ -139,12 +139,12 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
         <section className="admin-access-editor admin-direct-access">
           <div className="section-heading">
-            <div><h3><KeyRound size={18} /> 直接授权</h3><p>输入邮箱或 UID，可直接开通会员或管理员权限。</p></div>
+            <div><h3><KeyRound size={18} /> 直接授权</h3><p>输入邮箱或账号 ID，可直接开通会员或管理员权限。</p></div>
           </div>
           <div className="form-grid">
             <label>
-              邮箱或 UID
-              <input value={directIdentifier} onChange={(event) => setDirectIdentifier(event.target.value)} placeholder="user@example.com 或 UUID" />
+              邮箱或账号 ID
+              <input value={directIdentifier} onChange={(event) => setDirectIdentifier(event.target.value)} placeholder="user@example.com 或账号 ID" />
             </label>
             <label>
               启用

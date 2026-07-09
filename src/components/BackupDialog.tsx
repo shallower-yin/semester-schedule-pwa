@@ -139,7 +139,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
         }
       });
 
-      setMessage(`导入完成：合并 ${preview.total} 条记录；当前账号相关记录已加入同步队列。`);
+      setMessage(`导入完成：合并 ${preview.total} 条记录；当前账号相关记录会自动同步。`);
       showToast(`导入完成：合并 ${preview.total} 条记录。`, "success");
       setPreview(null);
     } catch (error) {
