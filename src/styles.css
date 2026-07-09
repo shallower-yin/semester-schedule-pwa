@@ -1078,12 +1078,51 @@ main {
 }
 
 .sync-summary-card {
+  margin-top: 0;
+  margin-bottom: 18px;
   justify-content: space-between;
 }
 
-.sync-summary-card > div:first-of-type {
+.sync-summary-main {
+  display: grid;
+  gap: 5px;
   min-width: 0;
   flex: 1;
+}
+
+.sync-state-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: #36506d;
+  background: rgb(255 255 255 / 70%);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sync-state-badge.synced {
+  color: #17613f;
+  background: #dff6ea;
+}
+
+.sync-state-badge.error {
+  color: #8a3b07;
+  background: #fff0d2;
+}
+
+.sync-state-badge.pending,
+.sync-state-badge.signed-out,
+.sync-state-badge.local {
+  color: #80510d;
+  background: #fff3d8;
+}
+
+.sync-state-badge.syncing,
+.sync-state-badge.checking {
+  color: #334155;
+  background: #eef2f8;
 }
 
 .sync-summary-card.neutral {

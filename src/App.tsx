@@ -7,6 +7,7 @@ import {
   CalendarHeart,
   CalendarDays,
   CheckCircle2,
+  AlertTriangle,
   CircleHelp,
   ChevronLeft,
   ChevronRight,
@@ -863,6 +864,37 @@ export default function App() {
         ) : (
           <section className="content-page">
             <div className="page-heading"><div><h1>设置</h1><p>管理账号同步、数据备份、界面设置和可选学生功能。</p></div></div>
+            <div className={`local-data-card sync-summary-card ${syncSummary.tone}`}>
+              {syncSummary.state === "error" ? <AlertTriangle size={22} /> : syncSummary.state === "synced" ? <CheckCircle2 size={22} /> : !supabaseConfigured ? <WifiOff size={22} /> : user ? <Cloud size={22} /> : <LogIn size={22} />}
+              <div className="sync-summary-main">
+                <span className={`sync-state-badge ${syncSummary.state}`}>{syncSummary.title}</span>
+                <p>{syncSummary.detail}</p>
+              </div>
+              <div className="sync-summary-actions">
+                {syncSummary.state === "error" && user ? (
+                  <>
+                    <button className="button secondary compact" onClick={() => void handleSync()} disabled={syncing || !authReady}>
+                      <RefreshCw size={16} />重试同步
+                    </button>
+                    <button className="button secondary compact" onClick={() => void handlePullRemote()} disabled={syncing || !authReady}>
+                      重新拉取云端
+                    </button>
+                    <button className="button secondary compact" onClick={() => setShowBackup(true)}>
+                      导出备份
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="button secondary compact" onClick={() => user ? void handleSync() : setAuthDialogMode("login")} disabled={syncing || !authReady}>
+                      <RefreshCw size={16} />{user ? "立即同步" : "登录同步"}
+                    </button>
+                    <button className="button secondary compact" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
+                      详情
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
             <div className="settings-sections">
               {renderSettingsSection("常用", "账号、版本、皮肤和备份放在最容易找到的位置。", (
                 <>
@@ -924,37 +956,6 @@ export default function App() {
                   </button>
                 </>
               ))}
-            </div>
-            <div className={`local-data-card sync-summary-card ${syncSummary.tone}`}>
-              {!supabaseConfigured ? <WifiOff size={22} /> : user ? <Cloud size={22} /> : <LogIn size={22} />}
-              <div>
-                <strong>{syncSummary.title}</strong>
-                <p>{syncSummary.detail}</p>
-              </div>
-              <div className="sync-summary-actions">
-                {syncSummary.state === "error" && user ? (
-                  <>
-                    <button className="button secondary compact" onClick={() => void handleSync()} disabled={syncing || !authReady}>
-                      <RefreshCw size={16} />重试
-                    </button>
-                    <button className="button secondary compact" onClick={() => void handlePullRemote()} disabled={syncing || !authReady}>
-                      重新拉取云端
-                    </button>
-                    <button className="button secondary compact" onClick={() => setShowBackup(true)}>
-                      导出备份
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className="button secondary compact" onClick={() => user ? void handleSync() : setAuthDialogMode("login")} disabled={syncing || !authReady}>
-                      <RefreshCw size={16} />{user ? "立即同步" : "登录同步"}
-                    </button>
-                    <button className="button secondary compact" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
-                      详情
-                    </button>
-                  </>
-                )}
-              </div>
             </div>
             <section className="semester-manager">
               <div className="section-heading">
