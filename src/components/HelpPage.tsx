@@ -3,7 +3,6 @@ import {
   Bot,
   Cloud,
   GraduationCap,
-  HelpCircle,
   ShieldCheck,
   Smartphone,
   Sparkles,
@@ -52,11 +51,11 @@ const faqSections = [
     ]
   },
   {
-    title: "AI 助手会读取什么？",
+    title: "AI 助手和日程助手有什么区别？",
     icon: <Bot size={18} />,
     items: [
-      "只读取当前账号的日程摘要、纪念日、备忘录预览、专注统计和你输入的问题。",
-      "管理员可向所有登录用户开放使用，并设置每日、每周额度；访问口令只用于临时体验。"
+      "日程助手只在本机按固定规则查询日程，不需要 AI 权限，也不消耗 AI 额度；适合查今天、逾期、冲突、完成率和专注统计。",
+      "AI 助手使用云端模型理解自由表达，可综合问答并创建事项、纪念日或备忘录；需要登录和 AI 权限，并计入日、周额度。"
     ]
   },
   {
@@ -80,21 +79,6 @@ const faqSections = [
 export function HelpPage() {
   return (
     <section className="help-page">
-      <div className="page-heading">
-        <div>
-          <h1>帮助</h1>
-          <p>只保留常见问题。具体功能入口在今天、日程、习惯、纪念日、备忘录、专注和设置里。</p>
-        </div>
-      </div>
-
-      <div className="help-quick-start">
-        <HelpCircle size={20} />
-        <div>
-          <strong>最短路径</strong>
-          <span>先添加一个普通事项；需要多设备时登录同步；需要课程表时再创建学期。</span>
-        </div>
-      </div>
-
       <div className="help-faq-list">
         {faqSections.map((section) => (
           <article key={section.title} className="help-card help-faq-item">

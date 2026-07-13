@@ -4171,30 +4171,6 @@ textarea {
   margin: 0 auto;
 }
 
-.help-quick-start {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 14px;
-  border: 1px solid rgb(var(--primary-rgb) / 18%);
-  border-radius: 8px;
-  background: var(--accent-soft);
-}
-
-.help-quick-start div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.help-quick-start span {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
 .help-section-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
