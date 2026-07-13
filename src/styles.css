@@ -4596,6 +4596,33 @@ textarea {
   min-width: 0;
 }
 
+.assistant-message-edit {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #b8c6ed;
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgb(30 48 88 / 8%);
+}
+
+.assistant-message-edit textarea {
+  min-height: 84px;
+  max-height: 220px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.assistant-message-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.assistant-message-edit-actions .button {
+  min-height: 34px;
+}
+
 .assistant-message-actions {
   display: flex;
   gap: 3px;

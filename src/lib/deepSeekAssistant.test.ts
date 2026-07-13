@@ -26,5 +26,8 @@ describe("AI 助手上下文", () => {
     expect(context.timezone).toBe("Asia/Shanghai");
     expect(context.appGuide.join(" ")).toContain("回答本工具怎么使用");
     expect(context.appGuide.join(" ")).toContain("常见节日");
+    expect(context.appGuide.join(" ")).toContain("普通用户和会员");
+    expect(context.appGuide.join(" ")).toContain("重新发送会计入一次额度");
+    expect(context.appGuide.join(" ")).toContain("不能直接修改、删除或完成已有记录");
   });
 });

@@ -39,12 +39,6 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
   const [creatingSnapshot, setCreatingSnapshot] = useState(false);
   const latestSnapshot = useLiveQuery(() => getLatestLocalBackupSnapshot(), []);
 
-  async function exportBackup() {
-    downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
-    setMessage("备份文件已导出。");
-    showToast("备份文件已导出。", "success");
-  }
-
   async function createSnapshotNow() {
     if (creatingSnapshot) return;
     setCreatingSnapshot(true);
@@ -155,7 +149,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
     <Modal title="数据备份" onClose={onClose}>
       <div className="backup-options">
         <section className="backup-methods">
-          <p className="backup-format-note">两种备份内容相同，都是 JSON；区别只是保存在浏览器内，还是下载成文件。</p>
+          <p className="backup-format-note">本机自动备份保存在当前浏览器内，也可以下载为 JSON 文件长期保存或在其他设备导入。</p>
           <div className="backup-method-row">
             <div>
               <h3>本机自动备份</h3>
@@ -169,13 +163,6 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
               </button>
               <button className="button secondary compact" disabled={!latestSnapshot} onClick={exportLatestSnapshot}>下载此备份</button>
             </div>
-          </div>
-          <div className="backup-method-row">
-            <div>
-              <h3>JSON 备份文件</h3>
-              <span>下载到手机或电脑，可长期保存并在其他设备导入</span>
-            </div>
-            <button className="button primary compact" onClick={() => void exportBackup()}>下载 JSON</button>
           </div>
         </section>
         <section className="backup-import-section">

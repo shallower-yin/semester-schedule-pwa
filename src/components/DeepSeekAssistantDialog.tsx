@@ -1,4 +1,4 @@
-import { BrainCircuit, Clipboard, KeyRound, PencilLine, Send, Trash2, UserRound } from "lucide-react";
+import { BrainCircuit, Clipboard, KeyRound, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
@@ -32,12 +32,16 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [question, setQuestion] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const editingRef = useRef<HTMLTextAreaElement | null>(null);
   const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
 
   useEffect(() => {
     setMessages(loadAssistantHistory(ownerId));
+    setEditingMessageId(null);
+    setEditingText("");
   }, [ownerId]);
 
   useEffect(() => {
@@ -45,16 +49,16 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }, [messages, ownerId]);
 
   useEffect(() => {
-    window.setTimeout(() => rootRef.current?.closest(".modal")?.scrollTo({ top: 0 }), 0);
+    window.setTimeout(() => rootRef.current?.closest(".modal")?.scrollTo?.({ top: 0 }), 0);
   }, []);
 
-  async function ask(text = question) {
+  async function sendMessage(text: string, baseMessages: Message[], userMessageId: string) {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
-    const history = messagesToHistory(messages);
+    const history = messagesToHistory(baseMessages);
     setLoading(true);
     setQuestion("");
-    setMessages((current) => [...current, { id: `u-${Date.now()}`, role: "user", content: trimmed }]);
+    setMessages([...baseMessages, { id: userMessageId, role: "user", content: trimmed }]);
     try {
       const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history);
       if (result.access === "access-code") setAccessCode("");
@@ -78,6 +82,10 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     }
   }
 
+  async function ask(text = question) {
+    await sendMessage(text, messages, `u-${Date.now()}`);
+  }
+
   async function copyMessage(content: string) {
     try {
       if (navigator.clipboard) {
@@ -92,10 +100,28 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     }
   }
 
-  function editMessage(content: string) {
-    setQuestion(content);
-    showToast("已放回输入框，可修改后重新发送。", "info");
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+  function editMessage(message: Message) {
+    setEditingMessageId(message.id);
+    setEditingText(message.content);
+    window.setTimeout(() => {
+      editingRef.current?.focus();
+      editingRef.current?.setSelectionRange(editingRef.current.value.length, editingRef.current.value.length);
+    }, 0);
+  }
+
+  function cancelEditing() {
+    setEditingMessageId(null);
+    setEditingText("");
+  }
+
+  async function resendEditedMessage(messageId: string) {
+    const messageIndex = messages.findIndex((message) => message.id === messageId && message.role === "user");
+    const trimmed = editingText.trim();
+    if (messageIndex < 0 || !trimmed || loading) return;
+    const baseMessages = messages.slice(0, messageIndex);
+    setEditingMessageId(null);
+    setEditingText("");
+    await sendMessage(trimmed, baseMessages, messageId);
   }
 
   function clearHistory() {
@@ -122,16 +148,44 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
               {message.role === "assistant" ? <BrainCircuit size={18} /> : <UserRound size={18} />}
-              <div className="assistant-message-body">
-                <p>
-                  {message.content}
-                  <span className="assistant-inline-actions">
-                    <button type="button" className="icon-button" title="复制" aria-label="复制这条消息" onClick={() => void copyMessage(message.content)}><Clipboard size={13} /></button>
-                    {message.role === "user" && (
-                      <button type="button" className="icon-button" title="重新编辑" aria-label="重新编辑这条消息" onClick={() => editMessage(message.content)}><PencilLine size={13} /></button>
-                    )}
-                  </span>
-                </p>
+              <div className={`assistant-message-body ${editingMessageId === message.id ? "editing" : ""}`}>
+                {editingMessageId === message.id ? (
+                  <form className="assistant-message-edit" onSubmit={(event) => {
+                    event.preventDefault();
+                    void resendEditedMessage(message.id);
+                  }}>
+                    <textarea
+                      ref={editingRef}
+                      value={editingText}
+                      aria-label="编辑消息内容"
+                      disabled={loading}
+                      onChange={(event) => setEditingText(event.target.value)}
+                    />
+                    <div className="assistant-message-edit-actions">
+                      <button type="button" className="button secondary compact" disabled={loading} onClick={cancelEditing}>
+                        <X size={15} />取消
+                      </button>
+                      <button
+                        type="submit"
+                        className="button primary compact"
+                        disabled={loading || !editingText.trim()}
+                        title="重新生成后续回答，并按一次新的 AI 请求计入额度"
+                      >
+                        <Send size={15} />重新发送
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <p>
+                    {message.content}
+                    <span className="assistant-inline-actions">
+                      <button type="button" className="icon-button" title="复制" aria-label="复制这条消息" onClick={() => void copyMessage(message.content)}><Clipboard size={13} /></button>
+                      {message.role === "user" && (
+                        <button type="button" className="icon-button" title="编辑并重新生成" aria-label="编辑这条消息" disabled={loading} onClick={() => editMessage(message)}><PencilLine size={13} /></button>
+                      )}
+                    </span>
+                  </p>
+                )}
               </div>
             </article>
           ))}
@@ -147,15 +201,14 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           ask();
         }}>
           <input
-            ref={inputRef}
             value={question}
-            disabled={loading}
+            disabled={loading || Boolean(editingMessageId)}
             placeholder="例如：创建端午节，或明天 9:00 添加交作业"
             onChange={(event) => setQuestion(event.target.value)}
           />
-          <button className="button primary" disabled={loading}><Send size={16} />发送</button>
+          <button className="button primary" disabled={loading || Boolean(editingMessageId)}><Send size={16} />发送</button>
           {messages.length > 0 && (
-            <button type="button" className="button secondary assistant-clear-button" aria-label="清空历史" disabled={loading} onClick={clearHistory}><Trash2 size={15} /><span>清空</span></button>
+            <button type="button" className="button secondary assistant-clear-button" aria-label="清空历史" disabled={loading || Boolean(editingMessageId)} onClick={clearHistory}><Trash2 size={15} /><span>清空</span></button>
           )}
         </form>
       </div>

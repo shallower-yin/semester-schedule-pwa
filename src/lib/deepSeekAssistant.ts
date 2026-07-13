@@ -9,7 +9,18 @@ export interface DeepSeekAssistantResult {
   answer: string;
   access?: string;
   accessBound?: boolean;
+  quota?: DeepSeekAssistantQuotaStatus;
   actions?: DeepSeekAssistantAction[];
+}
+
+export interface DeepSeekAssistantQuotaStatus {
+  accessMethod: "access-code" | "ordinary" | "member" | "admin";
+  accessLabel: string;
+  unlimited: boolean;
+  usageKnown: boolean;
+  currentRequestCounted: boolean;
+  daily: { used: number | null; limit: number | null; remaining: number | null };
+  weekly: { used: number | null; limit: number | null; remaining: number | null };
 }
 
 export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction;
@@ -72,11 +83,20 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
     appGuide: [
       "AI 助手可以查询日程、检查冲突、查未完成、汇总专注，也可以回答本工具怎么使用。",
       "可以创建普通事项、习惯、纪念日、生日、节日和备忘录。",
+      "AI 助手不能直接修改、删除或完成已有记录，也不能更改账号、权限、额度或系统设置。",
+      "日程助手只在本机按规则查询，不需要 AI 权限且不消耗 AI 额度；AI 助手是云端智能问答，每次成功请求会计入额度。",
+      "普通用户和会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验。",
+      "编辑已发送的用户消息会从该轮重新生成并截断后续旧对话，重新发送会计入一次额度。",
       "创建春节、端午节、中秋节、清明节、除夕等常见节日时，按北京时间所在年份或用户指定年份换算公历日期。",
       "学期是可选功能；没有学期也能使用今天、日程、习惯、纪念日、备忘录、专注和设置。",
       "普通事项支持日期、时间、全天、完成状态、重复、地点和提醒。",
+      "事项提醒支持开始时和提前 5、10、15、30 分钟、1 小时、1、3、5、7 天。",
+      "重复事项和习惯按每次发生日期分别记录完成状态。",
       "纪念日、生日、节日支持提前几天和指定时间提醒。",
-      "备忘录支持文件夹、置顶、编号和待办清单。"
+      "备忘录支持文件夹、置顶、编号和待办清单。",
+      "数据优先保存在当前设备，登录同一账号后同步；账号同步入口在顶部。",
+      "本机自动备份保存在当前浏览器并保留最近 3 份，可从备份弹窗把最近快照下载为 JSON 文件长期保存或跨设备导入。",
+      "删除是永久删除，只能通过之前导出的 JSON 备份恢复。"
     ],
     semester: semester ? {
       name: semester.name,
