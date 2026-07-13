@@ -30,8 +30,6 @@ import {
   Palette,
   Target,
   Trash2,
-  UserRound,
-  WifiOff,
   X
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
@@ -867,44 +865,10 @@ export default function App() {
           </>
         ) : (
           <section className="content-page">
-            <div className="page-heading"><div><h1>设置</h1><p>管理账号同步、数据备份、界面设置和可选学生功能。</p></div></div>
-            <div className={`local-data-card sync-summary-card ${syncSummary.tone}`}>
-              {syncSummary.state === "error" ? <AlertTriangle size={22} /> : syncSummary.state === "synced" ? <CheckCircle2 size={22} /> : !supabaseConfigured ? <WifiOff size={22} /> : user ? <Cloud size={22} /> : <LogIn size={22} />}
-              <div className="sync-summary-main">
-                <span className={`sync-state-badge ${syncSummary.state}`}>{syncSummary.title}</span>
-                <p>{syncSummary.detail}</p>
-              </div>
-              <div className="sync-summary-actions">
-                {syncSummary.state === "error" && user ? (
-                  <>
-                    <button className="button secondary compact" onClick={() => void handleSync()} disabled={syncing || !authReady}>
-                      <RefreshCw size={16} />重试同步
-                    </button>
-                    <button className="button secondary compact" onClick={() => void handlePullRemote()} disabled={syncing || !authReady}>
-                      重新拉取云端
-                    </button>
-                    <button className="button secondary compact" onClick={() => setShowBackup(true)}>
-                      导出备份
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className="button secondary compact" onClick={() => user ? void handleSync() : setAuthDialogMode("login")} disabled={syncing || !authReady}>
-                      <RefreshCw size={16} />{user ? "立即同步" : "登录同步"}
-                    </button>
-                    <button className="button secondary compact" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
-                      详情
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
+            <div className="page-heading"><div><h1>设置</h1><p>管理备份、界面和可选学生功能；账号同步请使用顶部按钮。</p></div></div>
             <div className="settings-sections">
-              {renderSettingsSection("常用", "账号、版本、皮肤和备份放在最容易找到的位置。", (
+              {renderSettingsSection("常用", "版本、皮肤、备份和安装入口。", (
                 <>
-                  <button className="setting-card" onClick={() => user ? setShowAccount(true) : setAuthDialogMode("login")}>
-                    {user ? <UserRound /> : <WifiOff />}<span><strong>账号与云同步</strong><small>{user ? user.email : "登录后在手机与电脑间同步"}</small></span><ChevronRight />
-                  </button>
                   <button className="setting-card" onClick={() => needRefresh ? void applyAppUpdate() : window.location.reload()} disabled={updatingApp}>
                     <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
                   </button>

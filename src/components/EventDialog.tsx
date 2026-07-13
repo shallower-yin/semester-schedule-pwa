@@ -418,6 +418,9 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
                 <option value={30}>提前 30 分钟</option>
                 <option value={60}>提前 1 小时</option>
                 <option value={1440}>提前 1 天</option>
+                <option value={4320}>提前 3 天</option>
+                <option value={7200}>提前 5 天</option>
+                <option value={10080}>提前 7 天</option>
               </select>
             </label>
           )}
@@ -459,7 +462,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
 
 function formatReminderLead(minutes: number): string {
   if (minutes === 0) return "开始时";
-  if (minutes === 1440) return "提前 1 天";
+  if (minutes >= 1440 && minutes % 1440 === 0) return `提前 ${minutes / 1440} 天`;
   if (minutes >= 60 && minutes % 60 === 0) return `提前 ${minutes / 60} 小时`;
   return `提前 ${minutes} 分钟`;
 }

@@ -50,8 +50,8 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
     setCreatingSnapshot(true);
     try {
       await createLocalBackupSnapshot("manual");
-      setMessage("本机快照已生成。");
-      showToast("本机快照已生成。", "success");
+      setMessage("已保存到本机浏览器。");
+      showToast("已保存到本机浏览器。", "success");
     } catch (error) {
       const message = error instanceof Error ? `生成失败：${error.message}` : "生成失败";
       setMessage(message);
@@ -63,9 +63,9 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
 
   function exportLatestSnapshot() {
     if (!latestSnapshot) return;
-    downloadBackup(latestSnapshot.backup, `本机自动快照-${latestSnapshot.created_at.slice(0, 10)}.json`);
-    setMessage("最近快照已导出。");
-    showToast("最近快照已导出。", "success");
+    downloadBackup(latestSnapshot.backup, `本机自动备份-${latestSnapshot.created_at.slice(0, 10)}.json`);
+    setMessage("本机备份已下载为 JSON 文件。");
+    showToast("本机备份已下载为 JSON 文件。", "success");
   }
 
   async function previewBackup(file?: File) {
@@ -110,7 +110,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
 
   async function confirmImport() {
     if (!preview || importing) return;
-    if (!window.confirm("确认导入这份备份？导入前会自动下载当前本地数据快照。")) return;
+    if (!window.confirm("确认导入这份备份？导入前会自动下载当前数据的 JSON 备份文件。")) return;
     setImporting(true);
     setMessage("");
     try {
@@ -154,31 +154,33 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
   return (
     <Modal title="数据备份" onClose={onClose}>
       <div className="backup-options">
-        <section>
-          <h3>本机自动快照</h3>
-          <p>应用会定期在本机保留最近 3 份快照，不上传，也不自动下载文件。</p>
-          <div className="backup-snapshot-row">
-            <span>
-              {latestSnapshot
-                ? `最近：${new Date(latestSnapshot.created_at).toLocaleString("zh-CN")} · ${latestSnapshot.record_count} 条`
-                : "尚未生成本机快照"}
-            </span>
+        <section className="backup-methods">
+          <p className="backup-format-note">两种备份内容相同，都是 JSON；区别只是保存在浏览器内，还是下载成文件。</p>
+          <div className="backup-method-row">
+            <div>
+              <h3>本机自动备份</h3>
+              <span>{latestSnapshot
+                ? `浏览器内最近保留：${new Date(latestSnapshot.created_at).toLocaleString("zh-CN")} · ${latestSnapshot.record_count} 条`
+                : "保存在当前浏览器内，自动保留最近 3 份"}</span>
+            </div>
             <div className="inline-actions">
               <button className="button secondary compact" disabled={creatingSnapshot} onClick={() => void createSnapshotNow()}>
-                {creatingSnapshot ? "生成中…" : "立即生成快照"}
+                {creatingSnapshot ? "保存中…" : "立即保存"}
               </button>
-              <button className="button secondary compact" disabled={!latestSnapshot} onClick={exportLatestSnapshot}>导出最近快照</button>
+              <button className="button secondary compact" disabled={!latestSnapshot} onClick={exportLatestSnapshot}>下载此备份</button>
             </div>
           </div>
+          <div className="backup-method-row">
+            <div>
+              <h3>JSON 备份文件</h3>
+              <span>下载到手机或电脑，可长期保存并在其他设备导入</span>
+            </div>
+            <button className="button primary compact" onClick={() => void exportBackup()}>下载 JSON</button>
+          </div>
         </section>
-        <section>
-          <h3>导出 JSON</h3>
-          <p>导出学期、节次、课程、事项、纪念日、备忘录、专注记录和停课记录。建议定期保存到安全位置。</p>
-          <button className="button primary" onClick={() => void exportBackup()}>导出备份</button>
-        </section>
-        <section>
-          <h3>导入 JSON</h3>
-          <p>选择文件后会先预览，不会立即写入。确认导入前会自动下载一份当前本地快照。</p>
+        <section className="backup-import-section">
+          <h3>导入 JSON 文件</h3>
+          <p>选择后先预览；确认导入前会自动下载当前数据的 JSON 备份。</p>
           <input ref={inputRef} className="file-input" type="file" accept="application/json,.json" onChange={(event) => void previewBackup(event.target.files?.[0])} />
         </section>
 

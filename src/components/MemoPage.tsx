@@ -168,7 +168,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
           <Search size={17} />
           <input placeholder="搜索备忘录" value={query} onChange={(event) => updateQuery(event.target.value)} />
         </div>
-        <div className="memo-sidebar-section">
+        <div className="memo-sidebar-section memo-view-section">
           <span>展示视图</span>
           <div className="memo-view-toggle">
             <button
@@ -191,7 +191,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
             </button>
           </div>
         </div>
-        <div className="memo-sidebar-section">
+        <div className="memo-sidebar-section memo-folder-section">
           <div className="memo-sidebar-title">
             <span>文件夹</span>
             <button className="text-button" onClick={() => void addFolder()}><Plus size={14} />添加</button>

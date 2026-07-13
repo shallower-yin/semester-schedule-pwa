@@ -86,7 +86,7 @@ export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryC
           <Search size={17} />
           <input placeholder="搜索纪念日" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
-        <div className="memo-sidebar-section">
+        <div className="memo-sidebar-section anniversary-filter-section">
           <span>展示列表</span>
           {FILTERS.map((item) => {
             const Icon = item.icon;

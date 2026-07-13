@@ -270,8 +270,10 @@ function TodayList({ title, items, emptyText, tomorrow, weekend, overdue, onOpen
               <i style={{ background: item.color }} />
               <div className="today-item-main">
                 <strong>{item.title}</strong>
-                <span>{item.subtitle}</span>
-                <small><Clock3 size={12} />{item.timeLabel}</small>
+                <div className="today-item-meta">
+                  <span>{item.subtitle}</span>
+                  <small><Clock3 size={12} />{item.timeLabel}</small>
+                </div>
               </div>
               <div className="today-item-actions">
                 {item.type === "event" && (

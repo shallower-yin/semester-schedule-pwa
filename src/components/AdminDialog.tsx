@@ -32,8 +32,10 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [userQuery, setUserQuery] = useState("");
   const [directIdentifier, setDirectIdentifier] = useState("");
   const [globalEnabled, setGlobalEnabled] = useState(false);
-  const [dailyLimit, setDailyLimit] = useState(20);
-  const [weeklyLimit, setWeeklyLimit] = useState(100);
+  const [ordinaryDailyLimit, setOrdinaryDailyLimit] = useState(20);
+  const [ordinaryWeeklyLimit, setOrdinaryWeeklyLimit] = useState(100);
+  const [memberDailyLimit, setMemberDailyLimit] = useState(50);
+  const [memberWeeklyLimit, setMemberWeeklyLimit] = useState(300);
   const [savingSettings, setSavingSettings] = useState(false);
 
   const selectedUser = useMemo(
@@ -55,8 +57,10 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       const nextSummary = await getAdminSummary();
       setSummary(nextSummary);
       setGlobalEnabled(nextSummary.aiSettings.enabled_for_all);
-      setDailyLimit(nextSummary.aiSettings.daily_limit);
-      setWeeklyLimit(nextSummary.aiSettings.weekly_limit);
+      setOrdinaryDailyLimit(nextSummary.aiSettings.ordinary_daily_limit);
+      setOrdinaryWeeklyLimit(nextSummary.aiSettings.ordinary_weekly_limit);
+      setMemberDailyLimit(nextSummary.aiSettings.member_daily_limit);
+      setMemberWeeklyLimit(nextSummary.aiSettings.member_weekly_limit);
       if (!selectedUserId && nextSummary.users[0]) setSelectedUserId(nextSummary.users[0].id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
@@ -121,8 +125,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }
 
   async function saveGlobalSettings() {
-    if (weeklyLimit < dailyLimit) {
-      setMessage("每周额度不能低于每日额度。");
+    if (ordinaryWeeklyLimit < ordinaryDailyLimit || memberWeeklyLimit < memberDailyLimit) {
+      setMessage("普通用户和会员的每周额度都不能低于每日额度。");
       return;
     }
     setSavingSettings(true);
@@ -130,12 +134,16 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     try {
       const settings = await saveAdminAiSettings({
         enabled_for_all: globalEnabled,
-        daily_limit: dailyLimit,
-        weekly_limit: weeklyLimit
+        ordinary_daily_limit: ordinaryDailyLimit,
+        ordinary_weekly_limit: ordinaryWeeklyLimit,
+        member_daily_limit: memberDailyLimit,
+        member_weekly_limit: memberWeeklyLimit
       });
       setGlobalEnabled(settings.enabled_for_all);
-      setDailyLimit(settings.daily_limit);
-      setWeeklyLimit(settings.weekly_limit);
+      setOrdinaryDailyLimit(settings.ordinary_daily_limit);
+      setOrdinaryWeeklyLimit(settings.ordinary_weekly_limit);
+      setMemberDailyLimit(settings.member_daily_limit);
+      setMemberWeeklyLimit(settings.member_weekly_limit);
       setMessage(settings.enabled_for_all ? "已向所有登录用户开放 AI 助手。" : "已关闭 AI 助手全员权限。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
@@ -173,24 +181,31 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
           <div className="section-heading">
             <div><h3><KeyRound size={18} /> 全局 AI 权限与额度</h3></div>
           </div>
-          <div className="form-grid">
+          <div className="admin-ai-settings-grid">
             <label>
-              所有登录用户
+              全员权限
               <select value={globalEnabled ? "1" : "0"} onChange={(event) => setGlobalEnabled(event.target.value === "1")}>
                 <option value="1">开放</option>
                 <option value="0">关闭</option>
               </select>
             </label>
             <label>
-              每日额度
-              <input type="number" min={1} max={100000} value={dailyLimit} onChange={(event) => setDailyLimit(Number(event.target.value))} />
+              普通用户 / 日
+              <input type="number" min={1} max={100000} value={ordinaryDailyLimit} onChange={(event) => setOrdinaryDailyLimit(Number(event.target.value))} />
             </label>
             <label>
-              每周额度
-              <input type="number" min={dailyLimit} max={1000000} value={weeklyLimit} onChange={(event) => setWeeklyLimit(Number(event.target.value))} />
+              普通用户 / 周
+              <input type="number" min={ordinaryDailyLimit} max={1000000} value={ordinaryWeeklyLimit} onChange={(event) => setOrdinaryWeeklyLimit(Number(event.target.value))} />
             </label>
-          </div>
-          <div className="form-actions">
+            <label>
+              会员 / 日
+              <input type="number" min={1} max={100000} value={memberDailyLimit} onChange={(event) => setMemberDailyLimit(Number(event.target.value))} />
+            </label>
+            <label>
+              会员 / 周
+              <input type="number" min={memberDailyLimit} max={1000000} value={memberWeeklyLimit} onChange={(event) => setMemberWeeklyLimit(Number(event.target.value))} />
+            </label>
+            <span className="admin-unlimited-note"><strong>管理员</strong>不限额</span>
             <button className="button primary" onClick={() => void saveGlobalSettings()} disabled={savingSettings}>
               <Save size={16} />保存全局设置
             </button>

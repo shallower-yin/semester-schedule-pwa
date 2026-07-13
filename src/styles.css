@@ -1756,6 +1756,62 @@ textarea {
   line-height: 1.5;
 }
 
+.backup-methods {
+  display: grid;
+  gap: 0;
+}
+
+.backup-options .backup-format-note {
+  margin: 0 0 4px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  color: #35506f;
+  background: #eef5ff;
+}
+
+.backup-method-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.backup-method-row:last-child {
+  padding-bottom: 2px;
+  border-bottom: 0;
+}
+
+.backup-method-row > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.backup-method-row span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.backup-method-row .inline-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.backup-import-section {
+  display: grid;
+  gap: 8px;
+}
+
+.backup-options .backup-import-section p {
+  margin: 0;
+}
+
 .backup-snapshot-row {
   display: flex;
   flex-wrap: wrap;
@@ -2017,6 +2073,55 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.admin-global-settings {
+  padding: 12px 14px;
+}
+
+.admin-global-settings .section-heading {
+  margin-bottom: 8px;
+}
+
+.admin-ai-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  align-items: end;
+  gap: 8px;
+}
+
+.admin-ai-settings-grid label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-ai-settings-grid input,
+.admin-ai-settings-grid select {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 9px;
+}
+
+.admin-ai-settings-grid .button {
+  min-height: 36px;
+  padding: 7px 11px;
+  white-space: nowrap;
+}
+
+.admin-unlimited-note {
+  display: grid;
+  min-height: 36px;
+  align-content: center;
+  padding: 5px 9px;
+  border: 1px solid #cfe4d9;
+  border-radius: 8px;
+  color: #3d6650;
+  background: #f0faf4;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .admin-data-sections,
@@ -2934,8 +3039,20 @@ textarea {
   font-size: 13px;
 }
 
+.today-item-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.today-item-meta span {
+  min-width: 0;
+}
+
 .today-item-main small {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
 }
@@ -5083,17 +5200,17 @@ textarea {
   }
 
   .setting-card {
-    min-height: 72px;
-    gap: 10px;
-    padding: 12px 13px;
-    border-radius: 12px;
+    min-height: 60px;
+    gap: 9px;
+    padding: 9px 11px;
+    border-radius: 10px;
   }
 
   .setting-card > svg:first-child {
     width: 18px;
     height: 18px;
-    padding: 8px;
-    border-radius: 9px;
+    padding: 6px;
+    border-radius: 8px;
   }
 
   .setting-card small {
@@ -5200,12 +5317,59 @@ textarea {
   }
 
   .today-item {
-    grid-template-columns: 6px minmax(0, 1fr);
+    grid-template-columns: 4px minmax(0, 1fr);
+    gap: 7px;
+    padding: 9px;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgb(30 48 88 / 5%);
+  }
+
+  .today-list {
+    gap: 7px;
+  }
+
+  .today-item > i {
+    width: 4px;
+    min-height: 46px;
+  }
+
+  .today-item-main {
+    gap: 2px;
+  }
+
+  .today-item-main strong {
+    font-size: 15px;
+  }
+
+  .today-item-meta {
+    gap: 8px;
+  }
+
+  .today-item-main span,
+  .today-item-main small {
+    font-size: 12px;
   }
 
   .today-item-actions {
     grid-column: 2;
+    min-width: 0;
+    flex-wrap: nowrap;
     justify-content: flex-start;
+    gap: 4px;
+    overflow-x: auto;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+  }
+
+  .today-item-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .today-item-actions .button {
+    flex: 0 0 auto;
+    min-height: 31px;
+    padding: 5px 8px;
+    font-size: 12px;
   }
 
   .memo-sidebar {
@@ -5563,5 +5727,128 @@ textarea {
 
   .admin-ai-usage-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-ai-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-unlimited-note,
+  .admin-ai-settings-grid .button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 580px) {
+  .habit-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .habit-stats article {
+    display: grid;
+    min-height: 0;
+    justify-items: center;
+    gap: 3px;
+    padding: 8px 4px;
+    border-radius: 10px;
+    text-align: center;
+  }
+
+  .habit-stats svg {
+    width: 17px;
+    height: 17px;
+    padding: 6px;
+    border-radius: 8px;
+  }
+
+  .habit-stats strong {
+    font-size: 19px;
+    line-height: 1.1;
+  }
+
+  .habit-stats small {
+    margin-top: 1px;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+
+  .memo-sidebar {
+    padding: 11px;
+    border-radius: 11px;
+  }
+
+  .memo-search {
+    min-height: 40px;
+    padding: 0 9px;
+  }
+
+  .memo-sidebar-section {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .anniversary-filter-section,
+  .memo-folder-section {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .anniversary-filter-section > span,
+  .memo-folder-section > .memo-sidebar-title {
+    grid-column: 1 / -1;
+  }
+
+  .anniversary-filter-section > button,
+  .memo-folder-section > button {
+    min-width: 0;
+    padding: 8px 9px;
+  }
+
+  .memo-view-section {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .memo-view-section .memo-view-toggle {
+    min-width: 0;
+  }
+
+  .memo-view-toggle button {
+    padding: 7px 8px;
+  }
+
+  .compact-empty {
+    margin-top: 18px;
+  }
+
+  .backup-options {
+    gap: 10px;
+  }
+
+  .backup-options section {
+    padding: 11px;
+    border-radius: 10px;
+  }
+
+  .backup-method-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 1px;
+  }
+
+  .backup-method-row .inline-actions,
+  .backup-method-row > .button {
+    width: 100%;
+  }
+
+  .backup-method-row .inline-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .backup-method-row .button {
+    width: 100%;
   }
 }

@@ -12,8 +12,10 @@ interface AdminRequest {
   };
   settings?: {
     enabledForAll?: boolean;
-    dailyLimit?: number;
-    weeklyLimit?: number;
+    ordinaryDailyLimit?: number;
+    ordinaryWeeklyLimit?: number;
+    memberDailyLimit?: number;
+    memberWeeklyLimit?: number;
   };
 }
 
@@ -465,20 +467,35 @@ async function setAiAccess(
 
 async function getAiSettings(serviceRoleKey: string) {
   const rows = await restGet<Record<string, unknown>>("ai_assistant_settings", serviceRoleKey, {
-    select: "enabled_for_all,daily_limit,weekly_limit,updated_at",
+    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,updated_at",
     id: "eq.true"
   }, 1);
-  return rows[0] ?? { enabled_for_all: false, daily_limit: 20, weekly_limit: 100, updated_at: null };
+  return rows[0] ?? {
+    enabled_for_all: false,
+    ordinary_daily_limit: 20,
+    ordinary_weekly_limit: 100,
+    member_daily_limit: 50,
+    member_weekly_limit: 300,
+    updated_at: null
+  };
 }
 
 async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey: string) {
-  const dailyLimit = Math.floor(Number(settings?.dailyLimit));
-  const weeklyLimit = Math.floor(Number(settings?.weeklyLimit));
-  if (!Number.isFinite(dailyLimit) || dailyLimit < 1 || dailyLimit > 100000) {
-    throw new Error("每日额度必须在 1 到 100000 之间。");
+  const ordinaryDailyLimit = Math.floor(Number(settings?.ordinaryDailyLimit));
+  const ordinaryWeeklyLimit = Math.floor(Number(settings?.ordinaryWeeklyLimit));
+  const memberDailyLimit = Math.floor(Number(settings?.memberDailyLimit));
+  const memberWeeklyLimit = Math.floor(Number(settings?.memberWeeklyLimit));
+  if (!Number.isFinite(ordinaryDailyLimit) || ordinaryDailyLimit < 1 || ordinaryDailyLimit > 100000) {
+    throw new Error("普通用户每日额度必须在 1 到 100000 之间。");
   }
-  if (!Number.isFinite(weeklyLimit) || weeklyLimit < dailyLimit || weeklyLimit > 1000000) {
-    throw new Error("每周额度不能低于每日额度，且不能超过 1000000。");
+  if (!Number.isFinite(ordinaryWeeklyLimit) || ordinaryWeeklyLimit < ordinaryDailyLimit || ordinaryWeeklyLimit > 1000000) {
+    throw new Error("普通用户每周额度不能低于每日额度，且不能超过 1000000。");
+  }
+  if (!Number.isFinite(memberDailyLimit) || memberDailyLimit < 1 || memberDailyLimit > 100000) {
+    throw new Error("会员每日额度必须在 1 到 100000 之间。");
+  }
+  if (!Number.isFinite(memberWeeklyLimit) || memberWeeklyLimit < memberDailyLimit || memberWeeklyLimit > 1000000) {
+    throw new Error("会员每周额度不能低于每日额度，且不能超过 1000000。");
   }
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
   url.searchParams.set("on_conflict", "id");
@@ -491,8 +508,12 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
     body: JSON.stringify({
       id: true,
       enabled_for_all: Boolean(settings?.enabledForAll),
-      daily_limit: dailyLimit,
-      weekly_limit: weeklyLimit,
+      daily_limit: ordinaryDailyLimit,
+      weekly_limit: ordinaryWeeklyLimit,
+      ordinary_daily_limit: ordinaryDailyLimit,
+      ordinary_weekly_limit: ordinaryWeeklyLimit,
+      member_daily_limit: memberDailyLimit,
+      member_weekly_limit: memberWeeklyLimit,
       updated_at: new Date().toISOString()
     })
   });

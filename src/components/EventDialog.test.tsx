@@ -100,6 +100,24 @@ describe("事项编辑弹窗", () => {
       }));
     });
   });
+
+  it("提醒提前时间支持 3、5、7 天", () => {
+    const eventItem = eventRecord();
+    render(
+      <EventDialog
+        eventItem={eventItem}
+        initialDate={eventItem.start_date}
+        ownerId="local"
+        occurrenceStates={[]}
+        onClose={vi.fn()}
+      />
+    );
+
+    const reminderSelect = screen.getByLabelText("提前时间");
+    expect(reminderSelect).toHaveTextContent("提前 3 天");
+    expect(reminderSelect).toHaveTextContent("提前 5 天");
+    expect(reminderSelect).toHaveTextContent("提前 7 天");
+  });
 });
 
 function eventRecord(overrides: Partial<EventItem> = {}): EventItem {

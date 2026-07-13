@@ -261,6 +261,10 @@ create table if not exists public.ai_assistant_settings (
   enabled_for_all boolean not null default false,
   daily_limit integer not null default 20 check (daily_limit between 1 and 100000),
   weekly_limit integer not null default 100 check (weekly_limit between 1 and 1000000),
+  ordinary_daily_limit integer not null default 20 check (ordinary_daily_limit between 1 and 100000),
+  ordinary_weekly_limit integer not null default 100 check (ordinary_weekly_limit between ordinary_daily_limit and 1000000),
+  member_daily_limit integer not null default 50 check (member_daily_limit between 1 and 100000),
+  member_weekly_limit integer not null default 300 check (member_weekly_limit between member_daily_limit and 1000000),
   updated_at timestamptz not null default now()
 );
 

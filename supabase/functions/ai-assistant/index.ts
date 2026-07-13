@@ -82,7 +82,7 @@ interface AiAssistantUsage {
   estimated_cost_cny: number | null;
 }
 
-type AiAccessMethod = "access-code" | "member" | "admin";
+type AiAccessMethod = "access-code" | "ordinary" | "member" | "admin";
 
 interface AiQuotaSnapshot {
   requests: number;
@@ -97,8 +97,10 @@ interface AiQuotaLimits {
 
 interface AiSettingsRow {
   enabled_for_all: boolean;
-  daily_limit: number;
-  weekly_limit: number;
+  ordinary_daily_limit: number;
+  ordinary_weekly_limit: number;
+  member_daily_limit: number;
+  member_weekly_limit: number;
 }
 
 function optionalSecret(name: string): string {
@@ -237,8 +239,8 @@ async function checkAiAccess(
   if (rowActive && row.role === "admin") {
     return { allowed: true, method: row.role };
   }
-  if (settings?.enabled_for_all) return { allowed: true, method: "member" };
   if (rowActive) return { allowed: true, method: "member" };
+  if (settings?.enabled_for_all) return { allowed: true, method: "ordinary" };
 
   const configuredCode = optionalSecret("AI_ASSISTANT_ACCESS_CODE");
   if (configuredCode && accessCode && accessCode === configuredCode) {
@@ -257,7 +259,7 @@ async function checkAiQuota(
   serviceRoleKey: string,
   settings: AiSettingsRow | null
 ): Promise<{ allowed: boolean; reason?: string; today?: AiQuotaSnapshot; week?: AiQuotaSnapshot }> {
-  const accessMethod = method === "admin" || method === "member" || method === "access-code" ? method : "access-code";
+  const accessMethod = method === "admin" || method === "member" || method === "ordinary" || method === "access-code" ? method : "access-code";
   const limits = quotaLimitsFor(accessMethod, settings);
   if (limits.daily === Number.POSITIVE_INFINITY && limits.weekly === Number.POSITIVE_INFINITY) {
     return { allowed: true };
@@ -298,14 +300,20 @@ async function checkAiQuota(
 function quotaLimitsFor(method: AiAccessMethod, settings: AiSettingsRow | null): AiQuotaLimits {
   if (method === "admin") {
     return {
-      daily: readQuotaLimit("AI_ASSISTANT_ADMIN_DAILY_LIMIT", 200),
-      weekly: readQuotaLimit("AI_ASSISTANT_ADMIN_WEEKLY_LIMIT", 5000)
+      daily: Number.POSITIVE_INFINITY,
+      weekly: Number.POSITIVE_INFINITY
     };
   }
   if (method === "member") {
     return {
-      daily: settings?.daily_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_DAILY_LIMIT", 20),
-      weekly: settings?.weekly_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_WEEKLY_LIMIT", 100)
+      daily: settings?.member_daily_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_DAILY_LIMIT", 50),
+      weekly: settings?.member_weekly_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_WEEKLY_LIMIT", 300)
+    };
+  }
+  if (method === "ordinary") {
+    return {
+      daily: settings?.ordinary_daily_limit ?? 20,
+      weekly: settings?.ordinary_weekly_limit ?? 100
     };
   }
   return {
@@ -344,7 +352,7 @@ function beijingPeriodStart(period: "day" | "week"): { iso: string; time: number
 
 async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | null> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
-  url.searchParams.set("select", "enabled_for_all,daily_limit,weekly_limit");
+  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit");
   url.searchParams.set("id", "eq.true");
   url.searchParams.set("limit", "1");
   const response = await fetch(url, {
