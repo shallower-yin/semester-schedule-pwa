@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { reminderScheduleChanged, withTimeout } from "./notifications";
+import { reminderOccurrenceCanSend, reminderScheduleChanged, withTimeout } from "./notifications";
 import type { EventItem } from "../types";
 
 describe("通知异步超时", () => {
@@ -54,5 +54,13 @@ describe("编辑事项后的再次提醒", () => {
 
   it("只修改标题或备注时不重复提醒", () => {
     expect(reminderScheduleChanged(event, { ...event, title: "新标题", note: "新备注" })).toBe(false);
+  });
+});
+
+describe("事项发生日期的提醒去重", () => {
+  it("已提前完成的未来事项不会再发送提醒", () => {
+    expect(reminderOccurrenceCanSend({ completed: true, reminder_sent_at: null })).toBe(false);
+    expect(reminderOccurrenceCanSend({ completed: false, reminder_sent_at: "2026-07-13T00:00:00.000Z" })).toBe(false);
+    expect(reminderOccurrenceCanSend({ completed: false, reminder_sent_at: null })).toBe(true);
   });
 });

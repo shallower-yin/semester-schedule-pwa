@@ -154,7 +154,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         setReminderMessage("浏览器未允许通知，请在网站权限中开启后重试。");
       } else if (result === "unsupported") {
         setReminderEnabled(false);
-        setReminderMessage("当前浏览器不支持系统通知。请使用 Android Chrome 或 Windows Edge/Chrome。");
+        setReminderMessage("当前浏览器不支持系统通知。请使用 Android Edge/Chrome 或 Windows Edge/Chrome。");
       } else if (result === "local-only") {
         setReminderMessage("已启用提醒；登录并完成云端通知配置后，可在应用关闭时接收。");
       } else {

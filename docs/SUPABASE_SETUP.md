@@ -48,6 +48,10 @@ AI 助手权限需要执行：
 
 该迁移新增 `ai_assistant_access` 表。只有表中启用的账号，或输入 Edge Function Secret `AI_ASSISTANT_ACCESS_CODE` 的用户，可以使用 AI 助手。已配置服务端角色密钥时，访问口令验证成功会自动把当前账号写入权限表，之后同账号可不再输入口令。
 
+`supabase/migrations/20260713_ai_global_settings.sql`
+
+该迁移新增 AI 助手全员开关，以及普通用户的每日、每周额度。管理员可在管理后台即时修改；Edge Function 每次请求都会读取最新配置，无需重新部署。
+
 ## Auth URL 配置
 
 在 Supabase Dashboard 打开 `Authentication → URL Configuration`：

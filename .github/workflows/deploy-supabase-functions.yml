@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "supabase/functions/**"
+      - "supabase/migrations/**"
       - "supabase/config.toml"
       - ".github/workflows/deploy-supabase-functions.yml"
 
@@ -31,6 +32,18 @@ jobs:
         with:
           version: latest
 
+      - name: Apply AI settings migration
+        env:
+          MIGRATION_FILE: supabase/migrations/20260713_ai_global_settings.sql
+        run: |
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-settings-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/ai-settings-query.json
+
       - name: Configure function secrets
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -38,11 +51,11 @@ jobs:
           AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT || '3' }}
-          AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT: ${{ vars.AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT || '20' }}
+          AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT: ${{ vars.AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT || '20' }}
           AI_ASSISTANT_MEMBER_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_MEMBER_DAILY_LIMIT || '50' }}
-          AI_ASSISTANT_MEMBER_MONTHLY_LIMIT: ${{ vars.AI_ASSISTANT_MEMBER_MONTHLY_LIMIT || '800' }}
+          AI_ASSISTANT_MEMBER_WEEKLY_LIMIT: ${{ vars.AI_ASSISTANT_MEMBER_WEEKLY_LIMIT || '100' }}
           AI_ASSISTANT_ADMIN_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_ADMIN_DAILY_LIMIT || '200' }}
-          AI_ASSISTANT_ADMIN_MONTHLY_LIMIT: ${{ vars.AI_ASSISTANT_ADMIN_MONTHLY_LIMIT || '3000' }}
+          AI_ASSISTANT_ADMIN_WEEKLY_LIMIT: ${{ vars.AI_ASSISTANT_ADMIN_WEEKLY_LIMIT || '5000' }}
         run: |
           supabase secrets set --project-ref "$PROJECT_REF" \
             REMINDER_DISPATCHER_TOKEN="${{ secrets.REMINDER_DISPATCHER_TOKEN }}" \
@@ -50,11 +63,11 @@ jobs:
             VAPID_PRIVATE_KEY="${{ secrets.VAPID_PRIVATE_KEY }}" \
             APP_URL="https://shallower-yin.github.io/semester-schedule-pwa/" \
             AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT" \
-            AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT" \
+            AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT" \
             AI_ASSISTANT_MEMBER_DAILY_LIMIT="$AI_ASSISTANT_MEMBER_DAILY_LIMIT" \
-            AI_ASSISTANT_MEMBER_MONTHLY_LIMIT="$AI_ASSISTANT_MEMBER_MONTHLY_LIMIT" \
+            AI_ASSISTANT_MEMBER_WEEKLY_LIMIT="$AI_ASSISTANT_MEMBER_WEEKLY_LIMIT" \
             AI_ASSISTANT_ADMIN_DAILY_LIMIT="$AI_ASSISTANT_ADMIN_DAILY_LIMIT" \
-            AI_ASSISTANT_ADMIN_MONTHLY_LIMIT="$AI_ASSISTANT_ADMIN_MONTHLY_LIMIT"
+            AI_ASSISTANT_ADMIN_WEEKLY_LIMIT="$AI_ASSISTANT_ADMIN_WEEKLY_LIMIT"
           supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
           if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY"
@@ -85,6 +98,18 @@ jobs:
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
             --data @/tmp/reminder-cron-query.json
+
+      - name: Apply reminder retry migration
+        env:
+          MIGRATION_FILE: supabase/migrations/20260713_reminder_retry.sql
+        run: |
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/reminder-retry-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/reminder-retry-query.json
 
       - name: Verify function responds
         run: |

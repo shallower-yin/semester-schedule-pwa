@@ -56,14 +56,14 @@ const faqSections = [
     icon: <Bot size={18} />,
     items: [
       "只读取当前账号的日程摘要、纪念日、备忘录预览、专注统计和你输入的问题。",
-      "会员和管理员可直接使用；访问口令只用于临时体验。"
+      "管理员可向所有登录用户开放使用，并设置每日、每周额度；访问口令只用于临时体验。"
     ]
   },
   {
     title: "安卓和 Windows 怎么安装？",
     icon: <Smartphone size={18} />,
     items: [
-      "安卓 Chrome 可通过浏览器菜单添加到主屏幕。",
+      "安卓 Edge 或 Chrome 可通过浏览器菜单添加到主屏幕。",
       "Windows Edge 或 Chrome 可通过安装入口保存为独立应用。"
     ]
   },

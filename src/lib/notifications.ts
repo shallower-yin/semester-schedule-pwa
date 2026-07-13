@@ -4,7 +4,7 @@ import { eventOccursOn, toISODate } from "./date";
 import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
 import { reminderIsDue } from "./reminderTime";
 import { supabase } from "./supabase";
-import type { Anniversary, EventItem } from "../types";
+import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 
@@ -238,6 +238,12 @@ export function reminderScheduleChanged(previous: EventItem, next: EventItem): b
   return REMINDER_SCHEDULE_FIELDS.some((field) => previous[field] !== next[field]);
 }
 
+export function reminderOccurrenceCanSend(
+  state: Pick<EventOccurrenceState, "completed" | "reminder_sent_at"> | undefined
+): boolean {
+  return !state?.completed && !state?.reminder_sent_at;
+}
+
 export async function resetSentRemindersForChangedEvent(
   previous: EventItem | undefined,
   next: EventItem
@@ -263,37 +269,39 @@ export async function resetSentRemindersForChangedEvent(
 export async function checkDueLocalReminders(ownerId: string): Promise<number> {
   if (!notificationsSupported() || Notification.permission !== "granted") return 0;
   const now = new Date();
-  const date = toISODate(now);
   const events = await db.events
-    .filter((event) => event.user_id === ownerId && !event.deleted_at && event.reminder_enabled && eventOccursOn(event, now))
+    .filter((event) => event.user_id === ownerId && !event.deleted_at && event.reminder_enabled)
     .toArray();
   let sent = 0;
   for (const event of events) {
-    const startTime = event.start_time ?? "09:00";
-    if (!reminderIsDue(event, now, now)) continue;
+    for (let dayOffset = 0; dayOffset <= 7; dayOffset += 1) {
+      const occurrenceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+      if (!eventOccursOn(event, occurrenceDate) || !reminderIsDue(event, occurrenceDate, now)) continue;
+      const date = toISODate(occurrenceDate);
+      const startTime = event.start_time ?? "09:00";
+      const existing = await db.eventOccurrenceStates
+        .where("[event_id+occurrence_date]")
+        .equals([event.id, date])
+        .filter((state) => !state.deleted_at)
+        .first();
+      if (!reminderOccurrenceCanSend(existing)) continue;
 
-    const existing = await db.eventOccurrenceStates
-      .where("[event_id+occurrence_date]")
-      .equals([event.id, date])
-      .filter((state) => !state.deleted_at)
-      .first();
-    if (existing?.reminder_sent_at) continue;
-
-    await showReminder(
-      event.title,
-      event.all_day ? "今天的全天事项" : `${startTime} 开始`,
-      `event-${event.id}-${date}`
-    );
-    const state = {
-      ...syncFields(existing),
-      event_id: event.id,
-      occurrence_date: date,
-      completed: existing?.completed ?? false,
-      reminder_sent_at: new Date().toISOString()
-    };
-    await db.eventOccurrenceStates.put(state);
-    await queueChange("eventOccurrenceStates", state.id);
-    sent += 1;
+      await showReminder(
+        event.title,
+        event.all_day ? `${date} 全天事项` : `${date} ${startTime} 开始`,
+        `event-${event.id}-${date}`
+      );
+      const state = {
+        ...syncFields(existing),
+        event_id: event.id,
+        occurrence_date: date,
+        completed: existing?.completed ?? false,
+        reminder_sent_at: new Date().toISOString()
+      };
+      await db.eventOccurrenceStates.put(state);
+      await queueChange("eventOccurrenceStates", state.id);
+      sent += 1;
+    }
   }
 
   const anniversaries = await db.anniversaries

@@ -256,6 +256,18 @@ create table if not exists public.ai_assistant_access (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.ai_assistant_settings (
+  id boolean primary key default true check (id),
+  enabled_for_all boolean not null default false,
+  daily_limit integer not null default 20 check (daily_limit between 1 and 100000),
+  weekly_limit integer not null default 100 check (weekly_limit between 1 and 1000000),
+  updated_at timestamptz not null default now()
+);
+
+insert into public.ai_assistant_settings (id)
+values (true)
+on conflict (id) do nothing;
+
 create table if not exists public.ai_assistant_usage (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -338,6 +350,7 @@ $$;
 
 alter table public.ai_assistant_access enable row level security;
 alter table public.ai_assistant_usage enable row level security;
+alter table public.ai_assistant_settings enable row level security;
 
 create or replace function public.is_ai_assistant_admin()
 returns boolean
@@ -382,6 +395,9 @@ with check (public.is_ai_assistant_admin());
 revoke all on public.ai_assistant_access from anon;
 grant select, insert, update, delete on public.ai_assistant_access to authenticated;
 grant select, insert, update, delete on public.ai_assistant_access to service_role;
+
+revoke all on public.ai_assistant_settings from anon, authenticated;
+grant select, insert, update on public.ai_assistant_settings to service_role;
 
 drop policy if exists "Users read own AI usage" on public.ai_assistant_usage;
 create policy "Users read own AI usage"

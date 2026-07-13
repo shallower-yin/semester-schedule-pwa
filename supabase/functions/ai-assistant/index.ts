@@ -84,13 +84,6 @@ interface AiAssistantUsage {
 
 type AiAccessMethod = "access-code" | "member" | "admin";
 
-interface AiQuotaUsageRow {
-  status: "success" | "error";
-  requested_at: string;
-  total_tokens: number | null;
-  estimated_cost_cny?: number | string | null;
-}
-
 interface AiQuotaSnapshot {
   requests: number;
   totalTokens: number;
@@ -99,7 +92,13 @@ interface AiQuotaSnapshot {
 
 interface AiQuotaLimits {
   daily: number;
-  monthly: number;
+  weekly: number;
+}
+
+interface AiSettingsRow {
+  enabled_for_all: boolean;
+  daily_limit: number;
+  weekly_limit: number;
 }
 
 function optionalSecret(name: string): string {
@@ -151,15 +150,16 @@ Deno.serve(async (request) => {
 
     const user = await getUser(authorization);
     currentUser = user;
-    const access = await checkAiAccess(user, authorization, body.accessCode?.trim());
+    const serviceRoleKey = serviceRoleSecret();
+    const settings = serviceRoleKey ? await getAiSettings(serviceRoleKey) : null;
+    const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings);
     if (!access.allowed) return jsonResponse({
       error: access.reason,
       code: "AI_ACCESS_REQUIRED"
     }, 403);
     accessMethod = access.method ?? "";
 
-    const serviceRoleKey = serviceRoleSecret();
-    const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey);
+    const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings);
     if (!quota.allowed) {
       await logAiAssistantUsage({
         userId: user.id,
@@ -226,15 +226,19 @@ async function getUser(authorization: string): Promise<SupabaseUser> {
 async function checkAiAccess(
   user: SupabaseUser,
   authorization: string,
-  accessCode: string | undefined
+  accessCode: string | undefined,
+  settings: AiSettingsRow | null
 ): Promise<{ allowed: boolean; method?: AiAccessMethod; reason?: string; bound?: boolean }> {
   const serviceRoleKey = serviceRoleSecret();
   const row = serviceRoleKey
     ? await getAiAccessByServiceRole(user.id, serviceRoleKey)
     : await getAiAccessByUserRpc(authorization);
-  if (row?.enabled && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now())) {
+  const rowActive = row?.enabled && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now());
+  if (rowActive && row.role === "admin") {
     return { allowed: true, method: row.role };
   }
+  if (settings?.enabled_for_all) return { allowed: true, method: "member" };
+  if (rowActive) return { allowed: true, method: "member" };
 
   const configuredCode = optionalSecret("AI_ASSISTANT_ACCESS_CODE");
   if (configuredCode && accessCode && accessCode === configuredCode) {
@@ -250,11 +254,12 @@ async function checkAiAccess(
 async function checkAiQuota(
   userId: string,
   method: string,
-  serviceRoleKey: string
-): Promise<{ allowed: boolean; reason?: string; today?: AiQuotaSnapshot; month?: AiQuotaSnapshot }> {
+  serviceRoleKey: string,
+  settings: AiSettingsRow | null
+): Promise<{ allowed: boolean; reason?: string; today?: AiQuotaSnapshot; week?: AiQuotaSnapshot }> {
   const accessMethod = method === "admin" || method === "member" || method === "access-code" ? method : "access-code";
-  const limits = quotaLimitsFor(accessMethod);
-  if (limits.daily === Number.POSITIVE_INFINITY && limits.monthly === Number.POSITIVE_INFINITY) {
+  const limits = quotaLimitsFor(accessMethod, settings);
+  if (limits.daily === Number.POSITIVE_INFINITY && limits.weekly === Number.POSITIVE_INFINITY) {
     return { allowed: true };
   }
   if (!serviceRoleKey) {
@@ -262,47 +267,50 @@ async function checkAiQuota(
     return { allowed: true };
   }
 
-  const monthStart = beijingPeriodStart("month");
+  const weekStart = beijingPeriodStart("week");
   const todayStart = beijingPeriodStart("day");
-  const rows = await getAiUsageRows(userId, monthStart.iso, serviceRoleKey);
-  const month = summarizeAiUsage(rows);
-  const today = summarizeAiUsage(rows.filter((row) => new Date(row.requested_at).getTime() >= todayStart.time));
+  const [todayRequests, weekRequests] = await Promise.all([
+    getSuccessfulAiUsageCount(userId, todayStart.iso, serviceRoleKey),
+    getSuccessfulAiUsageCount(userId, weekStart.iso, serviceRoleKey)
+  ]);
+  const today = quotaSnapshot(todayRequests);
+  const week = quotaSnapshot(weekRequests);
 
   if (today.requests >= limits.daily) {
     return {
       allowed: false,
       today,
-      month,
+      week,
       reason: `AI 助手今日可用次数已用完（${today.requests}/${limits.daily}），明天可继续使用。`
     };
   }
-  if (month.requests >= limits.monthly) {
+  if (week.requests >= limits.weekly) {
     return {
       allowed: false,
       today,
-      month,
-      reason: `AI 助手本月可用次数已用完（${month.requests}/${limits.monthly}），下月可继续使用。`
+      week,
+      reason: `AI 助手本周可用次数已用完（${week.requests}/${limits.weekly}），下周可继续使用。`
     };
   }
-  return { allowed: true, today, month };
+  return { allowed: true, today, week };
 }
 
-function quotaLimitsFor(method: AiAccessMethod): AiQuotaLimits {
+function quotaLimitsFor(method: AiAccessMethod, settings: AiSettingsRow | null): AiQuotaLimits {
   if (method === "admin") {
     return {
       daily: readQuotaLimit("AI_ASSISTANT_ADMIN_DAILY_LIMIT", 200),
-      monthly: readQuotaLimit("AI_ASSISTANT_ADMIN_MONTHLY_LIMIT", 3000)
+      weekly: readQuotaLimit("AI_ASSISTANT_ADMIN_WEEKLY_LIMIT", 5000)
     };
   }
   if (method === "member") {
     return {
-      daily: readQuotaLimit("AI_ASSISTANT_MEMBER_DAILY_LIMIT", 50),
-      monthly: readQuotaLimit("AI_ASSISTANT_MEMBER_MONTHLY_LIMIT", 800)
+      daily: settings?.daily_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_DAILY_LIMIT", 20),
+      weekly: settings?.weekly_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_WEEKLY_LIMIT", 100)
     };
   }
   return {
     daily: readQuotaLimit("AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT", 3),
-    monthly: readQuotaLimit("AI_ASSISTANT_ACCESS_CODE_MONTHLY_LIMIT", 20)
+    weekly: readQuotaLimit("AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT", 20)
   };
 }
 
@@ -314,7 +322,7 @@ function readQuotaLimit(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-function beijingPeriodStart(period: "day" | "month"): { iso: string; time: number } {
+function beijingPeriodStart(period: "day" | "week"): { iso: string; time: number } {
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -324,37 +332,57 @@ function beijingPeriodStart(period: "day" | "month"): { iso: string; time: numbe
   }).formatToParts(now);
   const year = parts.find((part) => part.type === "year")?.value ?? "1970";
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
-  const day = period === "month" ? "01" : parts.find((part) => part.type === "day")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
   const date = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
+  if (period === "week") {
+    const noon = new Date(`${year}-${month}-${day}T12:00:00+08:00`);
+    const isoWeekday = noon.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() - (isoWeekday - 1));
+  }
   return { iso: date.toISOString(), time: date.getTime() };
 }
 
-async function getAiUsageRows(userId: string, sinceIso: string, serviceRoleKey: string): Promise<AiQuotaUsageRow[]> {
+async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | null> {
+  const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
+  url.searchParams.set("select", "enabled_for_all,daily_limit,weekly_limit");
+  url.searchParams.set("id", "eq.true");
+  url.searchParams.set("limit", "1");
+  const response = await fetch(url, {
+    headers: { apikey: serviceRoleKey, authorization: `Bearer ${serviceRoleKey}` }
+  });
+  if (!response.ok) {
+    console.warn(`AI settings query failed: HTTP ${response.status}`);
+    return null;
+  }
+  const rows = await response.json() as AiSettingsRow[];
+  return rows[0] ?? null;
+}
+
+async function getSuccessfulAiUsageCount(userId: string, sinceIso: string, serviceRoleKey: string): Promise<number> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_usage`);
-  url.searchParams.set("select", "status,requested_at,total_tokens,estimated_cost_cny");
+  url.searchParams.set("select", "id");
   url.searchParams.set("user_id", `eq.${userId}`);
   url.searchParams.set("requested_at", `gte.${sinceIso}`);
-  url.searchParams.set("limit", "10000");
+  url.searchParams.set("status", "eq.success");
   const response = await fetch(url, {
     headers: {
       apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`
+      authorization: `Bearer ${serviceRoleKey}`,
+      prefer: "count=exact",
+      range: "0-0"
     }
   });
   if (!response.ok) {
     const text = await response.text();
     console.warn(`AI quota query failed: HTTP ${response.status} ${text.slice(0, 200)}`);
-    return [];
+    return 0;
   }
-  return await response.json() as AiQuotaUsageRow[];
+  const total = response.headers.get("content-range")?.split("/").pop();
+  return total && total !== "*" ? Math.max(0, Number(total) || 0) : 0;
 }
 
-function summarizeAiUsage(rows: AiQuotaUsageRow[]): AiQuotaSnapshot {
-  return rows.reduce<AiQuotaSnapshot>((summary, row) => ({
-    requests: summary.requests + 1,
-    totalTokens: summary.totalTokens + Math.max(0, Number(row.total_tokens ?? 0)),
-    estimatedCostCny: summary.estimatedCostCny + Math.max(0, Number(row.estimated_cost_cny ?? 0))
-  }), { requests: 0, totalTokens: 0, estimatedCostCny: 0 });
+function quotaSnapshot(requests: number): AiQuotaSnapshot {
+  return { requests, totalTokens: 0, estimatedCostCny: 0 };
 }
 
 async function getAiAccessByUserRpc(authorization: string): Promise<AiAccessRow | null> {
@@ -473,13 +501,15 @@ async function askDeepSeek(
 
 function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
   if (!Array.isArray(history)) return [];
-  return history.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
+  const result: AiAssistantHistoryMessage[] = [];
+  for (const item of history) {
+    if (!item || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
     const role = record.role === "user" || record.role === "assistant" ? record.role : null;
     const content = typeof record.content === "string" ? record.content.trim().slice(0, 500) : "";
-    return role && content ? [{ role, content }] : [];
-  }).slice(-6);
+    if (role && content) result.push({ role, content });
+  }
+  return result.slice(-6);
 }
 
 function parseAssistantResponse(content: string): ParsedAssistantResponse {

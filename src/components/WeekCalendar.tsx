@@ -1,4 +1,4 @@
-import { Ban, BookOpen } from "lucide-react";
+import { Ban, BookOpen, CheckCircle2, Circle } from "lucide-react";
 import type { CSSProperties, PointerEvent, TouchEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { WEEKDAY_NAMES } from "../data/defaults";
@@ -42,6 +42,7 @@ interface WeekCalendarProps {
   onMoveMobileWeek?: (direction: number, selectedDay: number) => void;
   onAddEvent: (date: string, start: string, end: string, allDay?: boolean) => void;
   onEditEvent: (event: EventItem) => void;
+  onToggleEventCompleted: (event: EventItem, occurrenceDate: Date, completed: boolean) => void;
   onEditCourse: (course: Course) => void;
 }
 
@@ -373,6 +374,17 @@ export function WeekCalendar(props: WeekCalendarProps) {
                 {eventItem.location?.trim() && <div className="entry-location">{eventItem.location.trim()}</div>}
                 {(isHabit || category) && <div className="entry-category">{isHabit ? "习惯" : category?.name}</div>}
                 {eventItem.reminder_enabled && <div className="entry-reminder">提前 {eventItem.reminder_minutes_before} 分钟提醒</div>}
+                <button
+                  className={`entry-icon-button event-complete-button ${completed ? "completed" : ""}`}
+                  onClick={(clickEvent) => {
+                    clickEvent.stopPropagation();
+                    props.onToggleEventCompleted(eventItem, date, !completed);
+                  }}
+                  title={completed ? `将 ${toISODate(date)} 标记为未完成` : `将 ${toISODate(date)} 标记为已完成`}
+                  aria-label={completed ? `将 ${eventItem.title} 标记为未完成` : `将 ${eventItem.title} 标记为已完成`}
+                >
+                  {completed ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                </button>
               </article>
             );
           })

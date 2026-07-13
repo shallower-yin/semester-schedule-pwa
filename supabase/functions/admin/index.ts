@@ -1,4 +1,4 @@
-type AdminAction = "whoami" | "summary" | "details" | "set-ai-access";
+type AdminAction = "whoami" | "summary" | "details" | "set-ai-access" | "get-ai-settings" | "set-ai-settings";
 
 interface AdminRequest {
   action?: AdminAction;
@@ -9,6 +9,11 @@ interface AdminRequest {
     role?: "member" | "admin";
     expiresAt?: string | null;
     note?: string | null;
+  };
+  settings?: {
+    enabledForAll?: boolean;
+    dailyLimit?: number;
+    weeklyLimit?: number;
   };
 }
 
@@ -153,6 +158,12 @@ Deno.serve(async (request) => {
     if (body.action === "set-ai-access") {
       if (!body.targetUserId && !body.targetEmail) return jsonResponse({ error: "缺少用户 ID 或邮箱。" }, 400);
       return jsonResponse(await setAiAccess(body.targetUserId, body.targetEmail, body.access, serviceRoleKey));
+    }
+    if (body.action === "get-ai-settings") {
+      return jsonResponse(await getAiSettings(serviceRoleKey));
+    }
+    if (body.action === "set-ai-settings") {
+      return jsonResponse(await setAiSettings(body.settings, serviceRoleKey));
     }
     return jsonResponse(await getSummary(serviceRoleKey));
   } catch (error) {
@@ -450,4 +461,42 @@ async function setAiAccess(
   }
   const rows = JSON.parse(text) as AiAccessRow[];
   return { aiAccess: rows[0] ?? null };
+}
+
+async function getAiSettings(serviceRoleKey: string) {
+  const rows = await restGet<Record<string, unknown>>("ai_assistant_settings", serviceRoleKey, {
+    select: "enabled_for_all,daily_limit,weekly_limit,updated_at",
+    id: "eq.true"
+  }, 1);
+  return rows[0] ?? { enabled_for_all: false, daily_limit: 20, weekly_limit: 100, updated_at: null };
+}
+
+async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey: string) {
+  const dailyLimit = Math.floor(Number(settings?.dailyLimit));
+  const weeklyLimit = Math.floor(Number(settings?.weeklyLimit));
+  if (!Number.isFinite(dailyLimit) || dailyLimit < 1 || dailyLimit > 100000) {
+    throw new Error("每日额度必须在 1 到 100000 之间。");
+  }
+  if (!Number.isFinite(weeklyLimit) || weeklyLimit < dailyLimit || weeklyLimit > 1000000) {
+    throw new Error("每周额度不能低于每日额度，且不能超过 1000000。");
+  }
+  const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
+  url.searchParams.set("on_conflict", "id");
+  const response = await fetch(url, {
+    method: "POST",
+    headers: serviceHeaders(serviceRoleKey, {
+      "content-type": "application/json",
+      prefer: "resolution=merge-duplicates,return=representation"
+    }),
+    body: JSON.stringify({
+      id: true,
+      enabled_for_all: Boolean(settings?.enabledForAll),
+      daily_limit: dailyLimit,
+      weekly_limit: weeklyLimit,
+      updated_at: new Date().toISOString()
+    })
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`保存 AI 全局设置失败：${text.slice(0, 200)}`);
+  return (JSON.parse(text) as Record<string, unknown>[])[0] ?? null;
 }

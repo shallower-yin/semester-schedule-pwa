@@ -850,9 +850,24 @@ main {
   background: #f1f3f7;
 }
 
+.event-entry .event-complete-button {
+  color: #64748b;
+}
+
+.event-entry .event-complete-button.completed {
+  color: #087a4f;
+  background: #dcf5e9;
+}
+
 .calendar-entry:hover .entry-icon-button,
 .calendar-entry:focus-within .entry-icon-button {
   opacity: 1;
+}
+
+@media (hover: none) {
+  .event-entry .event-complete-button {
+    opacity: 1;
+  }
 }
 
 .mobile-day-switcher {
@@ -2553,6 +2568,22 @@ textarea {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .memo-textarea-visual {
+    display: none;
+  }
+
+  .memo-textarea-shell .memo-textarea {
+    color: #20293a;
+    background: white;
+    caret-color: #20293a;
+  }
+
+  .memo-textarea-shell .memo-textarea::selection {
+    color: #20293a;
+  }
 }
 
 .habit-page {
@@ -4948,6 +4979,15 @@ textarea {
     background: #eef2f8;
   }
 
+  .event-entry.day-column.mobile-selected .event-complete-button {
+    display: grid;
+    opacity: 1;
+  }
+
+  .event-entry.day-column.mobile-selected:not(.overlap-three):not(.overlap-many) {
+    padding-right: 42px;
+  }
+
   .calendar-entry.day-column.mobile-selected.overlap-two {
     min-height: 48px;
     padding: 7px 8px;
@@ -4992,6 +5032,12 @@ textarea {
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-status,
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-icon-button {
     display: none;
+  }
+
+  .event-entry.day-column.mobile-selected.overlap-three .event-complete-button,
+  .event-entry.day-column.mobile-selected.overlap-many .event-complete-button {
+    display: grid;
+    opacity: 1;
   }
 
   .calendar-cell.day-column.mobile-selected:active {

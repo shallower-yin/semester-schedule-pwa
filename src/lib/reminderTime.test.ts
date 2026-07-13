@@ -47,11 +47,12 @@ describe("事项提醒时间", () => {
     expect(result.getMinutes()).toBe(0);
   });
 
-  it("只在到期后至开始十分钟内触发", () => {
+  it("只在到期后的十五分钟补发窗口内触发", () => {
     const item = event();
     const date = new Date(2026, 6, 5);
     expect(reminderIsDue(item, date, new Date(2026, 6, 5, 8, 49))).toBe(false);
     expect(reminderIsDue(item, date, new Date(2026, 6, 5, 8, 50))).toBe(true);
-    expect(reminderIsDue(item, date, new Date(2026, 6, 5, 9, 11))).toBe(false);
+    expect(reminderIsDue(item, date, new Date(2026, 6, 5, 9, 5))).toBe(true);
+    expect(reminderIsDue(item, date, new Date(2026, 6, 5, 9, 6))).toBe(false);
   });
 });

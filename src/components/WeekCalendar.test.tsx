@@ -111,8 +111,9 @@ describe("周视图移动端新增事项", () => {
     expect(third).toHaveStyle("transform: translateY(104px)");
   });
 
-  it("事项卡片保留地点，完成后只用标题删除线表达状态", () => {
+  it("事项卡片可按当前显示日期切换完成状态", () => {
     const onAddEvent = vi.fn();
+    const onToggleCompleted = vi.fn();
     const eventItem = eventRecord("event-location", "图书馆自习", { location: "图书馆二楼" });
     const state: EventOccurrenceState = {
       ...baseFields,
@@ -122,14 +123,14 @@ describe("周视图移动端新增事项", () => {
       completed: true,
       reminder_sent_at: null
     };
-    renderWeekCalendar(onAddEvent, [eventItem], semester, periods, [state]);
+    renderWeekCalendar(onAddEvent, [eventItem], semester, periods, [state], onToggleCompleted);
 
     const card = screen.getByText("图书馆自习").closest("article");
 
     expect(screen.getByText("图书馆二楼")).toBeInTheDocument();
     expect(card).toHaveClass("completed");
-    expect(screen.queryByText("已完成")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "标记为未完成" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "将 图书馆自习 标记为未完成" }));
+    expect(onToggleCompleted).toHaveBeenCalledWith(eventItem, new Date(2026, 6, 6), false);
   });
 
   it("没有学期时仍能显示普通事项并点击空白时间新增", () => {
@@ -149,7 +150,8 @@ function renderWeekCalendar(
   events: EventItem[] = [],
   activeSemester: Semester | null = semester,
   activePeriods: ClassPeriod[] = periods,
-  occurrenceStates: EventOccurrenceState[] = []
+  occurrenceStates: EventOccurrenceState[] = [],
+  onToggleEventCompleted = vi.fn()
 ) {
   render(
     <WeekCalendar
@@ -167,6 +169,7 @@ function renderWeekCalendar(
       onSelectedDayChange={vi.fn()}
       onAddEvent={onAddEvent}
       onEditEvent={vi.fn()}
+      onToggleEventCompleted={onToggleEventCompleted}
       onEditCourse={vi.fn()}
     />
   );

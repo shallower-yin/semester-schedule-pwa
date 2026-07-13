@@ -57,6 +57,14 @@ export interface AdminUserSummary {
 export interface AdminSummary {
   passwordVisible: false;
   users: AdminUserSummary[];
+  aiSettings: AdminAiSettings;
+}
+
+export interface AdminAiSettings {
+  enabled_for_all: boolean;
+  daily_limit: number;
+  weekly_limit: number;
+  updated_at: string | null;
 }
 
 export interface AdminStatus {
@@ -140,11 +148,16 @@ type AiAccessRpcRow = {
 
 export async function getAdminSummary(): Promise<AdminSummary> {
   if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
-  const { data, error } = await supabase.rpc("admin_list_users");
+  const [{ data, error }, settingsResult] = await Promise.all([
+    supabase.rpc("admin_list_users"),
+    supabase.rpc("admin_get_ai_settings")
+  ]);
   if (error) throw new Error(formatAdminError(error.message));
+  if (settingsResult.error) throw new Error(formatAdminError(settingsResult.error.message));
   const rows = Array.isArray(data) ? data as AdminListUserRow[] : [];
   return {
     passwordVisible: false,
+    aiSettings: normalizeAiSettings(settingsResult.data),
     users: rows.map((row) => ({
       id: row.id,
       email: row.email ?? "",
@@ -194,6 +207,27 @@ export async function getAdminSummary(): Promise<AdminSummary> {
         }
       })
     }))
+  };
+}
+
+export async function saveAdminAiSettings(input: Pick<AdminAiSettings, "enabled_for_all" | "daily_limit" | "weekly_limit">): Promise<AdminAiSettings> {
+  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
+  const { data, error } = await supabase.rpc("admin_set_ai_settings", {
+    p_enabled_for_all: input.enabled_for_all,
+    p_daily_limit: input.daily_limit,
+    p_weekly_limit: input.weekly_limit
+  });
+  if (error) throw new Error(formatAdminError(error.message));
+  return normalizeAiSettings(data);
+}
+
+function normalizeAiSettings(value: unknown): AdminAiSettings {
+  const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return {
+    enabled_for_all: Boolean(row.enabled_for_all),
+    daily_limit: Math.max(1, Number(row.daily_limit ?? 20)),
+    weekly_limit: Math.max(1, Number(row.weekly_limit ?? 100)),
+    updated_at: typeof row.updated_at === "string" ? row.updated_at : null
   };
 }
 

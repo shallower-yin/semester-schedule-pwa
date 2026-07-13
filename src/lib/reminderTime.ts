@@ -15,14 +15,6 @@ export function reminderTimeForOccurrence(event: EventItem, occurrenceDate: Date
 
 export function reminderIsDue(event: EventItem, occurrenceDate: Date, now: Date): boolean {
   const reminderTime = reminderTimeForOccurrence(event, occurrenceDate);
-  const startTime = event.start_time ?? "09:00";
-  const [hours, minutes] = startTime.split(":").map(Number);
-  const graceEnd = new Date(
-    occurrenceDate.getFullYear(),
-    occurrenceDate.getMonth(),
-    occurrenceDate.getDate(),
-    hours,
-    minutes + 10
-  );
+  const graceEnd = new Date(reminderTime.getTime() + 15 * 60_000);
   return now >= reminderTime && now <= graceEnd;
 }

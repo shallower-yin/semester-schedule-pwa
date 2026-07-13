@@ -87,12 +87,12 @@ export function InstallDialog({
             <header>
               <Smartphone size={22} />
               <div>
-                <h3>Android Chrome</h3>
+                <h3>Android Edge / Chrome</h3>
                 <p>适合手机主屏幕使用，提醒和同步更顺手。</p>
               </div>
             </header>
             <div className="install-steps">
-              <article><span>1</span><Menu size={17} /><p>用 Chrome 普通窗口打开应用。</p></article>
+              <article><span>1</span><Menu size={17} /><p>用 Edge 或 Chrome 普通窗口打开应用。</p></article>
               <article><span>2</span><Download size={17} /><p>点击菜单里的“安装应用”或“添加到主屏幕”。</p></article>
               <article><span>3</span><Home size={17} /><p>安装后从手机桌面打开“日程计划表”。</p></article>
               <article><span>4</span><LogIn size={17} /><p>登录同一账号，让手机和电脑同步。</p></article>

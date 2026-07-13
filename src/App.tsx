@@ -77,6 +77,7 @@ import {
   weekDates
 } from "./lib/date";
 import { uniqueCategoriesByName } from "./lib/categories";
+import { setEventCompletedForDate } from "./lib/eventActions";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { deleteSemesterCascade } from "./lib/semesters";
@@ -858,6 +859,9 @@ export default function App() {
               onMoveMobileWeek={moveMobileDay}
               onAddEvent={openNewEvent}
               onEditEvent={(item) => setEventToEdit(item)}
+              onToggleEventCompleted={(item, occurrenceDate, completed) => {
+                void setEventCompletedForDate(item, occurrenceStates, occurrenceDate, completed);
+              }}
               onEditCourse={(item) => setCourseToEdit(item)}
             />
           </>
@@ -931,14 +935,8 @@ export default function App() {
                   </button>
                 </>
               ))}
-              {renderSettingsSection("高级", "辅助分析、界面入口和维护功能集中放置，减少日常页面干扰。", (
+              {renderSettingsSection("高级", "界面入口和维护功能集中放置。", (
                 <>
-                  <button className="setting-card" onClick={() => setShowScheduleAssistant(true)}>
-                    <Bot /><span><strong>日程助手</strong><small>本地回答今天安排、未完成、课程教室、冲突和统计</small></span><ChevronRight />
-                  </button>
-                  <button className="setting-card" onClick={() => setShowDeepSeekAssistant(true)}>
-                    <BrainCircuit /><span><strong>AI 助手</strong><small>智能分析日程安排，可按账号或访问口令控制使用权限</small></span><ChevronRight />
-                  </button>
                   <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                     <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
                   </button>
@@ -951,9 +949,11 @@ export default function App() {
                   <button className="setting-card" onClick={() => void hardReloadApp()} disabled={updatingApp}>
                     <RefreshCw /><span><strong>清缓存重载</strong><small>手机 PWA 更新没生效时使用，会重新获取最新资源</small></span><ChevronRight />
                   </button>
-                  <button className="setting-card" onClick={() => user ? setShowAdmin(true) : setAuthDialogMode("login")}>
-                    <ShieldCheck /><span><strong>管理后台</strong><small>{isAdmin ? "查看账号数据概览，管理 AI 助手和管理员权限" : "登录后可查看账号权限与管理功能"}</small></span><ChevronRight />
-                  </button>
+                  {isAdmin && (
+                    <button className="setting-card" onClick={() => setShowAdmin(true)}>
+                      <ShieldCheck /><span><strong>管理后台</strong></span><ChevronRight />
+                    </button>
+                  )}
                 </>
               ))}
             </div>

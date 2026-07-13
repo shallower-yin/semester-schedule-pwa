@@ -4,6 +4,7 @@ import {
   getAdminSummary,
   getAdminUserDetails,
   saveAdminAiAccess,
+  saveAdminAiSettings,
   type AdminAiAccess,
   type AdminRole,
   type AdminSummary,
@@ -30,6 +31,10 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [accessNote, setAccessNote] = useState("");
   const [userQuery, setUserQuery] = useState("");
   const [directIdentifier, setDirectIdentifier] = useState("");
+  const [globalEnabled, setGlobalEnabled] = useState(false);
+  const [dailyLimit, setDailyLimit] = useState(20);
+  const [weeklyLimit, setWeeklyLimit] = useState(100);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const selectedUser = useMemo(
     () => summary?.users.find((user) => user.id === selectedUserId) ?? null,
@@ -49,6 +54,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     try {
       const nextSummary = await getAdminSummary();
       setSummary(nextSummary);
+      setGlobalEnabled(nextSummary.aiSettings.enabled_for_all);
+      setDailyLimit(nextSummary.aiSettings.daily_limit);
+      setWeeklyLimit(nextSummary.aiSettings.weekly_limit);
       if (!selectedUserId && nextSummary.users[0]) setSelectedUserId(nextSummary.users[0].id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
@@ -112,6 +120,30 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     }
   }
 
+  async function saveGlobalSettings() {
+    if (weeklyLimit < dailyLimit) {
+      setMessage("每周额度不能低于每日额度。");
+      return;
+    }
+    setSavingSettings(true);
+    setMessage("");
+    try {
+      const settings = await saveAdminAiSettings({
+        enabled_for_all: globalEnabled,
+        daily_limit: dailyLimit,
+        weekly_limit: weeklyLimit
+      });
+      setGlobalEnabled(settings.enabled_for_all);
+      setDailyLimit(settings.daily_limit);
+      setWeeklyLimit(settings.weekly_limit);
+      setMessage(settings.enabled_for_all ? "已向所有登录用户开放 AI 助手。" : "已关闭 AI 助手全员权限。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
   useEffect(() => {
     void loadSummary();
   }, []);
@@ -136,6 +168,34 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         </div>
 
         {message && <p className="status-message">{message}</p>}
+
+        <section className="admin-access-editor admin-global-settings">
+          <div className="section-heading">
+            <div><h3><KeyRound size={18} /> 全局 AI 权限与额度</h3></div>
+          </div>
+          <div className="form-grid">
+            <label>
+              所有登录用户
+              <select value={globalEnabled ? "1" : "0"} onChange={(event) => setGlobalEnabled(event.target.value === "1")}>
+                <option value="1">开放</option>
+                <option value="0">关闭</option>
+              </select>
+            </label>
+            <label>
+              每日额度
+              <input type="number" min={1} max={100000} value={dailyLimit} onChange={(event) => setDailyLimit(Number(event.target.value))} />
+            </label>
+            <label>
+              每周额度
+              <input type="number" min={dailyLimit} max={1000000} value={weeklyLimit} onChange={(event) => setWeeklyLimit(Number(event.target.value))} />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button className="button primary" onClick={() => void saveGlobalSettings()} disabled={savingSettings}>
+              <Save size={16} />保存全局设置
+            </button>
+          </div>
+        </section>
 
         <section className="admin-access-editor admin-direct-access">
           <div className="section-heading">
