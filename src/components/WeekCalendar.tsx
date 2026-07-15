@@ -549,7 +549,7 @@ function assignOverlapLayouts(blocks: OverlapBlock[]): Map<string, OverlapLayout
     for (const block of sorted) {
       const start = minutesOf(block.start);
       const end = minutesOf(block.end);
-      if (activeGroup.length && start >= activeGroupEnd) flush();
+      if (activeGroup.length && start > activeGroupEnd) flush();
       activeGroup.push(block);
       activeGroupEnd = Math.max(activeGroupEnd, end);
     }

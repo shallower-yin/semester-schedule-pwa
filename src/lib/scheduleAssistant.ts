@@ -236,7 +236,7 @@ function itemsOverlap(left: AssistantItem, right: AssistantItem): boolean {
   const leftEnd = minutesOf(left.timeLabel.split("-")[1] ?? left.sortTime);
   const rightStart = minutesOf(right.sortTime);
   const rightEnd = minutesOf(right.timeLabel.split("-")[1] ?? right.sortTime);
-  return leftStart <= rightEnd && rightStart <= leftEnd;
+  return leftStart < rightEnd && rightStart < leftEnd;
 }
 
 function minutesOf(value: string): number {

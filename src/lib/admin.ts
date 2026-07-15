@@ -102,6 +102,14 @@ export interface SaveAdminAccessInput {
   note?: string | null;
 }
 
+export interface AdminCleanupResult {
+  retentionDays: number;
+  cutoff: string;
+  targetUserId: string | null;
+  aiUsageDeleted: number;
+  reminderDeliveriesDeleted: number;
+}
+
 interface AdminListUserRow {
   id: string;
   email: string | null;
@@ -277,6 +285,23 @@ export async function saveAdminAiAccess(input: SaveAdminAccessInput): Promise<{ 
   });
   if (error) throw new Error(formatAdminError(error.message));
   return { aiAccess: data ? normalizeAiAccess(data as AiAccessRpcRow) : null };
+}
+
+export async function cleanupAdminTransientData(retentionDays: number, targetUserId?: string): Promise<AdminCleanupResult> {
+  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
+  const { data, error } = await supabase.rpc("admin_cleanup_transient_data", {
+    p_retention_days: retentionDays,
+    p_target_user_id: targetUserId || null
+  });
+  if (error) throw new Error(formatAdminError(error.message));
+  const result = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  return {
+    retentionDays: Number(result.retentionDays ?? retentionDays),
+    cutoff: typeof result.cutoff === "string" ? result.cutoff : "",
+    targetUserId: typeof result.targetUserId === "string" ? result.targetUserId : null,
+    aiUsageDeleted: Number(result.aiUsageDeleted ?? 0),
+    reminderDeliveriesDeleted: Number(result.reminderDeliveriesDeleted ?? 0)
+  };
 }
 
 function normalizeAiAccess(row: AiAccessRpcRow): AdminAiAccess {

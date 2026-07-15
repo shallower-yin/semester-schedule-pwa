@@ -1,10 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getAdminSummaryMock } = vi.hoisted(() => ({ getAdminSummaryMock: vi.fn() }));
+const { cleanupAdminTransientDataMock, getAdminSummaryMock } = vi.hoisted(() => ({
+  cleanupAdminTransientDataMock: vi.fn(),
+  getAdminSummaryMock: vi.fn()
+}));
 
 vi.mock("../lib/admin", () => ({
   getAdminSummary: getAdminSummaryMock,
+  cleanupAdminTransientData: cleanupAdminTransientDataMock,
   getAdminUserDetails: vi.fn(),
   saveAdminAiAccess: vi.fn(),
   saveAdminAiSettings: vi.fn()
@@ -14,6 +18,8 @@ import { AdminDialog } from "./AdminDialog";
 
 describe("管理后台 AI 模型选择", () => {
   beforeEach(() => {
+    cleanupAdminTransientDataMock.mockReset();
+    cleanupAdminTransientDataMock.mockResolvedValue({ aiUsageDeleted: 12, reminderDeliveriesDeleted: 5 });
     getAdminSummaryMock.mockResolvedValue({
       passwordVisible: false,
       users: [],
@@ -46,5 +52,17 @@ describe("管理后台 AI 模型选择", () => {
     await waitFor(() => expect(screen.getByRole("option", { name: "DeepSeek V4 Pro" })).toBeInTheDocument());
     expect(modelSelect).toHaveValue("deepseek-v4-flash");
     expect(screen.queryByLabelText("MiMo 通道")).not.toBeInTheDocument();
+  });
+
+  it("只清理超过保留期的临时云端记录", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<AdminDialog onClose={vi.fn()} />);
+    await screen.findByText("临时数据清理");
+
+    fireEvent.change(screen.getByLabelText("临时数据保留天数"), { target: { value: "120" } });
+    fireEvent.click(screen.getByRole("button", { name: "清理过期记录" }));
+
+    await waitFor(() => expect(cleanupAdminTransientDataMock).toHaveBeenCalledWith(120, undefined));
+    expect(await screen.findByText("清理完成：AI 调用明细 12 条，提醒投递日志 5 条。")).toBeInTheDocument();
   });
 });

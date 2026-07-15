@@ -12,7 +12,7 @@ export function timeRangesOverlap(startA: string | null, endA: string | null, st
   const aEnd = minutes(endA ?? startA ?? "23:59");
   const bStart = minutes(startB ?? "00:00");
   const bEnd = minutes(endB ?? startB ?? "23:59");
-  return aStart <= bEnd && bStart <= aEnd;
+  return aStart < bEnd && bStart < aEnd;
 }
 
 export function findEventConflicts(draft: EventItem, events: EventItem[]): ScheduleConflict[] {

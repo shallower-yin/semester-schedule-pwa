@@ -56,7 +56,15 @@ describe("灵活时间块", () => {
     const rows = buildDisplayRows([]);
     expect(rows[0]).toMatchObject({ name: "清晨", startTime: "00:00", endTime: "08:30", kind: "boundary" });
     expect(rows.at(-1)).toMatchObject({ name: "深夜", startTime: "21:45", endTime: "24:00", kind: "boundary" });
-    expect(timePlacementForRows(rows, "07:30", "08:00")).toMatchObject({ firstRow: 0, endRow: 1, startOffset: 0, endOffset: 0 });
-    expect(timePlacementForRows(rows, "22:30", "23:00")).toMatchObject({ firstRow: rows.length - 1, endRow: rows.length, startOffset: 0, endOffset: 0 });
+    expect(timePlacementForRows(rows, "07:30", "08:00")).toMatchObject({ firstRow: 0, endRow: 1, startOffset: 15 / 17, endOffset: 1 / 17 });
+    expect(timePlacementForRows(rows, "22:30", "23:00")).toMatchObject({ firstRow: rows.length - 1, endRow: rows.length, startOffset: 1 / 3, endOffset: 4 / 9 });
+  });
+
+  it("为半小时以上的无课空档补充可定位时间行", () => {
+    const rows = buildDisplayRows([]);
+    expect(rows).toContainEqual(expect.objectContaining({ name: "晚间", startTime: "17:00", endTime: "18:30", kind: "break" }));
+    const placement = timePlacementForRows(rows, "17:00", "17:30");
+    expect(rows[placement.firstRow]).toMatchObject({ startTime: "17:00", endTime: "18:30" });
+    expect(placement).toMatchObject({ startOffset: 0, endOffset: 2 / 3 });
   });
 });

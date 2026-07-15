@@ -29,8 +29,8 @@ describe("AI 助手创建动作", () => {
       reminder_enabled: true,
       reminder_minutes_before: 30
     });
-    expect(event?.note).toContain("数学作业");
-    expect(event?.note).toContain("由 AI 助手创建");
+    expect(event?.note).toBe("数学作业");
+    expect(event?.note).not.toContain("明天 9:00 添加交作业");
   });
 
   it("缺少时间时创建全天事项", () => {
@@ -163,7 +163,8 @@ describe("AI 助手创建动作", () => {
       content: expect.stringContaining("牛奶"),
       is_pinned: true
     });
-    expect(memo?.content).toContain("由 AI 助手创建");
+    expect(memo?.content).toBe("牛奶\n面包");
+    expect(memo?.content).not.toContain("创建购物清单");
   });
 
   it("自动解析常见农历节日并创建节日", () => {

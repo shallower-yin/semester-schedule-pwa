@@ -111,6 +111,23 @@ describe("周视图移动端新增事项", () => {
     expect(third).toHaveStyle("transform: translateY(52px)");
   });
 
+  it("首尾相接的事项使用左右分栏避免最小卡片高度遮挡", () => {
+    renderWeekCalendar(vi.fn(), [
+      eventRecord("event-checkin", "学生报到", { start_time: "17:00", end_time: "17:30" }),
+      eventRecord("event-dinner", "晚餐", { start_time: "17:30", end_time: "19:00" }),
+      eventRecord("event-icebreaker", "破冰活动", { start_time: "19:00", end_time: "20:30" })
+    ]);
+
+    const checkin = screen.getByText("学生报到").closest("article");
+    const dinner = screen.getByText("晚餐").closest("article");
+    const icebreaker = screen.getByText("破冰活动").closest("article");
+    expect(checkin).toHaveClass("overlap-two");
+    expect(dinner).toHaveClass("overlap-two");
+    expect(icebreaker).toHaveClass("overlap-two");
+    expect(checkin).toHaveStyle("width: calc((100% - 4px) / 2)");
+    expect(dinner).toHaveStyle("margin-left: calc(1 * ((100% - 4px) / 2 + 4px))");
+  });
+
   it("事项卡片可按当前显示日期切换完成状态", () => {
     const onAddEvent = vi.fn();
     const onToggleCompleted = vi.fn();

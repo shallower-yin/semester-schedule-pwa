@@ -121,4 +121,16 @@ describe("本地问日程助手", () => {
     });
     expect(answer).toContain("交作业 与 开会");
   });
+
+  it("首尾相接的事项不算时间冲突", () => {
+    const answer = answerScheduleQuestion("今天有冲突吗？", {
+      ...input,
+      events: [
+        { ...eventItem, title: "学生报到", start_time: "17:00", end_time: "17:30" },
+        { ...eventItem, id: "event-2", title: "晚餐", start_time: "17:30", end_time: "19:00" },
+        { ...eventItem, id: "event-3", title: "破冰活动", start_time: "19:00", end_time: "20:30" }
+      ]
+    });
+    expect(answer).toContain("没有发现明显时间冲突");
+  });
 });

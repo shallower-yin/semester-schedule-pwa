@@ -6,6 +6,13 @@ export interface AiAssistantAttachment {
   text?: string;
 }
 
+export interface AiAttachmentContextRecord {
+  id: string;
+  ownerId: string;
+  attachments: AiAssistantAttachment[];
+  updatedAt: string;
+}
+
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;

@@ -39,7 +39,7 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
     category_id: null,
     color: "#e36b32",
     location: typeof action.location === "string" ? action.location.trim().slice(0, 200) : "",
-    note: [action.note?.trim(), `由 AI 助手创建：${sourceText}`].filter(Boolean).join("\n"),
+    note: conciseAiNote(action.note),
     recurrence_type: recurrenceType,
     recurrence_until: recurrenceType === "none" ? null : (recurrenceUntil && recurrenceUntil >= action.startDate ? recurrenceUntil : action.startDate),
     recurrence_interval: recurrenceType === "interval" ? clampNumber(action.recurrenceInterval, 1, 366, 1) : 1,
@@ -69,7 +69,7 @@ export function anniversaryFromAiAction(action: DeepSeekAssistantAction, sourceT
     title: resolvedHoliday?.title && isHolidayText(title) ? resolvedHoliday.title : title,
     date,
     color: anniversaryColor(kind),
-    note: [action.note?.trim(), `由 AI 助手创建：${sourceText}`].filter(Boolean).join("\n"),
+    note: conciseAiNote(action.note),
     reminder_enabled: Boolean(action.reminderEnabled),
     reminder_days_before: clampNumber(action.reminderDaysBefore, 0, 365, 0),
     reminder_time: normalizeTime(action.reminderTime) ?? "09:00",
@@ -88,7 +88,7 @@ export function memoFromAiAction(action: DeepSeekAssistantAction, sourceText: st
     user_id: ownerId,
     folder_id: null,
     title,
-    content: content ? `${content}\n\n由 AI 助手创建：${sourceText}` : `由 AI 助手创建：${sourceText}`,
+    content,
     is_pinned: Boolean(action.isPinned)
   };
 }
@@ -138,6 +138,15 @@ function expandHolidayActions(actions: DeepSeekAssistantAction[], sourceText: st
 function eventStartHasPassed(startDate: string, startTime: string | null, now: Date): boolean {
   const start = new Date(`${startDate}T${startTime ?? "00:00"}:00+08:00`);
   return Number.isFinite(start.getTime()) && start.getTime() < now.getTime();
+}
+
+function conciseAiNote(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/^由\s*AI\s*助手创建[：:]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
 }
 
 function looksLikeCreateDate(text: string): boolean {

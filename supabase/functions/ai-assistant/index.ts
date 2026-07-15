@@ -621,6 +621,7 @@ async function askConfiguredProvider(
             "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
             "当用户明确要求新增、创建、记录、加入日程、提醒、安排待办、创建日子或写备忘录时，把可创建内容放入 actions。",
             "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"location\":\"地点，可空\",\"note\":\"备注\",\"recurrenceType\":\"none|daily|weekdays|weekly|monthly|interval\",\"recurrenceUntil\":\"YYYY-MM-DD 或 null\",\"recurrenceInterval\":1,\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
+            "action 的 note 只写与该事项直接相关的背景摘要，尽量控制在 80 个汉字内。不要复述用户的命令、情绪或身份，不要写‘由 AI 助手创建’；没有有用背景时留空。",
             "过去日期同样允许创建事项。用户要求补录、记录或创建已经发生的活动时，必须按原日期和时间返回 create_event；禁止以“日期已过”为由拒绝，也不要擅自改成备忘录。过去事项必须设置 reminderEnabled=false。",
             "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"date\":\"YYYY-MM-DD\",\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
             "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",

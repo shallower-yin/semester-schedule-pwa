@@ -12,7 +12,7 @@ export interface DisplayTimeRow {
 export function buildDisplayRows(periods: ClassPeriod[]): DisplayTimeRow[] {
   const source = periods.filter((period) => !period.deleted_at);
   if (!source.length) {
-    return addBoundaryRows(DEFAULT_TIME_ROWS.map((row) => ({
+    return addCoverageRows(DEFAULT_TIME_ROWS.map((row) => ({
       key: row.key,
       name: row.name,
       startTime: row.startTime,
@@ -33,14 +33,27 @@ export function buildDisplayRows(periods: ClassPeriod[]): DisplayTimeRow[] {
       });
     }
   }
-  return addBoundaryRows([...rows.values()].sort(
+  return addCoverageRows([...rows.values()].sort(
     (left, right) => left.startTime.localeCompare(right.startTime) || left.endTime.localeCompare(right.endTime)
   ));
 }
 
-function addBoundaryRows(rows: DisplayTimeRow[]): DisplayTimeRow[] {
+function addCoverageRows(rows: DisplayTimeRow[]): DisplayTimeRow[] {
   if (!rows.length) return rows;
-  const result = [...rows];
+  const result: DisplayTimeRow[] = [];
+  rows.forEach((row, index) => {
+    const previous = rows[index - 1];
+    if (previous && minutes(row.startTime) - minutes(previous.endTime) >= 30) {
+      result.push({
+        key: `gap-${previous.endTime}-${row.startTime}`,
+        name: previous.endTime >= "17:00" && row.startTime <= "19:00" ? "晚间" : "间隔",
+        startTime: previous.endTime,
+        endTime: row.startTime,
+        kind: "break"
+      });
+    }
+    result.push(row);
+  });
   const first = result[0];
   const last = result[result.length - 1];
   if (first.startTime > "00:00") {
@@ -83,8 +96,8 @@ export function timePlacementForRows(rows: DisplayTimeRow[], start: string | nul
   return {
     firstRow,
     endRow,
-    startOffset: first.kind === "boundary" ? 0 : clampFraction((minutes(start) - minutes(first.startTime)) / firstDuration),
-    endOffset: last.kind === "boundary" ? 0 : clampFraction((minutes(last.endTime) - minutes(end)) / lastDuration)
+    startOffset: clampFraction((minutes(start) - minutes(first.startTime)) / firstDuration),
+    endOffset: clampFraction((minutes(last.endTime) - minutes(end)) / lastDuration)
   };
 }
 

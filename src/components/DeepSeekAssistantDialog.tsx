@@ -23,6 +23,7 @@ interface DeepSeekAssistantDialogProps {
 
 const HISTORY_LIMIT = 30;
 const CONTEXT_LIMIT = 6;
+const ATTACHMENT_CONTEXT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function aiAssistantHistoryKey(ownerId: string) {
   return `semester-schedule-ai-assistant-history:${ownerId}`;
@@ -37,6 +38,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [editingText, setEditingText] = useState("");
   const [configuration, setConfiguration] = useState<AiAssistantConfiguration>({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
   const [attachments, setAttachments] = useState<AiAssistantAttachment[]>([]);
+  const [contextAttachments, setContextAttachments] = useState<AiAssistantAttachment[]>([]);
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editingRef = useRef<HTMLTextAreaElement | null>(null);
@@ -45,8 +47,16 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
 
   useEffect(() => {
     setMessages(loadAssistantHistory(ownerId));
+    setContextAttachments([]);
     setEditingMessageId(null);
     setEditingText("");
+    let canceled = false;
+    void loadAttachmentContext(ownerId).then((saved) => {
+      if (!canceled) setContextAttachments(saved);
+    });
+    return () => {
+      canceled = true;
+    };
   }, [ownerId]);
 
   useEffect(() => {
@@ -59,7 +69,8 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }, []);
 
   async function sendMessage(text: string, baseMessages: Message[], userMessageId: string, requestAttachments: AiAssistantAttachment[] = []) {
-    const trimmed = text.trim() || (requestAttachments.length ? "请识别附件中的日程信息，并创建对应事项。" : "");
+    const effectiveAttachments = mergeAttachments(contextAttachments, requestAttachments);
+    const trimmed = text.trim() || (effectiveAttachments.length ? "请识别附件中的日程信息，并创建对应事项。" : "");
     if (!trimmed || loading) return;
     const history = messagesToHistory(baseMessages);
     setLoading(true);
@@ -67,8 +78,16 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     const attachmentLabel = requestAttachments.length ? `\n附件：${requestAttachments.map((item) => item.name).join("、")}` : "";
     setMessages([...baseMessages, { id: userMessageId, role: "user", content: `${trimmed}${attachmentLabel}` }]);
     setAttachments([]);
+    if (effectiveAttachments.length) {
+      setContextAttachments(effectiveAttachments);
+      try {
+        await saveAttachmentContext(ownerId, effectiveAttachments);
+      } catch {
+        showToast("附件可用于当前对话，但本地设备没有足够空间长期保留。", "error");
+      }
+    }
     try {
-      const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history, requestAttachments);
+      const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history, effectiveAttachments);
       if (result.access === "access-code") setAccessCode("");
       const created = await createRecordsFromActions(result.actions ?? [], trimmed, ownerId);
       const content = [
@@ -98,7 +117,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     if (!files?.length || !configuration.supportsAttachments) return;
     setPreparingAttachment(true);
     try {
-      const available = Math.max(0, 3 - attachments.length);
+      const available = Math.max(0, 3 - contextAttachments.length - attachments.length);
       const prepared = await Promise.all(Array.from(files).slice(0, available).map(prepareAiAssistantAttachment));
       setAttachments((current) => [...current, ...prepared].slice(0, 3));
     } catch (error) {
@@ -144,12 +163,23 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     const baseMessages = messages.slice(0, messageIndex);
     setEditingMessageId(null);
     setEditingText("");
-    await sendMessage(trimmed, baseMessages, messageId);
+    await sendMessage(trimmed, baseMessages, messageId, contextAttachments);
   }
 
   function clearHistory() {
     setMessages([]);
+    setAttachments([]);
+    setContextAttachments([]);
+    void db.aiAttachmentContexts.delete(aiAttachmentContextId(ownerId));
     showToast("历史已清空。", "success");
+  }
+
+  function removeContextAttachment(index: number) {
+    setContextAttachments((current) => {
+      const next = current.filter((_, itemIndex) => itemIndex !== index);
+      void saveAttachmentContext(ownerId, next);
+      return next;
+    });
   }
 
   return (
@@ -223,6 +253,18 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           event.preventDefault();
           ask();
         }}>
+          {contextAttachments.length > 0 && (
+            <div className="assistant-attachments assistant-context-attachments" aria-label="附件上下文">
+              <small>上下文</small>
+              {contextAttachments.map((attachment, index) => (
+                <span key={`context-${attachment.name}-${index}`}>
+                  {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}
+                  <strong>{attachment.name}</strong>
+                  <button type="button" className="icon-button" aria-label={`移除上下文 ${attachment.name}`} onClick={() => removeContextAttachment(index)}><X size={13} /></button>
+                </span>
+              ))}
+            </div>
+          )}
           {attachments.length > 0 && (
             <div className="assistant-attachments">
               {attachments.map((attachment, index) => (
@@ -243,7 +285,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           {configuration.supportsAttachments && (
             <>
               <input ref={fileInputRef} className="visually-hidden" type="file" multiple accept={AI_ATTACHMENT_ACCEPT} onChange={(event) => void addAttachments(event.target.files)} />
-              <button type="button" className="button secondary assistant-attachment-button" title="导入图片或文档" aria-label="导入图片或文档" disabled={loading || preparingAttachment || attachments.length >= 3} onClick={() => fileInputRef.current?.click()}>
+              <button type="button" className="button secondary assistant-attachment-button" title="导入图片或文档" aria-label="导入图片或文档" disabled={loading || preparingAttachment || contextAttachments.length + attachments.length >= 3} onClick={() => fileInputRef.current?.click()}>
                 <Paperclip size={16} /><span>{preparingAttachment ? "读取中" : "附件"}</span>
               </button>
             </>
@@ -277,6 +319,42 @@ function loadAssistantHistory(ownerId: string): Message[] {
 function saveAssistantHistory(ownerId: string, messages: Message[]) {
   const saved = messages.slice(-HISTORY_LIMIT);
   localStorage.setItem(aiAssistantHistoryKey(ownerId), JSON.stringify(saved));
+}
+
+function aiAttachmentContextId(ownerId: string): string {
+  return `ai-attachment-context:${ownerId}`;
+}
+
+async function loadAttachmentContext(ownerId: string): Promise<AiAssistantAttachment[]> {
+  const id = aiAttachmentContextId(ownerId);
+  const saved = await db.aiAttachmentContexts.get(id);
+  if (!saved) return [];
+  const age = Date.now() - new Date(saved.updatedAt).getTime();
+  if (!Number.isFinite(age) || age > ATTACHMENT_CONTEXT_MAX_AGE_MS || !loadAssistantHistory(ownerId).length) {
+    await db.aiAttachmentContexts.delete(id);
+    return [];
+  }
+  return saved.attachments.slice(0, 3);
+}
+
+async function saveAttachmentContext(ownerId: string, attachments: AiAssistantAttachment[]): Promise<void> {
+  const id = aiAttachmentContextId(ownerId);
+  if (!attachments.length) {
+    await db.aiAttachmentContexts.delete(id);
+    return;
+  }
+  await db.aiAttachmentContexts.put({
+    id,
+    ownerId,
+    attachments: attachments.slice(0, 3),
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function mergeAttachments(existing: AiAssistantAttachment[], incoming: AiAssistantAttachment[]): AiAssistantAttachment[] {
+  const merged = new Map(existing.map((attachment) => [`${attachment.kind}:${attachment.name}`, attachment]));
+  incoming.forEach((attachment) => merged.set(`${attachment.kind}:${attachment.name}`, attachment));
+  return [...merged.values()].slice(-3);
 }
 
 function messagesToHistory(messages: Message[]): DeepSeekAssistantHistoryMessage[] {

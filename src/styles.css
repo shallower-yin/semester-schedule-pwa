@@ -763,13 +763,26 @@ main {
 
 .event-entry {
   min-height: 48px;
-  align-self: start;
+  align-self: stretch;
   margin-top: calc(3px + var(--time-start-offset, 0px));
   margin-bottom: calc(3px + var(--time-end-offset, 0px));
   border: 1px solid #e5e8ef;
   border-left: 5px solid;
   color: #252c38;
   background: rgb(255 255 255 / 94%);
+}
+
+.event-entry.overlap-entry {
+  padding-right: 4px;
+  padding-left: 4px;
+}
+
+.event-entry.overlap-entry .entry-title {
+  font-size: 12px;
+}
+
+.event-entry.overlap-entry .entry-time {
+  font-size: 10px;
 }
 
 .event-entry .entry-title,
@@ -2117,6 +2130,25 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   align-items: end;
   gap: 8px;
+}
+
+.admin-cleanup-controls {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) 120px auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.admin-cleanup-controls label {
+  display: grid;
+  gap: 5px;
+  color: #536174;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-cleanup-controls .button {
+  min-height: 36px;
 }
 
 .admin-ai-settings-grid label {
@@ -4708,6 +4740,16 @@ textarea {
   gap: 6px;
 }
 
+.assistant-context-attachments {
+  align-items: center;
+}
+
+.assistant-context-attachments > small {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .assistant-attachments > span {
   display: inline-flex;
   min-width: 0;
@@ -5842,6 +5884,14 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .admin-cleanup-controls {
+    grid-template-columns: minmax(0, 1fr) 120px;
+  }
+
+  .admin-cleanup-controls .button {
+    grid-column: 1 / -1;
+  }
+
   .admin-unlimited-note,
   .admin-ai-settings-grid .button {
     width: 100%;
@@ -5849,6 +5899,14 @@ textarea {
 }
 
 @media (max-width: 580px) {
+  .admin-cleanup-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-cleanup-controls .button {
+    grid-column: auto;
+  }
+
   .habit-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;

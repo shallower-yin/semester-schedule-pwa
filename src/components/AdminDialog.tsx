@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, UsersRound } from "lucide-react";
+import { Database, Eye, EyeOff, KeyRound, RefreshCw, Save, Trash2, UsersRound } from "lucide-react";
 import {
+  cleanupAdminTransientData,
   getAdminSummary,
   getAdminUserDetails,
   saveAdminAiAccess,
@@ -41,6 +42,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [aiModel, setAiModel] = useState("deepseek-v4-flash");
   const [mimoChannel, setMimoChannel] = useState<MimoChannel>("payg");
   const [savingSettings, setSavingSettings] = useState(false);
+  const [cleanupRetentionDays, setCleanupRetentionDays] = useState(90);
+  const [cleanupScope, setCleanupScope] = useState<"all" | "selected">("all");
+  const [cleaningData, setCleaningData] = useState(false);
 
   const selectedUser = useMemo(
     () => summary?.users.find((user) => user.id === selectedUserId) ?? null,
@@ -169,6 +173,28 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     }
   }
 
+  async function cleanupTransientData() {
+    const retentionDays = Math.min(3650, Math.max(30, Math.round(cleanupRetentionDays)));
+    const targetUserId = cleanupScope === "selected" ? selectedUserId : undefined;
+    if (cleanupScope === "selected" && !targetUserId) {
+      setMessage("请先选择要清理临时记录的用户。");
+      return;
+    }
+    const scopeLabel = targetUserId ? selectedUser?.email || targetUserId : "全部账号";
+    if (!window.confirm(`清理${scopeLabel}中 ${retentionDays} 天前的 AI 调用明细和提醒投递日志？事项等长期数据不会删除。`)) return;
+    setCleaningData(true);
+    setMessage("");
+    try {
+      const result = await cleanupAdminTransientData(retentionDays, targetUserId);
+      await loadSummary();
+      setMessage(`清理完成：AI 调用明细 ${result.aiUsageDeleted} 条，提醒投递日志 ${result.reminderDeliveriesDeleted} 条。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "清理临时数据失败。");
+    } finally {
+      setCleaningData(false);
+    }
+  }
+
   useEffect(() => {
     void loadSummary();
   }, []);
@@ -288,6 +314,28 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
           <div className="form-actions">
             <button className="button primary" onClick={() => void saveAccess()} disabled={savingAccess}>
               <Save size={16} />保存权限
+            </button>
+          </div>
+        </section>
+
+        <section className="admin-access-editor admin-data-cleanup">
+          <div className="section-heading">
+            <div><h3><Database size={18} /> 临时数据清理</h3><p>仅删除过期的 AI 调用明细和提醒投递日志；累计 AI 统计将只保留期限内数据，长期日程数据不受影响。</p></div>
+          </div>
+          <div className="admin-cleanup-controls">
+            <label>
+              清理范围
+              <select aria-label="清理范围" value={cleanupScope} onChange={(event) => setCleanupScope(event.target.value === "selected" ? "selected" : "all")}>
+                <option value="all">全部账号的临时记录</option>
+                <option value="selected" disabled={!selectedUserId}>当前选中账号</option>
+              </select>
+            </label>
+            <label>
+              保留天数
+              <input aria-label="临时数据保留天数" type="number" min={30} max={3650} value={cleanupRetentionDays} onChange={(event) => setCleanupRetentionDays(Number(event.target.value))} />
+            </label>
+            <button className="button danger-button" onClick={() => void cleanupTransientData()} disabled={cleaningData}>
+              <Trash2 size={16} />{cleaningData ? "清理中" : "清理过期记录"}
             </button>
           </div>
         </section>
