@@ -1,0 +1,129 @@
+name: Upload focus audio
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Draft release tag containing the audio files
+        required: true
+        type: string
+      kind:
+        description: Focus audio category
+        required: true
+        default: music
+        type: choice
+        options:
+          - music
+          - white_noise
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focus-audio-upload
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      AUDIO_KIND: ${{ inputs.kind }}
+      SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Download draft release assets
+        run: |
+          mkdir -p "$RUNNER_TEMP/focus-audio-assets"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/focus-audio-assets"
+
+      - name: Upload audio files to Supabase Storage
+        env:
+          ASSET_DIR: ${{ runner.temp }}/focus-audio-assets
+        run: node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile, readdir } from "node:fs/promises";
+          import { basename, extname, join } from "node:path";
+
+          const required = (name) => {
+            const value = process.env[name]?.trim();
+            if (!value) throw new Error(`Missing required environment variable: ${name}`);
+            return value;
+          };
+
+          const assetDir = required("ASSET_DIR");
+          const kind = required("AUDIO_KIND");
+          const supabaseUrl = required("SUPABASE_URL").replace(/\/$/, "");
+          const serviceRoleKey = required("SUPABASE_SERVICE_ROLE_KEY");
+          const mimeTypes = new Map([
+            [".mp3", "audio/mpeg"],
+            [".m4a", "audio/mp4"],
+            [".mp4", "audio/mp4"],
+            [".ogg", "audio/ogg"],
+            [".wav", "audio/wav"],
+            [".webm", "audio/webm"]
+          ]);
+          const headers = {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`
+          };
+          const files = (await readdir(assetDir, { withFileTypes: true }))
+            .filter((entry) => entry.isFile())
+            .map((entry) => entry.name);
+          if (!files.length) throw new Error("The draft release contains no files.");
+
+          for (const fileName of files) {
+            const extension = extname(fileName).toLowerCase();
+            const mimeType = mimeTypes.get(extension);
+            if (!mimeType) throw new Error(`Unsupported audio format: ${fileName}`);
+            const body = await readFile(join(assetDir, fileName));
+            if (body.byteLength > 50 * 1024 * 1024) throw new Error(`Audio file exceeds 50 MB: ${fileName}`);
+
+            const digest = createHash("sha256").update(body).digest("hex");
+            const storagePath = `${kind}/${digest}${extension}`;
+            const query = new URLSearchParams({
+              select: "id",
+              storage_path: `eq.${storagePath}`,
+              limit: "1"
+            });
+            const existingResponse = await fetch(`${supabaseUrl}/rest/v1/focus_audio_tracks?${query}`, { headers });
+            if (!existingResponse.ok) throw new Error(`Could not check ${fileName}: ${await existingResponse.text()}`);
+            if ((await existingResponse.json()).length) {
+              console.log(`Skipped existing file: ${fileName}`);
+              continue;
+            }
+
+            const uploadResponse = await fetch(`${supabaseUrl}/storage/v1/object/focus-audio/${storagePath}`, {
+              method: "POST",
+              headers: { ...headers, "Content-Type": mimeType, "x-upsert": "false" },
+              body
+            });
+            if (!uploadResponse.ok) throw new Error(`Storage upload failed for ${fileName}: ${await uploadResponse.text()}`);
+
+            const title = basename(fileName, extension).trim();
+            const metadataResponse = await fetch(`${supabaseUrl}/rest/v1/focus_audio_tracks`, {
+              method: "POST",
+              headers: { ...headers, "Content-Type": "application/json", Prefer: "return=minimal" },
+              body: JSON.stringify({
+                title,
+                kind,
+                storage_path: storagePath,
+                mime_type: mimeType,
+                file_size: body.byteLength,
+                is_enabled: true
+              })
+            });
+            if (!metadataResponse.ok) {
+              await fetch(`${supabaseUrl}/storage/v1/object/focus-audio`, {
+                method: "DELETE",
+                headers: { ...headers, "Content-Type": "application/json" },
+                body: JSON.stringify({ prefixes: [storagePath] })
+              });
+              throw new Error(`Metadata insert failed for ${fileName}: ${await metadataResponse.text()}`);
+            }
+            console.log(`Uploaded: ${fileName} -> ${storagePath}`);
+          }
+          NODE
