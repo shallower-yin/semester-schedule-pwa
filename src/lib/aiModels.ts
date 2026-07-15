@@ -1,4 +1,5 @@
 export type AiProvider = "deepseek" | "mimo";
+export type MimoChannel = "payg" | "token_plan";
 
 export interface AiModelOption {
   id: string;

@@ -132,6 +132,12 @@ interface AiSettingsRow {
   member_weekly_limit: number;
   provider: "deepseek" | "mimo";
   model: string;
+  mimo_channel: "payg" | "token_plan";
+}
+
+interface ProviderCredentials {
+  apiKey: string;
+  endpoint: string;
 }
 
 const AI_MODELS = {
@@ -218,6 +224,7 @@ Deno.serve(async (request) => {
       return jsonResponse({
         provider,
         model: configuredModel(settings),
+        mimoChannel: configuredMimoChannel(settings),
         supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings))
       });
     }
@@ -471,7 +478,7 @@ function beijingPeriodStart(period: "day" | "week"): { iso: string; time: number
 
 async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | null> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
-  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model");
+  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel");
   url.searchParams.set("id", "eq.true");
   url.searchParams.set("limit", "1");
   const response = await fetch(url, {
@@ -551,7 +558,7 @@ async function askConfiguredProvider(
   attachments: AiAssistantAttachment[]
 ): Promise<AiAssistantResponse> {
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
-  const apiKey = optionalSecret(provider === "mimo" ? "MIMO_API_KEY" : "DEEPSEEK_API_KEY");
+  const { apiKey, endpoint } = configuredProviderCredentials(provider, settings);
   if (!apiKey) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const model = configuredModel(settings);
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
@@ -580,9 +587,6 @@ async function askConfiguredProvider(
       { type: "text", text: userText }
     ]
     : userText;
-  const endpoint = provider === "mimo"
-    ? `${(optionalSecret("MIMO_BASE_URL") || "https://api.xiaomimimo.com/v1").replace(/\/+$/, "")}/chat/completions`
-    : "https://api.deepseek.com/chat/completions";
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -671,6 +675,44 @@ function configuredModel(settings: AiSettingsRow | null): string {
   const secretModel = optionalSecret(provider === "mimo" ? "MIMO_MODEL" : "DEEPSEEK_MODEL");
   if (secretModel && (AI_MODELS[provider] as readonly string[]).includes(secretModel)) return secretModel;
   return provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash";
+}
+
+function configuredMimoChannel(settings: AiSettingsRow | null): "payg" | "token_plan" {
+  return settings?.mimo_channel === "token_plan" ? "token_plan" : "payg";
+}
+
+function configuredProviderCredentials(provider: "deepseek" | "mimo", settings: AiSettingsRow | null): ProviderCredentials {
+  if (provider === "deepseek") {
+    return {
+      apiKey: optionalSecret("DEEPSEEK_API_KEY"),
+      endpoint: "https://api.deepseek.com/chat/completions"
+    };
+  }
+
+  const channel = configuredMimoChannel(settings);
+  const legacyBaseUrl = optionalSecret("MIMO_BASE_URL");
+  const legacyMatchesChannel = legacyBaseUrl
+    ? isTokenPlanBaseUrl(legacyBaseUrl) === (channel === "token_plan")
+    : false;
+  const apiKey = channel === "token_plan"
+    ? optionalSecret("MIMO_TOKEN_PLAN_API_KEY") || (legacyMatchesChannel ? optionalSecret("MIMO_API_KEY") : "")
+    : optionalSecret("MIMO_PAYG_API_KEY") || (legacyMatchesChannel ? optionalSecret("MIMO_API_KEY") : "");
+  const baseUrl = channel === "token_plan"
+    ? optionalSecret("MIMO_TOKEN_PLAN_BASE_URL") || (legacyMatchesChannel ? legacyBaseUrl : "") || "https://token-plan-cn.xiaomimimo.com/v1"
+    : optionalSecret("MIMO_PAYG_BASE_URL") || (legacyMatchesChannel ? legacyBaseUrl : "") || "https://api.xiaomimimo.com/v1";
+
+  return {
+    apiKey,
+    endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`
+  };
+}
+
+function isTokenPlanBaseUrl(value: string): boolean {
+  try {
+    return new URL(value).hostname.toLowerCase().startsWith("token-plan-");
+  } catch {
+    return false;
+  }
 }
 
 function modelSupportsAttachments(provider: "deepseek" | "mimo", model: string): boolean {

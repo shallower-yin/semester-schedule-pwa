@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { defaultAiModel, isSupportedAiModel, type AiProvider } from "./aiModels";
+import { defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "./aiModels";
 
 export type AdminRole = "member" | "admin";
 
@@ -69,6 +69,7 @@ export interface AdminAiSettings {
   member_weekly_limit: number;
   provider: "deepseek" | "mimo";
   model: string;
+  mimo_channel: MimoChannel;
   updated_at: string | null;
 }
 
@@ -224,7 +225,8 @@ export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_
     p_member_daily_limit: input.member_daily_limit,
     p_member_weekly_limit: input.member_weekly_limit,
     p_provider: input.provider,
-    p_model: input.model
+    p_model: input.model,
+    p_mimo_channel: input.mimo_channel
   });
   if (error) throw new Error(formatAdminError(error.message));
   return normalizeAiSettings(data);
@@ -242,6 +244,7 @@ function normalizeAiSettings(value: unknown): AdminAiSettings {
     member_weekly_limit: Math.max(1, Number(row.member_weekly_limit ?? 300)),
     provider,
     model: isSupportedAiModel(provider, storedModel) ? storedModel : defaultAiModel(provider),
+    mimo_channel: row.mimo_channel === "token_plan" ? "token_plan" : "payg",
     updated_at: typeof row.updated_at === "string" ? row.updated_at : null
   };
 }

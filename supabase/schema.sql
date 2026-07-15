@@ -268,6 +268,7 @@ create table if not exists public.ai_assistant_settings (
   member_weekly_limit integer not null default 300 check (member_weekly_limit between member_daily_limit and 1000000),
   provider text not null default 'deepseek' check (provider in ('deepseek', 'mimo')),
   model text not null default 'deepseek-v4-flash',
+  mimo_channel text not null default 'payg' check (mimo_channel in ('payg', 'token_plan')),
   constraint ai_assistant_settings_model_catalog_check check (
     (provider = 'deepseek' and model in ('deepseek-v4-flash', 'deepseek-v4-pro'))
     or

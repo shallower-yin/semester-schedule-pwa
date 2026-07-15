@@ -18,6 +18,7 @@ interface AdminRequest {
     memberWeeklyLimit?: number;
     provider?: "deepseek" | "mimo";
     model?: string;
+    mimoChannel?: "payg" | "token_plan";
   };
 }
 
@@ -474,7 +475,7 @@ async function setAiAccess(
 
 async function getAiSettings(serviceRoleKey: string) {
   const rows = await restGet<Record<string, unknown>>("ai_assistant_settings", serviceRoleKey, {
-    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,updated_at",
+    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,updated_at",
     id: "eq.true"
   }, 1);
   return rows[0] ?? {
@@ -485,6 +486,7 @@ async function getAiSettings(serviceRoleKey: string) {
     member_weekly_limit: 300,
     provider: "deepseek",
     model: "deepseek-v4-flash",
+    mimo_channel: "payg",
     updated_at: null
   };
 }
@@ -496,6 +498,7 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
   const memberWeeklyLimit = Math.floor(Number(settings?.memberWeeklyLimit));
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const model = settings?.model?.trim() ?? "";
+  const mimoChannel = settings?.mimoChannel === "token_plan" ? "token_plan" : "payg";
   if (!(ADMIN_AI_MODELS[provider] as readonly string[]).includes(model)) throw new Error("请选择当前 AI 提供商支持的模型。");
   if (!Number.isFinite(ordinaryDailyLimit) || ordinaryDailyLimit < 1 || ordinaryDailyLimit > 100000) {
     throw new Error("普通用户每日额度必须在 1 到 100000 之间。");
@@ -528,6 +531,7 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
       member_weekly_limit: memberWeeklyLimit,
       provider,
       model,
+      mimo_channel: mimoChannel,
       updated_at: new Date().toISOString()
     })
   });

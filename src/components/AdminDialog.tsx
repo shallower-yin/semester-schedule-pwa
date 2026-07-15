@@ -12,7 +12,7 @@ import {
   type AdminUserSummary
 } from "../lib/admin";
 import { Modal } from "./Modal";
-import { AI_MODEL_OPTIONS, defaultAiModel, isSupportedAiModel, type AiProvider } from "../lib/aiModels";
+import { AI_MODEL_OPTIONS, defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "../lib/aiModels";
 
 interface AdminDialogProps {
   onClose: () => void;
@@ -39,6 +39,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [memberWeeklyLimit, setMemberWeeklyLimit] = useState(300);
   const [aiProvider, setAiProvider] = useState<AiProvider>("deepseek");
   const [aiModel, setAiModel] = useState("deepseek-v4-flash");
+  const [mimoChannel, setMimoChannel] = useState<MimoChannel>("payg");
   const [savingSettings, setSavingSettings] = useState(false);
 
   const selectedUser = useMemo(
@@ -66,6 +67,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setMemberWeeklyLimit(nextSummary.aiSettings.member_weekly_limit);
       setAiProvider(nextSummary.aiSettings.provider);
       setAiModel(nextSummary.aiSettings.model);
+      setMimoChannel(nextSummary.aiSettings.mimo_channel);
       if (!selectedUserId && nextSummary.users[0]) setSelectedUserId(nextSummary.users[0].id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
@@ -148,7 +150,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         member_daily_limit: memberDailyLimit,
         member_weekly_limit: memberWeeklyLimit,
         provider: aiProvider,
-        model: aiModel.trim()
+        model: aiModel.trim(),
+        mimo_channel: mimoChannel
       });
       setGlobalEnabled(settings.enabled_for_all);
       setOrdinaryDailyLimit(settings.ordinary_daily_limit);
@@ -157,6 +160,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setMemberWeeklyLimit(settings.member_weekly_limit);
       setAiProvider(settings.provider);
       setAiModel(settings.model);
+      setMimoChannel(settings.mimo_channel);
       setMessage(settings.enabled_for_all ? "已向所有登录用户开放 AI 助手。" : "已关闭 AI 助手全员权限。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
@@ -212,6 +216,13 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 {AI_MODEL_OPTIONS[aiProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
               </select>
             </label>
+            {aiProvider === "mimo" && <label>
+              MiMo 通道
+              <select value={mimoChannel} onChange={(event) => setMimoChannel(event.target.value === "token_plan" ? "token_plan" : "payg")}>
+                <option value="payg">按量 API（sk）</option>
+                <option value="token_plan">Token Plan（tp，仅获授权后）</option>
+              </select>
+            </label>}
             <label>
               全员权限
               <select value={globalEnabled ? "1" : "0"} onChange={(event) => setGlobalEnabled(event.target.value === "1")}>

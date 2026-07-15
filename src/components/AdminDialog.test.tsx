@@ -25,6 +25,7 @@ describe("管理后台 AI 模型选择", () => {
         member_weekly_limit: 210,
         provider: "mimo",
         model: "mimo-v2.5",
+        mimo_channel: "token_plan",
         updated_at: null
       }
     });
@@ -39,9 +40,11 @@ describe("管理后台 AI 模型选择", () => {
     expect(modelSelect.tagName).toBe("SELECT");
     expect(screen.getByRole("option", { name: "MiMo V2.5（支持附件）" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "MiMo V2.5 Pro UltraSpeed（需申请）" })).toBeInTheDocument();
+    expect(screen.getByLabelText("MiMo 通道")).toHaveValue("token_plan");
 
     fireEvent.change(screen.getByLabelText("AI 提供商"), { target: { value: "deepseek" } });
     await waitFor(() => expect(screen.getByRole("option", { name: "DeepSeek V4 Pro" })).toBeInTheDocument());
     expect(modelSelect).toHaveValue("deepseek-v4-flash");
+    expect(screen.queryByLabelText("MiMo 通道")).not.toBeInTheDocument();
   });
 });
