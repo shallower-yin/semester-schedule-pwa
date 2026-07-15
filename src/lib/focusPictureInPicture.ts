@@ -3,6 +3,9 @@ import { elapsedFocusSeconds, focusModeLabel, formatFocusDuration, remainingFocu
 let canvas: HTMLCanvasElement | null = null;
 let video: HTMLVideoElement | null = null;
 let stream: MediaStream | null = null;
+let pictureInPictureAudioMuted = false;
+
+export const FOCUS_PICTURE_IN_PICTURE_MUTE_EVENT = "focus-picture-in-picture-audio-mute";
 
 export function focusPictureInPictureSupported(): boolean {
   if (typeof document === "undefined") return false;
@@ -53,6 +56,11 @@ export async function closeFocusPictureInPicture(): Promise<void> {
   }
 }
 
+export function setFocusPictureInPictureAudioMuted(muted: boolean): void {
+  pictureInPictureAudioMuted = muted;
+  if (video && video.muted !== muted) video.muted = muted;
+}
+
 function ensurePictureInPictureMedia() {
   if (canvas && video && stream) return;
   canvas = document.createElement("canvas");
@@ -60,9 +68,15 @@ function ensurePictureInPictureMedia() {
   canvas.height = 270;
   stream = canvas.captureStream(1);
   video = document.createElement("video");
-  video.muted = true;
+  video.muted = pictureInPictureAudioMuted;
   video.playsInline = true;
   video.srcObject = stream;
+  video.addEventListener("volumechange", () => {
+    pictureInPictureAudioMuted = video!.muted || video!.volume === 0;
+    window.dispatchEvent(new CustomEvent<boolean>(FOCUS_PICTURE_IN_PICTURE_MUTE_EVENT, {
+      detail: pictureInPictureAudioMuted
+    }));
+  });
 }
 
 function drawEllipsizedText(context: CanvasRenderingContext2D, value: string, x: number, y: number, maxWidth: number) {

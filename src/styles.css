@@ -3655,12 +3655,12 @@ textarea {
 
 .focus-audio-controls {
   display: grid;
-  grid-template-columns: 42px minmax(180px, 1fr) minmax(180px, 0.8fr);
+  grid-template-columns: auto minmax(180px, 1fr) auto;
   align-items: end;
   gap: 12px;
 }
 
-.focus-audio-controls > label {
+.focus-audio-track-select {
   display: grid;
   gap: 5px;
   color: var(--muted);
@@ -3675,15 +3675,133 @@ textarea {
   background: var(--primary);
 }
 
-.focus-volume {
-  grid-template-columns: auto minmax(80px, 1fr) 40px !important;
-  align-items: center;
-  min-height: 42px;
+.focus-audio-engine {
+  display: none;
 }
 
+.focus-audio-transport {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.focus-playback-modes {
+  align-self: end;
+}
+
+.focus-audio-progress {
+  display: grid;
+  grid-template-columns: 42px minmax(100px, 1fr) 42px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-audio-progress span:last-child {
+  text-align: right;
+}
+
+.focus-audio-progress input,
 .focus-volume input {
-  min-width: 80px;
+  width: 100%;
+  min-width: 0;
   accent-color: var(--primary);
+}
+
+.focus-audio-lower-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.focus-volume {
+  display: grid;
+  grid-template-columns: 34px minmax(90px, 180px) 42px;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-volume .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
+.focus-playlist-picker {
+  position: relative;
+  min-width: 200px;
+}
+
+.focus-playlist-picker summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: white;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.focus-playlist-picker summary::-webkit-details-marker {
+  display: none;
+}
+
+.focus-playlist-picker > div {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: min(320px, 78vw);
+  max-height: 240px;
+  padding: 7px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 12px 28px rgb(30 48 88 / 16%);
+}
+
+.focus-playlist-picker label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.focus-playlist-picker label:hover {
+  background: var(--surface-soft);
+}
+
+.focus-playlist-picker input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.focus-music-disclaimer {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .focus-record-manage-actions {
@@ -3695,7 +3813,7 @@ textarea {
 }
 
 .focus-record-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .focus-record-grid article {
@@ -3706,6 +3824,22 @@ textarea {
 .focus-record-grid article.selected {
   border-color: var(--primary);
   background: var(--accent-soft);
+}
+
+.focus-record-section-wide {
+  margin-top: 18px;
+}
+
+@media (max-width: 1400px) {
+  .focus-record-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1150px) {
+  .focus-record-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .focus-record-selector {
@@ -5703,7 +5837,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .focus-record-grid,
+  .focus-record-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .admin-audio-list {
     grid-template-columns: 1fr;
   }
@@ -6141,11 +6278,30 @@ textarea {
   }
 
   .focus-audio-controls {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .focus-volume {
+  .focus-playback-modes,
+  .focus-audio-lower-controls {
     grid-column: 1 / -1;
+  }
+
+  .focus-playback-modes {
+    justify-self: start;
+  }
+
+  .focus-audio-lower-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .focus-playlist-picker {
+    min-width: 0;
+  }
+
+  .focus-playlist-picker > div {
+    right: auto;
+    left: 0;
   }
 
   .admin-audio-upload {
@@ -6307,6 +6463,10 @@ textarea {
 }
 
 @media (max-width: 580px) {
+  .focus-record-grid {
+    grid-template-columns: 1fr;
+  }
+
   .admin-cleanup-controls {
     grid-template-columns: 1fr;
   }

@@ -33,6 +33,7 @@ interface SupabaseUser {
   created_at?: string;
   last_sign_in_at?: string | null;
   confirmed_at?: string | null;
+  user_metadata?: Record<string, unknown>;
 }
 
 interface AiAccessRow {
@@ -274,7 +275,7 @@ function emptyCounts(): UserCounts {
 
 async function getSummary(serviceRoleKey: string) {
   const authData = await authAdminGet<{ users?: SupabaseUser[] }>("users?page=1&per_page=1000", serviceRoleKey);
-  const users = authData.users ?? [];
+  const users = (authData.users ?? []).filter((user) => !isSmokeTestUser(user));
   const counts = new Map<string, UserCounts>();
 
   for (const config of SUMMARY_TABLES) {
@@ -313,6 +314,11 @@ async function getSummary(serviceRoleKey: string) {
       aiUsage: usageByUser.get(item.id) ?? emptyAiUsage()
     })).sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""))
   };
+}
+
+function isSmokeTestUser(user: SupabaseUser): boolean {
+  return user.email?.toLowerCase() === "codex-ai-smoke@example.com"
+    || user.user_metadata?.source === "codex-ai-access-smoke";
 }
 
 async function getDetails(targetUserId: string, serviceRoleKey: string) {

@@ -307,33 +307,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         </section>
 
         <FocusAudioPlayer />
-
-        <section className="focus-record-section">
-          <div className="focus-section-heading">
-            <div><h2><ListChecks size={18} />最近记录</h2><p>显示最近 20 条，可进入管理模式批量选择。</p></div>
-            <div className="focus-record-manage-actions">
-              {managingRecords ? <>
-                <label className="checkbox-label"><input type="checkbox" checked={recentSessions.length > 0 && selectedSessionIds.size === recentSessions.length} onChange={(event) => setSelectedSessionIds(event.target.checked ? new Set(recentSessions.map((session) => session.id)) : new Set())} />全选</label>
-                <button className="button danger-button compact" disabled={!selectedSessionIds.size} onClick={() => void deleteSelectedSessions()}><Trash2 size={14} />删除所选（{selectedSessionIds.size}）</button>
-                <button className="button secondary compact" onClick={() => { setManagingRecords(false); setSelectedSessionIds(new Set()); }}>取消</button>
-              </> : <button className="button secondary compact" onClick={() => setManagingRecords(true)} disabled={!recentSessions.length}>管理记录</button>}
-            </div>
-          </div>
-          <div className="focus-record-list focus-record-grid">
-            {recentSessions.map((session) => (
-              <article key={session.id} className={selectedSessionIds.has(session.id) ? "selected" : ""}>
-                {managingRecords && <label className="focus-record-selector" aria-label={`选择${session.task_title || focusModeLabel(session.mode)}`}><input type="checkbox" checked={selectedSessionIds.has(session.id)} onChange={() => toggleRecordSelection(session.id)} /></label>}
-                <strong>{session.task_title || focusModeLabel(session.mode)}</strong>
-                <span>{focusModeLabel(session.mode)} · {formatFocusDuration(session.duration_seconds)} · {new Date(session.ended_at).toLocaleString()}</span>
-                {!managingRecords && <div className="focus-record-actions">
-                  <button className="button secondary compact" onClick={() => setSessionToEdit(session)}><Edit3 size={14} />编辑</button>
-                  <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />彻底删除</button>
-                </div>}
-              </article>
-            ))}
-            {!recentSessions.length && <p>还没有专注记录。</p>}
-          </div>
-        </section>
         </div>
 
         <aside className="focus-side">
@@ -374,6 +347,33 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
         </aside>
       </div>
+
+      <section className="focus-record-section focus-record-section-wide">
+        <div className="focus-section-heading">
+          <div><h2><ListChecks size={18} />最近记录</h2><p>显示最近 20 条，可进入管理模式批量选择。</p></div>
+          <div className="focus-record-manage-actions">
+            {managingRecords ? <>
+              <label className="checkbox-label"><input type="checkbox" checked={recentSessions.length > 0 && selectedSessionIds.size === recentSessions.length} onChange={(event) => setSelectedSessionIds(event.target.checked ? new Set(recentSessions.map((session) => session.id)) : new Set())} />全选</label>
+              <button className="button danger-button compact" disabled={!selectedSessionIds.size} onClick={() => void deleteSelectedSessions()}><Trash2 size={14} />删除所选（{selectedSessionIds.size}）</button>
+              <button className="button secondary compact" onClick={() => { setManagingRecords(false); setSelectedSessionIds(new Set()); }}>取消</button>
+            </> : <button className="button secondary compact" onClick={() => setManagingRecords(true)} disabled={!recentSessions.length}>管理记录</button>}
+          </div>
+        </div>
+        <div className="focus-record-list focus-record-grid">
+          {recentSessions.map((session) => (
+            <article key={session.id} className={selectedSessionIds.has(session.id) ? "selected" : ""}>
+              {managingRecords && <label className="focus-record-selector" aria-label={`选择${session.task_title || focusModeLabel(session.mode)}`}><input type="checkbox" checked={selectedSessionIds.has(session.id)} onChange={() => toggleRecordSelection(session.id)} /></label>}
+              <strong>{session.task_title || focusModeLabel(session.mode)}</strong>
+              <span>{focusModeLabel(session.mode)} · {formatFocusDuration(session.duration_seconds)} · {new Date(session.ended_at).toLocaleString()}</span>
+              {!managingRecords && <div className="focus-record-actions">
+                <button className="button secondary compact" onClick={() => setSessionToEdit(session)}><Edit3 size={14} />编辑</button>
+                <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />彻底删除</button>
+              </div>}
+            </article>
+          ))}
+          {!recentSessions.length && <p>还没有专注记录。</p>}
+        </div>
+      </section>
 
       {active?.mode === "lock" && (
         <div className="focus-lock-overlay" role="dialog" aria-modal="true" aria-label="锁机专注">

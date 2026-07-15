@@ -25,7 +25,7 @@ jobs:
           const serviceRoleKey = requiredEnv("SERVICE_ROLE_KEY");
           const aiAccessCode = process.env.AI_ASSISTANT_ACCESS_CODE?.trim() || "";
           const runId = process.env.GITHUB_RUN_ID || Date.now().toString();
-          const createdUsers = [];
+          const smokeEmail = "codex-ai-smoke@example.com";
 
           function requiredEnv(name) {
             const value = process.env[name]?.trim();
@@ -57,33 +57,38 @@ jobs:
             }
           }
 
-          async function createUser(label) {
-            const email = `codex-ai-${label}-${runId}-${crypto.randomBytes(4).toString("hex")}@example.com`;
+          async function getOrCreateSmokeUser() {
             const password = `${crypto.randomUUID()}Aa1!`;
-            const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-              method: "POST",
+            const listResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1000`, {
+              headers: serviceHeaders()
+            });
+            const listPayload = await readJson(listResponse);
+            if (!listResponse.ok) {
+              throw new Error(`list smoke users failed: HTTP ${listResponse.status} ${JSON.stringify(listPayload).slice(0, 300)}`);
+            }
+            const existing = listPayload?.users?.find((user) => user.email?.toLowerCase() === smokeEmail);
+            const endpoint = existing
+              ? `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(existing.id)}`
+              : `${supabaseUrl}/auth/v1/admin/users`;
+            const response = await fetch(endpoint, {
+              method: existing ? "PUT" : "POST",
               headers: serviceHeaders({ "content-type": "application/json" }),
               body: JSON.stringify({
-                email,
+                email: smokeEmail,
                 password,
                 email_confirm: true,
-                user_metadata: { source: "codex-ai-access-smoke", label, runId }
+                user_metadata: { source: "codex-ai-access-smoke", runId }
               })
             });
             const payload = await readJson(response);
             if (!response.ok || !payload?.id) {
-              throw new Error(`create ${label} user failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+              throw new Error(`prepare smoke user failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
             }
-            createdUsers.push(payload.id);
-            return { id: payload.id, email, password, label };
+            return { id: payload.id, email: smokeEmail, password, label: "smoke" };
           }
 
-          async function deleteUser(userId) {
+          async function clearAccess(userId) {
             await fetch(`${supabaseUrl}/rest/v1/ai_assistant_access?user_id=eq.${encodeURIComponent(userId)}`, {
-              method: "DELETE",
-              headers: serviceHeaders()
-            });
-            await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
               method: "DELETE",
               headers: serviceHeaders()
             });
@@ -200,46 +205,39 @@ jobs:
           }
 
           async function main() {
-            const normal = await createUser("normal");
-            const disabled = await createUser("disabled");
-            const expired = await createUser("expired");
-            const member = await createUser("member");
-            const admin = await createUser("admin");
+            const user = await getOrCreateSmokeUser();
+            const token = await signIn(user);
 
-            await setAccess(disabled, { enabled: false, role: "member" });
-            await setAccess(expired, { enabled: true, role: "member", expiresAt: "2020-01-01T00:00:00Z" });
-            await setAccess(member, { enabled: true, role: "member" });
-            await setAccess(admin, { enabled: true, role: "admin" });
+            await clearAccess(user.id);
+            user.label = "normal";
+            await expectAiDenied(user, token);
+            await expectAdminStatus(user, token, false);
+            await expectAiAccessCodeDoesNotGrantMembership(user, token);
 
-            const normalToken = await signIn(normal);
-            const disabledToken = await signIn(disabled);
-            const expiredToken = await signIn(expired);
-            const memberToken = await signIn(member);
-            const adminToken = await signIn(admin);
+            user.label = "disabled";
+            await setAccess(user, { enabled: false, role: "member" });
+            await expectAiDenied(user, token);
+            await expectAdminStatus(user, token, false);
 
-            await expectAiDenied(normal, normalToken);
-            await expectAdminStatus(normal, normalToken, false);
-            await expectAiAccessCodeDoesNotGrantMembership(normal, normalToken);
-            await expectAiDenied(disabled, disabledToken);
-            await expectAdminStatus(disabled, disabledToken, false);
-            await expectAiDenied(expired, expiredToken);
-            await expectAdminStatus(expired, expiredToken, false);
-            await expectAiAllowed(member, memberToken, "member");
-            await expectAdminStatus(member, memberToken, false);
-            await expectAiAllowed(admin, adminToken, "admin");
-            await expectAdminStatus(admin, adminToken, true);
+            user.label = "expired";
+            await setAccess(user, { enabled: true, role: "member", expiresAt: "2020-01-01T00:00:00Z" });
+            await expectAiDenied(user, token);
+            await expectAdminStatus(user, token, false);
+
+            user.label = "member";
+            await setAccess(user, { enabled: true, role: "member" });
+            await expectAiAllowed(user, token, "member");
+            await expectAdminStatus(user, token, false);
+
+            user.label = "admin";
+            await setAccess(user, { enabled: true, role: "admin" });
+            await expectAiAllowed(user, token, "admin");
+            await expectAdminStatus(user, token, true);
+
+            await setAccess(user, { enabled: false, role: "member" });
           }
 
           main()
-            .finally(async () => {
-              for (const userId of createdUsers.reverse()) {
-                try {
-                  await deleteUser(userId);
-                } catch (error) {
-                  console.warn(`cleanup failed for test user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
-                }
-              }
-            })
             .catch((error) => {
               console.error(error);
               process.exitCode = 1;

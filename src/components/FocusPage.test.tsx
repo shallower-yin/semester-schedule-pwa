@@ -11,6 +11,10 @@ vi.mock("../lib/focusPictureInPicture", () => ({
   openFocusPictureInPicture: vi.fn()
 }));
 
+vi.mock("./FocusAudioPlayer", () => ({
+  FocusAudioPlayer: () => <div data-testid="focus-audio-player" />
+}));
+
 function session(id: string): FocusSession {
   return {
     id,

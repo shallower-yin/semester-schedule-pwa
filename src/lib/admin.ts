@@ -168,7 +168,8 @@ export async function getAdminSummary(): Promise<AdminSummary> {
   ]);
   if (error) throw new Error(formatAdminError(error.message));
   if (settingsResult.error) throw new Error(formatAdminError(settingsResult.error.message));
-  const rows = Array.isArray(data) ? data as AdminListUserRow[] : [];
+  const rows = (Array.isArray(data) ? data as AdminListUserRow[] : [])
+    .filter((row) => !isSmokeTestAccount(row.email));
   return {
     passwordVisible: false,
     aiSettings: normalizeAiSettings(settingsResult.data),
@@ -222,6 +223,10 @@ export async function getAdminSummary(): Promise<AdminSummary> {
       })
     }))
   };
+}
+
+function isSmokeTestAccount(email: string | null | undefined): boolean {
+  return email?.toLowerCase() === "codex-ai-smoke@example.com";
 }
 
 export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_at">): Promise<AdminAiSettings> {
