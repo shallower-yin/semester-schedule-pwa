@@ -48,6 +48,7 @@ import { DataHealthDialog } from "./components/DataHealthDialog";
 import { DeepSeekAssistantDialog } from "./components/DeepSeekAssistantDialog";
 import { EventDialog } from "./components/EventDialog";
 import { FocusPage } from "./components/FocusPage";
+import { FocusFloatingTimer } from "./components/FocusFloatingTimer";
 import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
 import { HabitPage } from "./components/HabitPage";
 import { HeaderToolSettingsDialog } from "./components/HeaderToolSettingsDialog";
@@ -753,6 +754,8 @@ export default function App() {
           {selectedHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
         </div>
       </header>
+
+      <FocusFloatingTimer ownerId={ownerId} onOpen={() => navigate("focus")} />
 
       {sidebarOpen && (
         <div className="mobile-sidebar-backdrop" onClick={() => setSidebarOpen(false)}>

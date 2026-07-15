@@ -14,7 +14,7 @@ import { eventCompletionForDate } from "../lib/eventCompletion";
 import { eventOccurrenceMatchesStatus, type EventStatusFilter } from "../lib/eventStatusFilter";
 import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
-import { buildDisplayRows, rowRangeForTime } from "../lib/timeBlocks";
+import { buildDisplayRows, rowRangeForTime, timePlacementForRows } from "../lib/timeBlocks";
 import type {
   Category,
   ClassPeriod,
@@ -356,7 +356,9 @@ export function WeekCalendar(props: WeekCalendarProps) {
             const isHabit = eventItem.event_type === "habit";
             const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
             if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return [];
-            const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
+            const placement = timePlacementForRows(displayRows, eventItem.start_time, eventItem.end_time);
+            const firstRowHeight = displayRows[placement.firstRow]?.kind === "break" ? 96 : 76;
+            const lastRowHeight = displayRows[placement.endRow - 1]?.kind === "break" ? 96 : 76;
             const occurrenceKey = `${eventItem.id}-${toISODate(date)}`;
             return (
               <article
@@ -364,9 +366,13 @@ export function WeekCalendar(props: WeekCalendarProps) {
                 className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${isHabit ? "habit-entry" : ""} ${overlapClass(occurrenceKey)}`}
                 style={entryStyle(occurrenceKey, {
                   gridColumn: dayIndex + 2,
-                  gridRow: eventItem.all_day ? 2 : `${firstRow + 3} / ${endRow + 3}`,
+                  gridRow: eventItem.all_day ? 2 : `${placement.firstRow + 3} / ${placement.endRow + 3}`,
+                  ...(eventItem.all_day ? {} : {
+                    "--time-start-offset": `${placement.startOffset * firstRowHeight}px`,
+                    "--time-end-offset": `${placement.endOffset * lastRowHeight}px`
+                  }),
                   borderLeftColor: eventItem.color || category?.color || "#e36b32"
-                })}
+                } as CSSProperties)}
                 onClick={() => props.onEditEvent(eventItem)}
               >
                 <div className="entry-title">{eventItem.title}</div>

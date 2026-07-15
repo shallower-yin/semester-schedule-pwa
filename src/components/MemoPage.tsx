@@ -238,7 +238,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
         <div className="page-heading memo-heading">
           <div>
             <h1>备忘录</h1>
-            <p>记录临时想法、复习计划和需要保留的文字资料。未完成待办 {uncheckedTodoCount} 项，分布在 {uncheckedTodoMemoCount} 条备忘录中。</p>
+            <p><span className="memo-heading-intro">记录临时想法、复习计划和需要保留的文字资料。</span>未完成待办 {uncheckedTodoCount} 项，分布在 {uncheckedTodoMemoCount} 条备忘录中。</p>
           </div>
           <div className="inline-actions">
             <button className="button primary compact" onClick={() => setMemoToEdit(null)}><Plus size={17} />新增备忘录</button>
@@ -378,9 +378,7 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   const [folderId, setFolderId] = useState(memo?.folder_id ?? initialFolderId ?? "");
   const [isPinned, setIsPinned] = useState(memo?.is_pinned ?? false);
   const [message, setMessage] = useState("");
-  const [textareaScrollTop, setTextareaScrollTop] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const visualLines = useMemo(() => buildMemoVisualLines(content), [content]);
 
   function focusTextareaAt(cursor: number) {
     window.setTimeout(() => {
@@ -444,10 +442,6 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
     focusTextareaAt(edit.cursor);
   }
 
-  function handleContentScroll(event: React.UIEvent<HTMLTextAreaElement>) {
-    setTextareaScrollTop(event.currentTarget.scrollTop);
-  }
-
   return (
     <Modal title={memo ? "编辑备忘录" : "新增备忘录"} onClose={onClose} wide>
       <form className="form-stack" onSubmit={save}>
@@ -466,22 +460,6 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
             <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
           </div>
           <div className="memo-textarea-shell">
-            <div className="memo-textarea-visual" aria-hidden="true">
-              <div style={{ transform: `translateY(-${textareaScrollTop}px)` }}>
-                {visualLines.map((line, index) => (
-                  <div key={index} className={`memo-visual-line ${line.completed ? "completed" : ""}`}>
-                    {line.kind === "circle" ? (
-                      <>
-                        {line.indent}<span className={`memo-visual-marker ${line.completed ? "checked" : ""}`}>○</span>{line.gap}
-                        <span className={line.completed ? "memo-visual-text completed" : "memo-visual-text"}>{line.text || "\u00a0"}</span>
-                      </>
-                    ) : (
-                      line.text || "\u00a0"
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
             <textarea
               ref={textareaRef}
               className="memo-textarea"
@@ -491,7 +469,6 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
               onChange={(event) => setContent(event.target.value)}
               onClick={handleContentClick}
               onKeyDown={handleContentKeyDown}
-              onScroll={handleContentScroll}
             />
           </div>
         </div>
@@ -506,25 +483,4 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
       </form>
     </Modal>
   );
-}
-
-type MemoVisualLine =
-  | { kind: "circle"; indent: string; gap: string; text: string; completed: boolean }
-  | { kind: "plain"; text: string; completed: false };
-
-function buildMemoVisualLines(content: string): MemoVisualLine[] {
-  const lines = content.split(/\r?\n/);
-  return lines.map((line) => {
-    const circleMatch = /^(\s*)([○◯●])(\s*)(.*)$/.exec(line);
-    if (circleMatch) {
-      return {
-        kind: "circle",
-        indent: circleMatch[1],
-        gap: circleMatch[3] || " ",
-        text: circleMatch[4],
-        completed: circleMatch[2] === "●"
-      };
-    }
-    return { kind: "plain", text: line, completed: false };
-  });
 }

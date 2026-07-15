@@ -4,11 +4,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
   elapsedFocusSeconds,
+  clearActiveFocus,
+  FOCUS_STATE_CHANGED_EVENT,
   focusDailyTotals,
   focusModeLabel,
   focusSessionsForDate,
   formatFocusDuration,
+  loadActiveFocus,
+  notifyFocusComplete,
   remainingFocusSeconds,
+  requestFocusNotificationPermission,
+  saveActiveFocus,
   totalFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
@@ -29,10 +35,6 @@ const DEFAULT_SETTINGS = {
   daily_goal_minutes: 120,
   sound_enabled: true
 };
-
-function activeFocusKey(ownerId: string) {
-  return `semester-schedule-active-focus:${ownerId}`;
-}
 
 export function FocusPage({ ownerId }: FocusPageProps) {
   const storedSettings = useLiveQuery(
@@ -58,7 +60,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
   const [sessionToEdit, setSessionToEdit] = useState<FocusSession | null>(null);
-  const completingRef = useRef(false);
 
   const effectiveSettings = storedSettings ?? settingsDraft;
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
@@ -92,6 +93,9 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
   useEffect(() => {
     setActive(loadActiveFocus(ownerId));
+    const refresh = () => setActive(loadActiveFocus(ownerId));
+    window.addEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
   }, [ownerId]);
 
   useEffect(() => {
@@ -103,15 +107,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     if (!active) return;
     saveActiveFocus(ownerId, active);
   }, [active, ownerId]);
-
-  useEffect(() => {
-    if (!active || active.pause_started_at || active.planned_seconds == null || completingRef.current) return;
-    if ((remaining ?? 1) > 0) return;
-    completingRef.current = true;
-    void finishFocus(true, false).finally(() => {
-      completingRef.current = false;
-    });
-  }, [active, remaining]);
 
   useEffect(() => {
     if (active?.mode !== "lock") return;
@@ -139,6 +134,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     };
     setActive(next);
     saveActiveFocus(ownerId, next);
+    if (effectiveSettings.sound_enabled) requestFocusNotificationPermission();
     if (mode === "lock") void enterFocusFullscreen();
     setMessage("");
   }
@@ -401,22 +397,6 @@ function plannedSecondsForMode(mode: FocusMode, settings: typeof DEFAULT_SETTING
   return 0;
 }
 
-function loadActiveFocus(ownerId: string): ActiveFocusState | null {
-  try {
-    const raw = localStorage.getItem(activeFocusKey(ownerId));
-    return raw ? JSON.parse(raw) as ActiveFocusState : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveActiveFocus(ownerId: string, active: ActiveFocusState) {
-  localStorage.setItem(activeFocusKey(ownerId), JSON.stringify(active));
-}
-
-function clearActiveFocus(ownerId: string) {
-  localStorage.removeItem(activeFocusKey(ownerId));
-}
 
 interface FocusSessionDialogProps {
   session: FocusSession;
@@ -501,31 +481,5 @@ async function exitFocusFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
   } catch {
     // 忽略浏览器全屏退出限制。
-  }
-}
-
-function notifyFocusComplete(taskTitle: string, soundEnabled: boolean) {
-  if ("Notification" in window && Notification.permission === "granted") {
-    new Notification("专注结束", {
-      body: taskTitle,
-      icon: `${import.meta.env.BASE_URL}app-icon-192.png`
-    });
-  }
-  if (!soundEnabled) return;
-  try {
-    const audioContext = new AudioContext();
-    const oscillator = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    oscillator.frequency.value = 880;
-    gain.gain.value = 0.04;
-    oscillator.connect(gain);
-    gain.connect(audioContext.destination);
-    oscillator.start();
-    window.setTimeout(() => {
-      oscillator.stop();
-      void audioContext.close();
-    }, 180);
-  } catch {
-    // 浏览器可能禁止非用户手势音频，忽略即可。
   }
 }

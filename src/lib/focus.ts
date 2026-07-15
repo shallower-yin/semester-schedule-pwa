@@ -11,6 +11,62 @@ export interface ActiveFocusState {
   pause_started_at: string | null;
 }
 
+export const FOCUS_STATE_CHANGED_EVENT = "semester-schedule-focus-state-changed";
+
+export function activeFocusStorageKey(ownerId: string): string {
+  return `semester-schedule-active-focus:${ownerId}`;
+}
+
+export function loadActiveFocus(ownerId: string): ActiveFocusState | null {
+  try {
+    const raw = localStorage.getItem(activeFocusStorageKey(ownerId));
+    return raw ? JSON.parse(raw) as ActiveFocusState : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveActiveFocus(ownerId: string, active: ActiveFocusState): void {
+  localStorage.setItem(activeFocusStorageKey(ownerId), JSON.stringify(active));
+  window.dispatchEvent(new CustomEvent(FOCUS_STATE_CHANGED_EVENT));
+}
+
+export function clearActiveFocus(ownerId: string): void {
+  localStorage.removeItem(activeFocusStorageKey(ownerId));
+  window.dispatchEvent(new CustomEvent(FOCUS_STATE_CHANGED_EVENT));
+}
+
+export function requestFocusNotificationPermission(): void {
+  if (!("Notification" in window) || Notification.permission !== "default") return;
+  void Notification.requestPermission();
+}
+
+export function notifyFocusComplete(taskTitle: string, soundEnabled: boolean): void {
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("专注结束", {
+      body: taskTitle,
+      icon: `${import.meta.env.BASE_URL}app-icon-192.png`
+    });
+  }
+  if (!soundEnabled) return;
+  try {
+    const audioContext = new AudioContext();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0.04;
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start();
+    window.setTimeout(() => {
+      oscillator.stop();
+      void audioContext.close();
+    }, 360);
+  } catch {
+    // 浏览器可能禁止非用户手势音频，系统通知仍可正常显示。
+  }
+}
+
 export function elapsedFocusSeconds(active: ActiveFocusState, now = new Date()): number {
   const started = new Date(active.started_at).getTime();
   const currentPause = active.pause_started_at ? Math.max(0, now.getTime() - new Date(active.pause_started_at).getTime()) / 1000 : 0;

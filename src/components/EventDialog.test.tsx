@@ -118,6 +118,25 @@ describe("事项编辑弹窗", () => {
     expect(reminderSelect).toHaveTextContent("提前 5 天");
     expect(reminderSelect).toHaveTextContent("提前 7 天");
   });
+
+  it("重复事项可以提前完成整个事项并恢复", async () => {
+    const today = toISODate(new Date());
+    const eventItem = eventRecord({
+      start_date: today,
+      end_date: today,
+      recurrence_type: "daily",
+      recurrence_until: "2026-12-31"
+    });
+    await db.events.put(eventItem);
+    render(<EventDialog eventItem={eventItem} initialDate={today} ownerId="local" occurrenceStates={[]} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "完成整个事项" }));
+    await waitFor(async () => expect((await db.events.get(eventItem.id))?.completed_at).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "整项已完成" })).toBeDisabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "恢复整个事项" }));
+    await waitFor(async () => expect((await db.events.get(eventItem.id))?.completed_at).toBeNull());
+  });
 });
 
 function eventRecord(overrides: Partial<EventItem> = {}): EventItem {

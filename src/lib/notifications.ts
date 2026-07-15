@@ -244,6 +244,10 @@ export function reminderOccurrenceCanSend(
   return !state?.completed && !state?.reminder_sent_at;
 }
 
+export function eventReminderCanSend(event: Pick<EventItem, "deleted_at" | "reminder_enabled" | "completed_at">): boolean {
+  return !event.deleted_at && event.reminder_enabled && !event.completed_at;
+}
+
 export async function resetSentRemindersForChangedEvent(
   previous: EventItem | undefined,
   next: EventItem
@@ -270,7 +274,7 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
   if (!notificationsSupported() || Notification.permission !== "granted") return 0;
   const now = new Date();
   const events = await db.events
-    .filter((event) => event.user_id === ownerId && !event.deleted_at && event.reminder_enabled)
+    .filter((event) => event.user_id === ownerId && eventReminderCanSend(event))
     .toArray();
   let sent = 0;
   for (const event of events) {

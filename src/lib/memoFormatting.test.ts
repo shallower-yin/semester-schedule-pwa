@@ -67,4 +67,12 @@ describe("备忘录正文格式化", () => {
       incomplete: 2
     });
   });
+
+  it("统计没有空格和带缩进的子待办", () => {
+    expect(getMemoChecklistStats("○第一项\n  ○ 第二项\n●第三项\n- [ ]第四项")).toEqual({
+      total: 4,
+      completed: 1,
+      incomplete: 3
+    });
+  });
 });

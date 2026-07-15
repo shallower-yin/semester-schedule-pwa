@@ -81,6 +81,7 @@ export interface EventItem extends SyncFields {
   reminder_enabled: boolean;
   reminder_minutes_before: number;
   timezone: string;
+  completed_at?: ISODateTime | null;
 }
 
 export interface EventOccurrenceState extends SyncFields {

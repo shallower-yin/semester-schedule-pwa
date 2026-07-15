@@ -40,6 +40,19 @@ describe("事项完成状态", () => {
       reminder_sent_at: "2026-07-07T00:50:00.000Z"
     });
   });
+
+  it("整项完成后所有发生日期均视为完成", () => {
+    const eventItem = eventRecord({
+      recurrence_type: "daily",
+      recurrence_until: "2026-07-31",
+      completed_at: "2026-07-07T08:00:00.000Z"
+    });
+
+    expect(eventCompletionForDate(eventItem, [], new Date(2026, 6, 20))).toMatchObject({
+      occurs: true,
+      completed: true
+    });
+  });
 });
 
 function eventRecord(overrides: Partial<EventItem> = {}): EventItem {

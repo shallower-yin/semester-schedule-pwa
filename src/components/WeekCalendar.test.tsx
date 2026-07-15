@@ -143,6 +143,19 @@ describe("周视图移动端新增事项", () => {
 
     expect(onAddEvent).toHaveBeenCalledWith("2026-07-06", "08:30", "09:15");
   });
+
+  it("电脑端事项按节次内的真实分钟位置显示", () => {
+    mockMatchMedia(false);
+    const eventItem = eventRecord("event-minute-position", "分钟定位", {
+      start_time: "08:45",
+      end_time: "09:00"
+    });
+    renderWeekCalendar(vi.fn(), [eventItem]);
+
+    const card = screen.getByText("分钟定位").closest("article") as HTMLElement;
+    expect(Number.parseFloat(card.style.getPropertyValue("--time-start-offset"))).toBeCloseTo(25.33, 1);
+    expect(Number.parseFloat(card.style.getPropertyValue("--time-end-offset"))).toBeCloseTo(25.33, 1);
+  });
 });
 
 function renderWeekCalendar(

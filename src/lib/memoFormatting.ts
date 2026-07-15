@@ -51,7 +51,7 @@ export function continueMemoListOnEnter(content: string, selectionStart: number,
     return insertAtCursor(content, start, insert);
   }
 
-  const circleTodo = new RegExp(`^(\\s*)[${uncheckedCircle}◯${checkedCircle}]\\s*(.*)$`).exec(currentLine);
+  const circleTodo = new RegExp(`^(\\s*)[${uncheckedCircle}◯${checkedCircle}][ \\t]*(.*)$`).exec(currentLine);
   if (circleTodo) {
     const text = circleTodo[2].trim();
     if (!text) return removeCurrentListMarker(content, lineStart, start);
@@ -101,7 +101,7 @@ export function stripMemoListPrefix(line: string): string {
 
 export function getMemoChecklistStats(content: string): MemoChecklistStats {
   return content.split(/\r?\n/).reduce<MemoChecklistStats>((stats, line) => {
-    const circleTodo = new RegExp(`^\\s*([${uncheckedCircle}◯${checkedCircle}])\\s+`).exec(line);
+    const circleTodo = new RegExp(`^\\s*([${uncheckedCircle}◯${checkedCircle}])[ \\t]*(?=\\S)`).exec(line);
     if (circleTodo) {
       stats.total += 1;
       if (circleTodo[1] === checkedCircle) stats.completed += 1;
@@ -109,7 +109,7 @@ export function getMemoChecklistStats(content: string): MemoChecklistStats {
       return stats;
     }
 
-    const markdownTodo = /^\s*[-*]\s+\[( |x|X)\]\s+/.exec(line);
+    const markdownTodo = /^\s*[-*]\s+\[( |x|X)\][ \t]*(?=\S)/.exec(line);
     if (markdownTodo) {
       stats.total += 1;
       if (markdownTodo[1].toLowerCase() === "x") stats.completed += 1;

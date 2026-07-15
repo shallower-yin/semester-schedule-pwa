@@ -133,6 +133,7 @@ create table if not exists public.events (
   reminder_enabled boolean not null default false,
   reminder_minutes_before integer not null default 10 check (reminder_minutes_before between 0 and 10080),
   timezone text not null default 'Asia/Shanghai',
+  completed_at timestamptz,
   unique (id, user_id)
 );
 

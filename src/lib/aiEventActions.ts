@@ -13,9 +13,16 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
   if (!title || !isISODate(action.startDate)) return null;
   const allDay = Boolean(action.allDay || !action.startTime);
   const startTime = allDay ? null : normalizeTime(action.startTime) ?? "09:00";
-  const endTime = allDay ? null : normalizeTime(action.endTime) ?? startTime;
-  const rangeEndDate = action.endDate && isISODate(action.endDate) ? action.endDate : action.startDate;
-  const recurrenceType = normalizeRecurrenceType(action.recurrenceType);
+  let endTime = allDay ? null : normalizeTime(action.endTime) ?? startTime;
+  let rangeEndDate = action.endDate && isISODate(action.endDate) ? action.endDate : action.startDate;
+  let recurrenceType = normalizeRecurrenceType(action.recurrenceType);
+  if (/(第一天|当天|只(?:创建|安排|放在).*一天|不要每天|短时间(?:的)?事项)/.test(sourceText)) {
+    rangeEndDate = action.startDate;
+    recurrenceType = "none";
+  }
+  if (/短时间/.test(sourceText) && startTime && endTime === startTime) {
+    endTime = addMinutesToTime(startTime, 30);
+  }
   const recurrenceUntil = recurrenceType === "none"
     ? null
     : normalizeDate(action.recurrenceUntil) ?? rangeEndDate;
@@ -40,6 +47,12 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
     reminder_minutes_before: clampReminder(action.reminderMinutesBefore),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
   };
+}
+
+function addMinutesToTime(value: string, amount: number): string {
+  const [hour, minute] = value.split(":").map(Number);
+  const total = Math.min(23 * 60 + 59, hour * 60 + minute + amount);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
 export function anniversaryFromAiAction(action: DeepSeekAssistantAction, sourceText: string, ownerId: string, now = new Date()): Anniversary | null {

@@ -53,13 +53,20 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [reminderMessage, setReminderMessage] = useState("");
   const [validationMessage, setValidationMessage] = useState("");
   const [completionMessage, setCompletionMessage] = useState("");
+  const [entireCompletedAt, setEntireCompletedAt] = useState(eventItem?.completed_at ?? null);
   const [conflictMessage, setConflictMessage] = useState("");
   const [suggestedSlot, setSuggestedSlot] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
   const [templates, setTemplates] = useState(() => loadEventTemplates());
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
-  const todayCompletion = eventItem ? eventCompletionForDate(eventItem, occurrenceStates, new Date()) : null;
+  const effectiveEventItem = eventItem ? { ...eventItem, completed_at: entireCompletedAt } : null;
+  const todayCompletion = effectiveEventItem ? eventCompletionForDate(effectiveEventItem, occurrenceStates, new Date()) : null;
+  const canCompleteEntireItem = Boolean(eventItem && (
+    eventItem.event_type === "habit"
+    || eventItem.recurrence_type !== "none"
+    || eventItem.end_date > eventItem.start_date
+  ));
   const itemLabel = eventType === "habit" ? "习惯" : "事项";
   const usesDateRange = recurrence === "none" && endDate > date;
   const reminderSummary = reminderEnabled
@@ -209,7 +216,8 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       recurrence_interval: recurrence === "interval" ? Math.max(1, recurrenceInterval) : 1,
       reminder_enabled: reminderEnabled,
       reminder_minutes_before: reminderMinutes,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+      completed_at: entireCompletedAt
     };
     const existingEvents = await db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray();
     const currentSemester = await db.semesters.filter((item) => item.user_id === ownerId && item.is_current && !item.deleted_at).first();
@@ -310,6 +318,21 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     showToast(completed ? "已标记今天完成。" : "已标记今天未完成。", "success");
   }
 
+  async function setEntireItemCompleted(completed: boolean) {
+    if (!eventItem) return;
+    const completedAt = completed ? new Date().toISOString() : null;
+    const updated: EventItem = {
+      ...eventItem,
+      ...syncFields(eventItem),
+      completed_at: completedAt
+    };
+    await db.events.put(updated);
+    await queueChange("events", updated.id);
+    setEntireCompletedAt(completedAt);
+    setCompletionMessage(completed ? "已完成整个事项，全部日期均标记为完成。" : "已恢复整个事项，可继续按日期完成。");
+    showToast(completed ? "已完成整个事项。" : "已恢复整个事项。", "success");
+  }
+
   async function createMemoFromEvent() {
     const record: Memo = {
       ...syncFields(),
@@ -391,14 +414,25 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
                   : `今天 ${todayCompletion.occurrenceDate} 没有这一事项`}
               </span>
             </div>
-            <button
-              type="button"
-              className="button secondary compact"
-              disabled={!todayCompletion.occurs}
-              onClick={() => void setTodayCompleted(!todayCompletion.completed)}
-            >
-              {todayCompletion.completed ? "标记今天未完成" : "标记今天完成"}
-            </button>
+            <div className="event-completion-actions">
+              <button
+                type="button"
+                className="button secondary compact"
+                disabled={!todayCompletion.occurs || Boolean(entireCompletedAt)}
+                onClick={() => void setTodayCompleted(!todayCompletion.completed)}
+              >
+                {entireCompletedAt ? "整项已完成" : todayCompletion.completed ? "标记今天未完成" : "标记今天完成"}
+              </button>
+              {canCompleteEntireItem && (
+                <button
+                  type="button"
+                  className={entireCompletedAt ? "button secondary compact" : "button primary compact"}
+                  onClick={() => void setEntireItemCompleted(!entireCompletedAt)}
+                >
+                  {entireCompletedAt ? "恢复整个事项" : "完成整个事项"}
+                </button>
+              )}
+            </div>
             {completionMessage && <p>{completionMessage}</p>}
           </section>
         )}

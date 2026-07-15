@@ -49,3 +49,36 @@ export function rowRangeForTime(rows: DisplayTimeRow[], start: string | null, en
   });
   return [first, Math.max(first + 1, last + 1)];
 }
+
+export interface TimeRowPlacement {
+  firstRow: number;
+  endRow: number;
+  startOffset: number;
+  endOffset: number;
+}
+
+export function timePlacementForRows(rows: DisplayTimeRow[], start: string | null, end: string | null): TimeRowPlacement {
+  const [firstRow, endRow] = rowRangeForTime(rows, start, end);
+  if (!start || !end || !rows[firstRow] || !rows[endRow - 1]) {
+    return { firstRow, endRow, startOffset: 0, endOffset: 0 };
+  }
+  const first = rows[firstRow];
+  const last = rows[endRow - 1];
+  const firstDuration = Math.max(1, minutes(first.endTime) - minutes(first.startTime));
+  const lastDuration = Math.max(1, minutes(last.endTime) - minutes(last.startTime));
+  return {
+    firstRow,
+    endRow,
+    startOffset: clampFraction((minutes(start) - minutes(first.startTime)) / firstDuration),
+    endOffset: clampFraction((minutes(last.endTime) - minutes(end)) / lastDuration)
+  };
+}
+
+function minutes(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function clampFraction(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}

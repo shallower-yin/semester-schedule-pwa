@@ -21,7 +21,7 @@ export function eventCompletionForDate(
   return {
     occurrenceDate,
     occurs: eventOccursOn(eventItem, date),
-    completed: state?.completed ?? false,
+    completed: Boolean(eventItem.completed_at) || (state?.completed ?? false),
     state
   };
 }

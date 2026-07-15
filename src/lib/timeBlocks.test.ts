@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ClassPeriod, Weekday } from "../types";
-import { buildDisplayRows, rowRangeForTime } from "./timeBlocks";
+import { buildDisplayRows, rowRangeForTime, timePlacementForRows } from "./timeBlocks";
 
 function block(index: number, weekday: Weekday = 1, kind: "period" | "break" = "period"): ClassPeriod {
   const hour = 7 + index;
@@ -39,5 +39,15 @@ describe("灵活时间块", () => {
   it("事项可以跨越可编辑休息时段", () => {
     const rows = buildDisplayRows([block(1), block(2, 1, "break"), block(3)]);
     expect(rowRangeForTime(rows, "08:00", "10:45")).toEqual([0, 3]);
+  });
+
+  it("保留事项在节次内部的真实分钟偏移", () => {
+    const rows = buildDisplayRows([block(1)]);
+    expect(timePlacementForRows(rows, "08:15", "08:40")).toEqual({
+      firstRow: 0,
+      endRow: 1,
+      startOffset: 1 / 3,
+      endOffset: 1 / 9
+    });
   });
 });

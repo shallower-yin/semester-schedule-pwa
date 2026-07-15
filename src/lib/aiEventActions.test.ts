@@ -48,6 +48,26 @@ describe("AI 助手创建动作", () => {
     });
   });
 
+  it("按第一天创建短时间事项时阻止模型扩成多日范围", () => {
+    const event = eventItemFromAiAction({
+      type: "create_event",
+      title: "本科生预选",
+      startDate: "2026-07-20",
+      endDate: "2026-07-24",
+      startTime: "08:30",
+      endTime: "08:30",
+      recurrenceType: "daily"
+    }, "不要每天都创建，第一天创建一个短时间事项就行", "user-1");
+
+    expect(event).toMatchObject({
+      start_date: "2026-07-20",
+      end_date: "2026-07-20",
+      start_time: "08:30",
+      end_time: "09:00",
+      recurrence_type: "none"
+    });
+  });
+
   it("明确创建习惯时写入 habit 类型", () => {
     const event = eventItemFromAiAction({
       type: "create_event",

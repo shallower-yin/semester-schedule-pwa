@@ -574,7 +574,9 @@ async function askDeepSeek(
             "如果用户创建习惯并指定每天、工作日、每周、每月或每隔几天，必须写入 recurrenceType；指定结束日期时写入 recurrenceUntil。没有指定重复时 recurrenceType 为 none。",
             "如果事项缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
             "如果事项给了日期但没有时间，创建全天事项，startTime/endTime 为 null，allDay 为 true。",
-            "如果事项给了开始时间但没给结束时间，endTime 等于 startTime。",
+            "必须区分“可办理/开放的日期范围”和“用户要创建的事项持续时间”：开放窗口不能直接变成跨多天事项。只有用户明确说事项连续持续到某日，才让 endDate 晚于 startDate。",
+            "用户说“第一天、当天、只创建一天、不要每天、短时间事项”时，startDate 和 endDate 必须相同，recurrenceType 必须为 none；不要把背景中的截止日期当成事项结束日期。",
+            "如果事项给了开始时间但没给结束时间，短时间事项默认 30 分钟，其他事项 endTime 等于 startTime。",
             "最多返回 5 个 actions。"
           ].join("\n")
         },
@@ -598,7 +600,7 @@ async function askDeepSeek(
   const content = data.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("AI 助手没有返回有效回答。");
   return {
-    ...parseAssistantResponse(content),
+    ...parseAssistantResponse(content, question),
     model,
     usage: normalizeUsage(data.usage)
   };
@@ -617,7 +619,7 @@ function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
   return result.slice(-6);
 }
 
-function parseAssistantResponse(content: string): ParsedAssistantResponse {
+function parseAssistantResponse(content: string, question: string): ParsedAssistantResponse {
   const cleaned = content
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
@@ -626,10 +628,44 @@ function parseAssistantResponse(content: string): ParsedAssistantResponse {
     const parsed = JSON.parse(cleaned) as { answer?: unknown; actions?: unknown };
     const answer = typeof parsed.answer === "string" && parsed.answer.trim() ? parsed.answer.trim() : cleaned;
     const actions = Array.isArray(parsed.actions) ? parsed.actions.flatMap(sanitizeAction).slice(0, 5) : [];
-    return { answer, actions };
+    normalizeEventActionsForQuestion(actions, question);
+    return { answer: normalizedSingleDayAnswer(actions, question) ?? answer, actions };
   } catch {
     return { answer: content, actions: [] };
   }
+}
+
+function normalizedSingleDayAnswer(actions: AiAssistantAction[], question: string): string | null {
+  if (!/(第一天|当天|只(?:创建|安排|放在).*一天|不要每天|短时间(?:的)?事项)/.test(question)) return null;
+  const events = actions.filter((action): action is Extract<AiAssistantAction, { type: "create_event" }> => action.type === "create_event");
+  if (!events.length) return null;
+  const details = events.map((event) => {
+    const time = event.allDay || !event.startTime ? "全天" : `${event.startTime}-${event.endTime ?? event.startTime}`;
+    return `“${event.title}” ${event.startDate} ${time}`;
+  });
+  return `已按单日事项创建：${details.join("；")}。只创建这一天，不会扩展到后续日期。`;
+}
+
+function normalizeEventActionsForQuestion(actions: AiAssistantAction[], question: string): void {
+  const singleDayRequested = /(第一天|当天|只(?:创建|安排|放在).*一天|不要每天|短时间(?:的)?事项)/.test(question);
+  const shortDurationRequested = /短时间/.test(question);
+  for (const action of actions) {
+    if (action.type !== "create_event") continue;
+    if (singleDayRequested) {
+      action.endDate = action.startDate;
+      action.recurrenceType = "none";
+      action.recurrenceUntil = null;
+    }
+    if (shortDurationRequested && action.startTime && action.endTime === action.startTime) {
+      action.endTime = addMinutesToTime(action.startTime, 30);
+    }
+  }
+}
+
+function addMinutesToTime(value: string, amount: number): string {
+  const [hour, minute] = value.split(":").map(Number);
+  const total = Math.min(23 * 60 + 59, hour * 60 + minute + amount);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function sanitizeAction(action: unknown): AiAssistantAction[] {
