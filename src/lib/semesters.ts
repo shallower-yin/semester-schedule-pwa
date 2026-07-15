@@ -1,4 +1,46 @@
 import { db, queueChange } from "../db";
+import { defaultPeriodsForWeekday } from "../data/defaults";
+import type { Semester, Weekday } from "../types";
+import { syncFields } from "./identity";
+
+export interface SaveSemesterInput {
+  semester?: Semester;
+  name: string;
+  startDate: string;
+  totalWeeks: number;
+  createDefaultPeriods?: boolean;
+}
+
+export async function saveSemesterRecord(input: SaveSemesterInput): Promise<Semester> {
+  const record: Semester = {
+    ...syncFields(input.semester),
+    name: input.name.trim(),
+    start_date: input.startDate,
+    total_weeks: input.totalWeeks,
+    is_current: true
+  };
+  if (!record.name || record.total_weeks < 1 || record.total_weeks > 60) throw new Error("请填写有效的学期名称和总周数。");
+  const createPeriods = !input.semester && input.createDefaultPeriods !== false;
+  await db.transaction("rw", db.semesters, db.classPeriods, db.syncQueue, async () => {
+    const semesters = await db.semesters.filter((item) => item.user_id === record.user_id && !item.deleted_at).toArray();
+    for (const semester of semesters) {
+      if (!semester.is_current || semester.id === record.id) continue;
+      const updated = { ...semester, ...syncFields(semester), is_current: false };
+      await db.semesters.put(updated);
+      await queueChange("semesters", updated.id);
+    }
+    await db.semesters.put(record);
+    await queueChange("semesters", record.id);
+    if (createPeriods) {
+      const periods = ([1, 2, 3, 4, 5, 6, 7] as Weekday[]).flatMap((weekday) =>
+        defaultPeriodsForWeekday(weekday).map((period) => ({ ...syncFields(), semester_id: record.id, ...period }))
+      );
+      await db.classPeriods.bulkAdd(periods);
+      for (const period of periods) await queueChange("classPeriods", period.id);
+    }
+  });
+  return record;
+}
 
 export interface DeleteSemesterResult {
   semesters: number;

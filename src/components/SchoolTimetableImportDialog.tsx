@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { FileSpreadsheet, Upload } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet, GraduationCap, School, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
@@ -12,13 +12,16 @@ import {
 } from "../lib/schoolTimetableImport";
 import { hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { startOfWeek, toISODate } from "../lib/date";
+import { deleteSemesterCascade, saveSemesterRecord } from "../lib/semesters";
 import { showToast } from "../lib/toast";
 import type { ClassPeriod, Course, CourseSchedule, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
 
 interface SchoolTimetableImportDialogProps {
-  semester: Semester;
+  semester: Semester | null;
   onClose: () => void;
+  onImported?: (semester: Semester) => void;
 }
 
 interface ImportResult {
@@ -56,10 +59,39 @@ interface ImportPreview {
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as Weekday[];
 type ImportMode = "merge" | "replace" | "append";
 
-export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetableImportDialogProps) {
+export function SchoolTimetableImportDialog(props: SchoolTimetableImportDialogProps) {
+  const [school, setSchool] = useState<"tianjin" | "tsinghua" | null>(null);
+  if (!school) {
+    return (
+      <Modal title="课表提取器" onClose={props.onClose}>
+        <div className="school-extractor-grid">
+          <button onClick={() => setSchool("tianjin")}><School size={28} /><span><strong>天津大学</strong><small>支持教务系统导出的 HTML-XLS 课表</small></span></button>
+          <button onClick={() => setSchool("tsinghua")}><GraduationCap size={28} /><span><strong>清华大学</strong><small>入口已保留，提取规则暂未支持</small></span></button>
+        </div>
+      </Modal>
+    );
+  }
+  if (school === "tsinghua") {
+    return (
+      <Modal title="清华大学课表提取器" onClose={props.onClose}>
+        <div className="unsupported-extractor"><GraduationCap size={38} /><h3>暂未支持</h3><p>入口已保留，后续补充清华大学课表文件解析规则后即可接入。</p><button className="button secondary" onClick={() => setSchool(null)}><ArrowLeft size={16} />返回学校选择</button></div>
+      </Modal>
+    );
+  }
+  return <TianjinTimetableImportDialog {...props} onBack={() => setSchool(null)} />;
+}
+
+function TianjinTimetableImportDialog({ semester, onClose, onImported, onBack }: SchoolTimetableImportDialogProps & { onBack: () => void }) {
+  const workingSemester = useMemo<Semester>(() => semester ?? ({
+    ...syncFields(),
+    name: "新学期",
+    start_date: toISODate(startOfWeek(new Date())),
+    total_weeks: 20,
+    is_current: true
+  }), [semester?.id]);
   const existingCourses = useLiveQuery(
-    () => db.courses.where("semester_id").equals(semester.id).filter((course) => !course.deleted_at).toArray(),
-    [semester.id]
+    () => semester ? db.courses.where("semester_id").equals(semester.id).filter((course) => !course.deleted_at).toArray() : [],
+    [semester?.id]
   ) ?? [];
   const existingSchedules = useLiveQuery(
     async () => {
@@ -76,17 +108,20 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
   const [importMode, setImportMode] = useState<ImportMode>("merge");
   const [updatePeriods, setUpdatePeriods] = useState(true);
   const [syncSemesterInfo, setSyncSemesterInfo] = useState(true);
-  const [firstWeekStartDate, setFirstWeekStartDate] = useState(semester.start_date);
+  const [targetMode, setTargetMode] = useState<"current" | "new">(semester ? "current" : "new");
+  const [newSemesterName, setNewSemesterName] = useState("");
+  const [newSemesterWeeks, setNewSemesterWeeks] = useState(20);
+  const [firstWeekStartDate, setFirstWeekStartDate] = useState(workingSemester.start_date);
   const [importing, setImporting] = useState(false);
 
   const uniqueCourseCount = useMemo(() => {
     if (!timetable) return 0;
     return new Set(timetable.schedules.map((schedule) => courseKey(schedule))).size;
   }, [timetable]);
-  const maxWeek = useMemo(() => Math.max(semester.total_weeks, ...(timetable?.schedules.flatMap((schedule) => schedule.weeks) ?? [])), [semester.total_weeks, timetable]);
+  const maxWeek = useMemo(() => Math.max(targetMode === "current" ? workingSemester.total_weeks : newSemesterWeeks, ...(timetable?.schedules.flatMap((schedule) => schedule.weeks) ?? [])), [newSemesterWeeks, targetMode, timetable, workingSemester.total_weeks]);
   const importPreview = useMemo(
-    () => timetable ? buildTimetableImportPreview(timetable, existingCourses, existingSchedules) : null,
-    [existingCourses, existingSchedules, timetable]
+    () => timetable ? buildTimetableImportPreview(timetable, targetMode === "current" ? existingCourses : [], targetMode === "current" ? existingSchedules : []) : null,
+    [existingCourses, existingSchedules, targetMode, timetable]
   );
 
   async function loadFiles(files?: FileList | null) {
@@ -96,6 +131,8 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
     try {
       const parsed = await parseSchoolTimetableFiles(files);
       setTimetable(parsed);
+      setNewSemesterName(parsed.termName ?? "");
+      setNewSemesterWeeks(Math.max(1, ...parsed.schedules.flatMap((schedule) => schedule.weeks)));
       setMessage(`已提取 ${parsed.periods.length} 个节次、${new Set(parsed.schedules.map((schedule) => courseKey(schedule))).size} 门课程、${parsed.schedules.length} 条上课安排。`);
     } catch (loadError) {
       setTimetable(null);
@@ -115,13 +152,27 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
     setImporting(true);
     setMessage("");
     setError("");
+    let createdSemesterId: string | null = null;
     try {
-      const result = await applyTimetableImport(semester, timetable, {
+      let targetSemester = workingSemester;
+      if (targetMode === "new") {
+        targetSemester = await saveSemesterRecord({
+          name: newSemesterName || timetable.termName || "导入课表学期",
+          startDate: firstWeekStartDate,
+          totalWeeks: maxWeek,
+          createDefaultPeriods: false
+        });
+        createdSemesterId = targetSemester.id;
+      } else if (!semester) {
+        throw new Error("当前没有可导入的学期，请选择新建学期并导入。");
+      }
+      const result = await applyTimetableImport(targetSemester, timetable, {
         importMode,
         updatePeriods,
-        syncSemesterInfo,
+        syncSemesterInfo: targetMode === "new" ? true : syncSemesterInfo,
         firstWeekStartDate
       });
+      onImported?.(targetSemester);
       setMessage(
         `导入完成：${result.replacedCourses ? "已替换旧课程，" : ""}` +
           `新增 ${result.createdCourses} 门课程、更新 ${result.updatedCourses} 门课程；新增 ${result.createdSchedules} 条安排、更新 ${result.updatedSchedules} 条安排、跳过 ${result.skippedSchedules} 条重复安排；写入 ${result.periodCount} 个节次` +
@@ -129,6 +180,22 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
       );
       showToast(`课表导入完成：新增 ${result.createdCourses} 门课程、${result.createdSchedules} 条安排。`, "success");
     } catch (applyError) {
+      if (createdSemesterId) {
+        try {
+          await deleteSemesterCascade(createdSemesterId);
+          if (semester) {
+            await saveSemesterRecord({
+              semester,
+              name: semester.name,
+              startDate: semester.start_date,
+              totalWeeks: semester.total_weeks,
+              createDefaultPeriods: false
+            });
+          }
+        } catch {
+          // Keep the original import error visible; local data health tools can repair an interrupted rollback.
+        }
+      }
       const message = applyError instanceof Error ? applyError.message : "导入失败。";
       setError(message);
       showToast(message, "error");
@@ -149,8 +216,9 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
   }
 
   return (
-    <Modal title={TIANJIN_UNIVERSITY_TIMETABLE_EXTRACTOR} onClose={onClose} wide>
+    <Modal title="课表提取器 · 天津大学" onClose={onClose} wide>
       <div className="backup-options">
+        <button className="button secondary compact extractor-back" onClick={onBack}><ArrowLeft size={16} />返回学校选择</button>
         <section>
           <h3>选择天津大学导出的课表文件</h3>
           <p>
@@ -181,6 +249,23 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
             </div>
             <div className="import-options">
               <label>
+                导入到
+                <select value={targetMode} onChange={(event) => setTargetMode(event.target.value === "new" ? "new" : "current")}>
+                  <option value="current" disabled={!semester}>导入当前学期{semester ? `：${semester.name}` : "（暂无）"}</option>
+                  <option value="new">新建学期并导入</option>
+                </select>
+              </label>
+              {targetMode === "new" && <>
+                <label>
+                  学期名称
+                  <input value={newSemesterName} onChange={(event) => setNewSemesterName(event.target.value)} placeholder="例如：2026 秋季学期" />
+                </label>
+                <label>
+                  总周数
+                  <input type="number" min={1} max={60} value={newSemesterWeeks} onChange={(event) => setNewSemesterWeeks(Number(event.target.value))} />
+                </label>
+              </>}
+              <label>
                 第一周第一天日期
                 <input type="date" value={firstWeekStartDate} onChange={(event) => setFirstWeekStartDate(event.target.value)} />
                 <small>通常填本学期第 1 周星期一。课程周数会按这个日期换算成日历日期。</small>
@@ -199,7 +284,7 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
                 用课表文件里的节次时间更新每日时间块
               </label>
               <label className="checkbox-label">
-                <input type="checkbox" checked={syncSemesterInfo} onChange={(event) => setSyncSemesterInfo(event.target.checked)} />
+                <input type="checkbox" checked={syncSemesterInfo} disabled={targetMode === "new"} onChange={(event) => setSyncSemesterInfo(event.target.checked)} />
                 同步学期名称，并把总周数扩展到 {maxWeek} 周；第一周日期总会按上方设置更新
               </label>
             </div>
@@ -266,7 +351,7 @@ export function SchoolTimetableImportDialog({ semester, onClose }: SchoolTimetab
         <div className="form-actions">
           <button className="button secondary" onClick={onClose}>关闭</button>
           <button className="button primary" disabled={!timetable || importing} onClick={() => void importTimetable()}>
-            <Upload size={17} />{importing ? "导入中…" : "导入到当前学期"}
+            <Upload size={17} />{importing ? "导入中…" : targetMode === "new" ? "新建学期并导入" : "导入到当前学期"}
           </button>
         </div>
       </div>

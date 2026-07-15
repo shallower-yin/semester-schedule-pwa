@@ -19,11 +19,12 @@ import {
   type ActiveFocusState
 } from "../lib/focus";
 import { closeFocusPictureInPicture, focusPictureInPictureSupported, openFocusPictureInPicture } from "../lib/focusPictureInPicture";
-import { hardDeleteLocalRecord } from "../lib/hardDelete";
+import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
 import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
 import { Modal } from "./Modal";
+import { FocusAudioPlayer } from "./FocusAudioPlayer";
 
 interface FocusPageProps {
   ownerId: string;
@@ -61,6 +62,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [now, setNow] = useState(() => new Date());
   const [message, setMessage] = useState("");
   const [sessionToEdit, setSessionToEdit] = useState<FocusSession | null>(null);
+  const [managingRecords, setManagingRecords] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set());
 
   const effectiveSettings = storedSettings ?? settingsDraft;
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
@@ -79,6 +82,10 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const remaining = active ? remainingFocusSeconds(active, now) : null;
   const displaySeconds = active ? remaining ?? elapsed : plannedSecondsForMode(mode, effectiveSettings);
   const progress = active?.planned_seconds ? Math.min(1, elapsed / active.planned_seconds) : 0;
+  const recentSessions = useMemo(
+    () => sessions.slice().sort((left, right) => right.ended_at.localeCompare(left.ended_at)).slice(0, 20),
+    [sessions]
+  );
 
   useEffect(() => {
     if (storedSettings) {
@@ -217,6 +224,25 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     showToast("专注记录已彻底删除。", "success");
   }
 
+  function toggleRecordSelection(id: string) {
+    setSelectedSessionIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function deleteSelectedSessions() {
+    const ids = Array.from(selectedSessionIds);
+    if (!ids.length || !window.confirm(`彻底删除选中的 ${ids.length} 条专注记录？此操作无法恢复。`)) return;
+    await hardDeleteLocalRecords("focusSessions", ids);
+    setSelectedSessionIds(new Set());
+    setManagingRecords(false);
+    setMessage(`已彻底删除 ${ids.length} 条专注记录。`);
+    showToast(`已删除 ${ids.length} 条专注记录。`, "success");
+  }
+
   return (
     <section className="focus-page">
       <div className="page-heading focus-heading">
@@ -232,6 +258,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       </div>
 
       <div className="focus-layout">
+        <div className="focus-main-column">
         <section className="focus-panel">
           <div className="focus-mode-tabs">
             {(["stopwatch", "pomodoro", "countdown", "lock"] as FocusMode[]).map((item) => (
@@ -279,6 +306,36 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           {message && <p className="status-message">{message}</p>}
         </section>
 
+        <FocusAudioPlayer />
+
+        <section className="focus-record-section">
+          <div className="focus-section-heading">
+            <div><h2><ListChecks size={18} />最近记录</h2><p>显示最近 20 条，可进入管理模式批量选择。</p></div>
+            <div className="focus-record-manage-actions">
+              {managingRecords ? <>
+                <label className="checkbox-label"><input type="checkbox" checked={recentSessions.length > 0 && selectedSessionIds.size === recentSessions.length} onChange={(event) => setSelectedSessionIds(event.target.checked ? new Set(recentSessions.map((session) => session.id)) : new Set())} />全选</label>
+                <button className="button danger-button compact" disabled={!selectedSessionIds.size} onClick={() => void deleteSelectedSessions()}><Trash2 size={14} />删除所选（{selectedSessionIds.size}）</button>
+                <button className="button secondary compact" onClick={() => { setManagingRecords(false); setSelectedSessionIds(new Set()); }}>取消</button>
+              </> : <button className="button secondary compact" onClick={() => setManagingRecords(true)} disabled={!recentSessions.length}>管理记录</button>}
+            </div>
+          </div>
+          <div className="focus-record-list focus-record-grid">
+            {recentSessions.map((session) => (
+              <article key={session.id} className={selectedSessionIds.has(session.id) ? "selected" : ""}>
+                {managingRecords && <label className="focus-record-selector" aria-label={`选择${session.task_title || focusModeLabel(session.mode)}`}><input type="checkbox" checked={selectedSessionIds.has(session.id)} onChange={() => toggleRecordSelection(session.id)} /></label>}
+                <strong>{session.task_title || focusModeLabel(session.mode)}</strong>
+                <span>{focusModeLabel(session.mode)} · {formatFocusDuration(session.duration_seconds)} · {new Date(session.ended_at).toLocaleString()}</span>
+                {!managingRecords && <div className="focus-record-actions">
+                  <button className="button secondary compact" onClick={() => setSessionToEdit(session)}><Edit3 size={14} />编辑</button>
+                  <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />彻底删除</button>
+                </div>}
+              </article>
+            ))}
+            {!recentSessions.length && <p>还没有专注记录。</p>}
+          </div>
+        </section>
+        </div>
+
         <aside className="focus-side">
           <section>
             <h2><Settings size={18} />番茄设置</h2>
@@ -315,26 +372,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             </div>
           </section>
 
-          <section>
-            <h2>最近记录</h2>
-            <div className="focus-record-list">
-              {sessions
-                .slice()
-                .sort((left, right) => right.ended_at.localeCompare(left.ended_at))
-                .slice(0, 8)
-                .map((session) => (
-                  <article key={session.id}>
-                    <strong>{session.task_title || focusModeLabel(session.mode)}</strong>
-                    <span>{focusModeLabel(session.mode)} · {formatFocusDuration(session.duration_seconds)} · {new Date(session.ended_at).toLocaleString()}</span>
-                    <div className="focus-record-actions">
-                      <button className="button secondary compact" onClick={() => setSessionToEdit(session)}><Edit3 size={14} />编辑</button>
-                      <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />彻底删除</button>
-                    </div>
-                  </article>
-                ))}
-              {!sessions.length && <p>还没有专注记录。</p>}
-            </div>
-          </section>
         </aside>
       </div>
 

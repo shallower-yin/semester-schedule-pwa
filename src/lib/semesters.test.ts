@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import type { ClassPeriod, Course, CourseCancellation, CourseSchedule, EventItem, Semester, SyncFields } from "../types";
 import { setCurrentUserId } from "./identity";
-import { deleteSemesterCascade } from "./semesters";
+import { deleteSemesterCascade, saveSemesterRecord } from "./semesters";
 
 const userId = "22222222-2222-4222-8222-222222222222";
 const createdAt = "2026-01-01T00:00:00.000Z";
@@ -115,5 +115,19 @@ describe("学期删除", () => {
     expect(await db.courseCancellations.get(cancellation.id)).toBeUndefined();
     expect((await db.events.get(eventItem.id))?.deleted_at).toBeNull();
     expect((await db.syncQueue.toArray()).map((item) => item.operation)).toEqual(["delete", "delete", "delete", "delete", "delete"]);
+  });
+
+  it("新建学期复用统一逻辑并建立七天默认时间块", async () => {
+    const previous: Semester = { ...fields("semester-old"), name: "旧学期", start_date: "2026-02-23", total_weeks: 18, is_current: true };
+    await db.semesters.put(previous);
+
+    const created = await saveSemesterRecord({ name: "2026 秋", startDate: "2026-09-07", totalWeeks: 20 });
+
+    expect(created.name).toBe("2026 秋");
+    expect(created.is_current).toBe(true);
+    expect((await db.semesters.get(previous.id))?.is_current).toBe(false);
+    const periods = await db.classPeriods.where("semester_id").equals(created.id).toArray();
+    expect(new Set(periods.map((period) => period.weekday))).toEqual(new Set([1, 2, 3, 4, 5, 6, 7]));
+    expect(periods.length).toBeGreaterThan(70);
   });
 });

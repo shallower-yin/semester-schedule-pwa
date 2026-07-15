@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { db, queueChange } from "../db";
-import { defaultPeriodsForWeekday } from "../data/defaults";
-import { syncFields } from "../lib/identity";
-import type { Semester, Weekday } from "../types";
+import { saveSemesterRecord } from "../lib/semesters";
+import type { Semester } from "../types";
 import { Modal } from "./Modal";
 
 interface SemesterDialogProps {
@@ -27,30 +25,7 @@ export function SemesterDialog({ semester, onClose }: SemesterDialogProps) {
     event.preventDefault();
     if (!name.trim() || totalWeeks < 1 || totalWeeks > 60) return;
     setSaving(true);
-    const fields = syncFields(semester);
-    const record: Semester = {
-      ...fields,
-      name: name.trim(),
-      start_date: startDate,
-      total_weeks: totalWeeks,
-      is_current: true
-    };
-    await db.transaction("rw", db.semesters, db.classPeriods, db.syncQueue, async () => {
-      await db.semesters.toCollection().modify({ is_current: false });
-      await db.semesters.put(record);
-      await queueChange("semesters", record.id);
-      if (!semester) {
-        const periods = ([1, 2, 3, 4, 5, 6, 7] as Weekday[]).flatMap((weekday) =>
-          defaultPeriodsForWeekday(weekday).map((period) => ({
-            ...syncFields(),
-            semester_id: record.id,
-            ...period
-          }))
-        );
-        await db.classPeriods.bulkAdd(periods);
-        for (const period of periods) await queueChange("classPeriods", period.id);
-      }
-    });
+    await saveSemesterRecord({ semester, name, startDate, totalWeeks });
     setSaving(false);
     onClose();
   }

@@ -13,6 +13,7 @@ import {
   type AdminUserSummary
 } from "../lib/admin";
 import { Modal } from "./Modal";
+import { AdminFocusAudioManager } from "./AdminFocusAudioManager";
 import { AI_MODEL_OPTIONS, defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "../lib/aiModels";
 
 interface AdminDialogProps {
@@ -283,7 +284,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
           <div className="section-heading">
             <div><h3><KeyRound size={18} /> 直接授权</h3><p>输入邮箱或账号 ID，可直接开通会员或管理员权限。</p></div>
           </div>
-          <div className="form-grid">
+          <div className="form-grid admin-direct-access-grid">
             <label>
               邮箱或账号 ID
               <input value={directIdentifier} onChange={(event) => setDirectIdentifier(event.target.value)} placeholder="user@example.com 或账号 ID" />
@@ -306,17 +307,17 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               到期时间
               <input type="datetime-local" value={accessExpiresAt} onChange={(event) => setAccessExpiresAt(event.target.value)} />
             </label>
-            <label>
+            <label className="admin-direct-note">
               备注
               <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：充值开通、手动赠送、本人账号" />
             </label>
-          </div>
-          <div className="form-actions">
-            <button className="button primary" onClick={() => void saveAccess()} disabled={savingAccess}>
+            <button className="button primary admin-direct-save" onClick={() => void saveAccess()} disabled={savingAccess}>
               <Save size={16} />保存权限
             </button>
           </div>
         </section>
+
+        <AdminFocusAudioManager />
 
         <section className="admin-access-editor admin-data-cleanup">
           <div className="section-heading">

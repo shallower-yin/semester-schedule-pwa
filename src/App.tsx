@@ -15,6 +15,7 @@ import {
   Database,
   Download,
   FileSpreadsheet,
+  FileImage,
   GraduationCap,
   LogIn,
   Menu,
@@ -59,6 +60,7 @@ import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { QuickEntryDialog } from "./components/QuickEntryDialog";
 import { ScheduleAssistantDialog } from "./components/ScheduleAssistantDialog";
+import { ScheduleSnapshotDialog } from "./components/ScheduleSnapshotDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
 import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
 import { StatsDialog } from "./components/StatsDialog";
@@ -70,6 +72,7 @@ import { db, queueChange } from "./db";
 import {
   addDays,
   formatWeekRange,
+  parseLocalDate,
   semesterWeekForDate,
   startOfWeek,
   toISODate,
@@ -175,6 +178,7 @@ export default function App() {
   const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
   const [showSchoolImport, setShowSchoolImport] = useState(false);
+  const [snapshotMode, setSnapshotMode] = useState<"day" | "week" | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [anniversaryToOpen, setAnniversaryToOpen] = useState<string | null>(null);
   const [memoToOpen, setMemoToOpen] = useState<string | null>(null);
@@ -801,10 +805,14 @@ export default function App() {
         ) : page === "calendar" ? (
           <>
             <section className="calendar-toolbar">
-              <div>
+              <div className="calendar-title-actions">
                 <div className="week-title">
                   <h1>{semester ? (weekNumber ? `第 ${weekNumber} 周` : "学期外日期") : "本周"}</h1>
                   <span>{formatWeekRange(dates)}</span>
+                </div>
+                <div className="snapshot-toolbar-actions" aria-label="导出日程快照">
+                  <button className="button secondary compact" onClick={() => setSnapshotMode("day")}><FileImage size={17} />日快照</button>
+                  <button className="button secondary compact" onClick={() => setSnapshotMode("week")}><CalendarDays size={17} />周快照</button>
                 </div>
               </div>
               <div className="toolbar-actions">
@@ -896,8 +904,8 @@ export default function App() {
                   <button className="setting-card" onClick={() => semester ? setShowStats(true) : navigate("focus")}>
                     <Target /><span><strong>统计与日历导出</strong><small>{semester ? "查看完成率、专注趋势，并导出 ICS" : "无学期时可先在专注页查看专注统计"}</small></span><ChevronRight />
                   </button>
-                  <button className="setting-card" onClick={() => semester ? setShowSchoolImport(true) : setSemesterToEdit(null)}>
-                    <FileSpreadsheet /><span><strong>天津大学课表提取器</strong><small>{semester ? "提取学校导出的 HTML-XLS 课表" : "需要先创建学期，用于保存课程周数和节次"}</small></span><ChevronRight />
+                  <button className="setting-card" onClick={() => setShowSchoolImport(true)}>
+                    <FileSpreadsheet /><span><strong>课表提取器</strong><small>选择学校，可导入当前学期或新建学期后导入</small></span><ChevronRight />
                   </button>
                 </>
               ))}
@@ -1045,7 +1053,15 @@ export default function App() {
           onClose={() => setShowHeaderToolSettings(false)}
         />
       )}
-      {showSchoolImport && semester && <SchoolTimetableImportDialog semester={semester} onClose={() => setShowSchoolImport(false)} />}
+      {showSchoolImport && <SchoolTimetableImportDialog semester={semester ?? null} onImported={(target) => setAnchorDate(parseLocalDate(target.start_date))} onClose={() => setShowSchoolImport(false)} />}
+      {snapshotMode && (
+        <ScheduleSnapshotDialog
+          mode={snapshotMode}
+          skinId={themeSkin}
+          input={{ semester: semester ?? null, courses, schedules, cancellations, events, categories, occurrenceStates, periods }}
+          onClose={() => setSnapshotMode(null)}
+        />
+      )}
       {showInstallDialog && (
         <InstallDialog
           installed={installed}
