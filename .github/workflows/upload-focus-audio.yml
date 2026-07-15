@@ -40,6 +40,15 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --dir "$RUNNER_TEMP/focus-audio-assets"
 
+      - name: Extract audio archives
+        env:
+          ASSET_DIR: ${{ runner.temp }}/focus-audio-assets
+        run: |
+          find "$ASSET_DIR" -maxdepth 1 -type f -name '*.zip' -print0 | while IFS= read -r -d '' archive; do
+            unzip -q "$archive" -d "$ASSET_DIR"
+            rm -f "$archive"
+          done
+
       - name: Upload audio files to Supabase Storage
         env:
           ASSET_DIR: ${{ runner.temp }}/focus-audio-assets
