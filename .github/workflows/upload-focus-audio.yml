@@ -3,8 +3,8 @@ name: Upload focus audio
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: Draft release tag containing the audio files
+      release_asset_id:
+        description: Asset ID from the draft release
         required: true
         type: string
       kind:
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_ASSET_ID: ${{ inputs.release_asset_id }}
       AUDIO_KIND: ${{ inputs.kind }}
       SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -36,9 +36,10 @@ jobs:
       - name: Download draft release assets
         run: |
           mkdir -p "$RUNNER_TEMP/focus-audio-assets"
-          gh release download "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --dir "$RUNNER_TEMP/focus-audio-assets"
+          gh api \
+            --header "Accept: application/octet-stream" \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$RELEASE_ASSET_ID" \
+            > "$RUNNER_TEMP/focus-audio-assets/focus-audio-upload.zip"
 
       - name: Extract audio archives
         env:
