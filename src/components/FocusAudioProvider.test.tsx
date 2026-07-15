@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listFocusAudioTracks } from "../lib/focusAudio";
+import { listFocusAudioTracks, type FocusAudioTrack } from "../lib/focusAudio";
 import { FocusAudioPlayer } from "./FocusAudioPlayer";
 import { FocusAudioProvider, useFocusAudio } from "./FocusAudioProvider";
 
@@ -10,11 +10,26 @@ vi.mock("../lib/focusAudio", () => ({
   listFocusAudioTracks: vi.fn()
 }));
 
-const TRACKS = [
-    { id: "noise-1", title: "雨声", kind: "white_noise", storage_path: "rain.mp3", enabled: true, sort_order: 1 },
-    { id: "music-1", title: "音乐一", kind: "music", storage_path: "music-1.mp3", enabled: true, sort_order: 2 },
-    { id: "music-2", title: "音乐二", kind: "music", storage_path: "music-2.mp3", enabled: true, sort_order: 3 }
-] as Awaited<ReturnType<typeof listFocusAudioTracks>>;
+const TRACKS: FocusAudioTrack[] = [
+  track("noise-1", "雨声", "white_noise", "rain.mp3", 1),
+  track("music-1", "音乐一", "music", "music-1.mp3", 2),
+  track("music-2", "音乐二", "music", "music-2.mp3", 3)
+];
+
+function track(id: string, title: string, kind: FocusAudioTrack["kind"], storagePath: string, sortOrder: number): FocusAudioTrack {
+  return {
+    id,
+    title,
+    kind,
+    storage_path: storagePath,
+    mime_type: "audio/mpeg",
+    file_size: 1024,
+    is_enabled: true,
+    sort_order: sortOrder,
+    created_at: "2026-07-16T00:00:00.000Z",
+    updated_at: "2026-07-16T00:00:00.000Z"
+  };
+}
 
 vi.mock("../lib/focusPictureInPicture", () => ({
   FOCUS_PICTURE_IN_PICTURE_MUTE_EVENT: "focus-picture-in-picture-audio-mute",
@@ -39,18 +54,18 @@ describe("全局专注音频", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.mocked(listFocusAudioTracks).mockResolvedValue(TRACKS);
-    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(function () {
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(function (this: HTMLMediaElement) {
       return pausedState.get(this) ?? true;
     });
-    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function () {
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function (this: HTMLMediaElement) {
       pausedState.set(this, true);
     });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function () {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLMediaElement) {
       pausedState.set(this, false);
       this.dispatchEvent(new Event("play"));
       return Promise.resolve();
     });
-    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function () {
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function (this: HTMLMediaElement) {
       pausedState.set(this, true);
       this.dispatchEvent(new Event("pause"));
     });
