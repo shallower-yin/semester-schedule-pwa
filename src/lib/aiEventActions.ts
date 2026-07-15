@@ -7,7 +7,7 @@ export type AiCreatedRecord =
   | { table: "anniversaries"; record: Anniversary }
   | { table: "memos"; record: Memo };
 
-export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceText: string, ownerId: string): EventItem | null {
+export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceText: string, ownerId: string, now?: Date): EventItem | null {
   if (action.type !== "create_event") return null;
   const title = action.title.trim();
   if (!title || !isISODate(action.startDate)) return null;
@@ -43,7 +43,7 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
     recurrence_type: recurrenceType,
     recurrence_until: recurrenceType === "none" ? null : (recurrenceUntil && recurrenceUntil >= action.startDate ? recurrenceUntil : action.startDate),
     recurrence_interval: recurrenceType === "interval" ? clampNumber(action.recurrenceInterval, 1, 366, 1) : 1,
-    reminder_enabled: Boolean(action.reminderEnabled),
+    reminder_enabled: Boolean(action.reminderEnabled) && !(now && eventStartHasPassed(action.startDate, startTime, now)),
     reminder_minutes_before: clampReminder(action.reminderMinutesBefore),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
   };
@@ -96,7 +96,7 @@ export function memoFromAiAction(action: DeepSeekAssistantAction, sourceText: st
 export function recordsFromAiActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string, now = new Date()): AiCreatedRecord[] {
   const expandedActions = expandHolidayActions(actions, sourceText, now);
   return expandedActions.flatMap<AiCreatedRecord>((action) => {
-    const event = eventItemFromAiAction(action, sourceText, ownerId);
+    const event = eventItemFromAiAction(action, sourceText, ownerId, now);
     if (event) return [{ table: "events" as const, record: event }];
     const anniversary = anniversaryFromAiAction(action, sourceText, ownerId, now);
     if (anniversary) return [{ table: "anniversaries" as const, record: anniversary }];
@@ -132,7 +132,12 @@ function expandHolidayActions(actions: DeepSeekAssistantAction[], sourceText: st
       reminderDaysBefore: 0,
       reminderTime: "09:00"
     }));
-  return [...actions, ...generated].slice(0, 5);
+  return [...actions, ...generated].slice(0, 20);
+}
+
+function eventStartHasPassed(startDate: string, startTime: string | null, now: Date): boolean {
+  const start = new Date(`${startDate}T${startTime ?? "00:00"}:00+08:00`);
+  return Number.isFinite(start.getTime()) && start.getTime() < now.getTime();
 }
 
 function looksLikeCreateDate(text: string): boolean {

@@ -99,6 +99,34 @@ describe("AI 助手创建动作", () => {
     expect(event).toBeNull();
   });
 
+  it("允许补录过去事项并自动关闭已错过的提醒", () => {
+    const records = recordsFromAiActions([{
+      type: "create_event",
+      title: "学生报到",
+      startDate: "2026-07-03",
+      endDate: "2026-07-03",
+      startTime: "17:00",
+      endTime: "17:30",
+      location: "第四教室楼 4104",
+      note: "历史活动记录",
+      reminderEnabled: true,
+      reminderMinutesBefore: 30
+    }], "补录 7 月 3 日学生报到", "user-1", new Date("2026-07-15T12:00:00+08:00"));
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      table: "events",
+      record: {
+        start_date: "2026-07-03",
+        end_date: "2026-07-03",
+        start_time: "17:00",
+        end_time: "17:30",
+        location: "第四教室楼 4104",
+        reminder_enabled: false
+      }
+    });
+  });
+
   it("把 AI 返回的生日或纪念日转换为本地日子", () => {
     const anniversary = anniversaryFromAiAction({
       type: "create_anniversary",

@@ -145,12 +145,15 @@ const AI_MODELS = {
   mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
 } as const;
 
+const MAX_AI_ACTIONS = 20;
+
 const PUBLIC_PRODUCT_RULES = [
   "本应用是个人日程工具，主要页面包括今天、日程、习惯、纪念日、备忘录、专注、设置和使用说明。",
   "普通事项不依赖学期；学期、节次、课程和课表导入只是可选的学生功能。",
   "今天页汇总当天课程、事项、习惯和逾期未完成；事项可完成、推迟到明天或周末、自选日期并编辑。",
   "习惯按当天打卡状态统计；过去日期没有打卡的习惯不计入逾期未完成，但当天应执行的习惯仍显示在今日安排。",
   "普通事项支持跨日期范围、全天或具体时间、分类、地点、备注、完成状态、重复和提醒；重复可按每天、工作日、每周、每月或间隔天数。",
+  "普通事项可以创建在过去日期，用于补录活动和保留历史时间点；过去事项保留原日期、时间、地点和备注，但不会补发已经错过的提醒。",
   "重复事项和习惯按每次发生日期分别记录完成状态；完成某一天不等于结束整个重复计划。",
   "事项提醒可设为开始时，或提前 5、10、15、30 分钟、1 小时、1、3、5、7 天；应用打开时本地检查，关闭后需要设备通知订阅和系统推送。",
   "习惯本质上是可按日期范围重复并逐日打卡的事项，可查看完成率和连续记录。",
@@ -618,6 +621,7 @@ async function askConfiguredProvider(
             "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
             "当用户明确要求新增、创建、记录、加入日程、提醒、安排待办、创建日子或写备忘录时，把可创建内容放入 actions。",
             "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"location\":\"地点，可空\",\"note\":\"备注\",\"recurrenceType\":\"none|daily|weekdays|weekly|monthly|interval\",\"recurrenceUntil\":\"YYYY-MM-DD 或 null\",\"recurrenceInterval\":1,\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
+            "过去日期同样允许创建事项。用户要求补录、记录或创建已经发生的活动时，必须按原日期和时间返回 create_event；禁止以“日期已过”为由拒绝，也不要擅自改成备忘录。过去事项必须设置 reminderEnabled=false。",
             "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"date\":\"YYYY-MM-DD\",\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
             "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
             "如果用户说创建春节、端午节、中秋节、清明节、除夕、母亲节、父亲节等常见节日，应按北京时间所在年份或用户指定年份给出对应公历日期；如果没有把握，可以返回 create_anniversary 且 date 为 null，应用会用内置日历校准常见节日。",
@@ -627,7 +631,7 @@ async function askConfiguredProvider(
             "必须区分“可办理/开放的日期范围”和“用户要创建的事项持续时间”：开放窗口不能直接变成跨多天事项。只有用户明确说事项连续持续到某日，才让 endDate 晚于 startDate。",
             "用户说“第一天、当天、只创建一天、不要每天、短时间事项”时，startDate 和 endDate 必须相同，recurrenceType 必须为 none；不要把背景中的截止日期当成事项结束日期。",
             "如果事项给了开始时间但没给结束时间，短时间事项默认 30 分钟，其他事项 endTime 等于 startTime。",
-            "最多返回 5 个 actions。"
+            `最多返回 ${MAX_AI_ACTIONS} 个 actions；文档中有多个独立活动时应分别创建，不要因日期已过而省略。`
           ].join("\n")
         },
         {
@@ -754,7 +758,7 @@ function parseAssistantResponse(content: string, question: string): ParsedAssist
   try {
     const parsed = JSON.parse(cleaned) as { answer?: unknown; actions?: unknown };
     const answer = typeof parsed.answer === "string" && parsed.answer.trim() ? parsed.answer.trim() : cleaned;
-    const actions = Array.isArray(parsed.actions) ? parsed.actions.flatMap(sanitizeAction).slice(0, 5) : [];
+    const actions = Array.isArray(parsed.actions) ? parsed.actions.flatMap(sanitizeAction).slice(0, MAX_AI_ACTIONS) : [];
     normalizeEventActionsForQuestion(actions, question);
     return { answer: normalizedSingleDayAnswer(actions, question) ?? answer, actions };
   } catch {
