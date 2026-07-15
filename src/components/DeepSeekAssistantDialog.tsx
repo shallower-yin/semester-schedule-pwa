@@ -1,7 +1,8 @@
-import { BrainCircuit, Clipboard, KeyRound, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
+import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, Paperclip, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
-import { askDeepSeekAssistant, buildDeepSeekScheduleContext, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
+import { AI_ATTACHMENT_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
+import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
 import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
@@ -34,8 +35,12 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [loading, setLoading] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
+  const [configuration, setConfiguration] = useState<AiAssistantConfiguration>({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
+  const [attachments, setAttachments] = useState<AiAssistantAttachment[]>([]);
+  const [preparingAttachment, setPreparingAttachment] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editingRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
 
   useEffect(() => {
@@ -50,17 +55,20 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
 
   useEffect(() => {
     window.setTimeout(() => rootRef.current?.closest(".modal")?.scrollTo?.({ top: 0 }), 0);
+    void getAiAssistantConfiguration().then(setConfiguration);
   }, []);
 
-  async function sendMessage(text: string, baseMessages: Message[], userMessageId: string) {
-    const trimmed = text.trim();
+  async function sendMessage(text: string, baseMessages: Message[], userMessageId: string, requestAttachments: AiAssistantAttachment[] = []) {
+    const trimmed = text.trim() || (requestAttachments.length ? "请识别附件中的日程信息，并创建对应事项。" : "");
     if (!trimmed || loading) return;
     const history = messagesToHistory(baseMessages);
     setLoading(true);
     setQuestion("");
-    setMessages([...baseMessages, { id: userMessageId, role: "user", content: trimmed }]);
+    const attachmentLabel = requestAttachments.length ? `\n附件：${requestAttachments.map((item) => item.name).join("、")}` : "";
+    setMessages([...baseMessages, { id: userMessageId, role: "user", content: `${trimmed}${attachmentLabel}` }]);
+    setAttachments([]);
     try {
-      const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history);
+      const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history, requestAttachments);
       if (result.access === "access-code") setAccessCode("");
       const created = await createRecordsFromActions(result.actions ?? [], trimmed, ownerId);
       const content = [
@@ -83,7 +91,22 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }
 
   async function ask(text = question) {
-    await sendMessage(text, messages, `u-${Date.now()}`);
+    await sendMessage(text, messages, `u-${Date.now()}`, attachments);
+  }
+
+  async function addAttachments(files: FileList | null) {
+    if (!files?.length || !configuration.supportsAttachments) return;
+    setPreparingAttachment(true);
+    try {
+      const available = Math.max(0, 3 - attachments.length);
+      const prepared = await Promise.all(Array.from(files).slice(0, available).map(prepareAiAssistantAttachment));
+      setAttachments((current) => [...current, ...prepared].slice(0, 3));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "读取附件失败。", "error");
+    } finally {
+      setPreparingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   async function copyMessage(content: string) {
@@ -200,13 +223,32 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           event.preventDefault();
           ask();
         }}>
+          {attachments.length > 0 && (
+            <div className="assistant-attachments">
+              {attachments.map((attachment, index) => (
+                <span key={`${attachment.name}-${index}`}>
+                  {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}
+                  <strong>{attachment.name}</strong>
+                  <button type="button" className="icon-button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={13} /></button>
+                </span>
+              ))}
+            </div>
+          )}
           <input
             value={question}
             disabled={loading || Boolean(editingMessageId)}
             placeholder="例如：创建端午节，或明天 9:00 添加交作业"
             onChange={(event) => setQuestion(event.target.value)}
           />
-          <button className="button primary" disabled={loading || Boolean(editingMessageId)}><Send size={16} />发送</button>
+          {configuration.supportsAttachments && (
+            <>
+              <input ref={fileInputRef} className="visually-hidden" type="file" multiple accept={AI_ATTACHMENT_ACCEPT} onChange={(event) => void addAttachments(event.target.files)} />
+              <button type="button" className="button secondary assistant-attachment-button" title="导入图片或文档" aria-label="导入图片或文档" disabled={loading || preparingAttachment || attachments.length >= 3} onClick={() => fileInputRef.current?.click()}>
+                <Paperclip size={16} /><span>{preparingAttachment ? "读取中" : "附件"}</span>
+              </button>
+            </>
+          )}
+          <button className="button primary" disabled={loading || Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
           {messages.length > 0 && (
             <button type="button" className="button secondary assistant-clear-button" aria-label="清空历史" disabled={loading || Boolean(editingMessageId)} onClick={clearHistory}><Trash2 size={15} /><span>清空</span></button>
           )}

@@ -2,15 +2,17 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 
-const { askDeepSeekAssistantMock } = vi.hoisted(() => ({
-  askDeepSeekAssistantMock: vi.fn()
+const { askDeepSeekAssistantMock, getAiAssistantConfigurationMock } = vi.hoisted(() => ({
+  askDeepSeekAssistantMock: vi.fn(),
+  getAiAssistantConfigurationMock: vi.fn()
 }));
 
 vi.mock("../lib/deepSeekAssistant", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/deepSeekAssistant")>();
   return {
     ...actual,
-    askDeepSeekAssistant: askDeepSeekAssistantMock
+    askDeepSeekAssistant: askDeepSeekAssistantMock,
+    getAiAssistantConfiguration: getAiAssistantConfigurationMock
   };
 });
 
@@ -34,7 +36,9 @@ describe("AI 助手消息编辑", () => {
   beforeEach(() => {
     localStorage.clear();
     askDeepSeekAssistantMock.mockReset();
+    getAiAssistantConfigurationMock.mockReset();
     askDeepSeekAssistantMock.mockResolvedValue({ answer: "修改后的新回答", actions: [] });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
     localStorage.setItem("semester-schedule-ai-assistant-history:user-1", JSON.stringify([
       { id: "u-1", role: "user", content: "第一个问题" },
       { id: "a-1", role: "assistant", content: "第一个回答" },
@@ -75,12 +79,20 @@ describe("AI 助手消息编辑", () => {
       [
         { role: "user", content: "第一个问题" },
         { role: "assistant", content: "第一个回答" }
-      ]
+      ],
+      []
     );
 
     expect(await screen.findByText("修改后的新回答")).toBeInTheDocument();
     expect(screen.getByText("修改后的第二个问题")).toBeInTheDocument();
     expect(screen.queryByText("第二个问题")).not.toBeInTheDocument();
     expect(screen.queryByText("应被截断的旧回答")).not.toBeInTheDocument();
+  });
+
+  it("只有 MiMo 2.5 模式显示图片和文档入口", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "导入图片或文档" })).toBeInTheDocument();
   });
 });

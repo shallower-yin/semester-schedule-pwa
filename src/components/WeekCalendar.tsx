@@ -82,12 +82,13 @@ export function WeekCalendar(props: WeekCalendarProps) {
       : props.periods
   );
   const overlapLayouts = buildOverlapLayouts(props, courseMap);
-  const rowLayout = isMobile
-    ? buildMobileRowLayout(props, courseMap, displayRows, overlapLayouts)
-    : {
-        allDayHeight: "44px",
-        rowHeights: displayRows.map((row) => row.kind === "break" ? "96px" : "76px")
-      };
+  const rowLayout = buildStackedRowLayout(
+    props,
+    courseMap,
+    displayRows,
+    overlapLayouts,
+    isMobile ? [props.dates[props.selectedDay]].filter(Boolean) : props.dates
+  );
 
   async function toggleClassCancellation(schedule: CourseSchedule, date: Date, courseName: string) {
     const occurrenceDate = toISODate(date);
@@ -177,16 +178,18 @@ export function WeekCalendar(props: WeekCalendarProps) {
   function entryStyle(key: string, baseStyle: CSSProperties): CSSProperties {
     const layout = overlapLayouts.get(key);
     if (!layout || layout.count <= 1) return baseStyle;
-    if (isMobile && layout.count >= 3) {
+    if (layout.count >= 3) {
+      const column = layout.index % 2;
+      const layer = Math.floor(layout.index / 2);
       return {
         ...baseStyle,
         "--overlap-count": layout.count,
         "--overlap-index": layout.index,
         justifySelf: "start",
-        width: "calc(100% - 12px)",
-        marginLeft: "6px",
-        marginRight: "6px",
-        transform: `translateY(${layout.index * MOBILE_STACK_STEP}px)`,
+        width: "calc(50% - 8px)",
+        marginLeft: column === 0 ? "6px" : "calc(50% + 2px)",
+        marginRight: 0,
+        transform: `translateY(${layer * MOBILE_STACK_STEP}px)`,
         zIndex: 2 + layout.index
       } as CSSProperties & { "--overlap-count": number; "--overlap-index": number };
     }
@@ -400,70 +403,71 @@ export function WeekCalendar(props: WeekCalendarProps) {
   );
 }
 
-function buildMobileRowLayout(
+function buildStackedRowLayout(
   props: WeekCalendarProps,
   courseMap: Map<string, Course>,
   displayRows: ReturnType<typeof buildDisplayRows>,
-  overlapLayouts: Map<string, OverlapLayout>
+  overlapLayouts: Map<string, OverlapLayout>,
+  dates: Date[]
 ) {
   const rowCounts = displayRows.map(() => 1);
   let allDayCount = 1;
-  const date = props.dates[props.selectedDay];
   const semester = props.semester;
-  if (!date) {
+  if (!dates.length) {
     return {
       allDayHeight: "44px",
       rowHeights: displayRows.map((row) => row.kind === "break" ? "96px" : "76px")
     };
   }
-  const dateText = toISODate(date);
-
-  if (semester) {
-    props.schedules.forEach((schedule) => {
-      if (!courseScheduleOccursOn(schedule, semester, date)) return;
-      const course = courseMap.get(schedule.course_id);
-      if (!course || course.deleted_at) return;
-      const canceled = props.cancellations.some(
-        (item) => item.course_schedule_id === schedule.id && item.occurrence_date === dateText && !item.deleted_at
-      );
-      if (canceled) return;
-      const startPeriod = props.periods.find(
-        (period) => period.weekday === schedule.weekday && period.period_number === schedule.start_period && !period.deleted_at
-      );
-      const endPeriod = props.periods.find(
-        (period) => period.weekday === schedule.weekday && period.period_number === schedule.end_period && !period.deleted_at
-      );
-      if (!startPeriod || !endPeriod) return;
-      const [firstRow, endRow] = rowRangeForTime(displayRows, startPeriod.start_time, endPeriod.end_time);
-      const count = overlapLayouts.get(`${schedule.id}-${dateText}`)?.count ?? 1;
-      applyMobileRowCount(rowCounts, firstRow, endRow, count);
-    });
-  }
-
-  props.events.forEach((eventItem) => {
-    if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return;
-    const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
-    if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return;
-    const count = overlapLayouts.get(`${eventItem.id}-${dateText}`)?.count ?? 1;
-    if (eventItem.all_day) {
-      allDayCount = Math.max(allDayCount, count);
-      return;
+  dates.forEach((date) => {
+    const dateText = toISODate(date);
+    if (semester) {
+      props.schedules.forEach((schedule) => {
+        if (!courseScheduleOccursOn(schedule, semester, date)) return;
+        const course = courseMap.get(schedule.course_id);
+        if (!course || course.deleted_at) return;
+        const canceled = props.cancellations.some(
+          (item) => item.course_schedule_id === schedule.id && item.occurrence_date === dateText && !item.deleted_at
+        );
+        if (canceled) return;
+        const startPeriod = props.periods.find(
+          (period) => period.weekday === schedule.weekday && period.period_number === schedule.start_period && !period.deleted_at
+        );
+        const endPeriod = props.periods.find(
+          (period) => period.weekday === schedule.weekday && period.period_number === schedule.end_period && !period.deleted_at
+        );
+        if (!startPeriod || !endPeriod) return;
+        const [firstRow, endRow] = rowRangeForTime(displayRows, startPeriod.start_time, endPeriod.end_time);
+        const count = overlapLayouts.get(`${schedule.id}-${dateText}`)?.count ?? 1;
+        applyStackedRowCount(rowCounts, firstRow, endRow, count);
+      });
     }
-    const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
-    applyMobileRowCount(rowCounts, firstRow, endRow, count);
+
+    props.events.forEach((eventItem) => {
+      if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return;
+      const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
+      if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return;
+      const count = overlapLayouts.get(`${eventItem.id}-${dateText}`)?.count ?? 1;
+      if (eventItem.all_day) {
+        allDayCount = Math.max(allDayCount, count);
+        return;
+      }
+      const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
+      applyStackedRowCount(rowCounts, firstRow, endRow, count);
+    });
   });
 
   return {
-    allDayHeight: `${allDayCount >= 3 ? Math.max(44, allDayCount * MOBILE_STACK_STEP + 14) : 44}px`,
+    allDayHeight: `${allDayCount >= 3 ? Math.max(44, Math.ceil(allDayCount / 2) * MOBILE_STACK_STEP + 14) : 44}px`,
     rowHeights: displayRows.map((row, index) => {
       const base = row.kind === "break" ? 96 : 76;
       const count = rowCounts[index];
-      return `${count >= 3 ? Math.max(base, count * MOBILE_STACK_STEP + 18) : base}px`;
+      return `${count >= 3 ? Math.max(base, Math.ceil(count / 2) * MOBILE_STACK_STEP + 18) : base}px`;
     })
   };
 }
 
-function applyMobileRowCount(rowCounts: number[], firstRow: number, endRow: number, count: number) {
+function applyStackedRowCount(rowCounts: number[], firstRow: number, endRow: number, count: number) {
   if (count >= 3) {
     rowCounts[firstRow] = Math.max(rowCounts[firstRow], count);
     return;
@@ -545,7 +549,7 @@ function assignOverlapLayouts(blocks: OverlapBlock[]): Map<string, OverlapLayout
     for (const block of sorted) {
       const start = minutesOf(block.start);
       const end = minutesOf(block.end);
-      if (activeGroup.length && start > activeGroupEnd) flush();
+      if (activeGroup.length && start >= activeGroupEnd) flush();
       activeGroup.push(block);
       activeGroupEnd = Math.max(activeGroupEnd, end);
     }

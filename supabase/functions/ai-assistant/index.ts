@@ -1,8 +1,18 @@
 interface AiAssistantRequest {
+  action?: "configuration";
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
   history?: AiAssistantHistoryMessage[];
+  attachments?: AiAssistantAttachment[];
+}
+
+interface AiAssistantAttachment {
+  name?: string;
+  mimeType?: string;
+  kind?: "image" | "document";
+  dataUrl?: string;
+  text?: string;
 }
 
 interface SupabaseUser {
@@ -120,6 +130,8 @@ interface AiSettingsRow {
   ordinary_weekly_limit: number;
   member_daily_limit: number;
   member_weekly_limit: number;
+  provider: "deepseek" | "mimo";
+  model: string;
 }
 
 const PUBLIC_PRODUCT_RULES = [
@@ -132,14 +144,15 @@ const PUBLIC_PRODUCT_RULES = [
   "习惯本质上是可按日期范围重复并逐日打卡的事项，可查看完成率和连续记录。",
   "纪念日、生日和节日按年重复，可设置提前天数和提醒时间；常见农历或固定规则节日由应用内置日历校准。",
   "备忘录支持文件夹、置顶、编号和待办清单；可把备忘录转为事项，也可由事项转为备忘录。",
-  "专注支持正计时、倒计时、番茄钟和锁机记录，可关联任务，并查看当天、当周和近 7 日统计。",
+  "专注支持正计时、倒计时、番茄钟和锁机记录，可关联任务，并查看当天、当周和近 7 日统计；系统小窗使用浏览器画中画能力，可在其他应用上方显示时间，是否可用取决于设备和浏览器支持。",
   "数据优先保存在当前设备；登录同一账号后同步到其他设备。设置页不再重复展示账号同步入口，账号与同步使用顶部按钮。",
   "本机自动备份保存在当前浏览器并保留最近 3 份；可从备份弹窗把最近快照下载为 JSON 文件长期保存或跨设备导入，没有另一种独立的备份格式。",
   "删除是永久删除，同步后其他设备也会删除；只能通过之前导出的 JSON 备份恢复。",
   "日程助手是本机规则查询，不需要 AI 权限也不消耗 AI 额度；AI 助手使用云端智能问答，可理解自由表达并创建记录。",
   "AI 助手当前可查询用户提供的日程上下文，并创建普通事项、习惯、纪念日、生日、节日和备忘录；不能直接修改、删除或完成已有记录，也不能更改账号、权限、额度或系统设置。",
   "AI 权限分普通用户、会员和管理员：普通用户与会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验，不会把账号变成会员。",
-  "编辑已发送的用户消息会从该轮重新生成并截断其后的旧对话，每次重新发送都按一次新的成功请求计入额度。"
+  "编辑已发送的用户消息会从该轮重新生成并截断其后的旧对话，每次重新发送都按一次新的成功请求计入额度。",
+  "管理员可在后台统一选择 AI 提供商和模型；选择支持附件的模型后，AI 助手可读取图片，以及从 PDF、DOCX、TXT、Markdown、CSV 中提取的文字来创建记录。"
 ];
 
 const PRIVATE_INFORMATION_RULES = [
@@ -191,14 +204,21 @@ Deno.serve(async (request) => {
     const authorization = request.headers.get("authorization") ?? "";
     if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 AI 助手。" }, 401);
     const body = await request.json() as AiAssistantRequest;
-    const question = body.question?.trim();
-    if (!question) return jsonResponse({ error: "问题不能为空。" }, 400);
-    questionChars = question.length;
-
     const user = await getUser(authorization);
     currentUser = user;
     const serviceRoleKey = serviceRoleSecret();
     const settings = serviceRoleKey ? await getAiSettings(serviceRoleKey) : null;
+    if (body.action === "configuration") {
+      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+      return jsonResponse({
+        provider,
+        model: configuredModel(settings),
+        supportsAttachments: provider === "mimo" && configuredModel(settings) === "mimo-v2.5"
+      });
+    }
+    const question = body.question?.trim();
+    if (!question) return jsonResponse({ error: "问题不能为空。" }, 400);
+    questionChars = question.length;
     const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings);
     if (!access.allowed) return jsonResponse({
       error: access.reason,
@@ -212,7 +232,7 @@ Deno.serve(async (request) => {
         userId: user.id,
         status: "error",
         accessMethod,
-        model: optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash",
+        model: configuredModel(settings),
         usage: emptyUsage(),
         latencyMs: Date.now() - startedAt,
         questionChars,
@@ -225,8 +245,9 @@ Deno.serve(async (request) => {
     }
 
     const history = sanitizeHistory(body.history);
+    const attachments = sanitizeAttachments(body.attachments, settings?.provider === "mimo" && configuredModel(settings) === "mimo-v2.5");
     const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
-    const assistantResponse = await askDeepSeek(question, body.scheduleContext, history, quotaStatus);
+    const assistantResponse = await askConfiguredProvider(question, body.scheduleContext, history, quotaStatus, settings, attachments);
     await logAiAssistantUsage({
       userId: user.id,
       status: "success",
@@ -250,7 +271,7 @@ Deno.serve(async (request) => {
         userId: currentUser.id,
         status: "error",
         accessMethod,
-        model: optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash",
+        model: "configured-provider",
         usage: emptyUsage(),
         latencyMs: Date.now() - startedAt,
         questionChars,
@@ -444,7 +465,7 @@ function beijingPeriodStart(period: "day" | "week"): { iso: string; time: number
 
 async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | null> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
-  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit");
+  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model");
   url.searchParams.set("id", "eq.true");
   url.searchParams.set("limit", "1");
   const response = await fetch(url, {
@@ -515,15 +536,18 @@ async function getAiAccessByServiceRole(userId: string, serviceRoleKey: string):
   return rows[0] ?? null;
 }
 
-async function askDeepSeek(
+async function askConfiguredProvider(
   question: string,
   scheduleContext: unknown,
   history: AiAssistantHistoryMessage[],
-  quotaStatus: AiPublicQuotaStatus
+  quotaStatus: AiPublicQuotaStatus,
+  settings: AiSettingsRow | null,
+  attachments: AiAssistantAttachment[]
 ): Promise<AiAssistantResponse> {
-  const apiKey = optionalSecret("DEEPSEEK_API_KEY");
+  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const apiKey = optionalSecret(provider === "mimo" ? "MIMO_API_KEY" : "DEEPSEEK_API_KEY");
   if (!apiKey) throw new Error("AI 助手暂时不可用，请稍后再试。");
-  const model = optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash";
+  const model = configuredModel(settings);
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
   const historyText = history.length
     ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 3_000)
@@ -539,11 +563,26 @@ async function askDeepSeek(
     second: "2-digit",
     hour12: false
   });
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
+  const documentText = attachments
+    .filter((attachment) => attachment.kind === "document" && attachment.text)
+    .map((attachment) => `文档 ${attachment.name ?? "未命名"}：\n${attachment.text}`)
+    .join("\n\n");
+  const userText = `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户问题：${question}`;
+  const userContent: string | Array<Record<string, unknown>> = attachments.some((attachment) => attachment.kind === "image")
+    ? [
+      ...attachments.flatMap((attachment) => attachment.kind === "image" && attachment.dataUrl ? [{ type: "image_url", image_url: { url: attachment.dataUrl } }] : []),
+      { type: "text", text: userText }
+    ]
+    : userText;
+  const endpoint = provider === "mimo"
+    ? `${(optionalSecret("MIMO_BASE_URL") || "https://api.xiaomimimo.com/v1").replace(/\/+$/, "")}/chat/completions`
+    : "https://api.deepseek.com/chat/completions";
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
+      authorization: `Bearer ${apiKey}`,
+      ...(provider === "mimo" ? { "api-key": apiKey } : {})
     },
     body: JSON.stringify({
       model,
@@ -582,7 +621,7 @@ async function askDeepSeek(
         },
         {
           role: "user",
-          content: `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n用户问题：${question}`
+          content: userContent
         }
       ],
       thinking: { type: "disabled" },
@@ -617,6 +656,41 @@ function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
     if (role && content) result.push({ role, content });
   }
   return result.slice(-6);
+}
+
+function configuredModel(settings: AiSettingsRow | null): string {
+  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const stored = settings?.model?.trim();
+  if (stored) return stored;
+  return provider === "mimo"
+    ? optionalSecret("MIMO_MODEL") || "mimo-v2.5"
+    : optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash";
+}
+
+function sanitizeAttachments(value: unknown, allowed: boolean): AiAssistantAttachment[] {
+  if (!Array.isArray(value) || value.length === 0) return [];
+  if (!allowed) throw new Error("当前 AI 模型不支持图片或文档导入，请让管理员切换到 Xiaomi MiMo。");
+  const result: AiAssistantAttachment[] = [];
+  for (const item of value.slice(0, 3)) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name.trim().slice(0, 180) : "未命名附件";
+    if (record.kind === "image" && typeof record.dataUrl === "string") {
+      const dataUrl = record.dataUrl;
+      if (!/^data:image\/(jpeg|png|gif|webp|bmp);base64,/i.test(dataUrl) || dataUrl.length > 8_500_000) {
+        throw new Error(`图片“${name}”格式不支持或文件过大。`);
+      }
+      result.push({ name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
+    } else if (record.kind === "document" && typeof record.text === "string" && record.text.trim()) {
+      result.push({
+        name,
+        mimeType: typeof record.mimeType === "string" ? record.mimeType.slice(0, 120) : "text/plain",
+        kind: "document",
+        text: record.text.trim().slice(0, 40_000)
+      });
+    }
+  }
+  return result;
 }
 
 function parseAssistantResponse(content: string, question: string): ParsedAssistantResponse {

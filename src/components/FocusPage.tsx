@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Pause, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Pause, PictureInPicture2, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
@@ -18,6 +18,7 @@ import {
   totalFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
+import { closeFocusPictureInPicture, focusPictureInPictureSupported, openFocusPictureInPicture } from "../lib/focusPictureInPicture";
 import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
@@ -104,11 +105,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   }, []);
 
   useEffect(() => {
-    if (!active) return;
-    saveActiveFocus(ownerId, active);
-  }, [active, ownerId]);
-
-  useEffect(() => {
     if (active?.mode !== "lock") return;
     const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -134,9 +130,19 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     };
     setActive(next);
     saveActiveFocus(ownerId, next);
+    void openSystemTimer(next);
     if (effectiveSettings.sound_enabled) requestFocusNotificationPermission();
     if (mode === "lock") void enterFocusFullscreen();
     setMessage("");
+  }
+
+  async function openSystemTimer(current = active) {
+    if (!current) return;
+    try {
+      await openFocusPictureInPicture(current);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "无法打开系统倒计时小窗。", "error");
+    }
   }
 
   function pauseOrResume() {
@@ -144,9 +150,13 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     const current = new Date();
     if (active.pause_started_at) {
       const pausedFor = Math.max(0, Math.floor((current.getTime() - new Date(active.pause_started_at).getTime()) / 1000));
-      setActive({ ...active, paused_seconds: active.paused_seconds + pausedFor, pause_started_at: null });
+      const next = { ...active, paused_seconds: active.paused_seconds + pausedFor, pause_started_at: null };
+      setActive(next);
+      saveActiveFocus(ownerId, next);
     } else {
-      setActive({ ...active, pause_started_at: current.toISOString() });
+      const next = { ...active, pause_started_at: current.toISOString() };
+      setActive(next);
+      saveActiveFocus(ownerId, next);
     }
   }
 
@@ -169,6 +179,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     await db.focusSessions.put(record);
     await queueChange("focusSessions", record.id);
     clearActiveFocus(ownerId);
+    void closeFocusPictureInPicture();
     void exitFocusFullscreen();
     setActive(null);
     setTaskTitle("");
@@ -181,6 +192,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   function discardFocus() {
     if (!active || !window.confirm("放弃当前专注？不会保存本次记录。")) return;
     clearActiveFocus(ownerId);
+    void closeFocusPictureInPicture();
     void exitFocusFullscreen();
     setActive(null);
     setMessage("已放弃当前专注。");
@@ -256,6 +268,9 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             <button className="button primary focus-start-button" onClick={startFocus}><Play size={18} />开始专注</button>
           ) : (
             <div className="focus-actions">
+              <button className="button secondary" disabled={!focusPictureInPictureSupported()} onClick={() => void openSystemTimer()} title="在其他应用上方显示倒计时">
+                <PictureInPicture2 size={17} />系统小窗
+              </button>
               <button className="button secondary" onClick={pauseOrResume}>{active.pause_started_at ? <Play size={17} /> : <Pause size={17} />}{active.pause_started_at ? "继续" : "暂停"}</button>
               <button className="button primary" onClick={() => void finishFocus(active.planned_seconds == null || elapsed >= active.planned_seconds, Boolean(active.planned_seconds && elapsed < active.planned_seconds))}><CheckCircle2 size={17} />结束并保存</button>
               <button className="button danger-button" onClick={discardFocus}><Square size={16} />放弃</button>

@@ -94,7 +94,7 @@ describe("周视图移动端新增事项", () => {
     expect(second).toHaveStyle("width: calc((100% - 4px) / 2)");
   });
 
-  it("手机端三个及以上同时间事项改为纵向短条", () => {
+  it("手机端三个及以上同时间事项按两列分层错开", () => {
     const onAddEvent = vi.fn();
     renderWeekCalendar(onAddEvent, [
       eventRecord("event-a", "重叠事项 A"),
@@ -107,8 +107,8 @@ describe("周视图移动端新增事项", () => {
 
     expect(first).toHaveClass("overlap-three");
     expect(third).toHaveClass("overlap-three");
-    expect(first).toHaveStyle("width: calc(100% - 12px)");
-    expect(third).toHaveStyle("transform: translateY(104px)");
+    expect(first).toHaveStyle("width: calc(50% - 8px)");
+    expect(third).toHaveStyle("transform: translateY(52px)");
   });
 
   it("事项卡片可按当前显示日期切换完成状态", () => {

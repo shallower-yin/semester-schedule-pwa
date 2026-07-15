@@ -455,7 +455,6 @@ export default function App() {
       const result = await syncNow(user.id);
       setLastSync(result.completed_at);
       setSyncMessage(`同步完成：上传 ${result.uploaded} 条，下载 ${result.downloaded} 条。`);
-      showToast(`同步完成：上传 ${result.uploaded} 条，下载 ${result.downloaded} 条。`, "success");
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "同步失败";
@@ -755,7 +754,7 @@ export default function App() {
         </div>
       </header>
 
-      <FocusFloatingTimer ownerId={ownerId} onOpen={() => navigate("focus")} />
+      <FocusFloatingTimer ownerId={ownerId} />
 
       {sidebarOpen && (
         <div className="mobile-sidebar-backdrop" onClick={() => setSidebarOpen(false)}>

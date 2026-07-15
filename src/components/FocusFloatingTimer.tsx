@@ -1,27 +1,24 @@
-import { Pause, Target } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
   clearActiveFocus,
   elapsedFocusSeconds,
   FOCUS_STATE_CHANGED_EVENT,
-  focusModeLabel,
-  formatFocusDuration,
   loadActiveFocus,
   notifyFocusComplete,
   remainingFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
+import { closeFocusPictureInPicture, updateFocusPictureInPicture } from "../lib/focusPictureInPicture";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
 import type { FocusSession } from "../types";
 
 interface FocusFloatingTimerProps {
   ownerId: string;
-  onOpen: () => void;
 }
 
-export function FocusFloatingTimer({ ownerId, onOpen }: FocusFloatingTimerProps) {
+export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
   const [active, setActive] = useState<ActiveFocusState | null>(() => loadActiveFocus(ownerId));
   const [now, setNow] = useState(() => new Date());
   const completingRef = useRef(false);
@@ -46,6 +43,11 @@ export function FocusFloatingTimer({ ownerId, onOpen }: FocusFloatingTimerProps)
   const elapsed = active ? elapsedFocusSeconds(active, now) : 0;
 
   useEffect(() => {
+    updateFocusPictureInPicture(active, now);
+    if (!active) void closeFocusPictureInPicture();
+  }, [active, now]);
+
+  useEffect(() => {
     if (!active || active.pause_started_at || active.planned_seconds == null || remaining !== 0 || completingRef.current) return;
     completingRef.current = true;
     void completeExpiredFocus(ownerId, active, now).finally(() => {
@@ -54,15 +56,7 @@ export function FocusFloatingTimer({ ownerId, onOpen }: FocusFloatingTimerProps)
     });
   }, [active, now, ownerId, remaining]);
 
-  if (!active) return null;
-  return (
-    <button className="focus-floating-timer" type="button" onClick={onOpen} aria-label={`打开专注：${active.task_title}`}>
-      {active.pause_started_at ? <Pause size={15} /> : <Target size={15} />}
-      <span>{active.task_title}</span>
-      <strong>{formatFocusDuration(remaining ?? elapsed)}</strong>
-      <small>{active.pause_started_at ? "已暂停" : focusModeLabel(active.mode)}</small>
-    </button>
-  );
+  return null;
 }
 
 export async function completeExpiredFocus(ownerId: string, active: ActiveFocusState, now = new Date()): Promise<boolean> {

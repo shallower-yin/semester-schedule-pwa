@@ -4,6 +4,7 @@ import { addDays, courseScheduleOccursOn, eventOccursOn, toISODate } from "./dat
 import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
 import type { AnniversaryKind, EventRecurrenceType } from "../types";
+import type { AiAssistantAttachment } from "./assistantAttachments";
 
 export interface DeepSeekAssistantResult {
   answer: string;
@@ -11,6 +12,12 @@ export interface DeepSeekAssistantResult {
   accessBound?: boolean;
   quota?: DeepSeekAssistantQuotaStatus;
   actions?: DeepSeekAssistantAction[];
+}
+
+export interface AiAssistantConfiguration {
+  provider: "deepseek" | "mimo";
+  model: string;
+  supportsAttachments: boolean;
 }
 
 export interface DeepSeekAssistantQuotaStatus {
@@ -187,7 +194,8 @@ export async function askDeepSeekAssistant(
   question: string,
   context: unknown,
   accessCode?: string,
-  history?: DeepSeekAssistantHistoryMessage[]
+  history?: DeepSeekAssistantHistoryMessage[],
+  attachments?: AiAssistantAttachment[]
 ): Promise<DeepSeekAssistantResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法使用 AI 助手。");
   const { data, error } = await supabase.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
@@ -195,7 +203,8 @@ export async function askDeepSeekAssistant(
       question,
       scheduleContext: context,
       accessCode: accessCode || undefined,
-      history: history?.slice(-6)
+      history: history?.slice(-6),
+      attachments: attachments?.slice(0, 3)
     }
   });
   if (error) {
@@ -203,6 +212,19 @@ export async function askDeepSeekAssistant(
   }
   if (!data?.answer) throw new Error("AI 助手没有返回回答。");
   return data;
+}
+
+export async function getAiAssistantConfiguration(): Promise<AiAssistantConfiguration> {
+  if (!supabase) return { provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false };
+  const { data, error } = await supabase.functions.invoke<AiAssistantConfiguration>("ai-assistant", {
+    body: { action: "configuration" }
+  });
+  if (error || !data) return { provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false };
+  return {
+    provider: data.provider === "mimo" ? "mimo" : "deepseek",
+    model: data.model || (data.provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash"),
+    supportsAttachments: Boolean(data.supportsAttachments && data.provider === "mimo" && data.model === "mimo-v2.5")
+  };
 }
 
 async function functionErrorMessage(error: unknown): Promise<string> {

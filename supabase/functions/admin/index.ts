@@ -16,6 +16,8 @@ interface AdminRequest {
     ordinaryWeeklyLimit?: number;
     memberDailyLimit?: number;
     memberWeeklyLimit?: number;
+    provider?: "deepseek" | "mimo";
+    model?: string;
   };
 }
 
@@ -467,7 +469,7 @@ async function setAiAccess(
 
 async function getAiSettings(serviceRoleKey: string) {
   const rows = await restGet<Record<string, unknown>>("ai_assistant_settings", serviceRoleKey, {
-    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,updated_at",
+    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,updated_at",
     id: "eq.true"
   }, 1);
   return rows[0] ?? {
@@ -476,6 +478,8 @@ async function getAiSettings(serviceRoleKey: string) {
     ordinary_weekly_limit: 100,
     member_daily_limit: 50,
     member_weekly_limit: 300,
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
     updated_at: null
   };
 }
@@ -485,6 +489,9 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
   const ordinaryWeeklyLimit = Math.floor(Number(settings?.ordinaryWeeklyLimit));
   const memberDailyLimit = Math.floor(Number(settings?.memberDailyLimit));
   const memberWeeklyLimit = Math.floor(Number(settings?.memberWeeklyLimit));
+  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const model = settings?.model?.trim() ?? "";
+  if (!model || model.length > 120) throw new Error("模型名称长度必须在 1 到 120 个字符之间。");
   if (!Number.isFinite(ordinaryDailyLimit) || ordinaryDailyLimit < 1 || ordinaryDailyLimit > 100000) {
     throw new Error("普通用户每日额度必须在 1 到 100000 之间。");
   }
@@ -514,6 +521,8 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
       ordinary_weekly_limit: ordinaryWeeklyLimit,
       member_daily_limit: memberDailyLimit,
       member_weekly_limit: memberWeeklyLimit,
+      provider,
+      model,
       updated_at: new Date().toISOString()
     })
   });

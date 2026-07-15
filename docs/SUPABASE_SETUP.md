@@ -79,7 +79,7 @@ AI 助手权限需要执行：
 ## 安全规则
 
 - 网页中只能使用 Publishable key。
-- AI 服务 API Key 只能保存为 Supabase Edge Function Secret `DEEPSEEK_API_KEY`，不要写进前端 `.env.local`。
+- AI 服务 API Key 只能保存为 Supabase Edge Function Secret `DEEPSEEK_API_KEY` / `MIMO_API_KEY`，不要写进前端 `.env.local`。
 - 管理后台需要服务端角色密钥，只能放在 GitHub Secret / Supabase Edge Function Secret，绝对不要写进前端或公开文档。GitHub Secret 使用 `SUPABASE_SERVICE_ROLE_KEY`，部署脚本会写入 Supabase Edge Function Secret `SERVICE_ROLE_KEY`。
 - GitHub 后台提醒任务需要 Legacy API Keys 中的 `anon` key，并将其保存为仓库 Secret `SUPABASE_ANON_KEY`；不要使用 `service_role`。
 - 不要把 Secret key、`service_role`、数据库密码放入 `.env.local` 或发给他人。
@@ -92,9 +92,11 @@ AI 助手权限需要执行：
 需要在 GitHub Secrets / Variables 中配置：
 
 - Secret `DEEPSEEK_API_KEY`：AI 服务 API Key。
-- Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给用户输入的访问口令；验证成功后会自动绑定当前账号为会员权限。
+- Secret `MIMO_API_KEY`：Xiaomi MiMo API Key。需要使用 Token Plan 时，将 Variable `MIMO_BASE_URL` 改为套餐提供的专用 Base URL。
+- Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给用户输入的临时访问口令，不会改变账号类型。
 - GitHub Secret `SUPABASE_SERVICE_ROLE_KEY`：管理后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。部署时会同步为 Edge Function Secret `SERVICE_ROLE_KEY`，因为 Supabase 不允许自定义 Secret 名以 `SUPABASE_` 开头。
-- Variable `DEEPSEEK_MODEL`：可选，AI 服务参数配置。
+- 管理员在应用的“管理后台 → 全局 AI 权限与额度”选择 DeepSeek / Xiaomi MiMo 和模型。选择 `mimo-v2.5` 后，AI 助手开放图片、PDF、DOCX、TXT、Markdown、CSV 导入；图片以 Base64 发送，文档在浏览器本地提取文字后发送。
+- Variable `MIMO_BASE_URL`：可选，默认 `https://api.xiaomimimo.com/v1`。
 
 给指定账号开通：
 

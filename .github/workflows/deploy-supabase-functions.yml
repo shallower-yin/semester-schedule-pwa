@@ -51,6 +51,8 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
+          MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
+          MIMO_BASE_URL: ${{ vars.MIMO_BASE_URL || 'https://api.xiaomimimo.com/v1' }}
           AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT || '3' }}
@@ -66,10 +68,14 @@ jobs:
             AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT" \
             AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT" \
             AI_ASSISTANT_MEMBER_DAILY_LIMIT="$AI_ASSISTANT_MEMBER_DAILY_LIMIT" \
-            AI_ASSISTANT_MEMBER_WEEKLY_LIMIT="$AI_ASSISTANT_MEMBER_WEEKLY_LIMIT"
+            AI_ASSISTANT_MEMBER_WEEKLY_LIMIT="$AI_ASSISTANT_MEMBER_WEEKLY_LIMIT" \
+            MIMO_BASE_URL="$MIMO_BASE_URL"
           supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
           if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY"
+          fi
+          if [ -n "${MIMO_API_KEY:-}" ]; then
+            supabase secrets set --project-ref "$PROJECT_REF" MIMO_API_KEY="$MIMO_API_KEY"
           fi
           if [ -n "${AI_ASSISTANT_ACCESS_CODE:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" AI_ASSISTANT_ACCESS_CODE="$AI_ASSISTANT_ACCESS_CODE"

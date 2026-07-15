@@ -66,6 +66,8 @@ export interface AdminAiSettings {
   ordinary_weekly_limit: number;
   member_daily_limit: number;
   member_weekly_limit: number;
+  provider: "deepseek" | "mimo";
+  model: string;
   updated_at: string | null;
 }
 
@@ -219,7 +221,9 @@ export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_
     p_ordinary_daily_limit: input.ordinary_daily_limit,
     p_ordinary_weekly_limit: input.ordinary_weekly_limit,
     p_member_daily_limit: input.member_daily_limit,
-    p_member_weekly_limit: input.member_weekly_limit
+    p_member_weekly_limit: input.member_weekly_limit,
+    p_provider: input.provider,
+    p_model: input.model
   });
   if (error) throw new Error(formatAdminError(error.message));
   return normalizeAiSettings(data);
@@ -233,6 +237,8 @@ function normalizeAiSettings(value: unknown): AdminAiSettings {
     ordinary_weekly_limit: Math.max(1, Number(row.ordinary_weekly_limit ?? row.weekly_limit ?? 100)),
     member_daily_limit: Math.max(1, Number(row.member_daily_limit ?? 50)),
     member_weekly_limit: Math.max(1, Number(row.member_weekly_limit ?? 300)),
+    provider: row.provider === "mimo" ? "mimo" : "deepseek",
+    model: typeof row.model === "string" && row.model.trim() ? row.model.trim() : "deepseek-v4-flash",
     updated_at: typeof row.updated_at === "string" ? row.updated_at : null
   };
 }

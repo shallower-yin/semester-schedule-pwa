@@ -36,6 +36,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [ordinaryWeeklyLimit, setOrdinaryWeeklyLimit] = useState(100);
   const [memberDailyLimit, setMemberDailyLimit] = useState(50);
   const [memberWeeklyLimit, setMemberWeeklyLimit] = useState(300);
+  const [aiProvider, setAiProvider] = useState<"deepseek" | "mimo">("deepseek");
+  const [aiModel, setAiModel] = useState("deepseek-v4-flash");
   const [savingSettings, setSavingSettings] = useState(false);
 
   const selectedUser = useMemo(
@@ -61,6 +63,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setOrdinaryWeeklyLimit(nextSummary.aiSettings.ordinary_weekly_limit);
       setMemberDailyLimit(nextSummary.aiSettings.member_daily_limit);
       setMemberWeeklyLimit(nextSummary.aiSettings.member_weekly_limit);
+      setAiProvider(nextSummary.aiSettings.provider);
+      setAiModel(nextSummary.aiSettings.model);
       if (!selectedUserId && nextSummary.users[0]) setSelectedUserId(nextSummary.users[0].id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
@@ -125,6 +129,10 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }
 
   async function saveGlobalSettings() {
+    if (!aiModel.trim()) {
+      setMessage("请填写 AI 模型名称。");
+      return;
+    }
     if (ordinaryWeeklyLimit < ordinaryDailyLimit || memberWeeklyLimit < memberDailyLimit) {
       setMessage("普通用户和会员的每周额度都不能低于每日额度。");
       return;
@@ -137,13 +145,17 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         ordinary_daily_limit: ordinaryDailyLimit,
         ordinary_weekly_limit: ordinaryWeeklyLimit,
         member_daily_limit: memberDailyLimit,
-        member_weekly_limit: memberWeeklyLimit
+        member_weekly_limit: memberWeeklyLimit,
+        provider: aiProvider,
+        model: aiModel.trim()
       });
       setGlobalEnabled(settings.enabled_for_all);
       setOrdinaryDailyLimit(settings.ordinary_daily_limit);
       setOrdinaryWeeklyLimit(settings.ordinary_weekly_limit);
       setMemberDailyLimit(settings.member_daily_limit);
       setMemberWeeklyLimit(settings.member_weekly_limit);
+      setAiProvider(settings.provider);
+      setAiModel(settings.model);
       setMessage(settings.enabled_for_all ? "已向所有登录用户开放 AI 助手。" : "已关闭 AI 助手全员权限。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
@@ -182,6 +194,23 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
             <div><h3><KeyRound size={18} /> 全局 AI 权限与额度</h3></div>
           </div>
           <div className="admin-ai-settings-grid">
+            <label>
+              AI 提供商
+              <select value={aiProvider} onChange={(event) => {
+                const provider = event.target.value === "mimo" ? "mimo" : "deepseek";
+                setAiProvider(provider);
+                setAiModel(provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash");
+              }}>
+                <option value="deepseek">DeepSeek</option>
+                <option value="mimo">Xiaomi MiMo</option>
+              </select>
+            </label>
+            <label>
+              模型
+              <input value={aiModel} maxLength={120} list={aiProvider === "mimo" ? "mimo-models" : "deepseek-models"} onChange={(event) => setAiModel(event.target.value)} />
+              <datalist id="deepseek-models"><option value="deepseek-v4-flash" /><option value="deepseek-chat" /><option value="deepseek-reasoner" /></datalist>
+              <datalist id="mimo-models"><option value="mimo-v2.5" /><option value="mimo-v2.5-pro" /></datalist>
+            </label>
             <label>
               全员权限
               <select value={globalEnabled ? "1" : "0"} onChange={(event) => setGlobalEnabled(event.target.value === "1")}>
