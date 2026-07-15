@@ -5,6 +5,7 @@ import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
 import type { AnniversaryKind, EventRecurrenceType } from "../types";
 import type { AiAssistantAttachment } from "./assistantAttachments";
+import { aiModelSupportsAttachments } from "./aiModels";
 
 export interface DeepSeekAssistantResult {
   answer: string;
@@ -223,7 +224,7 @@ export async function getAiAssistantConfiguration(): Promise<AiAssistantConfigur
   return {
     provider: data.provider === "mimo" ? "mimo" : "deepseek",
     model: data.model || (data.provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash"),
-    supportsAttachments: Boolean(data.supportsAttachments && data.provider === "mimo" && data.model === "mimo-v2.5")
+    supportsAttachments: Boolean(data.supportsAttachments && aiModelSupportsAttachments(data.provider === "mimo" ? "mimo" : "deepseek", data.model))
   };
 }
 

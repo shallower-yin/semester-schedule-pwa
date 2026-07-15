@@ -21,6 +21,11 @@ interface AdminRequest {
   };
 }
 
+const ADMIN_AI_MODELS = {
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
+} as const;
+
 interface SupabaseUser {
   id: string;
   email?: string;
@@ -491,7 +496,7 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
   const memberWeeklyLimit = Math.floor(Number(settings?.memberWeeklyLimit));
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const model = settings?.model?.trim() ?? "";
-  if (!model || model.length > 120) throw new Error("模型名称长度必须在 1 到 120 个字符之间。");
+  if (!(ADMIN_AI_MODELS[provider] as readonly string[]).includes(model)) throw new Error("请选择当前 AI 提供商支持的模型。");
   if (!Number.isFinite(ordinaryDailyLimit) || ordinaryDailyLimit < 1 || ordinaryDailyLimit > 100000) {
     throw new Error("普通用户每日额度必须在 1 到 100000 之间。");
   }

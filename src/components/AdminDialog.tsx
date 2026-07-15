@@ -12,6 +12,7 @@ import {
   type AdminUserSummary
 } from "../lib/admin";
 import { Modal } from "./Modal";
+import { AI_MODEL_OPTIONS, defaultAiModel, isSupportedAiModel, type AiProvider } from "../lib/aiModels";
 
 interface AdminDialogProps {
   onClose: () => void;
@@ -36,7 +37,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [ordinaryWeeklyLimit, setOrdinaryWeeklyLimit] = useState(100);
   const [memberDailyLimit, setMemberDailyLimit] = useState(50);
   const [memberWeeklyLimit, setMemberWeeklyLimit] = useState(300);
-  const [aiProvider, setAiProvider] = useState<"deepseek" | "mimo">("deepseek");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("deepseek");
   const [aiModel, setAiModel] = useState("deepseek-v4-flash");
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -129,8 +130,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }
 
   async function saveGlobalSettings() {
-    if (!aiModel.trim()) {
-      setMessage("请填写 AI 模型名称。");
+    if (!isSupportedAiModel(aiProvider, aiModel)) {
+      setMessage("请选择当前 AI 提供商支持的模型。");
       return;
     }
     if (ordinaryWeeklyLimit < ordinaryDailyLimit || memberWeeklyLimit < memberDailyLimit) {
@@ -199,7 +200,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               <select value={aiProvider} onChange={(event) => {
                 const provider = event.target.value === "mimo" ? "mimo" : "deepseek";
                 setAiProvider(provider);
-                setAiModel(provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash");
+                setAiModel(defaultAiModel(provider));
               }}>
                 <option value="deepseek">DeepSeek</option>
                 <option value="mimo">Xiaomi MiMo</option>
@@ -207,9 +208,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
             </label>
             <label>
               模型
-              <input value={aiModel} maxLength={120} list={aiProvider === "mimo" ? "mimo-models" : "deepseek-models"} onChange={(event) => setAiModel(event.target.value)} />
-              <datalist id="deepseek-models"><option value="deepseek-v4-flash" /><option value="deepseek-chat" /><option value="deepseek-reasoner" /></datalist>
-              <datalist id="mimo-models"><option value="mimo-v2.5" /><option value="mimo-v2.5-pro" /></datalist>
+              <select value={aiModel} onChange={(event) => setAiModel(event.target.value)}>
+                {AI_MODEL_OPTIONS[aiProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+              </select>
             </label>
             <label>
               全员权限

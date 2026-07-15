@@ -95,7 +95,8 @@ AI 助手权限需要执行：
 - Secret `MIMO_API_KEY`：Xiaomi MiMo API Key。需要使用 Token Plan 时，将 Variable `MIMO_BASE_URL` 改为套餐提供的专用 Base URL。
 - Secret `AI_ASSISTANT_ACCESS_CODE`：可选，给用户输入的临时访问口令，不会改变账号类型。
 - GitHub Secret `SUPABASE_SERVICE_ROLE_KEY`：管理后台读取用户列表和业务数据需要。该值来自 Supabase Dashboard 的 Project Settings → API，只能保存为 Secret。部署时会同步为 Edge Function Secret `SERVICE_ROLE_KEY`，因为 Supabase 不允许自定义 Secret 名以 `SUPABASE_` 开头。
-- 管理员在应用的“管理后台 → 全局 AI 权限与额度”选择 DeepSeek / Xiaomi MiMo 和模型。选择 `mimo-v2.5` 后，AI 助手开放图片、PDF、DOCX、TXT、Markdown、CSV 导入；图片以 Base64 发送，文档在浏览器本地提取文字后发送。
+- 管理员在应用的“管理后台 → 全局 AI 权限与额度”选择 DeepSeek / Xiaomi MiMo 和内置模型；该设置保存在数据库中，下一次 AI 请求立即生效。DeepSeek 可选 V4 Flash / V4 Pro，MiMo 可选 V2.5 / V2.5 Pro / V2.5 Pro UltraSpeed。选择 `mimo-v2.5` 后，AI 助手开放图片、PDF、DOCX、TXT、Markdown、CSV 导入；图片以 Base64 发送，文档在浏览器本地提取文字后发送。
+- Variable `DEEPSEEK_MODEL` / Edge Function Secret `MIMO_MODEL` 只在数据库没有有效模型配置时作为兜底，不是日常切换入口。
 - Variable `MIMO_BASE_URL`：可选，默认 `https://api.xiaomimimo.com/v1`。
 
 给指定账号开通：

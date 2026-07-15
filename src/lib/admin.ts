@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { defaultAiModel, isSupportedAiModel, type AiProvider } from "./aiModels";
 
 export type AdminRole = "member" | "admin";
 
@@ -231,14 +232,16 @@ export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_
 
 function normalizeAiSettings(value: unknown): AdminAiSettings {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const provider: AiProvider = row.provider === "mimo" ? "mimo" : "deepseek";
+  const storedModel = typeof row.model === "string" ? row.model.trim() : "";
   return {
     enabled_for_all: Boolean(row.enabled_for_all),
     ordinary_daily_limit: Math.max(1, Number(row.ordinary_daily_limit ?? row.daily_limit ?? 20)),
     ordinary_weekly_limit: Math.max(1, Number(row.ordinary_weekly_limit ?? row.weekly_limit ?? 100)),
     member_daily_limit: Math.max(1, Number(row.member_daily_limit ?? 50)),
     member_weekly_limit: Math.max(1, Number(row.member_weekly_limit ?? 300)),
-    provider: row.provider === "mimo" ? "mimo" : "deepseek",
-    model: typeof row.model === "string" && row.model.trim() ? row.model.trim() : "deepseek-v4-flash",
+    provider,
+    model: isSupportedAiModel(provider, storedModel) ? storedModel : defaultAiModel(provider),
     updated_at: typeof row.updated_at === "string" ? row.updated_at : null
   };
 }

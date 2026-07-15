@@ -134,6 +134,11 @@ interface AiSettingsRow {
   model: string;
 }
 
+const AI_MODELS = {
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
+} as const;
+
 const PUBLIC_PRODUCT_RULES = [
   "本应用是个人日程工具，主要页面包括今天、日程、习惯、纪念日、备忘录、专注、设置和使用说明。",
   "普通事项不依赖学期；学期、节次、课程和课表导入只是可选的学生功能。",
@@ -213,7 +218,7 @@ Deno.serve(async (request) => {
       return jsonResponse({
         provider,
         model: configuredModel(settings),
-        supportsAttachments: provider === "mimo" && configuredModel(settings) === "mimo-v2.5"
+        supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings))
       });
     }
     const question = body.question?.trim();
@@ -245,7 +250,8 @@ Deno.serve(async (request) => {
     }
 
     const history = sanitizeHistory(body.history);
-    const attachments = sanitizeAttachments(body.attachments, settings?.provider === "mimo" && configuredModel(settings) === "mimo-v2.5");
+    const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+    const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)));
     const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
     const assistantResponse = await askConfiguredProvider(question, body.scheduleContext, history, quotaStatus, settings, attachments);
     await logAiAssistantUsage({
@@ -661,10 +667,14 @@ function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
 function configuredModel(settings: AiSettingsRow | null): string {
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const stored = settings?.model?.trim();
-  if (stored) return stored;
-  return provider === "mimo"
-    ? optionalSecret("MIMO_MODEL") || "mimo-v2.5"
-    : optionalSecret("DEEPSEEK_MODEL") || "deepseek-v4-flash";
+  if (stored && (AI_MODELS[provider] as readonly string[]).includes(stored)) return stored;
+  const secretModel = optionalSecret(provider === "mimo" ? "MIMO_MODEL" : "DEEPSEEK_MODEL");
+  if (secretModel && (AI_MODELS[provider] as readonly string[]).includes(secretModel)) return secretModel;
+  return provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash";
+}
+
+function modelSupportsAttachments(provider: "deepseek" | "mimo", model: string): boolean {
+  return provider === "mimo" && model === "mimo-v2.5";
 }
 
 function sanitizeAttachments(value: unknown, allowed: boolean): AiAssistantAttachment[] {
