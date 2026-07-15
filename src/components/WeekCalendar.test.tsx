@@ -138,8 +138,7 @@ describe("周视图移动端新增事项", () => {
     renderWeekCalendar(onAddEvent, [eventRecord("event-no-semester", "无学期事项")], null, []);
 
     expect(screen.getByText("无学期事项")).toBeInTheDocument();
-    const firstTimeCell = document.querySelector(".calendar-cell:not(.all-day-cell)") as HTMLElement;
-    fireEvent.click(firstTimeCell);
+    fireEvent.click(screen.getByLabelText("7月6日 第一节新增事项"));
 
     expect(onAddEvent).toHaveBeenCalledWith("2026-07-06", "08:30", "09:15");
   });
@@ -155,6 +154,20 @@ describe("周视图移动端新增事项", () => {
     const card = screen.getByText("分钟定位").closest("article") as HTMLElement;
     expect(Number.parseFloat(card.style.getPropertyValue("--time-start-offset"))).toBeCloseTo(25.33, 1);
     expect(Number.parseFloat(card.style.getPropertyValue("--time-end-offset"))).toBeCloseTo(25.33, 1);
+  });
+
+  it("显示第一节前的清晨事项和第十二节后的深夜事项", () => {
+    renderWeekCalendar(vi.fn(), [
+      eventRecord("event-early", "晨间准备", { start_time: "07:30", end_time: "08:00" }),
+      eventRecord("event-late", "夜间复盘", { start_time: "22:30", end_time: "23:00" })
+    ], semester, []);
+
+    expect(screen.getByText("清晨")).toBeInTheDocument();
+    expect(screen.getByText("00:00–08:30")).toBeInTheDocument();
+    expect(screen.getByText("深夜")).toBeInTheDocument();
+    expect(screen.getByText("21:45–24:00")).toBeInTheDocument();
+    expect(screen.getByText("晨间准备")).toBeInTheDocument();
+    expect(screen.getByText("夜间复盘")).toBeInTheDocument();
   });
 });
 

@@ -36,7 +36,7 @@ export function StatsDialog(props: StatsDialogProps) {
     return !session.deleted_at && ended >= weekStart && ended < addDays(weekStart, 7);
   });
   const overdue = props.events.filter((eventItem) => {
-    if (eventItem.deleted_at) return false;
+    if (eventItem.deleted_at || eventItem.event_type === "habit") return false;
     for (let daysAgo = 1; daysAgo <= 30; daysAgo += 1) {
       const date = addDays(today, -daysAgo);
       if (eventOccursOn(eventItem, date) && !eventCompletionForDate(eventItem, props.occurrenceStates, date).completed) return true;

@@ -276,7 +276,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
         })}
 
         {displayRows.map((row, rowIndex) => (
-          <div key={`label-${row.key}`} className={`time-label ${row.kind === "break" ? "break-label" : ""}`} style={{ gridColumn: 1, gridRow: rowIndex + 3 }}>
+          <div key={`label-${row.key}`} className={`time-label ${row.kind === "break" ? "break-label" : ""} ${row.kind === "boundary" ? "boundary-label" : ""}`} style={{ gridColumn: 1, gridRow: rowIndex + 3 }}>
             <strong>{row.name}</strong>
             <span>{row.startTime}–{row.endTime}</span>
           </div>
@@ -288,7 +288,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
             return (
               <button
                 key={`${dateText}-${row.key}`}
-                className={`calendar-cell day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${row.kind === "break" ? "break-cell" : ""} ${dateIsToday(date) ? "today" : ""}`}
+                className={`calendar-cell day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${row.kind === "break" ? "break-cell" : ""} ${row.kind === "boundary" ? "boundary-cell" : ""} ${dateIsToday(date) ? "today" : ""}`}
                 style={{ gridColumn: dayIndex + 2, gridRow: rowIndex + 3 }}
                 onClick={() => handleBlankCellClick(dateText, row.startTime, row.endTime)}
                 onPointerDown={(event) => startQuickAdd(event, dateText, row.startTime, row.endTime)}

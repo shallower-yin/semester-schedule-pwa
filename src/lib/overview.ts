@@ -186,7 +186,7 @@ function buildOverdueIncompleteItems(
     const occurrenceDate = toISODate(date);
     for (const eventItem of input.events) {
       if (result.length >= maxItems) break;
-      if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) continue;
+      if (eventItem.deleted_at || eventItem.event_type === "habit" || !eventOccursOn(eventItem, date)) continue;
       const completion = eventCompletionForDate(eventItem, input.occurrenceStates, date);
       if (completion.completed) continue;
       const category = eventItem.category_id ? categoryMap.get(eventItem.category_id) : undefined;

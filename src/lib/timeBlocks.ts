@@ -6,19 +6,19 @@ export interface DisplayTimeRow {
   name: string;
   startTime: string;
   endTime: string;
-  kind: "period" | "break";
+  kind: "period" | "break" | "boundary";
 }
 
 export function buildDisplayRows(periods: ClassPeriod[]): DisplayTimeRow[] {
   const source = periods.filter((period) => !period.deleted_at);
   if (!source.length) {
-    return DEFAULT_TIME_ROWS.map((row) => ({
+    return addBoundaryRows(DEFAULT_TIME_ROWS.map((row) => ({
       key: row.key,
       name: row.name,
       startTime: row.startTime,
       endTime: row.endTime,
       kind: row.kind
-    }));
+    })));
   }
   const rows = new Map<string, DisplayTimeRow>();
   for (const period of source) {
@@ -33,9 +33,23 @@ export function buildDisplayRows(periods: ClassPeriod[]): DisplayTimeRow[] {
       });
     }
   }
-  return [...rows.values()].sort(
+  return addBoundaryRows([...rows.values()].sort(
     (left, right) => left.startTime.localeCompare(right.startTime) || left.endTime.localeCompare(right.endTime)
-  );
+  ));
+}
+
+function addBoundaryRows(rows: DisplayTimeRow[]): DisplayTimeRow[] {
+  if (!rows.length) return rows;
+  const result = [...rows];
+  const first = result[0];
+  const last = result[result.length - 1];
+  if (first.startTime > "00:00") {
+    result.unshift({ key: "early-boundary", name: "清晨", startTime: "00:00", endTime: first.startTime, kind: "boundary" });
+  }
+  if (last.endTime < "24:00") {
+    result.push({ key: "late-boundary", name: "深夜", startTime: last.endTime, endTime: "24:00", kind: "boundary" });
+  }
+  return result;
 }
 
 export function rowRangeForTime(rows: DisplayTimeRow[], start: string | null, end: string | null): [number, number] {
@@ -69,8 +83,8 @@ export function timePlacementForRows(rows: DisplayTimeRow[], start: string | nul
   return {
     firstRow,
     endRow,
-    startOffset: clampFraction((minutes(start) - minutes(first.startTime)) / firstDuration),
-    endOffset: clampFraction((minutes(last.endTime) - minutes(end)) / lastDuration)
+    startOffset: first.kind === "boundary" ? 0 : clampFraction((minutes(start) - minutes(first.startTime)) / firstDuration),
+    endOffset: last.kind === "boundary" ? 0 : clampFraction((minutes(last.endTime) - minutes(end)) / lastDuration)
   };
 }
 

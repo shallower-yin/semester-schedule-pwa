@@ -685,6 +685,11 @@ main {
   background: #fff7e8;
 }
 
+.boundary-label {
+  color: #44536a;
+  background: #eef3f9;
+}
+
 .calendar-cell {
   z-index: 0;
   width: 100%;
@@ -711,6 +716,14 @@ main {
 
 .calendar-cell.break-cell:hover {
   background: #fff6e6;
+}
+
+.calendar-cell.boundary-cell {
+  background: #f8fafc;
+}
+
+.calendar-cell.boundary-cell:hover {
+  background: #eef4fb;
 }
 
 .all-day-cell {

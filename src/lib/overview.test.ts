@@ -269,6 +269,26 @@ describe("首页日程概览", () => {
         reminder_enabled: false,
         reminder_minutes_before: 10,
         timezone: "Asia/Shanghai"
+      },
+      {
+        ...baseFields,
+        id: "habit-unchecked",
+        event_type: "habit",
+        title: "每天喝水",
+        start_date: "2026-03-05",
+        start_time: "08:00",
+        end_date: "2026-03-06",
+        end_time: "08:05",
+        all_day: false,
+        category_id: null,
+        color: "#087a4f",
+        note: "",
+        recurrence_type: "none",
+        recurrence_until: null,
+        recurrence_interval: 1,
+        reminder_enabled: false,
+        reminder_minutes_before: 10,
+        timezone: "Asia/Shanghai"
       }
     ];
     const occurrenceStates: EventOccurrenceState[] = [
@@ -281,6 +301,7 @@ describe("首页日程概览", () => {
     );
 
     expect(overview.overdueIncompleteItems.map((item) => item.title)).toEqual(["补交材料"]);
+    expect(overview.upcomingItems.map((item) => item.title)).toContain("每天喝水");
     expect(overview.overdueIncompleteItems[0]).toMatchObject({
       targetId: "event-overdue",
       timeLabel: "3/4 18:00–18:00"
