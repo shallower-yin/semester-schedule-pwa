@@ -52,7 +52,8 @@ jobs:
       - name: Upload audio files to Supabase Storage
         env:
           ASSET_DIR: ${{ runner.temp }}/focus-audio-assets
-        run: node --input-type=module <<'NODE'
+        run: |
+          node --input-type=module <<'NODE'
           import { createHash } from "node:crypto";
           import { readFile, readdir } from "node:fs/promises";
           import { basename, extname, join } from "node:path";
