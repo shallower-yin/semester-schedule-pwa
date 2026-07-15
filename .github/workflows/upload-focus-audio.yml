@@ -81,9 +81,14 @@ jobs:
             apikey: serviceRoleKey,
             Authorization: `Bearer ${serviceRoleKey}`
           };
-          const files = (await readdir(assetDir, { withFileTypes: true }))
+          const directoryEntries = (await readdir(assetDir, { withFileTypes: true }))
             .filter((entry) => entry.isFile())
             .map((entry) => entry.name);
+          const manifestName = "focus-audio-manifest.json";
+          const titleByDigest = directoryEntries.includes(manifestName)
+            ? JSON.parse(await readFile(join(assetDir, manifestName), "utf8"))
+            : {};
+          const files = directoryEntries.filter((fileName) => mimeTypes.has(extname(fileName).toLowerCase()));
           if (!files.length) throw new Error("The draft release contains no files.");
 
           for (const fileName of files) {
@@ -95,14 +100,27 @@ jobs:
 
             const digest = createHash("sha256").update(body).digest("hex");
             const storagePath = `${kind}/${digest}${extension}`;
+            const title = typeof titleByDigest[digest] === "string" && titleByDigest[digest].trim()
+              ? titleByDigest[digest].trim()
+              : basename(fileName, extension).trim();
             const query = new URLSearchParams({
-              select: "id",
+              select: "id,title",
               storage_path: `eq.${storagePath}`,
               limit: "1"
             });
             const existingResponse = await fetch(`${supabaseUrl}/rest/v1/focus_audio_tracks?${query}`, { headers });
             if (!existingResponse.ok) throw new Error(`Could not check ${fileName}: ${await existingResponse.text()}`);
-            if ((await existingResponse.json()).length) {
+            const existingTracks = await existingResponse.json();
+            if (existingTracks.length) {
+              if (existingTracks[0].title !== title) {
+                const updateResponse = await fetch(`${supabaseUrl}/rest/v1/focus_audio_tracks?id=eq.${existingTracks[0].id}`, {
+                  method: "PATCH",
+                  headers: { ...headers, "Content-Type": "application/json", Prefer: "return=minimal" },
+                  body: JSON.stringify({ title, is_enabled: true })
+                });
+                if (!updateResponse.ok) throw new Error(`Could not update ${fileName}: ${await updateResponse.text()}`);
+                console.log(`Updated title: ${fileName} -> ${title}`);
+              }
               console.log(`Skipped existing file: ${fileName}`);
               continue;
             }
@@ -114,7 +132,6 @@ jobs:
             });
             if (!uploadResponse.ok) throw new Error(`Storage upload failed for ${fileName}: ${await uploadResponse.text()}`);
 
-            const title = basename(fileName, extension).trim();
             const metadataResponse = await fetch(`${supabaseUrl}/rest/v1/focus_audio_tracks`, {
               method: "POST",
               headers: { ...headers, "Content-Type": "application/json", Prefer: "return=minimal" },
