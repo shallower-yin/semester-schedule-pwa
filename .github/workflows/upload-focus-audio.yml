@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_asset_id:
-        description: Asset ID from the draft release
+        description: Asset ID from the temporary prerelease
         required: true
         type: string
       kind:
@@ -33,7 +33,7 @@ jobs:
       SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
-      - name: Download draft release assets
+      - name: Download temporary release assets
         run: |
           mkdir -p "$RUNNER_TEMP/focus-audio-assets"
           gh api \
