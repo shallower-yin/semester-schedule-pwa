@@ -86,6 +86,12 @@ export async function setFocusAudioEnabled(trackId: string, enabled: boolean): P
   if (error) throw new Error(error.message || "更新音频状态失败。");
 }
 
+export async function setFocusAudioKind(trackId: string, kind: FocusAudioKind): Promise<void> {
+  if (!supabase) throw new Error("云端服务未配置。");
+  const { error } = await supabase.from("focus_audio_tracks").update({ kind }).eq("id", trackId);
+  if (error) throw new Error(error.message || "更新音频分类失败。");
+}
+
 export async function deleteFocusAudioTrack(track: FocusAudioTrack): Promise<void> {
   if (!supabase) throw new Error("云端服务未配置。");
   const { error: storageError } = await supabase.storage.from(BUCKET).remove([track.storage_path]);

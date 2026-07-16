@@ -4459,7 +4459,7 @@ textarea {
 
 .admin-audio-list article {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) 92px auto auto;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -4476,6 +4476,13 @@ textarea {
 .admin-audio-list small {
   color: var(--muted);
   font-size: 11px;
+}
+
+.admin-audio-category-select {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 24px 5px 8px;
+  font-size: 12px;
 }
 
 .admin-audio-kind {
@@ -6676,6 +6683,34 @@ textarea {
       "icon info remove"
       "title title title";
     align-items: center;
+  }
+
+  .admin-audio-list article {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "kind info delete"
+      "category toggle toggle";
+  }
+
+  .admin-audio-list article > .admin-audio-kind {
+    grid-area: kind;
+  }
+
+  .admin-audio-list article > span:nth-child(2) {
+    grid-area: info;
+  }
+
+  .admin-audio-category-select {
+    grid-area: category;
+  }
+
+  .admin-audio-list article > .button {
+    grid-area: toggle;
+    justify-self: end;
+  }
+
+  .admin-audio-list article > .icon-button {
+    grid-area: delete;
   }
 
   .admin-direct-access-grid {

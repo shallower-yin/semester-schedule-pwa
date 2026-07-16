@@ -6,6 +6,7 @@ import {
   isSupportedFocusAudioFile,
   listFocusAudioTracks,
   setFocusAudioEnabled,
+  setFocusAudioKind,
   uploadFocusAudioTrack,
   type FocusAudioKind,
   type FocusAudioTrack
@@ -114,6 +115,20 @@ export function AdminFocusAudioManager() {
     }
   }
 
+  async function changeTrackKind(track: FocusAudioTrack, nextKind: FocusAudioKind) {
+    if (nextKind === track.kind || busy) return;
+    setBusy(true);
+    try {
+      await setFocusAudioKind(track.id, nextKind);
+      setMessage(`“${track.title}”已改为${nextKind === "white_noise" ? "白噪音" : "音乐"}。`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "音频分类更新失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeTrack(track: FocusAudioTrack) {
     if (!window.confirm(`彻底删除音频“${track.title}”？文件也会从 Storage 删除。`)) return;
     setBusy(true);
@@ -151,6 +166,10 @@ export function AdminFocusAudioManager() {
         {tracks.map((track) => <article key={track.id}>
           <span className="admin-audio-kind">{track.kind === "white_noise" ? <Waves size={16} /> : <Music2 size={16} />}</span>
           <span><strong>{track.title}</strong><small>{formatAudioFileSize(track.file_size)} · {track.is_enabled ? "使用中" : "已停用"}</small></span>
+          <select className="admin-audio-category-select" aria-label={`${track.title} 的分类`} value={track.kind} disabled={busy} onChange={(event) => void changeTrackKind(track, event.target.value as FocusAudioKind)}>
+            <option value="white_noise">白噪音</option>
+            <option value="music">音乐</option>
+          </select>
           <button className="button secondary compact" disabled={busy} onClick={() => void toggleTrack(track)}>{track.is_enabled ? "停用" : "启用"}</button>
           <button className="icon-button danger" aria-label={`删除${track.title}`} disabled={busy} onClick={() => void removeTrack(track)}><Trash2 size={16} /></button>
         </article>)}
