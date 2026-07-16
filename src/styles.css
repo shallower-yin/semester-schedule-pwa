@@ -4351,7 +4351,7 @@ textarea {
 
 .admin-audio-upload {
   display: grid;
-  grid-template-columns: 130px minmax(160px, 0.7fr) minmax(240px, 1fr) auto;
+  grid-template-columns: 150px minmax(260px, 1fr) auto;
   align-items: end;
   gap: 8px;
 }
@@ -4362,6 +4362,92 @@ textarea {
   color: #536174;
   font-size: 12px;
   font-weight: 700;
+}
+
+.admin-audio-upload-queue {
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.admin-audio-upload-queue > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.admin-audio-upload-queue > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.admin-audio-upload-queue article {
+  display: grid;
+  grid-template-columns: auto minmax(110px, 0.8fr) minmax(150px, 1fr) auto;
+  grid-template-areas: "icon info title remove";
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+}
+
+.admin-audio-upload-queue article.error {
+  border-color: #efb1ad;
+}
+
+.admin-audio-upload-queue article > svg {
+  grid-area: icon;
+  align-self: center;
+  color: var(--primary);
+}
+
+.admin-audio-upload-queue article > span {
+  grid-area: info;
+}
+
+.admin-audio-upload-queue article > label {
+  grid-area: title;
+}
+
+.admin-audio-upload-queue article > button {
+  grid-area: remove;
+  align-self: center;
+}
+
+.admin-audio-upload-queue article > span,
+.admin-audio-upload-queue article > label {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.admin-audio-upload-queue article > span strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-audio-upload-queue article small,
+.admin-audio-upload-queue article label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-audio-upload-queue article.error small {
+  color: #b42318;
+}
+
+.admin-audio-upload-queue article input {
+  min-height: 34px;
+  padding: 6px 8px;
 }
 
 .admin-audio-list {
@@ -6117,6 +6203,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .admin-audio-upload-queue > div {
+    grid-template-columns: 1fr;
+  }
+
   .habit-stats,
   .habit-list,
   .today-stats,
@@ -6578,6 +6668,14 @@ textarea {
 
   .admin-audio-upload {
     grid-template-columns: 1fr;
+  }
+
+  .admin-audio-upload-queue article {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon info remove"
+      "title title title";
+    align-items: center;
   }
 
   .admin-direct-access-grid {

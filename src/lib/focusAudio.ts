@@ -16,6 +16,16 @@ export interface FocusAudioTrack {
 }
 
 const BUCKET = "focus-audio";
+const AUDIO_CONTENT_TYPES: Record<string, string> = {
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/x-m4a",
+  ".mp4": "audio/mp4",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".wav": "audio/wav",
+  ".webm": "audio/webm"
+};
+const SUPPORTED_AUDIO_CONTENT_TYPES = new Set(Object.values(AUDIO_CONTENT_TYPES));
 
 export async function listFocusAudioTracks(includeDisabled = false): Promise<FocusAudioTrack[]> {
   if (!supabase) return [];
@@ -40,14 +50,17 @@ export async function uploadFocusAudioTrack(input: {
   kind: FocusAudioKind;
 }): Promise<FocusAudioTrack> {
   if (!supabase) throw new Error("云端服务未配置，无法上传音频。");
-  if (!input.file.type.startsWith("audio/")) throw new Error("请选择音频文件。");
+  if (!isSupportedFocusAudioFile(input.file)) throw new Error("请选择 MP3、M4A、MP4、OGG、WAV 或 WebM 音频文件。");
   const title = input.title.trim();
   if (!title) throw new Error("请填写音频名称。");
   const extension = safeExtension(input.file.name);
+  const contentType = SUPPORTED_AUDIO_CONTENT_TYPES.has(input.file.type)
+    ? input.file.type
+    : AUDIO_CONTENT_TYPES[extension];
   const storagePath = `${input.kind}/${crypto.randomUUID()}${extension}`;
   const { error: uploadError } = await supabase.storage.from(BUCKET).upload(storagePath, input.file, {
     cacheControl: "3600",
-    contentType: input.file.type,
+    contentType,
     upsert: false
   });
   if (uploadError) throw new Error(uploadError.message || "音频上传失败。");
@@ -56,7 +69,7 @@ export async function uploadFocusAudioTrack(input: {
     title,
     kind: input.kind,
     storage_path: storagePath,
-    mime_type: input.file.type,
+    mime_type: contentType,
     file_size: input.file.size,
     is_enabled: true
   }).select("*").single();
@@ -84,6 +97,11 @@ export async function deleteFocusAudioTrack(track: FocusAudioTrack): Promise<voi
 export function formatAudioFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function isSupportedFocusAudioFile(file: File): boolean {
+  const extension = safeExtension(file.name);
+  return SUPPORTED_AUDIO_CONTENT_TYPES.has(file.type) || extension in AUDIO_CONTENT_TYPES;
 }
 
 function safeExtension(name: string): string {
