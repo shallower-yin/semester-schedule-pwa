@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#3157d5" />
+    <meta name="description" content="本地优先、可离线使用的日程计划表" />
+    <link rel="icon" href="/shallower-yin/semester-schedule-pwa/app-mirror/favicon.svg" />
+    <title>日程计划表</title>
+    <script>
+      window.__pwaInstallPrompt = null;
+      window.addEventListener("beforeinstallprompt", function (event) {
+        event.preventDefault();
+        window.__pwaInstallPrompt = event;
+        window.dispatchEvent(new Event("pwa-install-available"));
+      });
+      window.addEventListener("appinstalled", function () {
+        window.__pwaInstallPrompt = null;
+      });
+    </script>
+    <script type="module" crossorigin src="/shallower-yin/semester-schedule-pwa/app-mirror/assets/index-OfSkOwZa.js"></script>
+    <link rel="modulepreload" crossorigin href="/shallower-yin/semester-schedule-pwa/app-mirror/assets/dexie-oEMqfi7F.js">
+    <link rel="modulepreload" crossorigin href="/shallower-yin/semester-schedule-pwa/app-mirror/assets/react-NrZ4gyHK.js">
+    <link rel="modulepreload" crossorigin href="/shallower-yin/semester-schedule-pwa/app-mirror/assets/supabase-CV3J0IHI.js">
+    <link rel="stylesheet" crossorigin href="/shallower-yin/semester-schedule-pwa/app-mirror/assets/index-DEjh_7yx.css">
+  <link rel="manifest" href="/shallower-yin/semester-schedule-pwa/app-mirror/manifest.webmanifest"></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
