@@ -8,3 +8,6 @@ verify_jwt = true
 
 [functions.admin]
 verify_jwt = true
+
+[functions.app-hosting]
+verify_jwt = false

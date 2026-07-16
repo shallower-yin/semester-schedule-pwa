@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -40,8 +40,8 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
-          VITE_APP_URL: https://raw.githack.com/shallower-yin/semester-schedule-pwa/app-mirror/index.html
-          VITE_APP_MIRROR_URL: https://raw.githack.com/shallower-yin/semester-schedule-pwa/app-mirror/index.html
+          VITE_APP_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/index.html
+          VITE_APP_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/index.html
         run: npm run build
 
       - name: Configure Pages
@@ -57,20 +57,19 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
-          VITE_APP_BASE: /shallower-yin/semester-schedule-pwa/app-mirror/
-          VITE_APP_START_URL: /shallower-yin/semester-schedule-pwa/app-mirror/index.html
-          VITE_APP_URL: https://raw.githack.com/shallower-yin/semester-schedule-pwa/app-mirror/index.html
-          VITE_APP_MIRROR_URL: https://raw.githack.com/shallower-yin/semester-schedule-pwa/app-mirror/index.html
+          VITE_APP_BASE: /functions/v1/app-hosting/
+          VITE_APP_START_URL: /functions/v1/app-hosting/index.html
+          VITE_APP_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/index.html
+          VITE_APP_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/index.html
           VITE_OUT_DIR: dist-mirror
         run: npm run build
 
       - name: Deploy no-proxy mirror
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: app-mirror
-          publish_dir: ./dist-mirror
-          force_orphan: true
+        env:
+          SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STATIC_SOURCE_DIR: dist-mirror
+        run: node scripts/deploy-static-mirror.mjs
 
   deploy:
     environment:

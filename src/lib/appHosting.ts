@@ -1,4 +1,4 @@
-const DEFAULT_MIRROR_URL = "https://raw.githack.com/shallower-yin/semester-schedule-pwa/app-mirror/index.html";
+const DEFAULT_MIRROR_URL = "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/index.html";
 
 export const appMirrorUrl = import.meta.env.VITE_APP_MIRROR_URL?.trim() || DEFAULT_MIRROR_URL;
 export const appMirrorReleaseUrl = new URL("release.json", appMirrorUrl).href;
