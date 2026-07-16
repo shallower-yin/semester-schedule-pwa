@@ -67,7 +67,8 @@ describe("AI 思维导图", () => {
       prompt: "整理项目计划"
     })));
     expect(await screen.findByRole("img", { name: "项目计划 思维导图" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /导出图片/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "SVG" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "PNG" })).toBeInTheDocument();
     expect(localStorage.getItem("semester-schedule-mind-map:user-1")).toContain("项目计划");
   });
 });

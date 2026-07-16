@@ -1,8 +1,8 @@
 import { Download, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration } from "../lib/deepSeekAssistant";
-import { askAiMindMap, buildMindMapLayout, downloadMindMapSvg, splitMindMapLabel, type AiMindMapNode } from "../lib/mindMap";
+import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, splitMindMapLabel, type AiMindMapNode } from "../lib/mindMap";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
 import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
@@ -25,8 +25,6 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   const [loading, setLoading] = useState(false);
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
-
   useEffect(() => {
     void getAiAssistantConfiguration().then(setConfiguration);
   }, []);
@@ -56,7 +54,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
     try {
       const result = await askAiMindMap({
         prompt: question,
-        context,
+        context: buildDeepSeekScheduleContext(input, question),
         accessCode,
         attachments
       });
@@ -135,7 +133,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
                   <button type="button" className="icon-button" aria-label="缩小脑图" onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))}><Minus size={16} /></button>
                   <span>{Math.round(zoom * 100)}%</span>
                   <button type="button" className="icon-button" aria-label="放大脑图" onClick={() => setZoom((current) => Math.min(1.5, current + 0.1))}><Plus size={16} /></button>
-                  <button type="button" className="button secondary compact" onClick={() => downloadMindMapSvg(mindMap)}><Download size={15} />导出图片</button>
+                  <button type="button" className="button secondary compact" onClick={() => downloadMindMapSvg(mindMap)}><Download size={15} />SVG</button>
+                  <button type="button" className="button secondary compact" onClick={() => void downloadMindMapPng(mindMap)}><Download size={15} />PNG</button>
                 </div>
               </div>
               <MindMapCanvas root={mindMap} zoom={zoom} />
@@ -151,8 +150,32 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
 
 export function MindMapCanvas({ root, zoom }: { root: AiMindMapNode; zoom: number }) {
   const layout = useMemo(() => buildMindMapLayout(root), [root]);
+  const viewportRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const rootNode = layout.nodes.find((node) => node.side === 0);
+    if (!viewport || !rootNode) return;
+    let frame = 0;
+    const centerRoot = () => {
+      const rootCenter = (rootNode.x + rootNode.width / 2) * zoom;
+      viewport.scrollLeft = Math.max(0, rootCenter - viewport.clientWidth / 2);
+    };
+    const scheduleCenter = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(centerRoot);
+    };
+    scheduleCenter();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleCenter);
+    observer?.observe(viewport);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [layout, zoom]);
+
   return (
-    <div className="mind-map-viewport">
+    <div ref={viewportRef} className="mind-map-viewport">
       <svg
         className="mind-map-canvas"
         width={layout.width * zoom}
@@ -162,12 +185,7 @@ export function MindMapCanvas({ root, zoom }: { root: AiMindMapNode; zoom: numbe
         aria-label={`${root.label} 思维导图`}
       >
         {layout.edges.map((edge) => {
-          const x1 = edge.from.x + edge.from.width;
-          const y1 = edge.from.y + edge.from.height / 2;
-          const x2 = edge.to.x;
-          const y2 = edge.to.y + edge.to.height / 2;
-          const control = Math.max(45, (x2 - x1) * 0.45);
-          return <path key={edge.id} d={`M ${x1} ${y1} C ${x1 + control} ${y1}, ${x2 - control} ${y2}, ${x2} ${y2}`} />;
+          return <path key={edge.id} d={mindMapEdgePath(edge)} />;
         })}
         {layout.nodes.map((node) => {
           const lines = splitMindMapLabel(node.label);

@@ -1,5 +1,6 @@
 import { CheckCircle2, Clipboard, Download, Home, LogIn, Menu, Monitor, Search, Smartphone } from "lucide-react";
 import { useState } from "react";
+import { appMirrorUrl } from "../lib/appHosting";
 import { Modal } from "./Modal";
 
 interface InstallDialogProps {
@@ -23,7 +24,7 @@ export function InstallDialog({
 
   async function copyAddress() {
     try {
-      await navigator.clipboard.writeText("https://shallower-yin.github.io/semester-schedule-pwa/");
+      await navigator.clipboard.writeText(appMirrorUrl);
       setCopied(true);
     } catch {
       setCopied(false);

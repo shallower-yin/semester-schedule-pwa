@@ -18,8 +18,26 @@ vi.mock("../lib/feedback", async (importOriginal) => {
 
 import { FeedbackDialog } from "./FeedbackDialog";
 
+function setMobileMode(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockImplementation(() => ({
+      matches,
+      media: "(max-width: 900px), (pointer: coarse)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  });
+  Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, value: matches ? 1 : 0 });
+}
+
 describe("意见反馈通道", () => {
   beforeEach(() => {
+    setMobileMode(false);
     listMyFeedbackMock.mockReset().mockResolvedValue([]);
     submitFeedbackMock.mockReset().mockResolvedValue({
       id: "feedback-1",
@@ -42,6 +60,7 @@ describe("意见反馈通道", () => {
   });
 
   it("登录用户可以提交正文和图片附件", async () => {
+    setMobileMode(true);
     const { container } = render(<FeedbackDialog userId="user-1" userEmail="user@example.com" onRequestLogin={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(listMyFeedbackMock).toHaveBeenCalledWith("user-1"));
 

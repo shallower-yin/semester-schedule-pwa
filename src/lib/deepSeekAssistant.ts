@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import type { ScheduleAssistantInput } from "./scheduleAssistant";
-import { addDays, courseScheduleOccursOn, eventOccursOn, toISODate } from "./date";
+import { addDays, courseScheduleOccursOn, eventOccursOn, parseLocalDate, startOfWeek, toISODate } from "./date";
 import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
 import type { AnniversaryKind, EventRecurrenceType } from "../types";
@@ -74,20 +74,71 @@ export interface DeepSeekAssistantHistoryMessage {
   content: string;
 }
 
-export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
+export interface AiRequestedTimeScope {
+  label: string;
+  startDate: string;
+  endDate: string;
+}
+
+export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, question = "") {
   const now = input.now ?? new Date();
   const today = toBeijingISODate(now);
-  const beijingToday = new Date(`${today}T00:00:00+08:00`);
-  const from = addDays(beijingToday, -7);
-  const to = addDays(beijingToday, 14);
+  const beijingToday = parseLocalDate(today);
+  const requestedTimeScope = resolveAiRequestedTimeScope(question, beijingToday);
+  const calendarFrom = requestedTimeScope ? parseLocalDate(requestedTimeScope.startDate) : addDays(beijingToday, -7);
+  const calendarTo = requestedTimeScope ? parseLocalDate(requestedTimeScope.endDate) : addDays(beijingToday, 14);
   const semester = input.semester;
   const courseMap = new Map(input.courses.filter((course) => !course.deleted_at).map((course) => [course.id, course]));
   const categoryMap = new Map(input.categories.filter((category) => !category.deleted_at).map((category) => [category.id, category]));
+  const periodMap = new Map(input.periods.filter((period) => !period.deleted_at && period.kind === "period").map((period) => [`${period.weekday}:${period.period_number}`, period]));
+  const calendarDays = Array.from(
+    { length: Math.max(1, differenceInDays(calendarTo, calendarFrom) + 1) },
+    (_, index) => addDays(calendarFrom, index)
+  ).map((date) => {
+    const dateText = toISODate(date);
+    return {
+      date: dateText,
+      courses: semester ? input.schedules.flatMap((schedule) => {
+        if (schedule.deleted_at || !courseScheduleOccursOn(schedule, semester, date)) return [];
+        if (input.cancellations.some((item) => item.course_schedule_id === schedule.id && item.occurrence_date === dateText && !item.deleted_at)) return [];
+        const course = courseMap.get(schedule.course_id);
+        if (!course) return [];
+        const startPeriod = periodMap.get(`${schedule.weekday}:${schedule.start_period}`);
+        const endPeriod = periodMap.get(`${schedule.weekday}:${schedule.end_period}`);
+        return [{
+          title: course.name,
+          teacher: course.teacher,
+          classroom: course.classroom,
+          period: `${schedule.start_period}-${schedule.end_period}`,
+          time: startPeriod && endPeriod ? `${startPeriod.start_time}-${endPeriod.end_time}` : ""
+        }];
+      }) : [],
+      events: input.events.flatMap((eventItem) => {
+        if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return [];
+        const completion = eventCompletionForDate(eventItem, input.occurrenceStates, date);
+        return [{
+          title: eventItem.title,
+          type: eventItem.event_type,
+          time: eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`,
+          category: eventItem.category_id ? categoryMap.get(eventItem.category_id)?.name ?? "未知分类" : "未分类",
+          location: eventItem.location ?? "",
+          completed: completion.completed,
+          note: eventItem.note
+        }];
+      })
+    };
+  });
   return {
     generatedAt: now.toISOString(),
     generatedAtBeijing: now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }),
     today,
     timezone: "Asia/Shanghai",
+    requestedTimeScope,
+    timeRules: [
+      "涉及今天、本周、下周等时间范围时，只能使用 requestedTimeScope 内 calendarDays 中实际发生的记录。",
+      "courseTemplates 只是课程重复模板，不能证明某门课在具体日期实际发生。",
+      "不得把 requestedTimeScope 之外的课程、事项或习惯加入回答、计划或思维导图。"
+    ],
     appGuide: [
       "AI 助手可以查询日程、检查冲突、查未完成、汇总专注，也可以回答本工具怎么使用。",
       "可以创建普通事项、习惯、纪念日、生日、节日和备忘录。",
@@ -112,7 +163,7 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
       startDate: semester.start_date,
       totalWeeks: semester.total_weeks
     } : null,
-    courses: input.courses.filter((course) => !course.deleted_at).map((course) => ({
+    courseTemplates: requestedTimeScope ? [] : input.courses.filter((course) => !course.deleted_at).map((course) => ({
       name: course.name,
       teacher: course.teacher,
       classroom: course.classroom,
@@ -124,38 +175,8 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
         weeks: schedule.weeks
       }))
     })),
-    upcomingDays: Array.from({ length: 15 }, (_, index) => addDays(beijingToday, index)).map((date) => {
-      const dateText = toISODate(date);
-      return {
-        date: dateText,
-        courses: semester ? input.schedules.flatMap((schedule) => {
-          if (schedule.deleted_at || !courseScheduleOccursOn(schedule, semester, date)) return [];
-          if (input.cancellations.some((item) => item.course_schedule_id === schedule.id && item.occurrence_date === dateText && !item.deleted_at)) return [];
-          const course = courseMap.get(schedule.course_id);
-          if (!course) return [];
-          return [{
-            title: course.name,
-            teacher: course.teacher,
-            classroom: course.classroom,
-            period: `${schedule.start_period}-${schedule.end_period}`
-          }];
-        }) : [],
-        events: input.events.flatMap((eventItem) => {
-          if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return [];
-          const completion = eventCompletionForDate(eventItem, input.occurrenceStates, date);
-          return [{
-            title: eventItem.title,
-            type: eventItem.event_type,
-            time: eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`,
-            category: eventItem.category_id ? categoryMap.get(eventItem.category_id)?.name ?? "未知分类" : "未分类",
-            location: eventItem.location ?? "",
-            completed: completion.completed,
-            note: eventItem.note
-          }];
-        })
-      };
-    }),
-    recentEvents: input.events.filter((eventItem) => !eventItem.deleted_at && eventItem.end_date >= toISODate(from) && eventItem.start_date <= toISODate(to)).slice(0, 120).map((eventItem) => ({
+    calendarDays,
+    recentEvents: requestedTimeScope ? [] : input.events.filter((eventItem) => !eventItem.deleted_at && eventItem.end_date >= toISODate(calendarFrom) && eventItem.start_date <= toISODate(calendarTo)).slice(0, 120).map((eventItem) => ({
       title: eventItem.title,
       type: eventItem.event_type,
       startDate: eventItem.start_date,
@@ -181,6 +202,68 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput) {
     })),
     focusLast7Days: focusDailyTotals(input.focusSessions, 7, beijingToday)
   };
+}
+
+export function resolveAiRequestedTimeScope(question: string, today: Date): AiRequestedTimeScope | null {
+  const normalized = question.replace(/\s+/g, "");
+  if (!normalized) return null;
+  const weekdayScope = normalized.match(/(本周|这周|下周)([一二三四五六日天])/);
+  if (weekdayScope) {
+    const start = addDays(startOfWeek(today), weekdayScope[1] === "下周" ? 7 : 0);
+    const weekdayIndex = "一二三四五六日天".indexOf(weekdayScope[2]);
+    const date = addDays(start, Math.min(6, weekdayIndex));
+    return timeScope(`${weekdayScope[1]}${weekdayScope[2]}`, date, date);
+  }
+  if (/(本周|这周)/.test(normalized)) {
+    const start = startOfWeek(today);
+    return timeScope("本周", start, addDays(start, 6));
+  }
+  if (/下周/.test(normalized)) {
+    const start = addDays(startOfWeek(today), 7);
+    return timeScope("下周", start, addDays(start, 6));
+  }
+  if (/后天/.test(normalized)) {
+    const date = addDays(today, 2);
+    return timeScope("后天", date, date);
+  }
+  if (/明天/.test(normalized)) {
+    const date = addDays(today, 1);
+    return timeScope("明天", date, date);
+  }
+  if (/(今天|今日)/.test(normalized)) return timeScope("今天", today, today);
+  const explicitDate = parseRequestedDate(normalized, today);
+  if (explicitDate) return timeScope(toISODate(explicitDate), explicitDate, explicitDate);
+  if (/下月/.test(normalized)) {
+    const start = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    return timeScope("下月", start, end);
+  }
+  if (/本月/.test(normalized)) {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return timeScope("本月", start, end);
+  }
+  return null;
+}
+
+function parseRequestedDate(question: string, today: Date): Date | null {
+  const full = question.match(/(\d{4})[年./-](\d{1,2})[月./-](\d{1,2})日?/);
+  const partial = question.match(/(?:^|[^\d])(\d{1,2})[月./-](\d{1,2})日?/);
+  const year = full ? Number(full[1]) : today.getFullYear();
+  const month = Number(full?.[2] ?? partial?.[1]);
+  const day = Number(full?.[3] ?? partial?.[2]);
+  if (!month || !day) return null;
+  const value = new Date(year, month - 1, day);
+  if (value.getFullYear() !== year || value.getMonth() !== month - 1 || value.getDate() !== day) return null;
+  return value;
+}
+
+function timeScope(label: string, start: Date, end: Date): AiRequestedTimeScope {
+  return { label, startDate: toISODate(start), endDate: toISODate(end) };
+}
+
+function differenceInDays(left: Date, right: Date): number {
+  return Math.round((Date.UTC(left.getFullYear(), left.getMonth(), left.getDate()) - Date.UTC(right.getFullYear(), right.getMonth(), right.getDate())) / 86_400_000);
 }
 
 function toBeijingISODate(date: Date): string {

@@ -98,6 +98,7 @@ import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
 import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
+import { isCurrentAppUrl } from "./lib/appHosting";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -539,6 +540,26 @@ export default function App() {
   async function applyAppUpdate() {
     if (updatingApp) return;
     setUpdatingApp(true);
+    if (availableRelease?.appUrl && !isCurrentAppUrl(availableRelease.appUrl)) {
+      if (!user && pendingChanges > 0) {
+        setUpdatingApp(false);
+        const message = "切换到免代理更新线路前，请先登录同步或导出 JSON 备份，避免本机数据留在旧网址。";
+        setUpdateMessage(message);
+        showToast(message, "error");
+        return;
+      }
+      if (user && pendingChanges > 0) {
+        const syncResult = await handleSync();
+        if (!syncResult) {
+          setUpdatingApp(false);
+          setUpdateMessage("同步未完成，已取消切换更新线路。");
+          return;
+        }
+      }
+      setUpdateMessage("正在切换到免代理更新线路…");
+      window.location.assign(availableRelease.appUrl);
+      return;
+    }
     setUpdateMessage("正在通知后台服务安装新版本…");
     let reloaded = false;
     let fallbackTimer: number | null = null;

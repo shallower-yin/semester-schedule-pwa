@@ -9,7 +9,7 @@ describe("更新说明弹窗", () => {
     render(
       <UpdateNotesDialog
         currentVersion="2026.07.18.1"
-        release={{ version: "2026.07.18.2", commit: "abc", title: "本次更新", notes: ["新增 AI 脑图", "修复附件选择"], publishedAt: "" }}
+        release={{ version: "2026.07.18.2", commit: "abc", title: "本次更新", notes: ["新增 AI 脑图", "修复附件选择"], publishedAt: "", appUrl: "" }}
         updating={false}
         updateMessage=""
         onSkip={onSkip}

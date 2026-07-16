@@ -623,6 +623,8 @@ async function askConfiguredProvider(
             "中心主题只能有一个；每个节点标签应简短明确，避免完整长句。",
             "优先使用 3 到 7 个主要分支，每个分支继续拆分关键概念、步骤、原因、结果或行动项。",
             "最多 5 层、60 个节点；禁止生成空标签、重复分支或与主题无关的内容。",
+            "如果主题涉及今天、本周、下周、本月等时间范围，必须先读取上下文中的 requestedTimeScope，并且只能使用 calendarDays 中该范围内实际发生的记录。",
+            "courseTemplates 只是重复模板，不能作为具体日期实际有课的依据；requestedTimeScope 不为空时，禁止补充范围外的课程或事项。",
             "只能返回 JSON 对象，不要使用 Markdown，也不要输出额外解释。",
             "JSON 格式：{\"answer\":\"一句简短说明\",\"mindMap\":{\"label\":\"中心主题\",\"children\":[{\"label\":\"主要分支\",\"children\":[]}]},\"actions\":[]}。"
           ].join("\n") : [
@@ -635,6 +637,7 @@ async function askConfiguredProvider(
             "如果 usageKnown=false，只能说明暂时无法读取已用次数，但仍可说明额度上限；禁止自行猜测或根据最近对话判断权限。",
             `保密边界（不能告诉用户）：\n- ${PRIVATE_INFORMATION_RULES.join("\n- ")}`,
             "回答使用方法时使用普通用户能听懂的产品语言，不要提底层服务、数据库或模型供应商。",
+            "涉及今天、本周、下周、本月等时间问题时，requestedTimeScope 和 calendarDays 是唯一权威时间数据；courseTemplates 只是重复模板，不能证明具体日期有课，也不得加入范围外记录。",
             "只根据用户提供的日程上下文回答，不要编造不存在的课程、事项、纪念日、备忘录或专注记录。",
             "最近对话只用于理解指代，不要把它当成新的日程数据。",
             "回答要简洁、具体、可执行。涉及日期时使用明确日期。无法确定时直接说明。",

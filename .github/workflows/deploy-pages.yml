@@ -40,6 +40,8 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+          VITE_APP_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/storage/v1/object/public/app-hosting/index.html
+          VITE_APP_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/storage/v1/object/public/app-hosting/index.html
         run: npm run build
 
       - name: Configure Pages
@@ -49,6 +51,25 @@ jobs:
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
+
+      - name: Build no-proxy mirror
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+          VITE_APP_BASE: /storage/v1/object/public/app-hosting/
+          VITE_APP_START_URL: /storage/v1/object/public/app-hosting/index.html
+          VITE_APP_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/storage/v1/object/public/app-hosting/index.html
+          VITE_APP_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/storage/v1/object/public/app-hosting/index.html
+          VITE_OUT_DIR: dist-mirror
+        run: npm run build
+
+      - name: Deploy no-proxy mirror
+        env:
+          SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STATIC_SOURCE_DIR: dist-mirror
+        run: node scripts/deploy-static-mirror.mjs
 
   deploy:
     environment:

@@ -6,7 +6,8 @@ const release: AppRelease = {
   commit: "abc1234",
   title: "功能更新",
   notes: ["新增功能"],
-  publishedAt: "2026-07-18T00:00:00.000Z"
+  publishedAt: "2026-07-18T00:00:00.000Z",
+  appUrl: "https://example.com/app/"
 };
 
 describe("版本更新说明", () => {

@@ -46,8 +46,26 @@ const emptyInput: ScheduleAssistantInput = {
   focusSessions: []
 };
 
+function setMobileMode(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockImplementation(() => ({
+      matches,
+      media: "(max-width: 900px), (pointer: coarse)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  });
+  Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, value: matches ? 1 : 0 });
+}
+
 describe("AI 助手消息编辑", () => {
   beforeEach(async () => {
+    setMobileMode(false);
     localStorage.clear();
     await db.aiAttachmentContexts.clear();
     askDeepSeekAssistantMock.mockReset();
@@ -105,6 +123,7 @@ describe("AI 助手消息编辑", () => {
   });
 
   it("只有 MiMo 2.5 模式显示图片和文档入口", async () => {
+    setMobileMode(true);
     getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
 

@@ -16,6 +16,7 @@ export interface MindMapLayoutNode {
   id: string;
   label: string;
   depth: number;
+  side: -1 | 0 | 1;
   x: number;
   y: number;
   width: number;
@@ -38,6 +39,9 @@ export interface MindMapLayout {
 const HORIZONTAL_STEP = 230;
 const VERTICAL_STEP = 82;
 const NODE_HEIGHT = 58;
+const ROOT_WIDTH = 190;
+const NODE_WIDTH = 176;
+const CANVAS_MARGIN = 44;
 
 export async function askAiMindMap(input: {
   prompt: string;
@@ -63,36 +67,79 @@ export async function askAiMindMap(input: {
 export function buildMindMapLayout(root: AiMindMapNode): MindMapLayout {
   const nodes: MindMapLayoutNode[] = [];
   const edges: MindMapLayoutEdge[] = [];
-  let leafIndex = 0;
-  let maxDepth = 0;
+  const branchSides = balanceRootBranches(root.children);
+  const maxDepth = Math.max(1, ...root.children.map((child) => treeDepth(child)));
+  const leftBranches = root.children.flatMap((child, index) => branchSides[index] === -1 ? [{ child, index }] : []);
+  const rightBranches = root.children.flatMap((child, index) => branchSides[index] === 1 ? [{ child, index }] : []);
+  const leftLeaves = Math.max(1, leftBranches.reduce((sum, item) => sum + leafCount(item.child), 0));
+  const rightLeaves = Math.max(1, rightBranches.reduce((sum, item) => sum + leafCount(item.child), 0));
+  const maxLeaves = Math.max(leftLeaves, rightLeaves);
+  const height = Math.max(260, CANVAS_MARGIN * 2 + (maxLeaves - 1) * VERTICAL_STEP + NODE_HEIGHT);
+  const width = Math.max(760, 2 * (CANVAS_MARGIN + maxDepth * HORIZONTAL_STEP + NODE_WIDTH / 2));
+  const rootCenterX = width / 2;
+  const rootCenterY = height / 2;
 
-  function visit(node: AiMindMapNode, depth: number, path: string): MindMapLayoutNode {
-    maxDepth = Math.max(maxDepth, depth);
-    const children = node.children.map((child, index) => visit(child, depth + 1, `${path}-${index}`));
-    const y = children.length
-      ? children.reduce((sum, child) => sum + child.y, 0) / children.length
-      : 36 + leafIndex++ * VERTICAL_STEP;
-    const layoutNode: MindMapLayoutNode = {
-      id: path,
-      label: node.label,
-      depth,
-      x: 32 + depth * HORIZONTAL_STEP,
-      y,
-      width: depth === 0 ? 190 : 176,
-      height: NODE_HEIGHT
-    };
-    nodes.push(layoutNode);
-    children.forEach((child) => edges.push({ id: `${path}:${child.id}`, from: layoutNode, to: child }));
-    return layoutNode;
+  function layoutSide(branches: Array<{ child: AiMindMapNode; index: number }>, side: -1 | 1, sideLeaves: number) {
+    let leafIndex = 0;
+    const verticalOffset = CANVAS_MARGIN + (maxLeaves - sideLeaves) * VERTICAL_STEP / 2;
+
+    function visit(node: AiMindMapNode, depth: number, path: string): MindMapLayoutNode {
+      const children = node.children.map((child, index) => visit(child, depth + 1, `${path}-${index}`));
+      const centerY = children.length
+        ? children.reduce((sum, child) => sum + child.y + child.height / 2, 0) / children.length
+        : verticalOffset + NODE_HEIGHT / 2 + leafIndex++ * VERTICAL_STEP;
+      const centerX = rootCenterX + side * depth * HORIZONTAL_STEP;
+      const layoutNode: MindMapLayoutNode = {
+        id: path,
+        label: node.label,
+        depth,
+        side,
+        x: centerX - NODE_WIDTH / 2,
+        y: centerY - NODE_HEIGHT / 2,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT
+      };
+      nodes.push(layoutNode);
+      children.forEach((child) => edges.push({ id: `${path}:${child.id}`, from: layoutNode, to: child }));
+      return layoutNode;
+    }
+
+    return branches.map(({ child, index }) => visit(child, 1, `root-${index}`));
   }
 
-  visit(root, 0, "root");
+  const leftNodes = layoutSide(leftBranches, -1, leftLeaves);
+  const rightNodes = layoutSide(rightBranches, 1, rightLeaves);
+  const rootNode: MindMapLayoutNode = {
+    id: "root",
+    label: root.label,
+    depth: 0,
+    side: 0,
+    x: rootCenterX - ROOT_WIDTH / 2,
+    y: rootCenterY - NODE_HEIGHT / 2,
+    width: ROOT_WIDTH,
+    height: NODE_HEIGHT
+  };
+  nodes.push(rootNode);
+  [...leftNodes, ...rightNodes].forEach((child) => edges.push({ id: `root:${child.id}`, from: rootNode, to: child }));
+
   return {
-    width: Math.max(520, 32 + maxDepth * HORIZONTAL_STEP + 230),
-    height: Math.max(220, 72 + Math.max(1, leafIndex) * VERTICAL_STEP),
+    width,
+    height,
     nodes,
     edges
   };
+}
+
+export function mindMapEdgePath(edge: MindMapLayoutEdge): string {
+  const side = edge.to.side || edge.from.side || 1;
+  const x1 = side === 1 ? edge.from.x + edge.from.width : edge.from.x;
+  const y1 = edge.from.y + edge.from.height / 2;
+  const x2 = side === 1 ? edge.to.x : edge.to.x + edge.to.width;
+  const y2 = edge.to.y + edge.to.height / 2;
+  const control = Math.max(45, Math.abs(x2 - x1) * 0.45);
+  return side === 1
+    ? `M ${x1} ${y1} C ${x1 + control} ${y1}, ${x2 - control} ${y2}, ${x2} ${y2}`
+    : `M ${x1} ${y1} C ${x1 - control} ${y1}, ${x2 + control} ${y2}, ${x2} ${y2}`;
 }
 
 export function splitMindMapLabel(label: string, maxUnits = 14): string[] {
@@ -121,14 +168,9 @@ export function splitMindMapLabel(label: string, maxUnits = 14): string[] {
 
 export function mindMapToSvg(root: AiMindMapNode): string {
   const layout = buildMindMapLayout(root);
-  const edges = layout.edges.map((edge) => {
-    const x1 = edge.from.x + edge.from.width;
-    const y1 = edge.from.y + edge.from.height / 2;
-    const x2 = edge.to.x;
-    const y2 = edge.to.y + edge.to.height / 2;
-    const control = Math.max(45, (x2 - x1) * 0.45);
-    return `<path d="M ${x1} ${y1} C ${x1 + control} ${y1}, ${x2 - control} ${y2}, ${x2} ${y2}" fill="none" stroke="#aebbd8" stroke-width="2"/>`;
-  }).join("");
+  const edges = layout.edges.map((edge) =>
+    `<path d="${mindMapEdgePath(edge)}" fill="none" stroke="#aebbd8" stroke-width="2"/>`
+  ).join("");
   const nodes = layout.nodes.map((node) => {
     const colors = node.depth === 0
       ? { fill: "#3157d5", stroke: "#3157d5", text: "#ffffff" }
@@ -147,12 +189,32 @@ export function mindMapToSvg(root: AiMindMapNode): string {
 
 export function downloadMindMapSvg(root: AiMindMapNode) {
   const blob = new Blob([mindMapToSvg(root)], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${safeFileName(root.label)}-思维导图.svg`;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, `${safeFileName(root.label)}-思维导图.svg`);
+}
+
+export async function downloadMindMapPng(root: AiMindMapNode): Promise<void> {
+  const layout = buildMindMapLayout(root);
+  const maxDimension = 4096;
+  const scale = Math.min(2, maxDimension / layout.width, maxDimension / layout.height);
+  const width = Math.max(1, Math.round(layout.width * scale));
+  const height = Math.max(1, Math.round(layout.height * scale));
+  const source = new Blob([mindMapToSvg(root)], { type: "image/svg+xml;charset=utf-8" });
+  const sourceUrl = URL.createObjectURL(source);
+  try {
+    const image = await loadImage(sourceUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("当前浏览器无法生成 PNG 图片。");
+    context.fillStyle = "#f7f8fc";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    const blob = await canvasToBlob(canvas);
+    downloadBlob(blob, `${safeFileName(root.label)}-思维导图.png`);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
 }
 
 async function mindMapFunctionError(error: unknown): Promise<string> {
@@ -181,4 +243,50 @@ function escapeXml(value: string): string {
 
 function safeFileName(value: string): string {
   return value.replace(/[\\/:*?"<>|]/g, "-").trim() || "AI脑图";
+}
+
+function leafCount(node: AiMindMapNode): number {
+  if (!node.children.length) return 1;
+  return node.children.reduce((sum, child) => sum + leafCount(child), 0);
+}
+
+function treeDepth(node: AiMindMapNode): number {
+  if (!node.children.length) return 1;
+  return 1 + Math.max(...node.children.map(treeDepth));
+}
+
+function balanceRootBranches(children: AiMindMapNode[]): Array<-1 | 1> {
+  let leftWeight = 0;
+  let rightWeight = 0;
+  return children.map((child, index) => {
+    const weight = leafCount(child);
+    const side: -1 | 1 = index === 0 || leftWeight <= rightWeight ? -1 : 1;
+    if (side === -1) leftWeight += weight;
+    else rightWeight += weight;
+    return side;
+  });
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("思维导图图片渲染失败。"));
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG 图片生成失败。")), "image/png", 0.95);
+  });
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }

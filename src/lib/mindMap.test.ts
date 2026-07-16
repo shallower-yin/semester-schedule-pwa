@@ -14,8 +14,11 @@ describe("思维导图布局", () => {
     const layout = buildMindMapLayout(map);
     expect(layout.nodes).toHaveLength(7);
     expect(layout.edges).toHaveLength(6);
-    expect(new Set(layout.nodes.map((node) => node.y)).size).toBeGreaterThan(4);
-    expect(layout.width).toBeGreaterThan(500);
+    const root = layout.nodes.find((node) => node.side === 0)!;
+    expect(layout.nodes.some((node) => node.side === -1 && node.x < root.x)).toBe(true);
+    expect(layout.nodes.some((node) => node.side === 1 && node.x > root.x)).toBe(true);
+    expect(new Set(layout.nodes.map((node) => `${node.side}:${node.x}:${node.y}`)).size).toBe(layout.nodes.length);
+    expect(layout.width).toBeGreaterThan(700);
   });
 
   it("长标题分行并可导出完整 SVG", () => {

@@ -6,7 +6,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 export default defineConfig(() => {
-  const base = process.env.GITHUB_ACTIONS ? "/semester-schedule-pwa/" : "/";
+  const base = process.env.VITE_APP_BASE?.trim() || (process.env.GITHUB_ACTIONS ? "/semester-schedule-pwa/" : "/");
+  const appStartUrl = process.env.VITE_APP_START_URL?.trim() || base;
+  const appUrl = process.env.VITE_APP_URL?.trim() || "";
+  const outDir = process.env.VITE_OUT_DIR?.trim() || "dist";
   const releaseDate = process.env.VITE_APP_VERSION_DATE ?? formatShanghaiDate();
   const releaseSequence = process.env.VITE_APP_VERSION_SEQUENCE ?? dailyCommitSequence(releaseDate);
   const appVersion = `${releaseDate}.${releaseSequence}`;
@@ -17,7 +20,8 @@ export default defineConfig(() => {
     commit: appCommit,
     title: releaseNotes.title,
     notes: releaseNotes.notes,
-    publishedAt: new Date().toISOString()
+    publishedAt: new Date().toISOString(),
+    appUrl
   }, null, 2);
 
   return {
@@ -27,6 +31,7 @@ export default defineConfig(() => {
       __APP_COMMIT__: JSON.stringify(appCommit)
     },
     build: {
+      outDir,
       rollupOptions: {
         output: {
           manualChunks: {
@@ -65,7 +70,7 @@ export default defineConfig(() => {
           background_color: "#f7f8fc",
           lang: "zh-CN",
           display: "standalone",
-          start_url: base,
+          start_url: appStartUrl,
           scope: base,
           launch_handler: {
             client_mode: ["navigate-existing", "auto"]
