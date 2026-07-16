@@ -1,12 +1,13 @@
-import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, Paperclip, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
+import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
-import { AI_ATTACHMENT_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
+import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
 import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
+import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
 
 interface Message {
   id: string;
@@ -42,7 +43,6 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const editingRef = useRef<HTMLTextAreaElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
 
   useEffect(() => {
@@ -133,7 +133,6 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       showToast(error instanceof Error ? error.message : "读取附件失败。", "error");
     } finally {
       setPreparingAttachment(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -291,18 +290,21 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
             placeholder="例如：创建端午节，或明天 9:00 添加交作业"
             onChange={(event) => setQuestion(event.target.value)}
           />
-          {configuration.supportsAttachments && (
-            <>
-              <input ref={fileInputRef} className="visually-hidden" type="file" multiple accept={AI_ATTACHMENT_ACCEPT} onChange={(event) => void addAttachments(event.target.files)} />
-              <button type="button" className="button secondary assistant-attachment-button" title="导入图片或文档" aria-label="导入图片或文档" disabled={loading || preparingAttachment || contextAttachments.length + attachments.length >= 3} onClick={() => fileInputRef.current?.click()}>
-                <Paperclip size={16} /><span>{preparingAttachment ? "读取中" : "附件"}</span>
-              </button>
-            </>
-          )}
-          <button className="button primary assistant-send-button" disabled={loading || Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
-          {messages.length > 0 && (
-            <button type="button" className="button secondary assistant-clear-button" aria-label="删除对话" disabled={loading || Boolean(editingMessageId)} onClick={clearHistory}><Trash2 size={15} /><span>删除</span></button>
-          )}
+          <div className="assistant-composer-actions">
+            <button type="button" className="button secondary assistant-clear-button" aria-label="删除对话" disabled={loading || Boolean(editingMessageId) || messages.length === 0} onClick={clearHistory}><Trash2 size={15} /><span>删除</span></button>
+            {configuration.supportsAttachments && (
+              <AttachmentSourcePicker
+                className="assistant-attachment-button"
+                imageAccept={AI_IMAGE_ACCEPT}
+                documentAccept={AI_DOCUMENT_ACCEPT}
+                label={preparingAttachment ? "读取中" : "附件"}
+                ariaLabel="导入图片或文档"
+                disabled={loading || preparingAttachment || contextAttachments.length + attachments.length >= 3}
+                onFiles={addAttachments}
+              />
+            )}
+            <button className="button primary assistant-send-button" disabled={loading || Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
+          </div>
         </form>
       </div>
     </Modal>

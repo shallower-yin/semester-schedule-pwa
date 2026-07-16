@@ -1,14 +1,18 @@
-export type HeaderToolId = "account" | "scheduleAssistant" | "aiAssistant" | "quickEntry" | "search";
+export type HeaderToolId = "account" | "scheduleAssistant" | "aiAssistant" | "mindMap" | "quickEntry" | "search";
 
 const STORAGE_KEY = "semester-schedule-header-tools";
+const LEGACY_DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"];
 
-export const DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"];
+export const DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "mindMap", "quickEntry", "search"];
 
 export function loadHeaderToolSettings(): HeaderToolId[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as unknown;
     if (!Array.isArray(parsed)) return DEFAULT_HEADER_TOOLS;
     const valid = parsed.filter((item): item is HeaderToolId => DEFAULT_HEADER_TOOLS.includes(item as HeaderToolId));
+    if (valid.length === LEGACY_DEFAULT_HEADER_TOOLS.length && LEGACY_DEFAULT_HEADER_TOOLS.every((item, index) => valid[index] === item)) {
+      return DEFAULT_HEADER_TOOLS;
+    }
     return Array.from(new Set(valid));
   } catch {
     return DEFAULT_HEADER_TOOLS;

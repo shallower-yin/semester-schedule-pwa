@@ -48,13 +48,14 @@ export async function submitFeedback(input: { userId: string; userEmail?: string
   try {
     for (const file of files) {
       const path = `${input.userId}/${feedbackId}/${crypto.randomUUID()}${safeExtension(file.name)}`;
+      const contentType = feedbackFileType(file);
       const { error } = await supabase.storage.from(FEEDBACK_BUCKET).upload(path, file, {
-        contentType: file.type,
+        contentType,
         cacheControl: "3600",
         upsert: false
       });
       if (error) throw new Error(error.message || `上传 ${file.name} 失败。`);
-      uploaded.push({ name: file.name, path, mimeType: file.type, size: file.size });
+      uploaded.push({ name: file.name, path, mimeType: contentType, size: file.size });
     }
 
     const { data, error } = await supabase.from("user_feedback").insert({
@@ -126,8 +127,22 @@ export function formatFeedbackFileSize(bytes: number): string {
 }
 
 function validateFeedbackFile(file: File) {
-  if (!ALLOWED_TYPES.has(file.type)) throw new Error(`${file.name} 的格式不支持，请上传图片、PDF、TXT 或 Word 文档。`);
+  if (!ALLOWED_TYPES.has(feedbackFileType(file))) throw new Error(`${file.name} 的格式不支持，请上传图片、PDF、TXT 或 Word 文档。`);
   if (file.size > MAX_FILE_SIZE) throw new Error(`${file.name} 超过 10 MB。`);
+}
+
+function feedbackFileType(file: File): string {
+  if (ALLOWED_TYPES.has(file.type)) return file.type;
+  const extension = safeExtension(file.name);
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".pdf") return "application/pdf";
+  if (extension === ".txt") return "text/plain";
+  if (extension === ".doc") return "application/msword";
+  if (extension === ".docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  return file.type;
 }
 
 function normalizeFeedback(value: unknown): UserFeedback {

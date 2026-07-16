@@ -1,5 +1,5 @@
 import { FileText, Image as ImageIcon, LogIn, MessageSquareText, Paperclip, Send, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   feedbackStatusLabel,
   formatFeedbackFileSize,
@@ -10,6 +10,7 @@ import {
 } from "../lib/feedback";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
+import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
 
 interface FeedbackDialogProps {
   userId: string | null;
@@ -24,7 +25,6 @@ export function FeedbackDialog({ userId, userEmail, onRequestLogin, onClose }: F
   const [records, setRecords] = useState<UserFeedback[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -34,7 +34,6 @@ export function FeedbackDialog({ userId, userEmail, onRequestLogin, onClose }: F
   function addFiles(fileList: FileList | null) {
     if (!fileList?.length) return;
     setFiles((current) => [...current, ...Array.from(fileList)].slice(0, 3));
-    if (inputRef.current) inputRef.current.value = "";
   }
 
   async function submit() {
@@ -80,8 +79,14 @@ export function FeedbackDialog({ userId, userEmail, onRequestLogin, onClose }: F
               ))}
             </div>
             <div className="feedback-actions">
-              <input ref={inputRef} className="visually-hidden" type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => addFiles(event.target.files)} />
-              <button className="button secondary" disabled={loading || files.length >= 3} onClick={() => inputRef.current?.click()}><Paperclip size={16} />附件 {files.length}/3</button>
+              <AttachmentSourcePicker
+                imageAccept="image/jpeg,image/png,image/webp,image/gif"
+                documentAccept="application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.txt,.doc,.docx"
+                label={`附件 ${files.length}/3`}
+                ariaLabel="选择反馈附件来源"
+                disabled={loading || files.length >= 3}
+                onFiles={addFiles}
+              />
               <button className="button primary" disabled={loading || content.trim().length < 2} onClick={() => void submit()}><Send size={16} />{loading ? "提交中" : "提交反馈"}</button>
             </div>
             <p className="form-hint">附件存入私有文件空间，不写入日程数据库；单个文件不超过 10 MB。</p>

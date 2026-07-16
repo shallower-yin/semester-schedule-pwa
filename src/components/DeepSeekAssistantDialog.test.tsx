@@ -108,7 +108,16 @@ describe("AI 助手消息编辑", () => {
     getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
 
-    expect(await screen.findByRole("button", { name: "导入图片或文档" })).toBeInTheDocument();
+    const attachmentButton = await screen.findByRole("button", { name: "导入图片或文档" });
+    fireEvent.click(attachmentButton);
+    expect(screen.getByRole("menuitem", { name: /相册/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /拍照/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /文件/ })).toBeInTheDocument();
+  });
+
+  it("手机底部始终保留删除对话按钮", async () => {
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "删除对话" })).toBeInTheDocument();
   });
 
   it("发送完成后把消息区滚动到最新一轮", async () => {

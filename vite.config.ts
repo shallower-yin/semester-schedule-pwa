@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 export default defineConfig(() => {
   const base = process.env.GITHUB_ACTIONS ? "/semester-schedule-pwa/" : "/";
@@ -9,6 +11,14 @@ export default defineConfig(() => {
   const releaseSequence = process.env.VITE_APP_VERSION_SEQUENCE ?? dailyCommitSequence(releaseDate);
   const appVersion = `${releaseDate}.${releaseSequence}`;
   const appCommit = shortCommitHash();
+  const releaseNotes = loadReleaseNotes();
+  const releaseManifest = JSON.stringify({
+    version: appVersion,
+    commit: appCommit,
+    title: releaseNotes.title,
+    notes: releaseNotes.notes,
+    publishedAt: new Date().toISOString()
+  }, null, 2);
 
   return {
     base,
@@ -29,6 +39,20 @@ export default defineConfig(() => {
     },
     plugins: [
       react(),
+      {
+        name: "release-manifest",
+        configureServer(server) {
+          server.middlewares.use((request, response, next) => {
+            if (request.url?.split("?")[0] !== "/release.json") return next();
+            response.setHeader("content-type", "application/json; charset=utf-8");
+            response.setHeader("cache-control", "no-store");
+            response.end(releaseManifest);
+          });
+        },
+        generateBundle() {
+          this.emitFile({ type: "asset", fileName: "release.json", source: releaseManifest });
+        }
+      },
       VitePWA({
         registerType: "prompt",
         includeAssets: ["favicon.svg", "app-icon-192.png", "app-icon-512.png", "push-sw.js"],
@@ -110,4 +134,16 @@ function runGit(args: string[]): string {
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
+}
+
+function loadReleaseNotes(): { title: string; notes: string[] } {
+  try {
+    const parsed = JSON.parse(readFileSync(resolve(process.cwd(), "release-notes.json"), "utf8")) as { title?: unknown; notes?: unknown };
+    return {
+      title: typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : "版本更新",
+      notes: Array.isArray(parsed.notes) ? parsed.notes.map(String).filter(Boolean).slice(0, 12) : []
+    };
+  } catch {
+    return { title: "版本更新", notes: ["优化应用体验并修复已知问题。"] };
+  }
 }

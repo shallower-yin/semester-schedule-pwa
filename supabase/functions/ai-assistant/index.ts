@@ -1,5 +1,6 @@
 interface AiAssistantRequest {
   action?: "configuration";
+  mode?: "assistant" | "mind_map";
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
@@ -71,6 +72,7 @@ interface AiCreateMemoAction {
 interface AiAssistantResponse {
   answer: string;
   actions: AiAssistantAction[];
+  mindMap?: AiMindMapNode;
   model: string;
   usage: AiAssistantUsage;
 }
@@ -78,6 +80,12 @@ interface AiAssistantResponse {
 interface ParsedAssistantResponse {
   answer: string;
   actions: AiAssistantAction[];
+  mindMap?: AiMindMapNode;
+}
+
+interface AiMindMapNode {
+  label: string;
+  children: AiMindMapNode[];
 }
 
 interface AiAssistantHistoryMessage {
@@ -167,7 +175,8 @@ const PUBLIC_PRODUCT_RULES = [
   "AI 助手当前可查询用户提供的日程上下文，并创建普通事项、习惯、纪念日、生日、节日和备忘录；不能直接修改、删除或完成已有记录，也不能更改账号、权限、额度或系统设置。",
   "AI 权限分普通用户、会员和管理员：普通用户与会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验，不会把账号变成会员。",
   "编辑已发送的用户消息会从该轮重新生成并截断其后的旧对话，每次重新发送都按一次新的成功请求计入额度。",
-  "管理员可在后台统一选择 AI 提供商和模型；选择支持附件的模型后，AI 助手可读取图片，以及从 PDF、DOCX、TXT、Markdown、CSV 中提取的文字来创建记录。"
+  "管理员可在后台统一选择 AI 提供商和模型；选择支持附件的模型后，AI 助手可读取图片，以及从 PDF、DOCX、TXT、Markdown、CSV 中提取的文字来创建记录。",
+  "AI 思维导图使用管理员当前选择的 AI 模型，可把用户输入的主题、图片或文档整理为树形脑图，并支持在本地缩放和导出；每次成功生成计入一次 AI 额度。"
 ];
 
 const PRIVATE_INFORMATION_RULES = [
@@ -264,7 +273,8 @@ Deno.serve(async (request) => {
     const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
     const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)));
     const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
-    const assistantResponse = await askConfiguredProvider(question, body.scheduleContext, history, quotaStatus, settings, attachments);
+    const mode = body.mode === "mind_map" ? "mind_map" : "assistant";
+    const assistantResponse = await askConfiguredProvider(question, body.scheduleContext, history, quotaStatus, settings, attachments, mode);
     await logAiAssistantUsage({
       userId: user.id,
       status: "success",
@@ -277,6 +287,7 @@ Deno.serve(async (request) => {
     return jsonResponse({
       answer: assistantResponse.answer,
       actions: assistantResponse.actions,
+      mindMap: assistantResponse.mindMap,
       access: access.method,
       accessBound: false,
       quota: quotaStatus
@@ -559,7 +570,8 @@ async function askConfiguredProvider(
   history: AiAssistantHistoryMessage[],
   quotaStatus: AiPublicQuotaStatus,
   settings: AiSettingsRow | null,
-  attachments: AiAssistantAttachment[]
+  attachments: AiAssistantAttachment[],
+  mode: "assistant" | "mind_map"
 ): Promise<AiAssistantResponse> {
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const { apiKey, endpoint } = configuredProviderCredentials(provider, settings);
@@ -584,7 +596,9 @@ async function askConfiguredProvider(
     .filter((attachment) => attachment.kind === "document" && attachment.text)
     .map((attachment) => `文档 ${attachment.name ?? "未命名"}：\n${attachment.text}`)
     .join("\n\n");
-  const userText = `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户问题：${question}`;
+  const userText = mode === "mind_map"
+    ? `${contextText && contextText !== "{}" ? `可参考的当前用户信息：\n${contextText}\n\n` : ""}${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}需要生成思维导图的主题或内容：${question}`
+    : `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户问题：${question}`;
   const userContent: string | Array<Record<string, unknown>> = attachments.some((attachment) => attachment.kind === "image")
     ? [
       ...attachments.flatMap((attachment) => attachment.kind === "image" && attachment.dataUrl ? [{ type: "image_url", image_url: { url: attachment.dataUrl } }] : []),
@@ -603,7 +617,15 @@ async function askConfiguredProvider(
       messages: [
         {
           role: "system",
-          content: [
+          content: mode === "mind_map" ? [
+            "你是专业的思维导图整理助手。",
+            "请根据用户主题、文字、图片或文档，提炼一棵结构清楚、层级合理的思维导图。",
+            "中心主题只能有一个；每个节点标签应简短明确，避免完整长句。",
+            "优先使用 3 到 7 个主要分支，每个分支继续拆分关键概念、步骤、原因、结果或行动项。",
+            "最多 5 层、60 个节点；禁止生成空标签、重复分支或与主题无关的内容。",
+            "只能返回 JSON 对象，不要使用 Markdown，也不要输出额外解释。",
+            "JSON 格式：{\"answer\":\"一句简短说明\",\"mindMap\":{\"label\":\"中心主题\",\"children\":[{\"label\":\"主要分支\",\"children\":[]}]},\"actions\":[]}。"
+          ].join("\n") : [
             "你是日程计划表的 AI 助手。",
             `当前北京时间：${beijingNow}。所有“今天、明天、今年、下周”等相对时间都必须按北京时间理解。`,
             "你可以根据当前用户提供的数据回答安排、冲突、未完成、专注统计、纪念日和备忘录，也可以准确回答本工具的公开功能、权限和额度规则。",
@@ -641,8 +663,8 @@ async function askConfiguredProvider(
         }
       ],
       thinking: { type: "disabled" },
-      temperature: 0.2,
-      max_tokens: 900,
+      temperature: mode === "mind_map" ? 0.3 : 0.2,
+      max_tokens: mode === "mind_map" ? 1600 : 900,
       stream: false
     })
   });
@@ -655,10 +677,46 @@ async function askConfiguredProvider(
   const content = data.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("AI 助手没有返回有效回答。");
   return {
-    ...parseAssistantResponse(content, question),
+    ...(mode === "mind_map" ? parseMindMapResponse(content) : parseAssistantResponse(content, question)),
     model,
     usage: normalizeUsage(data.usage)
   };
+}
+
+function parseMindMapResponse(content: string): ParsedAssistantResponse {
+  const cleaned = content
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  let parsed: { answer?: unknown; mindMap?: unknown };
+  try {
+    parsed = JSON.parse(cleaned) as { answer?: unknown; mindMap?: unknown };
+  } catch {
+    throw new Error("AI 返回的思维导图格式无效，请重新生成。");
+  }
+  const budget = { remaining: 60 };
+  const mindMap = sanitizeMindMapNode(parsed.mindMap, 0, budget);
+  if (!mindMap) throw new Error("AI 没有返回有效的思维导图，请换一种描述后重试。");
+  return {
+    answer: typeof parsed.answer === "string" && parsed.answer.trim() ? parsed.answer.trim().slice(0, 300) : `已生成“${mindMap.label}”思维导图。`,
+    actions: [],
+    mindMap
+  };
+}
+
+function sanitizeMindMapNode(value: unknown, depth: number, budget: { remaining: number }): AiMindMapNode | null {
+  if (!value || typeof value !== "object" || depth > 4 || budget.remaining <= 0) return null;
+  const record = value as Record<string, unknown>;
+  const label = typeof record.label === "string" ? record.label.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  if (!label) return null;
+  budget.remaining -= 1;
+  const children = Array.isArray(record.children)
+    ? record.children.slice(0, 8).flatMap((child) => {
+      const sanitized = sanitizeMindMapNode(child, depth + 1, budget);
+      return sanitized ? [sanitized] : [];
+    })
+    : [];
+  return { label, children };
 }
 
 function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {

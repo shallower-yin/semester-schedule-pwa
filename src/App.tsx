@@ -20,6 +20,7 @@ import {
   LogIn,
   Menu,
   MessageSquareText,
+  Network,
   NotebookText,
   Pencil,
   Plus,
@@ -58,6 +59,7 @@ import { HeaderToolSettingsDialog } from "./components/HeaderToolSettingsDialog"
 import { HelpPage } from "./components/HelpPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
+import { MindMapDialog } from "./components/MindMapDialog";
 import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { QuickEntryDialog } from "./components/QuickEntryDialog";
@@ -69,6 +71,7 @@ import { StatsDialog } from "./components/StatsDialog";
 import { ThemeSkinDialog } from "./components/ThemeSkinDialog";
 import { TodayPage } from "./components/TodayPage";
 import { ToastHost } from "./components/ToastHost";
+import { UpdateNotesDialog } from "./components/UpdateNotesDialog";
 import { WeekCalendar } from "./components/WeekCalendar";
 import { db, queueChange } from "./db";
 import {
@@ -94,6 +97,7 @@ import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview
 import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
+import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -158,6 +162,7 @@ export default function App() {
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showScheduleAssistant, setShowScheduleAssistant] = useState(false);
   const [showDeepSeekAssistant, setShowDeepSeekAssistant] = useState(false);
+  const [showMindMap, setShowMindMap] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [showHeaderToolSettings, setShowHeaderToolSettings] = useState(false);
@@ -189,6 +194,7 @@ export default function App() {
   const [installMessage, setInstallMessage] = useState("");
   const [updatingApp, setUpdatingApp] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
+  const [availableRelease, setAvailableRelease] = useState<AppRelease | null>(null);
   const [mobileNavItems, setMobileNavItems] = useState<PageId[]>(() => loadMobileNavSettings());
   const [headerToolItems, setHeaderToolItems] = useState<HeaderToolId[]>(() => loadHeaderToolSettings());
   const [scheduleQuery, setScheduleQuery] = useState("");
@@ -278,6 +284,19 @@ export default function App() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker
   } = useRegisterSW();
+
+  useEffect(() => {
+    let active = true;
+    async function checkRelease() {
+      const release = await fetchLatestRelease();
+      if (!active) return;
+      setAvailableRelease(shouldShowRelease(__APP_VERSION__, release) ? release : null);
+    }
+    void checkRelease();
+    return () => {
+      active = false;
+    };
+  }, [needRefresh]);
 
   useEffect(() => {
     if (!supabase) {
@@ -424,6 +443,9 @@ export default function App() {
       } else if (event.key.toLowerCase() === "d") {
         event.preventDefault();
         setShowDeepSeekAssistant(true);
+      } else if (event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        setShowMindMap(true);
       } else if (event.key.toLowerCase() === "t") {
         event.preventDefault();
         goToday();
@@ -436,6 +458,7 @@ export default function App() {
         setShowStats(false);
         setShowScheduleAssistant(false);
         setShowDeepSeekAssistant(false);
+        setShowMindMap(false);
         setShowAdmin(false);
         setShowHeaderToolSettings(false);
       }
@@ -551,6 +574,13 @@ export default function App() {
       setUpdateMessage(message);
       showToast(message, "error");
     }
+  }
+
+  function skipAvailableRelease() {
+    if (!availableRelease) return;
+    skipReleaseVersion(availableRelease.version);
+    setAvailableRelease(null);
+    setNeedRefresh(false);
   }
 
   async function hardReloadApp() {
@@ -706,6 +736,11 @@ export default function App() {
       id: "aiAssistant",
       label: "AI 助手",
       node: <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="AI 助手"><BrainCircuit size={18} /></button>
+    },
+    {
+      id: "mindMap",
+      label: "AI 思维导图",
+      node: <button className="icon-button header-search-button" onClick={() => setShowMindMap(true)} aria-label="AI 思维导图"><Network size={18} /></button>
     },
     {
       id: "quickEntry",
@@ -1042,6 +1077,25 @@ export default function App() {
           onClose={() => setShowDeepSeekAssistant(false)}
         />
       )}
+      {showMindMap && (
+        <MindMapDialog
+          input={{
+            semester,
+            courses,
+            schedules,
+            cancellations,
+            events,
+            categories,
+            occurrenceStates,
+            anniversaries,
+            memos,
+            periods,
+            focusSessions
+          }}
+          ownerId={ownerId}
+          onClose={() => setShowMindMap(false)}
+        />
+      )}
       {showAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
       {showFeedback && <FeedbackDialog
         userId={user?.id ?? null}
@@ -1153,13 +1207,15 @@ export default function App() {
         />
       )}
 
-      {needRefresh && (
-        <div className="update-toast">
-          <RefreshCw size={18} />
-          <span>{updatingApp ? updateMessage : `新版本已准备好 · 当前 ${appVersion}`}</span>
-          <button disabled={updatingApp} onClick={() => void applyAppUpdate()}>{updatingApp ? "更新中…" : "立即更新"}</button>
-          <button className="icon-button" onClick={() => setNeedRefresh(false)}><X size={16} /></button>
-        </div>
+      {availableRelease && (
+        <UpdateNotesDialog
+          currentVersion={__APP_VERSION__}
+          release={availableRelease}
+          updating={updatingApp}
+          updateMessage={updateMessage}
+          onSkip={skipAvailableRelease}
+          onUpdate={() => void applyAppUpdate()}
+        />
       )}
       {showGlobalSearch && (
         <GlobalSearchDialog

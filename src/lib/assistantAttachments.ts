@@ -18,16 +18,19 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
 const MAX_DOCUMENT_TEXT = 40_000;
 
-export const AI_ATTACHMENT_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/bmp,application/pdf,.docx,.txt,.md,.csv";
+export const AI_IMAGE_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/bmp";
+export const AI_DOCUMENT_ACCEPT = "application/pdf,.docx,.txt,.md,.csv";
 
 export async function prepareAiAssistantAttachment(file: File): Promise<AiAssistantAttachment> {
-  if (IMAGE_TYPES.has(file.type)) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const inferredImageType = imageMimeTypeForExtension(extension);
+  const imageMimeType = IMAGE_TYPES.has(file.type) ? file.type : inferredImageType;
+  if (imageMimeType) {
     if (file.size > MAX_IMAGE_BYTES) throw new Error("单张图片不能超过 6 MB。");
-    return { name: file.name, mimeType: file.type, kind: "image", dataUrl: await readDataUrl(file) };
+    return { name: file.name, mimeType: imageMimeType, kind: "image", dataUrl: await readDataUrl(file, imageMimeType) };
   }
   if (file.size > MAX_DOCUMENT_BYTES) throw new Error("单个文档不能超过 12 MB。");
 
-  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   let text = "";
   if (file.type === "application/pdf" || extension === "pdf") text = await extractPdfText(file);
   else if (extension === "docx") text = await extractDocxText(file);
@@ -68,13 +71,25 @@ async function extractDocxText(file: File): Promise<string> {
   return result.value;
 }
 
-function readDataUrl(file: File): Promise<string> {
+function readDataUrl(file: File, mimeType: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(file.type ? result : result.replace(/^data:application\/octet-stream/i, `data:${mimeType}`));
+    };
     reader.onerror = () => reject(new Error("读取图片失败。"));
     reader.readAsDataURL(file);
   });
+}
+
+function imageMimeTypeForExtension(extension: string): string {
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "png") return "image/png";
+  if (extension === "gif") return "image/gif";
+  if (extension === "webp") return "image/webp";
+  if (extension === "bmp") return "image/bmp";
+  return "";
 }
 
 function mimeTypeForExtension(extension: string): string {

@@ -46,7 +46,11 @@ describe("意见反馈通道", () => {
     await waitFor(() => expect(listMyFeedbackMock).toHaveBeenCalledWith("user-1"));
 
     const file = new File(["png"], "screenshot.png", { type: "image/png" });
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.click(screen.getByRole("button", { name: "选择反馈附件来源" }));
+    expect(screen.getByRole("menuitem", { name: /相册/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /拍照/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /文件/ })).toBeInTheDocument();
+    const fileInput = container.querySelector('input[aria-label="从相册选择"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [file] } });
     fireEvent.change(screen.getByLabelText("反馈内容"), { target: { value: "手机端按钮位置不对" } });
     fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));
