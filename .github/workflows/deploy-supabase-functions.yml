@@ -68,7 +68,7 @@ jobs:
             REMINDER_DISPATCHER_TOKEN="${{ secrets.REMINDER_DISPATCHER_TOKEN }}" \
             VAPID_PUBLIC_KEY="${{ vars.VITE_VAPID_PUBLIC_KEY }}" \
             VAPID_PRIVATE_KEY="${{ secrets.VAPID_PRIVATE_KEY }}" \
-            APP_URL="https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/index.html" \
+            APP_URL="https://shallower-yin.github.io/semester-schedule-pwa/" \
             AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT" \
             AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT" \
             AI_ASSISTANT_MEMBER_DAILY_LIMIT="$AI_ASSISTANT_MEMBER_DAILY_LIMIT" \

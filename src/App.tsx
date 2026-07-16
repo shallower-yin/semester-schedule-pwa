@@ -99,6 +99,7 @@ import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus
 import { showToast } from "./lib/toast";
 import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { isCurrentAppUrl } from "./lib/appHosting";
+import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -560,6 +561,23 @@ export default function App() {
       window.location.assign(availableRelease.appUrl);
       return;
     }
+
+    let mirrorError = "";
+    if (availableRelease) {
+      try {
+        setUpdateMessage("正在从免代理线路下载更新文件…");
+        const fileCount = await installOfflineAppUpdate(availableRelease, ({ completed, total }) => {
+          setUpdateMessage(`正在下载更新文件 ${completed}/${total}…`);
+        });
+        setUpdateMessage(`已安装 ${fileCount} 个更新文件，正在重新打开…`);
+        window.location.reload();
+        return;
+      } catch (error) {
+        mirrorError = error instanceof Error ? error.message : "免代理更新失败。";
+        setUpdateMessage("免代理线路暂不可用，正在尝试常规更新…");
+      }
+    }
+
     setUpdateMessage("正在通知后台服务安装新版本…");
     let reloaded = false;
     let fallbackTimer: number | null = null;
@@ -591,7 +609,10 @@ export default function App() {
         navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
       }
       setUpdatingApp(false);
-      const message = error instanceof Error ? `更新失败：${error.message}` : "更新失败，请稍后重试。";
+      const regularError = error instanceof Error ? error.message : "请稍后重试。";
+      const message = mirrorError
+        ? `更新失败：免代理线路 ${mirrorError}；常规线路 ${regularError}`
+        : `更新失败：${regularError}`;
       setUpdateMessage(message);
       showToast(message, "error");
     }

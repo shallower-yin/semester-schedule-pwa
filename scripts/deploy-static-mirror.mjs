@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 
 const supabaseUrl = required("SUPABASE_URL").replace(/\/$/, "");
@@ -26,13 +26,24 @@ if (!buckets.some((item) => item.id === bucket)) {
   if (error) throw error;
 }
 
-const files = await walk(sourceDir);
+let files = await walk(sourceDir);
+const release = JSON.parse(await readFile(join(sourceDir, "release.json"), "utf8"));
+const packageFiles = files
+  .map((absolutePath) => relative(sourceDir, absolutePath).split(sep).join("/"))
+  .filter((objectPath) => objectPath !== "asset-manifest.json")
+  .sort();
+await writeFile(join(sourceDir, "asset-manifest.json"), JSON.stringify({
+  version: String(release.version || ""),
+  commit: String(release.commit || ""),
+  files: packageFiles
+}, null, 2));
+files = await walk(sourceDir);
 const deployedPaths = new Set();
 for (const absolutePath of files) {
   const objectPath = relative(sourceDir, absolutePath).split(sep).join("/");
   deployedPaths.add(objectPath);
   const content = await readFile(absolutePath);
-  const cacheControl = /^(index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(objectPath) ? "0" : "31536000";
+  const cacheControl = /^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(objectPath) ? "0" : "31536000";
   const { error } = await client.storage.from(bucket).upload(objectPath, content, {
     upsert: true,
     cacheControl,

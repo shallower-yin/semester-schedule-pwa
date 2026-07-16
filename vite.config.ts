@@ -93,7 +93,20 @@ export default defineConfig(() => {
         workbox: {
           globPatterns: ["**/*.{js,css,html,svg,png}"],
           navigateFallback: "index.html",
-          importScripts: ["push-sw.js"]
+          importScripts: ["push-sw.js"],
+          runtimeCaching: [
+            {
+              urlPattern: new RegExp(`${escapeRegExp(base)}.*\\.(?:css|ico|js|json|mjs|png|svg|webmanifest)$`),
+              handler: "CacheFirst",
+              options: {
+                cacheName: "semester-schedule-offline-updates",
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 60 * 60 * 24 * 365
+                }
+              }
+            }
+          ]
         },
         devOptions: {
           enabled: true
@@ -139,6 +152,10 @@ function runGit(args: string[]): string {
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function loadReleaseNotes(): { title: string; notes: string[] } {

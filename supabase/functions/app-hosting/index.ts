@@ -84,7 +84,7 @@ function resolveObjectPath(pathname: string): string | null {
 }
 
 function cacheControl(path: string): string {
-  if (/^(index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(path)) {
+  if (/^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(path)) {
     return "no-store, max-age=0";
   }
   return "public, max-age=31536000, immutable";
