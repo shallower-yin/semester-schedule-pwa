@@ -13,21 +13,47 @@ type WorkerListener = (event: {
 function loadNotificationClickListener(scope = "https://example.com/semester-schedule-pwa/") {
   const listeners = new Map<string, WorkerListener>();
   const openWindow = vi.fn();
+  const matchAll = vi.fn().mockResolvedValue([]);
   const worker = {
     registration: { scope },
-    clients: { openWindow },
+    clients: { openWindow, matchAll },
     addEventListener: (type: string, listener: WorkerListener) => listeners.set(type, listener)
   };
   const source = readFileSync(resolve(process.cwd(), "public/push-sw.js"), "utf8");
   new Function("self", source)(worker);
   return {
     listener: listeners.get("notificationclick")!,
-    openWindow
+    openWindow,
+    matchAll
   };
 }
 
 describe("通知点击跳转", () => {
-  it("交给浏览器打开已安装的 PWA，不强制刷新现有窗口", async () => {
+  it("手机端应用已在后台时优先聚焦现有 PWA 窗口", async () => {
+    const { listener, openWindow, matchAll } = loadNotificationClickListener();
+    const focus = vi.fn().mockResolvedValue(undefined);
+    const navigate = vi.fn().mockResolvedValue(undefined);
+    matchAll.mockResolvedValue([{ url: "https://example.com/semester-schedule-pwa/", focus, navigate }]);
+    let completion: Promise<unknown> | undefined;
+
+    listener({
+      notification: {
+        close: vi.fn(),
+        data: { url: "https://example.com/semester-schedule-pwa/" }
+      },
+      waitUntil: (operation) => {
+        completion = operation;
+      }
+    });
+    await completion;
+
+    expect(matchAll).toHaveBeenCalledWith({ type: "window", includeUncontrolled: true });
+    expect(openWindow).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it("应用未运行时通过通知地址启动已安装的 PWA", async () => {
     const { listener, openWindow } = loadNotificationClickListener();
     const focus = vi.fn().mockResolvedValue(undefined);
     openWindow.mockResolvedValue({ focus });

@@ -43,6 +43,9 @@ export default defineConfig(() => {
           display: "standalone",
           start_url: base,
           scope: base,
+          launch_handler: {
+            client_mode: ["navigate-existing", "auto"]
+          },
           icons: [
             {
               src: "app-icon-192.png",

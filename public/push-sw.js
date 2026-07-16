@@ -33,9 +33,36 @@ self.addEventListener("notificationclick", (event) => {
     targetUrl = appUrl;
   }
 
-  event.waitUntil(
-    self.clients.openWindow(targetUrl).then((windowClient) => (
-      windowClient ? windowClient.focus() : null
-    ))
-  );
+  event.waitUntil(openOrFocusApp(targetUrl, appUrl));
 });
+
+async function openOrFocusApp(targetUrl, appUrl) {
+  const windowClients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true
+  });
+  const scopeUrl = new URL(appUrl);
+  const appClient = windowClients.find((client) => {
+    try {
+      const clientUrl = new URL(client.url);
+      return clientUrl.origin === scopeUrl.origin
+        && clientUrl.pathname.startsWith(scopeUrl.pathname);
+    } catch {
+      return false;
+    }
+  });
+
+  if (appClient) {
+    if (typeof appClient.navigate === "function" && appClient.url !== targetUrl) {
+      try {
+        await appClient.navigate(targetUrl);
+      } catch {
+        // Focusing the existing PWA is still useful if navigation is unavailable.
+      }
+    }
+    return appClient.focus();
+  }
+
+  const openedClient = await self.clients.openWindow(targetUrl);
+  return openedClient ? openedClient.focus() : null;
+}
