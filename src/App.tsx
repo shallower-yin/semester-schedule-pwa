@@ -19,6 +19,7 @@ import {
   GraduationCap,
   LogIn,
   Menu,
+  MessageSquareText,
   NotebookText,
   Pencil,
   Plus,
@@ -48,6 +49,7 @@ import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { DataHealthDialog } from "./components/DataHealthDialog";
 import { DeepSeekAssistantDialog } from "./components/DeepSeekAssistantDialog";
 import { EventDialog } from "./components/EventDialog";
+import { FeedbackDialog } from "./components/FeedbackDialog";
 import { FocusPage } from "./components/FocusPage";
 import { FocusFloatingTimer } from "./components/FocusFloatingTimer";
 import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
@@ -177,6 +179,7 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() => getCapturedInstallPrompt());
   const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [showSchoolImport, setShowSchoolImport] = useState(false);
   const [snapshotMode, setSnapshotMode] = useState<"day" | "week" | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
@@ -891,6 +894,9 @@ export default function App() {
                   <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
                     <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
                   </button>
+                  <button className="setting-card" onClick={() => setShowFeedback(true)}>
+                    <MessageSquareText /><span><strong>意见反馈</strong><small>向管理员提交文字、图片或文档</small></span><ChevronRight />
+                  </button>
                 </>
               ))}
               {renderSettingsSection("日程", "普通事项不依赖学期；课程、节次和课表导入属于可选学生功能。", (
@@ -1037,6 +1043,12 @@ export default function App() {
         />
       )}
       {showAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
+      {showFeedback && <FeedbackDialog
+        userId={user?.id ?? null}
+        userEmail={user?.email}
+        onRequestLogin={() => { setShowFeedback(false); setAuthDialogMode("login"); }}
+        onClose={() => setShowFeedback(false)}
+      />}
       {showMobileNavSettings && (
         <MobileNavSettingsDialog
           options={navItems.map((item) => ({ id: item.id, label: item.label }))}

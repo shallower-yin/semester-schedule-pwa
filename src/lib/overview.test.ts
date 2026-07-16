@@ -10,7 +10,7 @@ import type {
   FocusSession,
   Semester
 } from "../types";
-import { buildScheduleOverview } from "./overview";
+import { buildScheduleOverview, selectNextOverviewItem, type ScheduleOverviewItem } from "./overview";
 
 const baseFields = {
   id: "id",
@@ -306,5 +306,49 @@ describe("首页日程概览", () => {
       targetId: "event-overdue",
       timeLabel: "3/4 18:00–18:00"
     });
+  });
+});
+
+describe("今日下一项选择", () => {
+  const item = (overrides: Partial<ScheduleOverviewItem>): ScheduleOverviewItem => ({
+    id: overrides.id ?? crypto.randomUUID(),
+    type: "event",
+    targetId: overrides.id ?? "event",
+    title: "事项",
+    subtitle: "未分类事项",
+    timeLabel: "09:00–10:00",
+    sortTime: "09:00",
+    color: "#3157d5",
+    completed: false,
+    allDay: false,
+    endTime: "10:00",
+    ...overrides
+  });
+
+  it("跳过已过时间，选择后续定时事项", () => {
+    const selected = selectNextOverviewItem([
+      item({ id: "past", title: "整理课设文档", sortTime: "09:00", endTime: "10:00" }),
+      item({ id: "future", title: "课设比赛", sortTime: "14:00", endTime: "16:00", timeLabel: "14:00–16:00" })
+    ], new Date(2026, 6, 16, 12, 30));
+
+    expect(selected?.title).toBe("课设比赛");
+  });
+
+  it("定时事项全部结束后才显示全天事项", () => {
+    const allDay = item({ id: "all-day", title: "全天整理资料", timeLabel: "全天", sortTime: "99:98", allDay: true, endTime: null });
+    expect(selectNextOverviewItem([
+      allDay,
+      item({ id: "future", title: "晚间会议", sortTime: "20:00", endTime: "21:00", timeLabel: "20:00–21:00" })
+    ], new Date(2026, 6, 16, 18, 0))?.title).toBe("晚间会议");
+    expect(selectNextOverviewItem([
+      allDay,
+      item({ id: "past", title: "早间会议", sortTime: "08:00", endTime: "09:00", timeLabel: "08:00–09:00" })
+    ], new Date(2026, 6, 16, 18, 0))?.title).toBe("全天整理资料");
+  });
+
+  it("只有已过时间事项时返回休息状态", () => {
+    expect(selectNextOverviewItem([
+      item({ id: "past", title: "十二点半前睡觉", sortTime: "00:00", endTime: "00:30", timeLabel: "00:00–00:30" })
+    ], new Date(2026, 6, 16, 12, 30))).toBeNull();
   });
 });

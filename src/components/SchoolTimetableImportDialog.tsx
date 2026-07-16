@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, FileSpreadsheet, GraduationCap, School, Upload } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { ArrowLeft, FileSpreadsheet, GraduationCap, Pin, School, Search, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
   colorForImportedCourse,
@@ -59,26 +59,130 @@ interface ImportPreview {
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as Weekday[];
 type ImportMode = "merge" | "replace" | "append";
 
+interface SchoolExtractorEntry {
+  id: string;
+  name: string;
+  region: string;
+  supported: boolean;
+}
+
+const PINNED_SCHOOLS_KEY = "school-extractor-pinned-v1";
+
+export const SCHOOL_EXTRACTOR_CATALOG: SchoolExtractorEntry[] = [
+  { id: "peking", name: "北京大学", region: "北京", supported: false },
+  { id: "renmin", name: "中国人民大学", region: "北京", supported: false },
+  { id: "tsinghua", name: "清华大学", region: "北京", supported: false },
+  { id: "beihang", name: "北京航空航天大学", region: "北京", supported: false },
+  { id: "bit", name: "北京理工大学", region: "北京", supported: false },
+  { id: "cau", name: "中国农业大学", region: "北京", supported: false },
+  { id: "bnu", name: "北京师范大学", region: "北京", supported: false },
+  { id: "minzu", name: "中央民族大学", region: "北京", supported: false },
+  { id: "nankai", name: "南开大学", region: "天津", supported: false },
+  { id: "tianjin", name: "天津大学", region: "天津", supported: true },
+  { id: "dlut", name: "大连理工大学", region: "辽宁", supported: false },
+  { id: "neu", name: "东北大学", region: "辽宁", supported: false },
+  { id: "jilin", name: "吉林大学", region: "吉林", supported: false },
+  { id: "hit", name: "哈尔滨工业大学", region: "黑龙江", supported: false },
+  { id: "fudan", name: "复旦大学", region: "上海", supported: false },
+  { id: "tongji", name: "同济大学", region: "上海", supported: false },
+  { id: "sjtu", name: "上海交通大学", region: "上海", supported: false },
+  { id: "ecnu", name: "华东师范大学", region: "上海", supported: false },
+  { id: "nju", name: "南京大学", region: "江苏", supported: false },
+  { id: "seu", name: "东南大学", region: "江苏", supported: false },
+  { id: "zju", name: "浙江大学", region: "浙江", supported: false },
+  { id: "ustc", name: "中国科学技术大学", region: "安徽", supported: false },
+  { id: "xmu", name: "厦门大学", region: "福建", supported: false },
+  { id: "sdu", name: "山东大学", region: "山东", supported: false },
+  { id: "ouc", name: "中国海洋大学", region: "山东", supported: false },
+  { id: "whu", name: "武汉大学", region: "湖北", supported: false },
+  { id: "hust", name: "华中科技大学", region: "湖北", supported: false },
+  { id: "hnu", name: "湖南大学", region: "湖南", supported: false },
+  { id: "csu", name: "中南大学", region: "湖南", supported: false },
+  { id: "nudt", name: "国防科技大学", region: "湖南", supported: false },
+  { id: "sysu", name: "中山大学", region: "广东", supported: false },
+  { id: "scut", name: "华南理工大学", region: "广东", supported: false },
+  { id: "scu", name: "四川大学", region: "四川", supported: false },
+  { id: "uestc", name: "电子科技大学", region: "四川", supported: false },
+  { id: "cqu", name: "重庆大学", region: "重庆", supported: false },
+  { id: "xjtu", name: "西安交通大学", region: "陕西", supported: false },
+  { id: "nwpu", name: "西北工业大学", region: "陕西", supported: false },
+  { id: "nwafu", name: "西北农林科技大学", region: "陕西", supported: false },
+  { id: "lzu", name: "兰州大学", region: "甘肃", supported: false }
+];
+
 export function SchoolTimetableImportDialog(props: SchoolTimetableImportDialogProps) {
-  const [school, setSchool] = useState<"tianjin" | "tsinghua" | null>(null);
+  const [school, setSchool] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [pinnedSchoolIds, setPinnedSchoolIds] = useState<string[]>(loadPinnedSchools);
+  const visibleSchools = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
+    return SCHOOL_EXTRACTOR_CATALOG
+      .filter((entry) => !normalizedQuery || `${entry.name} ${entry.region}`.toLocaleLowerCase("zh-CN").includes(normalizedQuery))
+      .sort((left, right) => {
+        const leftPin = pinnedSchoolIds.indexOf(left.id);
+        const rightPin = pinnedSchoolIds.indexOf(right.id);
+        if (leftPin >= 0 || rightPin >= 0) {
+          if (leftPin < 0) return 1;
+          if (rightPin < 0) return -1;
+          return leftPin - rightPin;
+        }
+        return Number(right.supported) - Number(left.supported) || left.region.localeCompare(right.region, "zh-CN") || left.name.localeCompare(right.name, "zh-CN");
+      });
+  }, [pinnedSchoolIds, query]);
+  const selectedSchool = SCHOOL_EXTRACTOR_CATALOG.find((entry) => entry.id === school) ?? null;
+
+  useEffect(() => {
+    localStorage.setItem(PINNED_SCHOOLS_KEY, JSON.stringify(pinnedSchoolIds));
+  }, [pinnedSchoolIds]);
+
+  function togglePinnedSchool(schoolId: string) {
+    setPinnedSchoolIds((current) => current.includes(schoolId)
+      ? current.filter((id) => id !== schoolId)
+      : [...current, schoolId]);
+  }
+
   if (!school) {
     return (
-      <Modal title="课表提取器" onClose={props.onClose}>
-        <div className="school-extractor-grid">
-          <button onClick={() => setSchool("tianjin")}><School size={28} /><span><strong>天津大学</strong><small>支持教务系统导出的 HTML-XLS 课表</small></span></button>
-          <button onClick={() => setSchool("tsinghua")}><GraduationCap size={28} /><span><strong>清华大学</strong><small>入口已保留，提取规则暂未支持</small></span></button>
+      <Modal title="课表提取器" onClose={props.onClose} wide>
+        <div className="school-extractor-toolbar">
+          <label><Search size={17} /><input aria-label="搜索学校" value={query} placeholder="搜索学校或地区" onChange={(event) => setQuery(event.target.value)} /></label>
+          <span>{visibleSchools.length} / {SCHOOL_EXTRACTOR_CATALOG.length} 所</span>
         </div>
+        <div className="school-extractor-grid">
+          {visibleSchools.map((entry) => {
+            const pinned = pinnedSchoolIds.includes(entry.id);
+            return (
+              <article key={entry.id} className={pinned ? "pinned" : ""}>
+                <button className="school-extractor-open" onClick={() => setSchool(entry.id)}>
+                  {entry.supported ? <School size={24} /> : <GraduationCap size={24} />}
+                  <span><strong>{entry.name}</strong><small>{entry.region} · {entry.supported ? "已支持导入" : "待适配"}</small></span>
+                </button>
+                <button className="icon-button school-pin-button" aria-label={`${pinned ? "取消置顶" : "置顶"}${entry.name}`} title={pinned ? "取消置顶" : "置顶"} onClick={() => togglePinnedSchool(entry.id)}><Pin size={16} /></button>
+              </article>
+            );
+          })}
+        </div>
+        {!visibleSchools.length && <p className="empty-note">没有匹配的学校。</p>}
       </Modal>
     );
   }
-  if (school === "tsinghua") {
+  if (school !== "tianjin") {
     return (
-      <Modal title="清华大学课表提取器" onClose={props.onClose}>
-        <div className="unsupported-extractor"><GraduationCap size={38} /><h3>暂未支持</h3><p>入口已保留，后续补充清华大学课表文件解析规则后即可接入。</p><button className="button secondary" onClick={() => setSchool(null)}><ArrowLeft size={16} />返回学校选择</button></div>
+      <Modal title={`${selectedSchool?.name ?? "学校"}课表提取器`} onClose={props.onClose}>
+        <div className="unsupported-extractor"><GraduationCap size={38} /><h3>暂未支持</h3><p>{selectedSchool?.name ?? "该学校"}的入口已保留，需要取得该校真实导出课表样本后再适配解析规则。</p><button className="button secondary" onClick={() => setSchool(null)}><ArrowLeft size={16} />返回学校选择</button></div>
       </Modal>
     );
   }
   return <TianjinTimetableImportDialog {...props} onBack={() => setSchool(null)} />;
+}
+
+function loadPinnedSchools(): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PINNED_SCHOOLS_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored.filter((id): id is string => SCHOOL_EXTRACTOR_CATALOG.some((entry) => entry.id === id)) : [];
+  } catch {
+    return [];
+  }
 }
 
 function TianjinTimetableImportDialog({ semester, onClose, onImported, onBack }: SchoolTimetableImportDialogProps & { onBack: () => void }) {

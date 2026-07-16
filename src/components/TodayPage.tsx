@@ -5,7 +5,7 @@ import { daysUntilAnniversary, nextAnniversaryOccurrence } from "../lib/annivers
 import { addDays, formatMonthDay, parseLocalDate, startOfWeek, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
 import { formatFocusDuration } from "../lib/focus";
-import type { ScheduleOverview, ScheduleOverviewItem } from "../lib/overview";
+import { selectNextOverviewItem, type ScheduleOverview, type ScheduleOverviewItem } from "../lib/overview";
 
 interface TodayPageProps {
   overview: ScheduleOverview;
@@ -82,7 +82,7 @@ export function TodayPage({
 
   const weekend = toISODate(addDays(startOfWeek(today), 6));
   const tomorrow = toISODate(addDays(today, 1));
-  const nextAction = overview.overdueIncompleteItems[0] ?? overview.upcomingItems.find((item) => item.type === "course" || !item.completed) ?? null;
+  const nextAction = overview.nextItem === undefined ? selectNextOverviewItem(overview.upcomingItems) : overview.nextItem;
   const showQuickStart = !nextAction && overview.todayItemCount === 0 && overview.overdueIncompleteItems.length === 0;
 
   async function postponeItems(items: ScheduleOverviewItem[], targetDate: string) {

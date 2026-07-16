@@ -14,6 +14,7 @@ import {
 } from "../lib/admin";
 import { Modal } from "./Modal";
 import { AdminFocusAudioManager } from "./AdminFocusAudioManager";
+import { AdminFeedbackInbox } from "./AdminFeedbackInbox";
 import { AI_MODEL_OPTIONS, defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "../lib/aiModels";
 
 interface AdminDialogProps {
@@ -318,6 +319,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         </section>
 
         <AdminFocusAudioManager />
+
+        <AdminFeedbackInbox />
 
         <section className="admin-access-editor admin-data-cleanup">
           <div className="section-heading">

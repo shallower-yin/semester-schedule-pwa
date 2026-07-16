@@ -199,15 +199,16 @@ export async function askDeepSeekAssistant(
   attachments?: AiAssistantAttachment[]
 ): Promise<DeepSeekAssistantResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法使用 AI 助手。");
-  const { data, error } = await supabase.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
-    body: {
-      question,
-      scheduleContext: context,
-      accessCode: accessCode || undefined,
-      history: history?.slice(-6),
-      attachments: attachments?.slice(0, 3)
-    }
-  });
+  const client = supabase;
+  const { data, error } = await invokeFunctionWithTransientRetry(() => client.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
+      body: {
+        question,
+        scheduleContext: context,
+        accessCode: accessCode || undefined,
+        history: history?.slice(-6),
+        attachments: attachments?.slice(0, 3)
+      }
+    }), 2);
   if (error) {
     throw new Error(await functionErrorMessage(error));
   }
@@ -217,9 +218,10 @@ export async function askDeepSeekAssistant(
 
 export async function getAiAssistantConfiguration(): Promise<AiAssistantConfiguration> {
   if (!supabase) return { provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false };
-  const { data, error } = await supabase.functions.invoke<AiAssistantConfiguration>("ai-assistant", {
-    body: { action: "configuration" }
-  });
+  const client = supabase;
+  const { data, error } = await invokeFunctionWithTransientRetry(() => client.functions.invoke<AiAssistantConfiguration>("ai-assistant", {
+      body: { action: "configuration" }
+    }), 3);
   if (error || !data) return { provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false };
   return {
     provider: data.provider === "mimo" ? "mimo" : "deepseek",
@@ -244,5 +246,29 @@ async function functionErrorMessage(error: unknown): Promise<string> {
       }
     }
   }
+  if (isTransientFunctionError(error)) return "连接 AI 服务时网络不稳定，自动重试后仍未成功，请稍后再试。";
   return fallback.includes("non-2xx") ? "AI 助手请求失败，请稍后再试。" : fallback;
+}
+
+async function invokeFunctionWithTransientRetry<T>(
+  request: () => Promise<{ data: T | null; error: unknown }>,
+  maxAttempts: number
+): Promise<{ data: T | null; error: unknown }> {
+  let result = await request();
+  for (let attempt = 1; attempt < maxAttempts && result.error && isTransientFunctionError(result.error); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 450 * attempt));
+    result = await request();
+  }
+  return result;
+}
+
+function isTransientFunctionError(error: unknown): boolean {
+  if (!error || (error as { context?: unknown }).context instanceof Response) return false;
+  const name = String((error as { name?: unknown }).name ?? "").toLowerCase();
+  const message = String((error as { message?: unknown }).message ?? error).toLowerCase();
+  return name.includes("fetch")
+    || message.includes("failed to send a request")
+    || message.includes("failed to fetch")
+    || message.includes("networkerror")
+    || message.includes("load failed");
 }

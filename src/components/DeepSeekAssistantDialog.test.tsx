@@ -111,6 +111,21 @@ describe("AI 助手消息编辑", () => {
     expect(await screen.findByRole("button", { name: "导入图片或文档" })).toBeInTheDocument();
   });
 
+  it("发送完成后把消息区滚动到最新一轮", async () => {
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
+    const messageLog = screen.getByRole("log", { name: "AI 助手对话" });
+    Object.defineProperty(messageLog, "scrollHeight", { configurable: true, value: 1200 });
+    const scrollTo = vi.fn();
+    Object.defineProperty(messageLog, "scrollTo", { configurable: true, value: scrollTo });
+
+    const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
+    fireEvent.change(composer, { target: { value: "看看最新安排" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await screen.findByText("修改后的新回答");
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 1200 })));
+  });
+
   it("附件保存在本地上下文并自动用于后续问题", async () => {
     getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
     askDeepSeekAssistantMock

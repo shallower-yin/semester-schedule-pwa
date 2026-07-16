@@ -40,7 +40,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [attachments, setAttachments] = useState<AiAssistantAttachment[]>([]);
   const [contextAttachments, setContextAttachments] = useState<AiAssistantAttachment[]>([]);
   const [preparingAttachment, setPreparingAttachment] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
   const editingRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
@@ -64,9 +64,18 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }, [messages, ownerId]);
 
   useEffect(() => {
-    window.setTimeout(() => rootRef.current?.closest(".modal")?.scrollTo?.({ top: 0 }), 0);
     void getAiAssistantConfiguration().then(setConfiguration);
   }, []);
+
+  useEffect(() => {
+    const messagesNode = messagesRef.current;
+    if (!messagesNode) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (typeof messagesNode.scrollTo === "function") messagesNode.scrollTo({ top: messagesNode.scrollHeight, behavior: "smooth" });
+      else messagesNode.scrollTop = messagesNode.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, messages]);
 
   async function sendMessage(text: string, baseMessages: Message[], userMessageId: string, requestAttachments: AiAssistantAttachment[] = []) {
     const effectiveAttachments = mergeAttachments(contextAttachments, requestAttachments);
@@ -195,9 +204,9 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         </label>
       )}
     >
-      <div ref={rootRef} className="assistant-dialog ai-assistant-dialog">
+      <div className="assistant-dialog ai-assistant-dialog">
         <p className="ai-assistant-capability">可查询安排、冲突、未完成、专注和使用方法；可创建事项、习惯、纪念日、生日、节日和备忘录，时间按北京时间处理。</p>
-        <div className="assistant-messages" role="log" aria-label="AI 助手对话">
+        <div ref={messagesRef} className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
               {message.role === "assistant" ? <BrainCircuit size={18} /> : <UserRound size={18} />}
@@ -290,9 +299,9 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
               </button>
             </>
           )}
-          <button className="button primary" disabled={loading || Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
+          <button className="button primary assistant-send-button" disabled={loading || Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
           {messages.length > 0 && (
-            <button type="button" className="button secondary assistant-clear-button" aria-label="清空历史" disabled={loading || Boolean(editingMessageId)} onClick={clearHistory}><Trash2 size={15} /><span>清空</span></button>
+            <button type="button" className="button secondary assistant-clear-button" aria-label="删除对话" disabled={loading || Boolean(editingMessageId)} onClick={clearHistory}><Trash2 size={15} /><span>删除</span></button>
           )}
         </form>
       </div>

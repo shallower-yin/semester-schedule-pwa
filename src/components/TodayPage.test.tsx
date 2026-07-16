@@ -89,6 +89,18 @@ describe("今日页面下一项", () => {
           ...baseOverview,
           todayIncompleteEventCount: 1,
           todayCompletedEventCount: 0,
+          nextItem: {
+            id: "event-2",
+            type: "event",
+            targetId: "event-2",
+            title: "未完成事项",
+            subtitle: "未分类事项",
+            timeLabel: "10:00–10:30",
+            sortTime: "10:00",
+            color: "#e36b32",
+            completed: false,
+            occurrenceDate: "2026-07-08"
+          },
           upcomingItems: [{
             id: "event-2",
             type: "event",
@@ -123,6 +135,17 @@ describe("今日页面下一项", () => {
           todayItemCount: 2,
           todayCourseCount: 1,
           todayCompletedEventCount: 1,
+          nextItem: {
+            id: "course-1",
+            type: "course",
+            targetId: "course-1",
+            title: "高数",
+            subtitle: "A101",
+            timeLabel: "10:00–11:40",
+            sortTime: "10:00",
+            color: "#4f8dd3",
+            completed: false
+          },
           upcomingItems: [
             {
               id: "event-1",

@@ -24,6 +24,8 @@ export interface ScheduleOverviewItem {
   color: string;
   completed: boolean;
   occurrenceDate?: string;
+  allDay?: boolean;
+  endTime?: string | null;
 }
 
 export interface ScheduleOverview {
@@ -39,6 +41,7 @@ export interface ScheduleOverview {
   todayFocusSeconds: number;
   weekFocusSeconds: number;
   upcomingItems: ScheduleOverviewItem[];
+  nextItem?: ScheduleOverviewItem | null;
   overdueIncompleteItems: ScheduleOverviewItem[];
   weekFocusTrend: ScheduleOverviewFocusTrendItem[];
 }
@@ -94,7 +97,9 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
       timeLabel: `${startPeriod.start_time}–${endPeriod.end_time}`,
       sortTime: startPeriod.start_time,
       color: course.color,
-      completed: false
+      completed: false,
+      allDay: false,
+      endTime: endPeriod.end_time
     }];
   }) : [];
 
@@ -104,7 +109,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
       (state) => state.event_id === eventItem.id && state.occurrence_date === todayDate && !state.deleted_at
     );
     const category = eventItem.category_id ? categoryMap.get(eventItem.category_id) : undefined;
-    const sortTime = eventItem.all_day ? "00:00" : eventItem.start_time ?? "99:99";
+    const sortTime = eventItem.all_day ? "99:98" : eventItem.start_time ?? "99:99";
     return [{
       id: eventItem.id,
       type: "event" as const,
@@ -115,7 +120,9 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
       sortTime,
       color: eventItem.color || category?.color || "#e36b32",
       completed: occurrenceState?.completed ?? false,
-      occurrenceDate: todayDate
+      occurrenceDate: todayDate,
+      allDay: eventItem.all_day,
+      endTime: eventItem.end_time
     }];
   });
 
@@ -141,6 +148,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
     if (timeCompare !== 0) return timeCompare;
     return left.title.localeCompare(right.title, "zh-Hans-CN");
   });
+  const nextItem = selectNextOverviewItem(sortedItems, now);
   const todayCompletedEventCount = eventItems.filter((item) => item.completed).length;
   const weekCompletedEventCount = weekEventOccurrences.filter((item) => item.completed).length;
   const weekFocusTrend = Array.from({ length: 7 }, (_, index) => {
@@ -169,9 +177,30 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
     todayFocusSeconds: totalFocusSeconds(todayFocusSessions),
     weekFocusSeconds: totalFocusSeconds(weekFocusSessions),
     upcomingItems: sortedItems.slice(0, input.maxItems ?? 5),
+    nextItem,
     overdueIncompleteItems: buildOverdueIncompleteItems(input, now, categoryMap),
     weekFocusTrend
   };
+}
+
+export function selectNextOverviewItem(items: ScheduleOverviewItem[], now = new Date()): ScheduleOverviewItem | null {
+  const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const incomplete = items.filter((item) => !item.completed);
+  const timed = incomplete
+    .filter((item) => !isAllDayOverviewItem(item) && overviewItemEndTime(item) >= currentTime)
+    .sort((left, right) => left.sortTime.localeCompare(right.sortTime) || left.title.localeCompare(right.title, "zh-Hans-CN"));
+  if (timed.length) return timed[0];
+  return incomplete.find(isAllDayOverviewItem) ?? null;
+}
+
+function isAllDayOverviewItem(item: ScheduleOverviewItem): boolean {
+  return item.allDay ?? item.timeLabel === "全天";
+}
+
+function overviewItemEndTime(item: ScheduleOverviewItem): string {
+  if (item.endTime) return item.endTime;
+  const matches = item.timeLabel.match(/\d{2}:\d{2}/g);
+  return matches?.at(-1) ?? item.sortTime;
 }
 
 function buildOverdueIncompleteItems(

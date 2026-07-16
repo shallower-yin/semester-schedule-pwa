@@ -1,9 +1,34 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import { setCurrentUserId, syncFields } from "../lib/identity";
 import type { ImportedCourseSchedule, ImportedTimetable } from "../lib/schoolTimetableImport";
 import type { Course, CourseSchedule, Semester } from "../types";
-import { applyTimetableImport, buildClassPeriodBlocks, buildTimetableImportPreview, groupCourses } from "./SchoolTimetableImportDialog";
+import { applyTimetableImport, buildClassPeriodBlocks, buildTimetableImportPreview, groupCourses, SCHOOL_EXTRACTOR_CATALOG, SchoolTimetableImportDialog } from "./SchoolTimetableImportDialog";
+
+describe("课表提取器学校目录", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("收录 39 所 985 学校且学校标识不重复", () => {
+    expect(SCHOOL_EXTRACTOR_CATALOG).toHaveLength(39);
+    expect(new Set(SCHOOL_EXTRACTOR_CATALOG.map((school) => school.id))).toHaveProperty("size", 39);
+  });
+
+  it("支持按学校搜索并将常用学校置顶", () => {
+    const { container } = render(<SchoolTimetableImportDialog semester={null} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索学校" }), { target: { value: "清华" } });
+    expect(screen.getByText("清华大学")).toBeInTheDocument();
+    expect(screen.queryByText("天津大学")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "置顶清华大学" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索学校" }), { target: { value: "" } });
+
+    const firstCard = container.querySelector(".school-extractor-grid article");
+    expect(firstCard).not.toBeNull();
+    expect(within(firstCard as HTMLElement).getByText("清华大学")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("school-extractor-pinned-v1") ?? "[]")).toEqual(["tsinghua"]);
+  });
+});
 
 describe("教务课表导入写入规则", () => {
   beforeEach(async () => {
