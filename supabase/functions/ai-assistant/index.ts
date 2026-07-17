@@ -1,12 +1,16 @@
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "npm:@aws-sdk/client-s3@3.1089.0";
+import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
+
 interface AiAssistantRequest {
-  action?: "configuration";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload";
   mode?: "assistant" | "mind_map" | "audio_transcription" | "audio_followup";
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
   history?: AiAssistantHistoryMessage[];
   attachments?: AiAssistantAttachment[];
-  audio?: { name?: string; mimeType?: string; dataUrl?: string };
+  audio?: { name?: string; mimeType?: string; size?: number; dataUrl?: string; objectKey?: string };
+  audios?: Array<{ name?: string; mimeType?: string; size?: number; objectKey?: string }>;
   audioTranscript?: string;
   audioLanguage?: "auto" | "zh" | "en";
   summarizeAudio?: boolean;
@@ -164,6 +168,13 @@ interface ProviderCredentials {
   endpoint: string;
 }
 
+interface UploadedAudioInput {
+  name: string;
+  mimeType: string;
+  size: number;
+  objectKey: string;
+}
+
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
@@ -261,6 +272,17 @@ Deno.serve(async (request) => {
         supportsAudioTranscription: Boolean(configuredMimoCredentials(settings).apiKey)
       });
     }
+    if (body.action === "create_audio_upload") {
+      featureKey = "audio_transcription";
+      const uploadAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!uploadAccess.allowed) return jsonResponse({ error: uploadAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = uploadAccess.method ?? "";
+      return jsonResponse(await createR2AudioUpload(user.id, body.audio));
+    }
+    if (body.action === "delete_audio_upload") {
+      await deleteR2AudioObject(user.id, body.audio?.objectKey);
+      return jsonResponse({ ok: true });
+    }
     const mode = body.mode === "mind_map"
       ? "mind_map"
       : body.mode === "audio_transcription"
@@ -271,9 +293,11 @@ Deno.serve(async (request) => {
     featureKey = mode === "audio_followup" ? "audio_transcription" : mode;
     const question = body.question?.trim();
     if (mode !== "audio_transcription" && !question) return jsonResponse({ error: "问题不能为空。" }, 400);
-    if (mode === "audio_transcription" && !body.audio?.dataUrl) return jsonResponse({ error: "请选择要转写的音频文件。" }, 400);
+    if (mode === "audio_transcription" && !body.audio?.dataUrl && !body.audios?.length) return jsonResponse({ error: "请选择要转写的音频文件。" }, 400);
     if (mode === "audio_followup" && !body.audioTranscript?.trim()) return jsonResponse({ error: "请先完成音频转写。" }, 400);
-    questionChars = mode === "audio_transcription" ? body.audio?.dataUrl?.length ?? 0 : question?.length ?? 0;
+    questionChars = mode === "audio_transcription"
+      ? body.audios?.reduce((total, audio) => total + (Number(audio.size) || 0), body.audio?.dataUrl?.length ?? 0) ?? 0
+      : question?.length ?? 0;
     const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
     if (!access.allowed) return jsonResponse({
       error: access.reason,
@@ -302,7 +326,7 @@ Deno.serve(async (request) => {
 
     const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
     if (mode === "audio_transcription") {
-      const audioResponse = await transcribeAndSummarizeAudio(body, settings);
+      const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id);
       await logAiAssistantUsage({
         userId: user.id,
         status: "success",
@@ -951,15 +975,115 @@ function configuredMimoChannel(settings: AiSettingsRow | null): "payg" | "token_
   return settings?.mimo_channel === "token_plan" ? "token_plan" : "payg";
 }
 
-async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: AiSettingsRow | null): Promise<{
+let cachedR2Client: S3Client | null = null;
+
+function r2Configuration(): { client: S3Client; bucket: string } {
+  const endpoint = optionalSecret("R2_ENDPOINT");
+  const accessKeyId = optionalSecret("R2_ACCESS_KEY_ID");
+  const secretAccessKey = optionalSecret("R2_SECRET_ACCESS_KEY");
+  const bucket = optionalSecret("R2_BUCKET");
+  if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
+    throw new Error("长音频上传服务暂未配置，请联系管理员。");
+  }
+  cachedR2Client ??= new S3Client({
+    region: "auto",
+    endpoint,
+    credentials: { accessKeyId, secretAccessKey }
+  });
+  return { client: cachedR2Client, bucket };
+}
+
+function sanitizeAudioUploadMetadata(value: AiAssistantRequest["audio"]): { name: string; mimeType: string; size: number; extension: string } {
+  const name = value?.name?.trim().slice(0, 180) ?? "";
+  const extension = name.split(".").pop()?.toLowerCase() ?? "";
+  const allowedMimeTypes: Record<string, string[]> = {
+    mp3: ["audio/mpeg", "audio/mp3"],
+    wav: ["audio/wav", "audio/x-wav"],
+    flac: ["audio/flac", "audio/x-flac"],
+    m4a: ["audio/mp4", "audio/x-m4a", "audio/m4a"],
+    ogg: ["audio/ogg", "application/ogg"]
+  };
+  const mimeType = value?.mimeType?.trim().toLowerCase() ?? "";
+  const size = Number(value?.size);
+  if (!name || !allowedMimeTypes[extension]?.includes(mimeType)) {
+    throw new Error("音频转写仅支持 MP3、WAV、FLAC、M4A 和 OGG 文件。");
+  }
+  if (!Number.isFinite(size) || size <= 0 || size > 100 * 1024 * 1024) {
+    throw new Error("单个音频文件不能超过 100 MB。");
+  }
+  return { name, mimeType, size, extension };
+}
+
+function userAudioObjectKey(userId: string, value: unknown): string {
+  const objectKey = typeof value === "string" ? value.trim() : "";
+  if (!objectKey.startsWith(`ai-audio/${userId}/`) || !/^ai-audio\/[a-f0-9-]+\/[a-f0-9-]+\.(?:mp3|wav|flac|m4a|ogg)$/i.test(objectKey)) {
+    throw new Error("无效的临时音频文件。");
+  }
+  return objectKey;
+}
+
+async function createR2AudioUpload(userId: string, value: AiAssistantRequest["audio"]): Promise<{
+  objectKey: string;
+  uploadUrl: string;
+  expiresAt: string;
+}> {
+  const audio = sanitizeAudioUploadMetadata(value);
+  const { client, bucket } = r2Configuration();
+  const objectKey = `ai-audio/${userId}/${crypto.randomUUID()}.${audio.extension}`;
+  const uploadUrl = await getSignedUrl(client, new PutObjectCommand({
+    Bucket: bucket,
+    Key: objectKey,
+    ContentType: audio.mimeType
+  }), { expiresIn: 15 * 60 });
+  return {
+    objectKey,
+    uploadUrl,
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+  };
+}
+
+async function createR2AudioReadUrl(objectKey: string): Promise<string> {
+  const { client, bucket } = r2Configuration();
+  return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: 60 * 60 });
+}
+
+async function deleteR2AudioObject(userId: string, value: unknown): Promise<void> {
+  await deleteR2AudioObjectByKey(userAudioObjectKey(userId, value));
+}
+
+async function deleteR2AudioObjectByKey(objectKey: string): Promise<void> {
+  const { client, bucket } = r2Configuration();
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+}
+
+function sanitizeUploadedAudios(value: unknown, userId: string): UploadedAudioInput[] {
+  if (!Array.isArray(value) || value.length === 0) return [];
+  if (value.length > 6) throw new Error("一次最多选择 6 个音频文件。");
+  return value.map((item) => {
+    if (!item || typeof item !== "object") throw new Error("临时音频信息无效。");
+    const record = item as AiAssistantRequest["audio"];
+    const audio = sanitizeAudioUploadMetadata(record);
+    return {
+      name: audio.name,
+      mimeType: audio.mimeType,
+      size: audio.size,
+      objectKey: userAudioObjectKey(userId, record?.objectKey)
+    };
+  });
+}
+
+async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: AiSettingsRow | null, userId: string): Promise<{
   transcript: string;
   summary: string | null;
   warning: string | null;
   model: string;
   usage: AiAssistantUsage;
 }> {
+  const uploadedAudios = sanitizeUploadedAudios(body.audios, userId);
+  if (uploadedAudios.length) return await transcribeUploadedAudios(uploadedAudios, body, settings);
+
   const audio = sanitizeTranscriptionAudio(body.audio);
-  const credentials = configuredMimoCredentials(settings);
+  const credentials = configuredMimoAudioCredentials(settings);
   if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
   const response = await fetch(credentials.endpoint, {
     method: "POST",
@@ -1012,6 +1136,117 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
       usage: transcriptionUsage
     };
   }
+}
+
+async function transcribeUploadedAudios(
+  audios: UploadedAudioInput[],
+  body: AiAssistantRequest,
+  settings: AiSettingsRow | null
+): Promise<{
+  transcript: string;
+  summary: string | null;
+  warning: string | null;
+  model: string;
+  usage: AiAssistantUsage;
+}> {
+  const credentials = configuredMimoAudioCredentials(settings);
+  if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
+  const parts: string[] = [];
+  let transcriptionUsage = emptyUsage();
+  try {
+    for (let index = 0; index < audios.length; index += 1) {
+      const audio = audios[index];
+      const audioUrl = await createR2AudioReadUrl(audio.objectKey);
+      const result = await transcribeAudioUrl(audioUrl, body.audioLanguage, credentials);
+      parts.push(audios.length === 1 ? result.transcript : `【第 ${index + 1} 段：${audio.name}】\n${result.transcript}`);
+      transcriptionUsage = combineUsage(transcriptionUsage, result.usage);
+    }
+    const transcript = parts.join("\n\n");
+    if (!body.summarizeAudio) {
+      return { transcript, summary: null, warning: null, model: "mimo-v2.5-audio-url", usage: transcriptionUsage };
+    }
+    try {
+      const summaryResponse = await summarizeAudioTranscript(transcript, settings);
+      return {
+        transcript,
+        summary: summaryResponse.summary,
+        warning: null,
+        model: `mimo-v2.5-audio-url + ${summaryResponse.model}`,
+        usage: combineUsage(transcriptionUsage, summaryResponse.usage)
+      };
+    } catch (error) {
+      console.error(error);
+      return {
+        transcript,
+        summary: null,
+        warning: "转写已完成，但摘要生成失败。",
+        model: "mimo-v2.5-audio-url",
+        usage: transcriptionUsage
+      };
+    }
+  } finally {
+    await Promise.all(audios.map(async (audio) => {
+      try {
+        await deleteR2AudioObjectByKey(audio.objectKey);
+      } catch (error) {
+        console.error("Failed to delete temporary R2 audio", { objectKey: audio.objectKey, error: String(error) });
+      }
+    }));
+  }
+}
+
+async function transcribeAudioUrl(
+  audioUrl: string,
+  language: AiAssistantRequest["audioLanguage"],
+  credentials: ProviderCredentials
+): Promise<{ transcript: string; usage: AiAssistantUsage }> {
+  const languageInstruction = language === "zh"
+    ? "主要语言是中文。"
+    : language === "en"
+      ? "The primary language is English."
+      : "请自动识别音频语言。";
+  const response = await fetch(credentials.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${credentials.apiKey}`,
+      "api-key": credentials.apiKey
+    },
+    body: JSON.stringify({
+      model: "mimo-v2.5",
+      messages: [
+        {
+          role: "system",
+          content: "你是专业音频转写助手。完整转写所有可辨识语音，保持原始顺序、语义、数字、人名和时间，补充必要标点与自然分段。只输出转写原文，不要总结、解释或使用 Markdown。"
+        },
+        {
+          role: "user",
+          content: [
+            { type: "input_audio", input_audio: { data: audioUrl } },
+            { type: "text", text: `${languageInstruction} 请开始完整转写。` }
+          ]
+        }
+      ],
+      thinking: { type: "disabled" },
+      max_completion_tokens: 32_000,
+      stream: false
+    })
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    console.error("MiMo URL audio transcription failed", { status: response.status, responseLength: text.length });
+    if (response.status === 413) throw new Error("音频超过模型可处理大小，请压缩或拆分后重试。");
+    throw new Error(`音频转写失败（HTTP ${response.status}），请稍后重试。`);
+  }
+  const data = JSON.parse(text) as {
+    choices?: Array<{ finish_reason?: string; message?: { content?: string } }>;
+    usage?: Partial<AiAssistantUsage>;
+  };
+  const choice = data.choices?.[0];
+  if (choice?.finish_reason === "length") throw new Error("转写文本达到输出长度上限，请将音频拆成多段后重试。");
+  const transcript = choice?.message?.content?.trim();
+  if (!transcript) throw new Error("没有识别到有效语音内容。");
+  return { transcript, usage: normalizeUsage(data.usage) };
 }
 
 function sanitizeTranscriptionAudio(value: AiAssistantRequest["audio"]): { dataUrl: string } {
@@ -1156,6 +1391,16 @@ function configuredMimoCredentials(settings: AiSettingsRow | null): ProviderCred
 
   return {
     apiKey,
+    endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`
+  };
+}
+
+function configuredMimoAudioCredentials(settings: AiSettingsRow | null): ProviderCredentials {
+  const paygApiKey = optionalSecret("MIMO_PAYG_API_KEY");
+  if (!paygApiKey) return configuredMimoCredentials(settings);
+  const baseUrl = optionalSecret("MIMO_PAYG_BASE_URL") || "https://api.xiaomimimo.com/v1";
+  return {
+    apiKey: paygApiKey,
     endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`
   };
 }

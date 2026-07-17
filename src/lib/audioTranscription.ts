@@ -23,7 +23,20 @@ interface SingleAudioTranscriptionResult extends AudioTranscriptionResult {
   quota?: unknown;
 }
 
-const MAX_AUDIO_BYTES = 7 * 1024 * 1024;
+interface AudioUploadTicket {
+  objectKey: string;
+  uploadUrl: string;
+  expiresAt: string;
+}
+
+interface UploadedAudio {
+  name: string;
+  mimeType: string;
+  size: number;
+  objectKey: string;
+}
+
+export const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 export const MAX_AUDIO_FILES = 6;
 
 export async function transcribeAudioFiles(input: {
@@ -37,50 +50,38 @@ export async function transcribeAudioFiles(input: {
   if (input.files.length > MAX_AUDIO_FILES) throw new Error(`一次最多选择 ${MAX_AUDIO_FILES} 个音频文件。`);
   input.files.forEach(validateAudioFile);
 
-  const parts: SingleAudioTranscriptionResult[] = [];
-  for (let index = 0; index < input.files.length; index += 1) {
-    const file = input.files[index];
-    input.onProgress?.(index, input.files.length, file.name);
-    parts.push(await transcribeAudio({
-      file,
-      language: input.language,
-      summarize: false,
-      accessCode: input.accessCode
-    }));
-    input.onProgress?.(index + 1, input.files.length, file.name);
-  }
-
-  const transcript = parts.map((part, index) => input.files.length === 1
-    ? part.transcript
-    : `【第 ${index + 1} 段：${input.files[index].name}】\n${part.transcript}`
-  ).join("\n\n");
-  let summary: string | null = null;
-  let warning: string | null = null;
-  let model = Array.from(new Set(parts.map((part) => part.model))).join(" + ");
-  let access = parts.find((part) => part.access)?.access;
-  if (input.summarize) {
-    try {
-      const response = await askAboutAudioTranscript({
-        transcript,
-        question: "请将以上多段录音视为同一场连续内容，按顺序整理主题、要点、结论和明确待办。没有的信息不要补充。",
-        accessCode: input.accessCode
-      });
-      summary = response.answer;
-      model = `${model} + ${response.model}`;
-      access = response.access ?? access;
-    } catch {
-      warning = "转写已完成，但摘要生成失败。你仍可在下方继续提问。";
+  if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
+  const uploaded: UploadedAudio[] = [];
+  let submitted = false;
+  try {
+    for (let index = 0; index < input.files.length; index += 1) {
+      const file = input.files[index];
+      input.onProgress?.(index, input.files.length, file.name);
+      uploaded.push(await uploadAudioFile(file, input.accessCode));
+      input.onProgress?.(index + 1, input.files.length, file.name);
+    }
+    submitted = true;
+    const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+      body: {
+        mode: "audio_transcription",
+        audios: uploaded,
+        audioLanguage: input.language,
+        summarizeAudio: input.summarize,
+        accessCode: input.accessCode?.trim() || undefined
+      }
+    });
+    if (error) throw new Error(await audioFunctionError(error));
+    if (!data?.transcript?.trim()) throw new Error("没有识别到有效语音内容。");
+    return {
+      ...data,
+      files: input.files.map((file) => file.name),
+      conversation: []
+    };
+  } finally {
+    if (!submitted && uploaded.length) {
+      await Promise.allSettled(uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
     }
   }
-  return {
-    transcript,
-    summary,
-    warning,
-    model,
-    access,
-    files: input.files.map((file) => file.name),
-    conversation: []
-  };
 }
 
 export async function transcribeAudio(input: {
@@ -89,25 +90,12 @@ export async function transcribeAudio(input: {
   summarize: boolean;
   accessCode?: string;
 }): Promise<SingleAudioTranscriptionResult> {
-  if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
-  validateAudioFile(input.file);
-  const dataUrl = await fileToDataUrl(input.file);
-  const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
-    body: {
-      mode: "audio_transcription",
-      audio: {
-        name: input.file.name,
-        mimeType: normalizedAudioMimeType(input.file),
-        dataUrl
-      },
-      audioLanguage: input.language,
-      summarizeAudio: input.summarize,
-      accessCode: input.accessCode?.trim() || undefined
-    }
-  });
-  if (error) throw new Error(await audioFunctionError(error));
-  if (!data?.transcript?.trim()) throw new Error("没有识别到有效语音内容。");
-  return data;
+  return await transcribeAudioFiles({
+    files: [input.file],
+    language: input.language,
+    summarize: input.summarize,
+    accessCode: input.accessCode
+  }) as SingleAudioTranscriptionResult;
 }
 
 export async function askAboutAudioTranscript(input: {
@@ -136,26 +124,49 @@ export async function askAboutAudioTranscript(input: {
 
 export function validateAudioFile(file: File): void {
   const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension !== "mp3" && extension !== "wav") throw new Error("音频转写仅支持 MP3 和 WAV 文件。");
+  if (!extension || !["mp3", "wav", "flac", "m4a", "ogg"].includes(extension)) {
+    throw new Error("音频转写仅支持 MP3、WAV、FLAC、M4A 和 OGG 文件。");
+  }
   if (file.size <= 0) throw new Error("音频文件为空。");
-  if (file.size > MAX_AUDIO_BYTES) throw new Error(`“${file.name}”不能超过 7 MB，请压缩或拆分后重试。`);
+  if (file.size > MAX_AUDIO_BYTES) throw new Error(`“${file.name}”不能超过 100 MB，请压缩或拆分后重试。`);
 }
 
 function normalizedAudioMimeType(file: File): string {
-  return file.name.toLowerCase().endsWith(".wav") ? "audio/wav" : "audio/mpeg";
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  return ({
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    flac: "audio/flac",
+    m4a: "audio/mp4",
+    ogg: "audio/ogg"
+  } as Record<string, string>)[extension ?? ""] ?? (file.type || "application/octet-stream");
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const value = typeof reader.result === "string" ? reader.result : "";
-      const base64 = value.split(",")[1];
-      if (!base64) reject(new Error("读取音频文件失败。"));
-      else resolve(`data:${normalizedAudioMimeType(file)};base64,${base64}`);
-    };
-    reader.onerror = () => reject(new Error("读取音频文件失败。"));
-    reader.readAsDataURL(file);
+async function uploadAudioFile(file: File, accessCode?: string): Promise<UploadedAudio> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法上传音频。");
+  const mimeType = normalizedAudioMimeType(file);
+  const { data, error } = await supabase.functions.invoke<AudioUploadTicket>("ai-assistant", {
+    body: {
+      action: "create_audio_upload",
+      audio: { name: file.name, mimeType, size: file.size },
+      accessCode: accessCode?.trim() || undefined
+    }
+  });
+  if (error) throw new Error(await audioFunctionError(error));
+  if (!data?.uploadUrl || !data.objectKey) throw new Error("没有获取到有效的音频上传地址。");
+  const response = await fetch(data.uploadUrl, {
+    method: "PUT",
+    headers: { "content-type": mimeType },
+    body: file
+  });
+  if (!response.ok) throw new Error(`音频上传失败（HTTP ${response.status}）。`);
+  return { name: file.name, mimeType, size: file.size, objectKey: data.objectKey };
+}
+
+async function deleteUploadedAudio(objectKey: string): Promise<void> {
+  if (!supabase) return;
+  await supabase.functions.invoke("ai-assistant", {
+    body: { action: "delete_audio_upload", audio: { objectKey } }
   });
 }
 

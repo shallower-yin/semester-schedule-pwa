@@ -54,6 +54,10 @@ jobs:
           MIMO_PAYG_BASE_URL: ${{ vars.MIMO_PAYG_BASE_URL || 'https://api.xiaomimimo.com/v1' }}
           MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}
           MIMO_TOKEN_PLAN_BASE_URL: ${{ vars.MIMO_TOKEN_PLAN_BASE_URL || vars.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1' }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT || '3' }}
@@ -87,6 +91,13 @@ jobs:
           fi
           if [ -n "${MIMO_TOKEN_PLAN_API_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" MIMO_TOKEN_PLAN_API_KEY="$MIMO_TOKEN_PLAN_API_KEY"
+          fi
+          if [ -n "${R2_ENDPOINT:-}" ] && [ -n "${R2_BUCKET:-}" ] && [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ]; then
+            supabase secrets set --project-ref "$PROJECT_REF" \
+              R2_ENDPOINT="$R2_ENDPOINT" \
+              R2_BUCKET="$R2_BUCKET" \
+              R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
+              R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
           fi
           if [ -n "${AI_ASSISTANT_ACCESS_CODE:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" AI_ASSISTANT_ACCESS_CODE="$AI_ASSISTANT_ACCESS_CODE"
