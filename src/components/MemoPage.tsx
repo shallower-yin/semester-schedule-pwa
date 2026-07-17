@@ -466,7 +466,7 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
       headerExtra={<label className="memo-pin-control"><input type="checkbox" checked={isPinned} onChange={(event) => setIsPinned(event.target.checked)} />置顶</label>}
     >
       <form className="form-stack memo-dialog-form" onSubmit={save}>
-        <label className="memo-meta-row"><span>标题</span><input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <label className="memo-meta-row"><span>标题</span><input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <label className="memo-meta-row"><span>文件夹</span>
           <select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
             <option value="">全部 / 不放入文件夹</option>

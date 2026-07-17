@@ -150,6 +150,15 @@ async function showReminder(title: string, body: string, tag: string) {
   });
 }
 
+export async function showHealthMovementReminder(): Promise<void> {
+  if (!notificationsSupported() || Notification.permission !== "granted") return;
+  await showReminder(
+    "起来活动一下",
+    "喝口水，活动肩颈或走动几分钟。完成后可在健康页记录。",
+    "health-movement-reminder"
+  );
+}
+
 export async function diagnoseNotifications(): Promise<NotificationDiagnosticStep[]> {
   const steps: NotificationDiagnosticStep[] = [];
   if (!notificationsSupported()) {

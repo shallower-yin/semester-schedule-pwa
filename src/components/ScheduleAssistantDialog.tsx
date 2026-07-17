@@ -57,7 +57,6 @@ export function ScheduleAssistantDialog({ input, onClose }: ScheduleAssistantDia
           ask();
         }}>
           <input
-            autoFocus
             value={question}
             placeholder="例如：明天有哪些未完成事项？"
             onChange={(event) => setQuestion(event.target.value)}

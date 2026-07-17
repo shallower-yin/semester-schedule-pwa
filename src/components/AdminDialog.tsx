@@ -327,6 +327,22 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
             </button>
           </div>
           </section>
+
+          <section className="admin-access-editor admin-ai-error-logs">
+            <div className="section-heading">
+              <div><h3><Database size={18} /> AI 错误诊断</h3><p>显示最近 30 条失败请求；用户报错时可按诊断编号定位上游状态与分段。</p></div>
+            </div>
+            <div className="admin-ai-error-log-list">
+              {(summary?.aiErrorLogs ?? []).map((log) => (
+                <article key={`${log.diagnosticId}-${log.requestedAt}`}>
+                  <div><strong>{aiFeatureName(log.featureKey)}</strong><code>{log.diagnosticId?.slice(0, 8) || "无编号"}</code><time>{formatDateTime(log.requestedAt)}</time></div>
+                  <p>{log.error}</p>
+                  <small>{diagnosticDetailsText(log.details)}{log.latencyMs != null ? ` · ${log.latencyMs} ms` : ""}</small>
+                </article>
+              ))}
+              {summary && !(summary.aiErrorLogs ?? []).length && <p className="muted-note">暂无可显示的 AI 错误记录。</p>}
+            </div>
+          </section>
         </>}
 
         {adminSection === "content" && <>
@@ -482,6 +498,23 @@ function AiUsageCard({ title, requests, tokens, cost }: { title: string; request
       <small>{formatTokenCount(tokens)} · {formatCost(cost)}</small>
     </article>
   );
+}
+
+function aiFeatureName(value: string): string {
+  if (value === "mind_map") return "AI 思维导图";
+  if (value === "audio_transcription") return "AI 音频转写";
+  return "AI 助手";
+}
+
+function diagnosticDetailsText(details: Record<string, unknown>): string {
+  const values = [
+    details.stage ? `阶段 ${details.stage}` : "",
+    details.providerStatus ? `上游 HTTP ${details.providerStatus}` : "",
+    details.providerError ? String(details.providerError) : "",
+    details.fileName ? `文件 ${details.fileName}` : "",
+    details.chunk ? `分段 ${details.chunk}/${details.chunkCount ?? "?"}` : ""
+  ].filter(Boolean);
+  return values.join(" · ") || "未记录额外诊断信息";
 }
 
 function AdminRecordSection({ title, records, fields }: { title: string; records: Array<Record<string, unknown>>; fields: string[] }) {

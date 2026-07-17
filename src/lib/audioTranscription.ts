@@ -52,7 +52,6 @@ export async function transcribeAudioFiles(input: {
 
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const uploaded: UploadedAudio[] = [];
-  let submitted = false;
   try {
     for (let index = 0; index < input.files.length; index += 1) {
       const file = input.files[index];
@@ -60,7 +59,6 @@ export async function transcribeAudioFiles(input: {
       uploaded.push(await uploadAudioFile(file, input.accessCode));
       input.onProgress?.(index + 1, input.files.length, file.name);
     }
-    submitted = true;
     const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
       body: {
         mode: "audio_transcription",
@@ -78,7 +76,7 @@ export async function transcribeAudioFiles(input: {
       conversation: []
     };
   } finally {
-    if (!submitted && uploaded.length) {
+    if (uploaded.length) {
       await Promise.allSettled(uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
     }
   }

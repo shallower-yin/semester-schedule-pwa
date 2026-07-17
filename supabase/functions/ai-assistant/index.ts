@@ -1,5 +1,6 @@
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "npm:@aws-sdk/client-s3@3.1089.0";
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
+import { splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
 
 interface AiAssistantRequest {
   action?: "configuration" | "create_audio_upload" | "delete_audio_upload";
@@ -175,6 +176,13 @@ interface UploadedAudioInput {
   objectKey: string;
 }
 
+class DiagnosticError extends Error {
+  constructor(message: string, readonly details: Record<string, unknown>) {
+    super(message);
+    this.name = "DiagnosticError";
+  }
+}
+
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
@@ -195,6 +203,7 @@ const PUBLIC_PRODUCT_RULES = [
   "纪念日、生日和节日按年重复，可设置提前天数和提醒时间；常见农历或固定规则节日由应用内置日历校准。",
   "备忘录支持文件夹、置顶、编号和待办清单；可把备忘录转为事项，也可由事项转为备忘录。",
   "专注支持正计时、倒计时、番茄钟和锁机记录，可关联任务，并查看当天、当周和近 7 日统计；系统小窗使用浏览器画中画能力，可在其他应用上方显示时间，是否可用取决于设备和浏览器支持。",
+  "健康页第一阶段支持记录饮水、起身活动、俯卧撑、仰卧起坐、深蹲、身高和体重，可计算 BMI，并可在指定时段按间隔发送本地活动提醒。",
   "数据优先保存在当前设备；登录同一账号后同步到其他设备。设置页不再重复展示账号同步入口，账号与同步使用顶部按钮。",
   "本机自动备份保存在当前浏览器并保留最近 3 份；可从备份弹窗把最近快照下载为 JSON 文件长期保存或跨设备导入，没有另一种独立的备份格式。",
   "删除是永久删除，同步后其他设备也会删除；只能通过之前导出的 JSON 备份恢复。",
@@ -250,6 +259,7 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   const startedAt = Date.now();
+  const diagnosticId = crypto.randomUUID();
   let currentUser: SupabaseUser | null = null;
   let accessMethod = "";
   let questionChars = 0;
@@ -395,7 +405,9 @@ Deno.serve(async (request) => {
       quota: quotaStatus
     });
   } catch (error) {
-    console.error(error);
+    const diagnosticDetails = error instanceof DiagnosticError ? error.details : {};
+    const publicMessage = error instanceof Error ? error.message : "AI 助手请求失败。";
+    console.error("AI request failed", { diagnosticId, featureKey, message: publicMessage, ...diagnosticDetails });
     if (currentUser) {
       await logAiAssistantUsage({
         userId: currentUser.id,
@@ -406,10 +418,15 @@ Deno.serve(async (request) => {
         usage: emptyUsage(),
         latencyMs: Date.now() - startedAt,
         questionChars,
-        error: error instanceof Error ? error.message : String(error)
+        error: publicMessage,
+        diagnosticId,
+        diagnosticDetails
       });
     }
-    return jsonResponse({ error: error instanceof Error ? error.message : "AI 助手请求失败。" }, 500);
+    return jsonResponse({
+      error: `${publicMessage}（诊断编号：${diagnosticId.slice(0, 8)}）`,
+      diagnosticId
+    }, 500);
   }
 });
 
@@ -1042,9 +1059,11 @@ async function createR2AudioUpload(userId: string, value: AiAssistantRequest["au
   };
 }
 
-async function createR2AudioReadUrl(objectKey: string): Promise<string> {
+async function downloadR2AudioObject(objectKey: string): Promise<Uint8Array> {
   const { client, bucket } = r2Configuration();
-  return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: 60 * 60 });
+  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+  if (!response.Body) throw new Error("临时音频文件读取失败，请重新上传后重试。");
+  return await response.Body.transformToByteArray();
 }
 
 async function deleteR2AudioObject(userId: string, value: unknown): Promise<void> {
@@ -1156,14 +1175,21 @@ async function transcribeUploadedAudios(
   try {
     for (let index = 0; index < audios.length; index += 1) {
       const audio = audios[index];
-      const audioUrl = await createR2AudioReadUrl(audio.objectKey);
-      const result = await transcribeAudioUrl(audioUrl, body.audioLanguage, credentials);
-      parts.push(audios.length === 1 ? result.transcript : `【第 ${index + 1} 段：${audio.name}】\n${result.transcript}`);
-      transcriptionUsage = combineUsage(transcriptionUsage, result.usage);
+      const bytes = await downloadR2AudioObject(audio.objectKey);
+      const chunks = splitAudioForAsr(bytes, audio.name, audio.mimeType);
+      const results = await mapWithConcurrency(chunks, 2, (chunk, chunkIndex) =>
+        transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length)
+      );
+      const fileTranscript = results.map((result, chunkIndex) => chunks.length === 1
+        ? result.transcript
+        : `【${audio.name} · 分段 ${chunkIndex + 1}/${chunks.length}】\n${result.transcript}`
+      ).join("\n\n");
+      parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
+      transcriptionUsage = results.reduce((usage, result) => combineUsage(usage, result.usage), transcriptionUsage);
     }
     const transcript = parts.join("\n\n");
     if (!body.summarizeAudio) {
-      return { transcript, summary: null, warning: null, model: "mimo-v2.5-audio-url", usage: transcriptionUsage };
+      return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: transcriptionUsage };
     }
     try {
       const summaryResponse = await summarizeAudioTranscript(transcript, settings);
@@ -1171,7 +1197,7 @@ async function transcribeUploadedAudios(
         transcript,
         summary: summaryResponse.summary,
         warning: null,
-        model: `mimo-v2.5-audio-url + ${summaryResponse.model}`,
+        model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
         usage: combineUsage(transcriptionUsage, summaryResponse.usage)
       };
     } catch (error) {
@@ -1180,7 +1206,7 @@ async function transcribeUploadedAudios(
         transcript,
         summary: null,
         warning: "转写已完成，但摘要生成失败。",
-        model: "mimo-v2.5-audio-url",
+        model: "mimo-v2.5-asr-chunked",
         usage: transcriptionUsage
       };
     }
@@ -1195,16 +1221,15 @@ async function transcribeUploadedAudios(
   }
 }
 
-async function transcribeAudioUrl(
-  audioUrl: string,
+async function transcribeAudioChunk(
+  chunk: AudioChunk,
   language: AiAssistantRequest["audioLanguage"],
-  credentials: ProviderCredentials
+  credentials: ProviderCredentials,
+  fileName: string,
+  chunkIndex: number,
+  chunkCount: number
 ): Promise<{ transcript: string; usage: AiAssistantUsage }> {
-  const languageInstruction = language === "zh"
-    ? "主要语言是中文。"
-    : language === "en"
-      ? "The primary language is English."
-      : "请自动识别音频语言。";
+  const dataUrl = `data:${chunk.mimeType};base64,${bytesToBase64(chunk.bytes)}`;
   const response = await fetch(credentials.endpoint, {
     method: "POST",
     headers: {
@@ -1213,40 +1238,70 @@ async function transcribeAudioUrl(
       "api-key": credentials.apiKey
     },
     body: JSON.stringify({
-      model: "mimo-v2.5",
-      messages: [
-        {
-          role: "system",
-          content: "你是专业音频转写助手。完整转写所有可辨识语音，保持原始顺序、语义、数字、人名和时间，补充必要标点与自然分段。只输出转写原文，不要总结、解释或使用 Markdown。"
-        },
-        {
-          role: "user",
-          content: [
-            { type: "input_audio", input_audio: { data: audioUrl } },
-            { type: "text", text: `${languageInstruction} 请开始完整转写。` }
-          ]
-        }
-      ],
-      thinking: { type: "disabled" },
-      max_completion_tokens: 32_000,
+      model: "mimo-v2.5-asr",
+      messages: [{ role: "user", content: [{ type: "input_audio", input_audio: { data: dataUrl } }] }],
+      asr_options: { language: language === "zh" || language === "en" ? language : "auto" },
       stream: false
     })
   });
   const text = await response.text();
   if (!response.ok) {
-    console.error("MiMo URL audio transcription failed", { status: response.status, responseLength: text.length });
-    if (response.status === 413) throw new Error("音频超过模型可处理大小，请压缩或拆分后重试。");
-    throw new Error(`音频转写失败（HTTP ${response.status}），请稍后重试。`);
+    const providerError = safeProviderError(text);
+    throw new DiagnosticError(
+      response.status === 413
+        ? "当前音频分段仍超过模型请求限制，请联系管理员并提供诊断编号。"
+        : `音频转写失败（HTTP ${response.status}），请稍后重试。`,
+      { stage: "mimo_asr", providerStatus: response.status, providerError, fileName, chunk: chunkIndex + 1, chunkCount, chunkBytes: chunk.bytes.length }
+    );
   }
-  const data = JSON.parse(text) as {
+  let data: {
     choices?: Array<{ finish_reason?: string; message?: { content?: string } }>;
     usage?: Partial<AiAssistantUsage>;
   };
+  try {
+    data = JSON.parse(text) as typeof data;
+  } catch {
+    throw new DiagnosticError("音频服务返回了无法解析的结果，请联系管理员并提供诊断编号。", {
+      stage: "mimo_asr_parse", fileName, chunk: chunkIndex + 1, chunkCount, responsePreview: text.slice(0, 300)
+    });
+  }
   const choice = data.choices?.[0];
   if (choice?.finish_reason === "length") throw new Error("转写文本达到输出长度上限，请将音频拆成多段后重试。");
   const transcript = choice?.message?.content?.trim();
   if (!transcript) throw new Error("没有识别到有效语音内容。");
   return { transcript, usage: normalizeUsage(data.usage) };
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const result = new Array<R>(items.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      result[index] = await mapper(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return result;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + 0x8000)));
+  }
+  return btoa(binary);
+}
+
+function safeProviderError(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const error = parsed.error && typeof parsed.error === "object" ? parsed.error as Record<string, unknown> : parsed;
+    return String(error.message ?? error.code ?? "上游服务未返回错误说明").slice(0, 500);
+  } catch {
+    return value.replace(/\s+/g, " ").trim().slice(0, 500) || "上游服务未返回错误说明";
+  }
 }
 
 function sanitizeTranscriptionAudio(value: AiAssistantRequest["audio"]): { dataUrl: string } {
@@ -1627,6 +1682,8 @@ async function logAiAssistantUsage(input: {
   latencyMs: number;
   questionChars: number;
   error?: string;
+  diagnosticId?: string;
+  diagnosticDetails?: Record<string, unknown>;
 }) {
   const serviceRoleKey = serviceRoleSecret();
   if (!serviceRoleKey) return;
@@ -1643,7 +1700,9 @@ async function logAiAssistantUsage(input: {
       estimated_cost_cny: input.usage.estimated_cost_cny,
       latency_ms: input.latencyMs,
       question_chars: input.questionChars,
-      error: input.error ? input.error.slice(0, 500) : null
+      error: input.error ? input.error.slice(0, 500) : null,
+      diagnostic_id: input.diagnosticId ?? null,
+      diagnostic_details: input.diagnosticDetails ?? {}
     };
     const response = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage`, {
       method: "POST",
@@ -1657,10 +1716,12 @@ async function logAiAssistantUsage(input: {
     });
     if (!response.ok) {
       const text = await response.text();
-      if (text.includes("estimated_cost_cny") || text.includes("feature_key")) {
+      if (text.includes("estimated_cost_cny") || text.includes("feature_key") || text.includes("diagnostic_id") || text.includes("diagnostic_details")) {
         const legacyPayload: Record<string, unknown> = { ...payload };
         delete legacyPayload.estimated_cost_cny;
         delete legacyPayload.feature_key;
+        delete legacyPayload.diagnostic_id;
+        delete legacyPayload.diagnostic_details;
         const retry = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage`, {
           method: "POST",
           headers: {

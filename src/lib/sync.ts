@@ -18,7 +18,9 @@ export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: s
   { local: "memoFolders", remote: "memo_folders", label: "备忘录文件夹" },
   { local: "memos", remote: "memos", label: "备忘录" },
   { local: "focusSettings", remote: "focus_settings", label: "专注设置" },
-  { local: "focusSessions", remote: "focus_sessions", label: "专注记录" }
+  { local: "focusSessions", remote: "focus_sessions", label: "专注记录" },
+  { local: "healthProfiles", remote: "health_profiles", label: "健康设置" },
+  { local: "healthLogs", remote: "health_logs", label: "健康记录" }
 ];
 
 const TABLES = SYNC_TABLES;
@@ -31,6 +33,8 @@ const DELETE_TABLES = [
   "semesters",
   "eventOccurrenceStates",
   "focusSessions",
+  "healthLogs",
+  "healthProfiles",
   "events",
   "memos",
   "memoFolders",
@@ -210,6 +214,25 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       ...record,
       folder_id: record.folder_id ?? null,
       is_pinned: Boolean(record.is_pinned)
+    };
+  }
+  if (table === "healthProfiles") {
+    return {
+      ...record,
+      height_cm: record.height_cm == null ? null : Number(record.height_cm),
+      daily_water_goal_ml: Number(record.daily_water_goal_ml ?? 2000),
+      movement_reminder_enabled: Boolean(record.movement_reminder_enabled),
+      movement_interval_minutes: Number(record.movement_interval_minutes ?? 60),
+      reminder_start_time: String(record.reminder_start_time ?? "09:00").slice(0, 5),
+      reminder_end_time: String(record.reminder_end_time ?? "22:00").slice(0, 5)
+    };
+  }
+  if (table === "healthLogs") {
+    return {
+      ...record,
+      amount: Number(record.amount ?? 0),
+      activity: record.activity == null ? null : String(record.activity),
+      note: String(record.note ?? "")
     };
   }
   if (table === "focusSettings") {

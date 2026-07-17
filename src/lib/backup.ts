@@ -15,10 +15,12 @@ export const BACKUP_TABLES: SyncTableName[] = [
   "memoFolders",
   "memos",
   "focusSettings",
-  "focusSessions"
+  "focusSessions",
+  "healthProfiles",
+  "healthLogs"
 ];
 
-export const OPTIONAL_TABLES_IN_OLD_BACKUPS = new Set<SyncTableName>(["anniversaries"]);
+export const OPTIONAL_TABLES_IN_OLD_BACKUPS = new Set<SyncTableName>(["anniversaries", "healthProfiles", "healthLogs"]);
 
 export async function createBackup(): Promise<BackupFile> {
   const data = {} as BackupFile["data"];

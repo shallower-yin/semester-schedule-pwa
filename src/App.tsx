@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
   FileImage,
   GraduationCap,
+  HeartPulse,
   LogIn,
   Menu,
   MessageSquareText,
@@ -58,6 +59,7 @@ import { FocusPage } from "./components/FocusPage";
 import { FocusFloatingTimer } from "./components/FocusFloatingTimer";
 import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
 import { HabitPage } from "./components/HabitPage";
+import { HealthPage } from "./components/HealthPage";
 import { HeaderToolSettingsDialog } from "./components/HeaderToolSettingsDialog";
 import { HelpPage } from "./components/HelpPage";
 import { InstallDialog } from "./components/InstallDialog";
@@ -92,6 +94,7 @@ import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { deleteSemesterCascade } from "./lib/semesters";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
+import { checkDueHealthReminder } from "./lib/health";
 import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
@@ -444,7 +447,10 @@ export default function App() {
   }, [user?.id, pendingChanges]);
 
   useEffect(() => {
-    const check = () => void checkDueLocalReminders(ownerId);
+    const check = () => void Promise.allSettled([
+      checkDueLocalReminders(ownerId),
+      checkDueHealthReminder(ownerId)
+    ]);
     check();
     const timer = window.setInterval(check, 30_000);
     const onVisibilityChange = () => {
@@ -778,6 +784,7 @@ export default function App() {
     { id: "anniversaries", label: "纪念日", icon: <CalendarHeart size={19} /> },
     { id: "memos", label: "备忘录", icon: <NotebookText size={19} /> },
     { id: "focus", label: "专注", icon: <Target size={19} /> },
+    { id: "health", label: "健康", icon: <HeartPulse size={19} /> },
     { id: "settings", label: "设置", icon: <Settings size={19} /> },
     { id: "help", label: "使用说明", icon: <CircleHelp size={19} /> }
   ];
@@ -849,6 +856,7 @@ export default function App() {
   const selectedHeaderTools = headerTools
     .filter((item) => headerToolItems.includes(item.id))
     .sort((left, right) => headerToolItems.indexOf(left.id) - headerToolItems.indexOf(right.id));
+  const mobileHeaderTools = headerTools.filter((item) => item.id === "account" || item.id === "aiAssistant");
 
   function renderSettingsSection(title: string, description: string, children: ReactNode) {
     return (
@@ -885,7 +893,12 @@ export default function App() {
         </div>
         <nav className="desktop-nav">{renderNavigation(navItems)}</nav>
         <div className="header-status">
-          {selectedHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
+          <span className="desktop-header-tools">
+            {selectedHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
+          </span>
+          <span className="mobile-header-tools">
+            {mobileHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
+          </span>
         </div>
       </header>
 
@@ -896,6 +909,14 @@ export default function App() {
           <aside className="mobile-sidebar" onClick={(event) => event.stopPropagation()}>
             <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={requestSidebarClose}><X /></button></div>
             <nav>{renderNavigation(navItems)}</nav>
+            <section className="mobile-ai-toolbox" aria-label="AI 工具箱">
+              <h2><Sparkles size={16} />AI 工具箱</h2>
+              <div>
+                <button onClick={() => { setShowDeepSeekAssistant(true); setSidebarOpen(false); }}><BrainCircuit size={18} />AI 助手</button>
+                <button onClick={() => { setShowMindMap(true); setSidebarOpen(false); }}><Network size={18} />AI 思维导图</button>
+                <button onClick={() => { setShowAudioTranscription(true); setSidebarOpen(false); }}><AudioLines size={18} />AI 音频转写</button>
+              </div>
+            </section>
           </aside>
         </div>
       )}
@@ -914,6 +935,8 @@ export default function App() {
           />
         ) : page === "focus" ? (
           <FocusPage ownerId={ownerId} />
+        ) : page === "health" ? (
+          <HealthPage ownerId={ownerId} />
         ) : page === "help" ? (
           <HelpPage />
         ) : page === "today" && todayOverview ? (

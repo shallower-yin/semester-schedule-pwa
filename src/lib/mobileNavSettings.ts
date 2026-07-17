@@ -2,7 +2,7 @@ import type { PageId } from "../types";
 
 const STORAGE_KEY = "semester-schedule-mobile-nav";
 export const DEFAULT_MOBILE_NAV: PageId[] = ["today", "calendar", "habits", "anniversaries", "memos", "focus", "settings"];
-export const AVAILABLE_MOBILE_NAV: PageId[] = [...DEFAULT_MOBILE_NAV, "help"];
+export const AVAILABLE_MOBILE_NAV: PageId[] = [...DEFAULT_MOBILE_NAV, "health", "help"];
 
 export function loadMobileNavSettings(): PageId[] {
   try {

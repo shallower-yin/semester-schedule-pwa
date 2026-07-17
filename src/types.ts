@@ -1,7 +1,7 @@
 export type ISODate = string;
 export type ISODateTime = string;
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
-export type PageId = "today" | "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "settings" | "help";
+export type PageId = "today" | "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "health" | "settings" | "help";
 
 export interface SyncFields {
   id: string;
@@ -140,6 +140,26 @@ export interface FocusSession extends SyncFields {
   interrupted: boolean;
 }
 
+export interface HealthProfile extends SyncFields {
+  height_cm: number | null;
+  daily_water_goal_ml: number;
+  movement_reminder_enabled: boolean;
+  movement_interval_minutes: number;
+  reminder_start_time: string;
+  reminder_end_time: string;
+}
+
+export type HealthLogKind = "water" | "movement" | "exercise" | "weight";
+
+export interface HealthLog extends SyncFields {
+  kind: HealthLogKind;
+  logged_at: ISODateTime;
+  amount: number;
+  unit: "ml" | "minute" | "rep" | "kg";
+  activity: string | null;
+  note: string;
+}
+
 export interface SyncQueueItem {
   id: string;
   table_name: SyncTableName;
@@ -163,7 +183,9 @@ export type SyncTableName =
   | "memoFolders"
   | "memos"
   | "focusSettings"
-  | "focusSessions";
+  | "focusSessions"
+  | "healthProfiles"
+  | "healthLogs";
 
 export interface BackupFile {
   format: "semester-schedule-backup";

@@ -61,7 +61,6 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
         <label>
           输入一句话
           <textarea
-            autoFocus
             rows={3}
             value={text}
             placeholder="例如：明天 9：00 交作业（字段之间用空格）"

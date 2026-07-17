@@ -185,7 +185,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             <Sparkles size={16} />{loading ? progress || "处理中…" : `开始转写${files.length > 1 ? `（${files.length} 段）` : ""}`}
           </button>
           {task.status === "error" && <div className="ai-inline-error" role="alert"><span>{task.message}</span><button type="button" className="button secondary compact" onClick={() => retryAiTask("audio_transcription")}>重试</button></div>}
-          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 段。音频临时上传处理，完成或失败后自动删除，不保存到应用数据库或 Supabase Storage。</p>
+          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 MP3、WAV 会自动分段转写；其他大文件请先转换格式。音频完成或失败后会从临时存储删除。</p>
         </section>
 
         <section className="audio-transcription-result">

@@ -53,5 +53,5 @@ function withMarker(state: HistoryRecord, marker: AppHistoryMarker): HistoryReco
 }
 
 function isPageId(value: unknown): value is PageId {
-  return ["today", "calendar", "habits", "anniversaries", "memos", "focus", "settings", "help"].includes(String(value));
+  return ["today", "calendar", "habits", "anniversaries", "memos", "focus", "health", "settings", "help"].includes(String(value));
 }

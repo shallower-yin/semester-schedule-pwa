@@ -60,6 +60,18 @@ export interface AdminSummary {
   passwordVisible: false;
   users: AdminUserSummary[];
   aiSettings: AdminAiSettings;
+  aiErrorLogs: AdminAiErrorLog[];
+}
+
+export interface AdminAiErrorLog {
+  requestedAt: string;
+  userId: string;
+  featureKey: string;
+  model: string;
+  diagnosticId: string | null;
+  latencyMs: number | null;
+  error: string;
+  details: Record<string, unknown>;
 }
 
 export interface AdminAiSettings {
@@ -164,9 +176,10 @@ type AiAccessRpcRow = {
 
 export async function getAdminSummary(): Promise<AdminSummary> {
   if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
-  const [{ data, error }, settingsResult] = await Promise.all([
+  const [{ data, error }, settingsResult, errorLogsResult] = await Promise.all([
     supabase.rpc("admin_list_users"),
-    supabase.rpc("admin_get_ai_settings")
+    supabase.rpc("admin_get_ai_settings"),
+    supabase.rpc("admin_list_ai_error_logs", { p_limit: 30 })
   ]);
   if (error) throw new Error(formatAdminError(error.message));
   if (settingsResult.error) throw new Error(formatAdminError(settingsResult.error.message));
@@ -175,6 +188,19 @@ export async function getAdminSummary(): Promise<AdminSummary> {
   return {
     passwordVisible: false,
     aiSettings: normalizeAiSettings(settingsResult.data),
+    aiErrorLogs: errorLogsResult.error ? [] : (Array.isArray(errorLogsResult.data) ? errorLogsResult.data : []).map((row) => {
+      const value = row as Record<string, unknown>;
+      return {
+        requestedAt: String(value.requested_at ?? ""),
+        userId: String(value.user_id ?? ""),
+        featureKey: String(value.feature_key ?? "assistant"),
+        model: String(value.model ?? ""),
+        diagnosticId: typeof value.diagnostic_id === "string" ? value.diagnostic_id : null,
+        latencyMs: value.latency_ms == null ? null : Number(value.latency_ms),
+        error: String(value.error ?? "未知错误"),
+        details: value.diagnostic_details && typeof value.diagnostic_details === "object" ? value.diagnostic_details as Record<string, unknown> : {}
+      };
+    }),
     users: rows.map((row) => ({
       id: row.id,
       email: row.email ?? "",
