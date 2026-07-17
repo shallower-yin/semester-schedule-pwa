@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "./aiModels";
+import { normalizeAiFeatureQuotas, type AiFeatureQuotas } from "./aiFeatures";
 
 export type AdminRole = "member" | "admin";
 
@@ -70,6 +71,7 @@ export interface AdminAiSettings {
   provider: "deepseek" | "mimo";
   model: string;
   mimo_channel: MimoChannel;
+  feature_quotas: AiFeatureQuotas;
   updated_at: string | null;
 }
 
@@ -239,7 +241,8 @@ export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_
     p_member_weekly_limit: input.member_weekly_limit,
     p_provider: input.provider,
     p_model: input.model,
-    p_mimo_channel: input.mimo_channel
+    p_mimo_channel: input.mimo_channel,
+    p_feature_quotas: input.feature_quotas
   });
   if (error) throw new Error(formatAdminError(error.message));
   return normalizeAiSettings(data);
@@ -249,15 +252,24 @@ function normalizeAiSettings(value: unknown): AdminAiSettings {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const provider: AiProvider = row.provider === "mimo" ? "mimo" : "deepseek";
   const storedModel = typeof row.model === "string" ? row.model.trim() : "";
-  return {
+  const legacy = {
     enabled_for_all: Boolean(row.enabled_for_all),
-    ordinary_daily_limit: Math.max(1, Number(row.ordinary_daily_limit ?? row.daily_limit ?? 20)),
-    ordinary_weekly_limit: Math.max(1, Number(row.ordinary_weekly_limit ?? row.weekly_limit ?? 100)),
-    member_daily_limit: Math.max(1, Number(row.member_daily_limit ?? 50)),
-    member_weekly_limit: Math.max(1, Number(row.member_weekly_limit ?? 300)),
+    ordinary_daily_limit: Math.max(0, Number(row.ordinary_daily_limit ?? row.daily_limit ?? 20)),
+    ordinary_weekly_limit: Math.max(0, Number(row.ordinary_weekly_limit ?? row.weekly_limit ?? 100)),
+    member_daily_limit: Math.max(0, Number(row.member_daily_limit ?? 50)),
+    member_weekly_limit: Math.max(0, Number(row.member_weekly_limit ?? 300))
+  };
+  const featureQuotas = normalizeAiFeatureQuotas(row.feature_quotas, legacy);
+  return {
+    enabled_for_all: featureQuotas.assistant.enabled_for_all,
+    ordinary_daily_limit: featureQuotas.assistant.ordinary_daily_limit,
+    ordinary_weekly_limit: featureQuotas.assistant.ordinary_weekly_limit,
+    member_daily_limit: featureQuotas.assistant.member_daily_limit,
+    member_weekly_limit: featureQuotas.assistant.member_weekly_limit,
     provider,
     model: isSupportedAiModel(provider, storedModel) ? storedModel : defaultAiModel(provider),
     mimo_channel: row.mimo_channel === "token_plan" ? "token_plan" : "payg",
+    feature_quotas: featureQuotas,
     updated_at: typeof row.updated_at === "string" ? row.updated_at : null
   };
 }

@@ -19,6 +19,13 @@ interface AdminRequest {
     provider?: "deepseek" | "mimo";
     model?: string;
     mimoChannel?: "payg" | "token_plan";
+    featureQuotas?: Record<string, {
+      enabled_for_all?: boolean;
+      ordinary_daily_limit?: number;
+      ordinary_weekly_limit?: number;
+      member_daily_limit?: number;
+      member_weekly_limit?: number;
+    }>;
   };
 }
 
@@ -481,7 +488,7 @@ async function setAiAccess(
 
 async function getAiSettings(serviceRoleKey: string) {
   const rows = await restGet<Record<string, unknown>>("ai_assistant_settings", serviceRoleKey, {
-    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,updated_at",
+    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,feature_quotas,updated_at",
     id: "eq.true"
   }, 1);
   return rows[0] ?? {
@@ -498,26 +505,32 @@ async function getAiSettings(serviceRoleKey: string) {
 }
 
 async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey: string) {
-  const ordinaryDailyLimit = Math.floor(Number(settings?.ordinaryDailyLimit));
-  const ordinaryWeeklyLimit = Math.floor(Number(settings?.ordinaryWeeklyLimit));
-  const memberDailyLimit = Math.floor(Number(settings?.memberDailyLimit));
-  const memberWeeklyLimit = Math.floor(Number(settings?.memberWeeklyLimit));
+  const legacyQuota = {
+    enabled_for_all: Boolean(settings?.enabledForAll),
+    ordinary_daily_limit: Math.floor(Number(settings?.ordinaryDailyLimit)),
+    ordinary_weekly_limit: Math.floor(Number(settings?.ordinaryWeeklyLimit)),
+    member_daily_limit: Math.floor(Number(settings?.memberDailyLimit)),
+    member_weekly_limit: Math.floor(Number(settings?.memberWeeklyLimit))
+  };
+  const featureQuotas = {
+    assistant: normalizeAdminFeatureQuota(settings?.featureQuotas?.assistant, legacyQuota),
+    mind_map: normalizeAdminFeatureQuota(settings?.featureQuotas?.mind_map, legacyQuota),
+    audio_transcription: normalizeAdminFeatureQuota(settings?.featureQuotas?.audio_transcription, {
+      enabled_for_all: false,
+      ordinary_daily_limit: 0,
+      ordinary_weekly_limit: 0,
+      member_daily_limit: 5,
+      member_weekly_limit: 20
+    })
+  };
+  const ordinaryDailyLimit = featureQuotas.assistant.ordinary_daily_limit;
+  const ordinaryWeeklyLimit = featureQuotas.assistant.ordinary_weekly_limit;
+  const memberDailyLimit = featureQuotas.assistant.member_daily_limit;
+  const memberWeeklyLimit = featureQuotas.assistant.member_weekly_limit;
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const model = settings?.model?.trim() ?? "";
   const mimoChannel = settings?.mimoChannel === "token_plan" ? "token_plan" : "payg";
   if (!(ADMIN_AI_MODELS[provider] as readonly string[]).includes(model)) throw new Error("请选择当前 AI 提供商支持的模型。");
-  if (!Number.isFinite(ordinaryDailyLimit) || ordinaryDailyLimit < 1 || ordinaryDailyLimit > 100000) {
-    throw new Error("普通用户每日额度必须在 1 到 100000 之间。");
-  }
-  if (!Number.isFinite(ordinaryWeeklyLimit) || ordinaryWeeklyLimit < ordinaryDailyLimit || ordinaryWeeklyLimit > 1000000) {
-    throw new Error("普通用户每周额度不能低于每日额度，且不能超过 1000000。");
-  }
-  if (!Number.isFinite(memberDailyLimit) || memberDailyLimit < 1 || memberDailyLimit > 100000) {
-    throw new Error("会员每日额度必须在 1 到 100000 之间。");
-  }
-  if (!Number.isFinite(memberWeeklyLimit) || memberWeeklyLimit < memberDailyLimit || memberWeeklyLimit > 1000000) {
-    throw new Error("会员每周额度不能低于每日额度，且不能超过 1000000。");
-  }
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
   url.searchParams.set("on_conflict", "id");
   const response = await fetch(url, {
@@ -528,7 +541,7 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
     }),
     body: JSON.stringify({
       id: true,
-      enabled_for_all: Boolean(settings?.enabledForAll),
+      enabled_for_all: featureQuotas.assistant.enabled_for_all,
       daily_limit: ordinaryDailyLimit,
       weekly_limit: ordinaryWeeklyLimit,
       ordinary_daily_limit: ordinaryDailyLimit,
@@ -538,10 +551,37 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
       provider,
       model,
       mimo_channel: mimoChannel,
+      feature_quotas: featureQuotas,
       updated_at: new Date().toISOString()
     })
   });
   const text = await response.text();
   if (!response.ok) throw new Error(`保存 AI 全局设置失败：${text.slice(0, 200)}`);
   return (JSON.parse(text) as Record<string, unknown>[])[0] ?? null;
+}
+
+function normalizeAdminFeatureQuota(value: Record<string, unknown> | undefined, fallback: Record<string, unknown>) {
+  const source = value ?? fallback;
+  const ordinaryDaily = adminQuotaNumber(source.ordinary_daily_limit, 100000);
+  const ordinaryWeekly = adminQuotaNumber(source.ordinary_weekly_limit, 1000000);
+  const memberDaily = adminQuotaNumber(source.member_daily_limit, 100000);
+  const memberWeekly = adminQuotaNumber(source.member_weekly_limit, 1000000);
+  if (ordinaryWeekly < ordinaryDaily || memberWeekly < memberDaily) {
+    throw new Error("每周额度不能低于每日额度。");
+  }
+  return {
+    enabled_for_all: Boolean(source.enabled_for_all),
+    ordinary_daily_limit: ordinaryDaily,
+    ordinary_weekly_limit: ordinaryWeekly,
+    member_daily_limit: memberDaily,
+    member_weekly_limit: memberWeekly
+  };
+}
+
+function adminQuotaNumber(value: unknown, max: number): number {
+  const numeric = Math.floor(Number(value));
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > max) {
+    throw new Error(`AI 额度必须在 0 到 ${max} 之间。`);
+  }
+  return numeric;
 }

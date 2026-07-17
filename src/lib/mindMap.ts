@@ -12,6 +12,8 @@ export interface AiMindMapResult {
   access?: string;
 }
 
+export type MindMapDepth = "quick" | "standard" | "deep";
+
 export interface MindMapLayoutNode {
   id: string;
   label: string;
@@ -48,6 +50,7 @@ export async function askAiMindMap(input: {
   context?: unknown;
   accessCode?: string;
   attachments?: AiAssistantAttachment[];
+  depth?: MindMapDepth;
 }): Promise<AiMindMapResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法生成思维导图。");
   const { data, error } = await supabase.functions.invoke<AiMindMapResult>("ai-assistant", {
@@ -56,7 +59,8 @@ export async function askAiMindMap(input: {
       question: input.prompt.trim(),
       scheduleContext: input.context,
       accessCode: input.accessCode?.trim() || undefined,
-      attachments: input.attachments?.slice(0, 3)
+      attachments: input.attachments?.slice(0, 3),
+      mindMapDepth: input.depth ?? "standard"
     }
   });
   if (error) throw new Error(await mindMapFunctionError(error));

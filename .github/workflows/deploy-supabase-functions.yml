@@ -32,20 +32,17 @@ jobs:
         with:
           version: latest
 
-      - name: Apply AI settings migrations
+      - name: Apply AI feature quota migration
+        env:
+          MIGRATION_FILE: supabase/migrations/20260717_ai_feature_quotas.sql
         run: |
-          for migration_file in \
-            supabase/migrations/20260713_ai_global_settings.sql \
-            supabase/migrations/20260714_ai_tier_quotas.sql
-          do
-            jq -Rs '{query: .}' "$migration_file" > /tmp/ai-settings-query.json
-            curl --fail-with-body \
-              --request POST \
-              --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-              --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-              --header "Content-Type: application/json" \
-              --data @/tmp/ai-settings-query.json
-          done
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-feature-quotas-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/ai-feature-quotas-query.json
 
       - name: Configure function secrets
         env:

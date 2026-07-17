@@ -408,9 +408,9 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   }
 
   async function remove() {
-    if (!memo || !window.confirm(`确定彻底删除备忘录“${memo.title}”吗？此操作无法恢复。`)) return;
+    if (!memo || !window.confirm(`确定删除备忘录“${memo.title}”吗？删除会同步到其他设备且无法恢复。`)) return;
     await hardDeleteLocalRecord("memos", memo.id);
-    showToast("备忘录已彻底删除。", "success");
+    showToast("备忘录已删除。", "success");
     onClose();
   }
 
@@ -443,21 +443,28 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
   }
 
   return (
-    <Modal title={memo ? "编辑备忘录" : "新增备忘录"} onClose={onClose} wide>
-      <form className="form-stack" onSubmit={save}>
-        <label>标题<input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <label>文件夹
+    <Modal
+      title={memo ? "编辑备忘录" : "新增备忘录"}
+      onClose={onClose}
+      wide
+      headerExtra={<label className="memo-pin-control"><input type="checkbox" checked={isPinned} onChange={(event) => setIsPinned(event.target.checked)} />置顶</label>}
+    >
+      <form className="form-stack memo-dialog-form" onSubmit={save}>
+        <label className="memo-meta-row"><span>标题</span><input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <label className="memo-meta-row"><span>文件夹</span>
           <select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
             <option value="">全部 / 不放入文件夹</option>
             {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
           </select>
         </label>
-        <label className="checkbox-label"><input type="checkbox" checked={isPinned} onChange={(event) => setIsPinned(event.target.checked)} />置顶</label>
         <div className="memo-editor-field">
-          <span>正文</span>
-          <div className="memo-editor-toolbar">
-            <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("numbered")}><ListOrdered size={15} />编号</button>
-            <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
+          <div className="memo-editor-heading">
+            <span>正文</span>
+            <div className="memo-editor-toolbar">
+              <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("numbered")}><ListOrdered size={15} />编号</button>
+              <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
+              <span className="memo-character-count">{Array.from(content).length} 个字符</span>
+            </div>
           </div>
           <div className="memo-textarea-shell">
             <textarea
@@ -473,12 +480,10 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
           </div>
         </div>
         {message && <p className="auth-message error">{message}</p>}
-        <div className="form-actions split">
-          <div>{memo && <button type="button" className="button danger-button" onClick={() => void remove()}>彻底删除备忘录</button>}</div>
-          <div className="inline-actions">
-            <button type="button" className="button secondary" onClick={onClose}>取消</button>
-            <button className="button primary">保存备忘录</button>
-          </div>
+        <div className="memo-dialog-actions">
+          <button type="button" className="button secondary" onClick={onClose}>取消</button>
+          <button className="button primary">保存备忘录</button>
+          {memo && <button type="button" className="button danger-button" onClick={() => void remove()}>删除备忘录</button>}
         </div>
       </form>
     </Modal>

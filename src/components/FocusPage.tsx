@@ -311,12 +311,12 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
         <aside className="focus-side">
           <section>
-            <h2><Settings size={18} />番茄设置</h2>
+            <h2><Settings size={18} />番茄和倒计时设置</h2>
             <div className="focus-settings-grid">
-              <label>番茄分钟<input type="number" min={1} max={240} value={settingsDraft.pomodoro_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, pomodoro_minutes: Number(event.target.value) })} /></label>
-              <label>休息分钟<input type="number" min={1} max={120} value={settingsDraft.short_break_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, short_break_minutes: Number(event.target.value) })} /></label>
-              <label>倒计时分钟<input type="number" min={1} max={720} value={settingsDraft.countdown_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, countdown_minutes: Number(event.target.value) })} /></label>
-              <label>每日目标<input type="number" min={1} max={1440} value={settingsDraft.daily_goal_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, daily_goal_minutes: Number(event.target.value) })} /></label>
+              <label><span>番茄</span><input aria-label="番茄分钟" type="number" min={1} max={240} value={settingsDraft.pomodoro_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, pomodoro_minutes: Number(event.target.value) })} /><small>分钟</small></label>
+              <label><span>休息</span><input aria-label="休息分钟" type="number" min={1} max={120} value={settingsDraft.short_break_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, short_break_minutes: Number(event.target.value) })} /><small>分钟</small></label>
+              <label><span>倒计时</span><input aria-label="倒计时分钟" type="number" min={1} max={720} value={settingsDraft.countdown_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, countdown_minutes: Number(event.target.value) })} /><small>分钟</small></label>
+              <label><span>每日目标</span><input aria-label="每日目标分钟" type="number" min={1} max={1440} value={settingsDraft.daily_goal_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, daily_goal_minutes: Number(event.target.value) })} /><small>分钟</small></label>
             </div>
             <label className="checkbox-label focus-sound"><input type="checkbox" checked={settingsDraft.sound_enabled} onChange={(event) => setSettingsDraft({ ...settingsDraft, sound_enabled: event.target.checked })} /><Bell size={16} />结束提醒</label>
             <button className="button secondary compact" onClick={() => void saveSettings()}><RotateCcw size={16} />保存设置</button>

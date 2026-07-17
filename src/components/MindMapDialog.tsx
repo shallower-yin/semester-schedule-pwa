@@ -1,8 +1,8 @@
-import { Download, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Sparkles, X } from "lucide-react";
+import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Sparkles, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration } from "../lib/deepSeekAssistant";
-import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, splitMindMapLabel, type AiMindMapNode } from "../lib/mindMap";
+import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapToSvg, splitMindMapLabel, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
 import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
@@ -25,6 +25,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   const [loading, setLoading] = useState(false);
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [depth, setDepth] = useState<MindMapDepth>("standard");
+  const [previewing, setPreviewing] = useState(false);
   useEffect(() => {
     void getAiAssistantConfiguration().then(setConfiguration);
   }, []);
@@ -56,7 +58,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
         prompt: question,
         context: buildDeepSeekScheduleContext(input, question),
         accessCode,
-        attachments
+        attachments,
+        depth
       });
       setMindMap(result.mindMap);
       localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
@@ -108,6 +111,13 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
             </div>
           )}
           <div className="mind-map-composer-actions">
+            <label className="mind-map-depth-control">思考程度
+              <select value={depth} onChange={(event) => setDepth(event.target.value as MindMapDepth)}>
+                <option value="quick">快速</option>
+                <option value="standard">标准</option>
+                <option value="deep">深入</option>
+              </select>
+            </label>
             {configuration.supportsAttachments && (
               <AttachmentSourcePicker
                 imageAccept={AI_IMAGE_ACCEPT}
@@ -130,25 +140,35 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
               <div className="mind-map-result-toolbar">
                 <div><Network size={18} /><span><strong>{mindMap.label}</strong><small>可拖动滚动区域查看完整结构</small></span></div>
                 <div>
-                  <button type="button" className="icon-button" aria-label="缩小脑图" onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))}><Minus size={16} /></button>
+                  <button type="button" className="icon-button" aria-label="缩小脑图" onClick={() => setZoom((current) => Math.max(0, Number((current - 0.1).toFixed(1))))}><Minus size={16} /></button>
                   <span>{Math.round(zoom * 100)}%</span>
                   <button type="button" className="icon-button" aria-label="放大脑图" onClick={() => setZoom((current) => Math.min(1.5, current + 0.1))}><Plus size={16} /></button>
+                  <button type="button" className="icon-button" aria-label="预览" title="预览完整脑图" onClick={() => setPreviewing(true)}><Eye size={16} /></button>
                   <button type="button" className="button secondary compact" onClick={() => downloadMindMapSvg(mindMap)}><Download size={15} />SVG</button>
                   <button type="button" className="button secondary compact" onClick={() => void downloadMindMapPng(mindMap)}><Download size={15} />PNG</button>
                 </div>
               </div>
-              <MindMapCanvas root={mindMap} zoom={zoom} />
+              <MindMapCanvas root={mindMap} zoom={zoom} onPreview={() => setPreviewing(true)} />
             </>
           ) : (
             <div className="mind-map-empty"><Network size={42} /><strong>输入主题后生成思维导图</strong><span>AI 会提炼中心主题、主要分支和关键节点。</span></div>
           )}
         </section>
       </div>
+      {previewing && mindMap && (
+        <div className="mind-map-preview-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setPreviewing(false)}>
+          <section className="mind-map-preview-dialog" role="dialog" aria-modal="true" aria-label="思维导图预览">
+            <header><strong>{mindMap.label}</strong><button type="button" className="icon-button" aria-label="关闭预览" onClick={() => setPreviewing(false)}><X size={20} /></button></header>
+            <div><img src={mindMapPreviewUrl(mindMap)} alt={`${mindMap.label} 完整预览`} /></div>
+            <footer><button type="button" className="button secondary" onClick={() => downloadMindMapSvg(mindMap)}><Download size={15} />SVG</button><button type="button" className="button primary" onClick={() => void downloadMindMapPng(mindMap)}><Download size={15} />PNG</button></footer>
+          </section>
+        </div>
+      )}
     </Modal>
   );
 }
 
-export function MindMapCanvas({ root, zoom }: { root: AiMindMapNode; zoom: number }) {
+export function MindMapCanvas({ root, zoom, onPreview }: { root: AiMindMapNode; zoom: number; onPreview?: () => void }) {
   const layout = useMemo(() => buildMindMapLayout(root), [root]);
   const viewportRef = useRef<HTMLDivElement>(null);
 
@@ -175,7 +195,7 @@ export function MindMapCanvas({ root, zoom }: { root: AiMindMapNode; zoom: numbe
   }, [layout, zoom]);
 
   return (
-    <div ref={viewportRef} className="mind-map-viewport">
+    <div ref={viewportRef} className="mind-map-viewport" onDoubleClick={onPreview} title={onPreview ? "双击预览完整脑图" : undefined}>
       <svg
         className="mind-map-canvas"
         width={layout.width * zoom}
@@ -215,4 +235,8 @@ function loadMindMap(ownerId: string): AiMindMapNode | null {
   } catch {
     return null;
   }
+}
+
+function mindMapPreviewUrl(root: AiMindMapNode): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(mindMapToSvg(root))}`;
 }

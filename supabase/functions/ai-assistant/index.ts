@@ -1,11 +1,15 @@
 interface AiAssistantRequest {
   action?: "configuration";
-  mode?: "assistant" | "mind_map";
+  mode?: "assistant" | "mind_map" | "audio_transcription";
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
   history?: AiAssistantHistoryMessage[];
   attachments?: AiAssistantAttachment[];
+  audio?: { name?: string; mimeType?: string; dataUrl?: string };
+  audioLanguage?: "auto" | "zh" | "en";
+  summarizeAudio?: boolean;
+  mindMapDepth?: MindMapDepth;
 }
 
 interface AiAssistantAttachment {
@@ -101,6 +105,16 @@ interface AiAssistantUsage {
 }
 
 type AiAccessMethod = "access-code" | "ordinary" | "member" | "admin";
+type AiFeatureKey = "assistant" | "mind_map" | "audio_transcription";
+type MindMapDepth = "quick" | "standard" | "deep";
+
+interface AiFeatureQuotaSettings {
+  enabled_for_all: boolean;
+  ordinary_daily_limit: number;
+  ordinary_weekly_limit: number;
+  member_daily_limit: number;
+  member_weekly_limit: number;
+}
 
 interface AiQuotaSnapshot {
   requests: number;
@@ -141,6 +155,7 @@ interface AiSettingsRow {
   provider: "deepseek" | "mimo";
   model: string;
   mimo_channel: "payg" | "token_plan";
+  feature_quotas?: Partial<Record<AiFeatureKey, AiFeatureQuotaSettings>>;
 }
 
 interface ProviderCredentials {
@@ -176,7 +191,9 @@ const PUBLIC_PRODUCT_RULES = [
   "AI 权限分普通用户、会员和管理员：普通用户与会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验，不会把账号变成会员。",
   "编辑已发送的用户消息会从该轮重新生成并截断其后的旧对话，每次重新发送都按一次新的成功请求计入额度。",
   "管理员可在后台统一选择 AI 提供商和模型；选择支持附件的模型后，AI 助手可读取图片，以及从 PDF、DOCX、TXT、Markdown、CSV 中提取的文字来创建记录。",
-  "AI 思维导图使用管理员当前选择的 AI 模型，可把用户输入的主题、图片或文档整理为树形脑图，并支持在本地缩放和导出；每次成功生成计入一次 AI 额度。"
+  "AI 助手、AI 思维导图和音频转写分别计次，各自拥有独立的全员权限以及普通用户、会员日周额度；管理员不限额。",
+  "AI 思维导图使用管理员当前选择的 AI 模型，可把用户输入的主题、图片或文档整理为树形脑图，并支持在本地缩放、预览和导出。",
+  "音频转写支持 MP3 和 WAV，可自动识别中文、英文和部分方言，并可选生成摘要；音频只用于当次处理，不保存到应用文件库。"
 ];
 
 const PRIVATE_INFORMATION_RULES = [
@@ -224,6 +241,7 @@ Deno.serve(async (request) => {
   let currentUser: SupabaseUser | null = null;
   let accessMethod = "";
   let questionChars = 0;
+  let featureKey: AiFeatureKey = "assistant";
   try {
     const authorization = request.headers.get("authorization") ?? "";
     if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 AI 助手。" }, 401);
@@ -238,25 +256,34 @@ Deno.serve(async (request) => {
         provider,
         model: configuredModel(settings),
         mimoChannel: configuredMimoChannel(settings),
-        supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings))
+        supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
+        supportsAudioTranscription: Boolean(configuredMimoCredentials(settings).apiKey)
       });
     }
+    const mode = body.mode === "mind_map"
+      ? "mind_map"
+      : body.mode === "audio_transcription"
+        ? "audio_transcription"
+        : "assistant";
+    featureKey = mode;
     const question = body.question?.trim();
-    if (!question) return jsonResponse({ error: "问题不能为空。" }, 400);
-    questionChars = question.length;
-    const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings);
+    if (mode !== "audio_transcription" && !question) return jsonResponse({ error: "问题不能为空。" }, 400);
+    if (mode === "audio_transcription" && !body.audio?.dataUrl) return jsonResponse({ error: "请选择要转写的音频文件。" }, 400);
+    questionChars = mode === "audio_transcription" ? body.audio?.dataUrl?.length ?? 0 : question?.length ?? 0;
+    const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
     if (!access.allowed) return jsonResponse({
       error: access.reason,
       code: "AI_ACCESS_REQUIRED"
     }, 403);
     accessMethod = access.method ?? "";
 
-    const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings);
+    const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
     if (!quota.allowed) {
       await logAiAssistantUsage({
         userId: user.id,
         status: "error",
         accessMethod,
+        featureKey,
         model: configuredModel(settings),
         usage: emptyUsage(),
         latencyMs: Date.now() - startedAt,
@@ -269,16 +296,38 @@ Deno.serve(async (request) => {
       }, 429);
     }
 
+    const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
+    if (mode === "audio_transcription") {
+      const audioResponse = await transcribeAndSummarizeAudio(body, settings);
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod,
+        featureKey,
+        model: audioResponse.model,
+        usage: audioResponse.usage,
+        latencyMs: Date.now() - startedAt,
+        questionChars
+      });
+      return jsonResponse({
+        transcript: audioResponse.transcript,
+        summary: audioResponse.summary,
+        warning: audioResponse.warning,
+        model: audioResponse.model,
+        access: access.method,
+        quota: quotaStatus
+      });
+    }
+
     const history = sanitizeHistory(body.history);
     const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
     const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)));
-    const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
-    const mode = body.mode === "mind_map" ? "mind_map" : "assistant";
-    const assistantResponse = await askConfiguredProvider(question, body.scheduleContext, history, quotaStatus, settings, attachments, mode);
+    const assistantResponse = await askConfiguredProvider(question ?? "", body.scheduleContext, history, quotaStatus, settings, attachments, mode, normalizeMindMapDepth(body.mindMapDepth));
     await logAiAssistantUsage({
       userId: user.id,
       status: "success",
       accessMethod,
+      featureKey,
       model: assistantResponse.model,
       usage: assistantResponse.usage,
       latencyMs: Date.now() - startedAt,
@@ -299,6 +348,7 @@ Deno.serve(async (request) => {
         userId: currentUser.id,
         status: "error",
         accessMethod,
+        featureKey,
         model: "configured-provider",
         usage: emptyUsage(),
         latencyMs: Date.now() - startedAt,
@@ -325,7 +375,8 @@ async function checkAiAccess(
   user: SupabaseUser,
   authorization: string,
   accessCode: string | undefined,
-  settings: AiSettingsRow | null
+  settings: AiSettingsRow | null,
+  featureKey: AiFeatureKey
 ): Promise<{ allowed: boolean; method?: AiAccessMethod; reason?: string; bound?: boolean }> {
   const serviceRoleKey = serviceRoleSecret();
   const row = serviceRoleKey
@@ -336,7 +387,7 @@ async function checkAiAccess(
     return { allowed: true, method: row.role };
   }
   if (rowActive) return { allowed: true, method: "member" };
-  if (settings?.enabled_for_all) return { allowed: true, method: "ordinary" };
+  if (featureQuotaFor(settings, featureKey).enabled_for_all) return { allowed: true, method: "ordinary" };
 
   const configuredCode = optionalSecret("AI_ASSISTANT_ACCESS_CODE");
   if (configuredCode && accessCode && accessCode === configuredCode) {
@@ -344,19 +395,20 @@ async function checkAiAccess(
   }
 
   if (row?.enabled && row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
-    return { allowed: false, reason: "当前账号的 AI 助手权限已到期。" };
+    return { allowed: false, reason: "当前账号的 AI 功能权限已到期。" };
   }
-  return { allowed: false, reason: "当前账号未开通 AI 助手。" };
+  return { allowed: false, reason: `${aiFeatureLabel(featureKey)}暂未向当前账号开放。` };
 }
 
 async function checkAiQuota(
   userId: string,
   method: string,
   serviceRoleKey: string,
-  settings: AiSettingsRow | null
+  settings: AiSettingsRow | null,
+  featureKey: AiFeatureKey
 ): Promise<AiQuotaCheck> {
   const accessMethod = method === "admin" || method === "member" || method === "ordinary" || method === "access-code" ? method : "access-code";
-  const limits = quotaLimitsFor(accessMethod, settings);
+  const limits = quotaLimitsFor(accessMethod, settings, featureKey);
   if (limits.daily === Number.POSITIVE_INFINITY && limits.weekly === Number.POSITIVE_INFINITY) {
     return { allowed: true, limits, usageKnown: true };
   }
@@ -368,8 +420,8 @@ async function checkAiQuota(
   const weekStart = beijingPeriodStart("week");
   const todayStart = beijingPeriodStart("day");
   const [todayRequests, weekRequests] = await Promise.all([
-    getSuccessfulAiUsageCount(userId, todayStart.iso, serviceRoleKey),
-    getSuccessfulAiUsageCount(userId, weekStart.iso, serviceRoleKey)
+    getSuccessfulAiUsageCount(userId, featureKey, todayStart.iso, serviceRoleKey),
+    getSuccessfulAiUsageCount(userId, featureKey, weekStart.iso, serviceRoleKey)
   ]);
   const today = quotaSnapshot(todayRequests);
   const week = quotaSnapshot(weekRequests);
@@ -381,7 +433,9 @@ async function checkAiQuota(
       week,
       limits,
       usageKnown: true,
-      reason: `AI 助手今日可用次数已用完（${today.requests}/${limits.daily}），明天可继续使用。`
+      reason: limits.daily === 0
+        ? `${aiFeatureLabel(featureKey)}暂未向当前角色开放。`
+        : `${aiFeatureLabel(featureKey)}今日可用次数已用完（${today.requests}/${limits.daily}），明天可继续使用。`
     };
   }
   if (week.requests >= limits.weekly) {
@@ -391,7 +445,9 @@ async function checkAiQuota(
       week,
       limits,
       usageKnown: true,
-      reason: `AI 助手本周可用次数已用完（${week.requests}/${limits.weekly}），下周可继续使用。`
+      reason: limits.weekly === 0
+        ? `${aiFeatureLabel(featureKey)}暂未向当前角色开放。`
+        : `${aiFeatureLabel(featureKey)}本周可用次数已用完（${week.requests}/${limits.weekly}），下周可继续使用。`
     };
   }
   return { allowed: true, today, week, limits, usageKnown: true };
@@ -438,29 +494,64 @@ function quotaStatusAfterSuccessfulRequest(method: string, quota: AiQuotaCheck):
   };
 }
 
-function quotaLimitsFor(method: AiAccessMethod, settings: AiSettingsRow | null): AiQuotaLimits {
+function quotaLimitsFor(method: AiAccessMethod, settings: AiSettingsRow | null, featureKey: AiFeatureKey): AiQuotaLimits {
   if (method === "admin") {
     return {
       daily: Number.POSITIVE_INFINITY,
       weekly: Number.POSITIVE_INFINITY
     };
   }
+  const featureQuota = featureQuotaFor(settings, featureKey);
   if (method === "member") {
     return {
-      daily: settings?.member_daily_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_DAILY_LIMIT", 50),
-      weekly: settings?.member_weekly_limit ?? readQuotaLimit("AI_ASSISTANT_MEMBER_WEEKLY_LIMIT", 300)
+      daily: featureQuota.member_daily_limit,
+      weekly: featureQuota.member_weekly_limit
     };
   }
   if (method === "ordinary") {
     return {
-      daily: settings?.ordinary_daily_limit ?? 20,
-      weekly: settings?.ordinary_weekly_limit ?? 100
+      daily: featureQuota.ordinary_daily_limit,
+      weekly: featureQuota.ordinary_weekly_limit
     };
   }
   return {
     daily: readQuotaLimit("AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT", 3),
     weekly: readQuotaLimit("AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT", 20)
   };
+}
+
+function featureQuotaFor(settings: AiSettingsRow | null, featureKey: AiFeatureKey): AiFeatureQuotaSettings {
+  const fallback: AiFeatureQuotaSettings = featureKey === "audio_transcription"
+    ? { enabled_for_all: false, ordinary_daily_limit: 0, ordinary_weekly_limit: 0, member_daily_limit: 5, member_weekly_limit: 20 }
+    : {
+      enabled_for_all: Boolean(settings?.enabled_for_all),
+      ordinary_daily_limit: nonNegativeQuota(settings?.ordinary_daily_limit, 20),
+      ordinary_weekly_limit: nonNegativeQuota(settings?.ordinary_weekly_limit, 100),
+      member_daily_limit: nonNegativeQuota(settings?.member_daily_limit, 50),
+      member_weekly_limit: nonNegativeQuota(settings?.member_weekly_limit, 300)
+    };
+  const stored = settings?.feature_quotas?.[featureKey];
+  if (!stored) return fallback;
+  const ordinaryDaily = nonNegativeQuota(stored.ordinary_daily_limit, fallback.ordinary_daily_limit);
+  const memberDaily = nonNegativeQuota(stored.member_daily_limit, fallback.member_daily_limit);
+  return {
+    enabled_for_all: Boolean(stored.enabled_for_all),
+    ordinary_daily_limit: ordinaryDaily,
+    ordinary_weekly_limit: Math.max(ordinaryDaily, nonNegativeQuota(stored.ordinary_weekly_limit, fallback.ordinary_weekly_limit)),
+    member_daily_limit: memberDaily,
+    member_weekly_limit: Math.max(memberDaily, nonNegativeQuota(stored.member_weekly_limit, fallback.member_weekly_limit))
+  };
+}
+
+function nonNegativeQuota(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : fallback;
+}
+
+function aiFeatureLabel(featureKey: AiFeatureKey): string {
+  if (featureKey === "mind_map") return "AI 思维导图";
+  if (featureKey === "audio_transcription") return "音频转写";
+  return "AI 助手";
 }
 
 function readQuotaLimit(name: string, fallback: number): number {
@@ -493,7 +584,7 @@ function beijingPeriodStart(period: "day" | "week"): { iso: string; time: number
 
 async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | null> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
-  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel");
+  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,feature_quotas");
   url.searchParams.set("id", "eq.true");
   url.searchParams.set("limit", "1");
   const response = await fetch(url, {
@@ -507,10 +598,11 @@ async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | nu
   return rows[0] ?? null;
 }
 
-async function getSuccessfulAiUsageCount(userId: string, sinceIso: string, serviceRoleKey: string): Promise<number> {
+async function getSuccessfulAiUsageCount(userId: string, featureKey: AiFeatureKey, sinceIso: string, serviceRoleKey: string): Promise<number> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_usage`);
   url.searchParams.set("select", "id");
   url.searchParams.set("user_id", `eq.${userId}`);
+  url.searchParams.set("feature_key", `eq.${featureKey}`);
   url.searchParams.set("requested_at", `gte.${sinceIso}`);
   url.searchParams.set("status", "eq.success");
   const response = await fetch(url, {
@@ -571,7 +663,8 @@ async function askConfiguredProvider(
   quotaStatus: AiPublicQuotaStatus,
   settings: AiSettingsRow | null,
   attachments: AiAssistantAttachment[],
-  mode: "assistant" | "mind_map"
+  mode: "assistant" | "mind_map",
+  mindMapDepth: MindMapDepth
 ): Promise<AiAssistantResponse> {
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const { apiKey, endpoint } = configuredProviderCredentials(provider, settings);
@@ -582,6 +675,7 @@ async function askConfiguredProvider(
     ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 3_000)
     : "无";
   const quotaText = JSON.stringify(quotaStatus);
+  const mindMapConfig = mindMapDepthConfig(mindMapDepth);
   const beijingNow = new Date().toLocaleString("zh-CN", {
     timeZone: "Asia/Shanghai",
     year: "numeric",
@@ -621,8 +715,9 @@ async function askConfiguredProvider(
             "你是专业的思维导图整理助手。",
             "请根据用户主题、文字、图片或文档，提炼一棵结构清楚、层级合理的思维导图。",
             "中心主题只能有一个；每个节点标签应简短明确，避免完整长句。",
-            "优先使用 3 到 7 个主要分支，每个分支继续拆分关键概念、步骤、原因、结果或行动项。",
-            "最多 5 层、60 个节点；禁止生成空标签、重复分支或与主题无关的内容。",
+            `当前思考程度为“${mindMapConfig.label}”：${mindMapConfig.instruction}`,
+            `优先使用 ${mindMapConfig.branchRange} 个主要分支，每个分支继续拆分关键概念、步骤、原因、结果、例子或行动项。`,
+            `最多 ${mindMapConfig.maxDepth} 层、${mindMapConfig.maxNodes} 个节点；禁止生成空标签、重复分支或与主题无关的内容。`,
             "如果主题涉及今天、本周、下周、本月等时间范围，必须先读取上下文中的 requestedTimeScope，并且只能使用 calendarDays 中该范围内实际发生的记录。",
             "courseTemplates 只是重复模板，不能作为具体日期实际有课的依据；requestedTimeScope 不为空时，禁止补充范围外的课程或事项。",
             "只能返回 JSON 对象，不要使用 Markdown，也不要输出额外解释。",
@@ -667,7 +762,7 @@ async function askConfiguredProvider(
       ],
       thinking: { type: "disabled" },
       temperature: mode === "mind_map" ? 0.3 : 0.2,
-      max_tokens: mode === "mind_map" ? 1600 : 900,
+      max_tokens: mode === "mind_map" ? mindMapConfig.maxTokens : 900,
       stream: false
     })
   });
@@ -680,13 +775,13 @@ async function askConfiguredProvider(
   const content = data.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("AI 助手没有返回有效回答。");
   return {
-    ...(mode === "mind_map" ? parseMindMapResponse(content) : parseAssistantResponse(content, question)),
+    ...(mode === "mind_map" ? parseMindMapResponse(content, mindMapConfig) : parseAssistantResponse(content, question)),
     model,
     usage: normalizeUsage(data.usage)
   };
 }
 
-function parseMindMapResponse(content: string): ParsedAssistantResponse {
+function parseMindMapResponse(content: string, config: ReturnType<typeof mindMapDepthConfig>): ParsedAssistantResponse {
   const cleaned = content
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
@@ -697,8 +792,8 @@ function parseMindMapResponse(content: string): ParsedAssistantResponse {
   } catch {
     throw new Error("AI 返回的思维导图格式无效，请重新生成。");
   }
-  const budget = { remaining: 60 };
-  const mindMap = sanitizeMindMapNode(parsed.mindMap, 0, budget);
+  const budget = { remaining: config.maxNodes };
+  const mindMap = sanitizeMindMapNode(parsed.mindMap, 0, budget, config.maxDepth);
   if (!mindMap) throw new Error("AI 没有返回有效的思维导图，请换一种描述后重试。");
   return {
     answer: typeof parsed.answer === "string" && parsed.answer.trim() ? parsed.answer.trim().slice(0, 300) : `已生成“${mindMap.label}”思维导图。`,
@@ -707,19 +802,50 @@ function parseMindMapResponse(content: string): ParsedAssistantResponse {
   };
 }
 
-function sanitizeMindMapNode(value: unknown, depth: number, budget: { remaining: number }): AiMindMapNode | null {
-  if (!value || typeof value !== "object" || depth > 4 || budget.remaining <= 0) return null;
+function sanitizeMindMapNode(value: unknown, depth: number, budget: { remaining: number }, maxDepth: number): AiMindMapNode | null {
+  if (!value || typeof value !== "object" || depth >= maxDepth || budget.remaining <= 0) return null;
   const record = value as Record<string, unknown>;
   const label = typeof record.label === "string" ? record.label.replace(/\s+/g, " ").trim().slice(0, 80) : "";
   if (!label) return null;
   budget.remaining -= 1;
   const children = Array.isArray(record.children)
     ? record.children.slice(0, 8).flatMap((child) => {
-      const sanitized = sanitizeMindMapNode(child, depth + 1, budget);
+      const sanitized = sanitizeMindMapNode(child, depth + 1, budget, maxDepth);
       return sanitized ? [sanitized] : [];
     })
     : [];
   return { label, children };
+}
+
+function normalizeMindMapDepth(value: unknown): MindMapDepth {
+  return value === "quick" || value === "deep" ? value : "standard";
+}
+
+function mindMapDepthConfig(depth: MindMapDepth) {
+  if (depth === "quick") return {
+    label: "快速",
+    instruction: "只保留最关键的框架和行动项，适合快速浏览。",
+    branchRange: "3 到 5",
+    maxDepth: 4,
+    maxNodes: 36,
+    maxTokens: 1400
+  };
+  if (depth === "deep") return {
+    label: "深入",
+    instruction: "尽量覆盖材料中的细节、条件、数据、例子、依赖关系和可执行步骤，不要只给概括性标题。",
+    branchRange: "5 到 9",
+    maxDepth: 6,
+    maxNodes: 100,
+    maxTokens: 4200
+  };
+  return {
+    label: "标准",
+    instruction: "兼顾完整结构与阅读密度，保留主要细节和行动项。",
+    branchRange: "4 到 7",
+    maxDepth: 5,
+    maxNodes: 64,
+    maxTokens: 2400
+  };
 }
 
 function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
@@ -748,6 +874,133 @@ function configuredMimoChannel(settings: AiSettingsRow | null): "payg" | "token_
   return settings?.mimo_channel === "token_plan" ? "token_plan" : "payg";
 }
 
+async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: AiSettingsRow | null): Promise<{
+  transcript: string;
+  summary: string | null;
+  warning: string | null;
+  model: string;
+  usage: AiAssistantUsage;
+}> {
+  const audio = sanitizeTranscriptionAudio(body.audio);
+  const credentials = configuredMimoCredentials(settings);
+  if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
+  const response = await fetch(credentials.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${credentials.apiKey}`,
+      "api-key": credentials.apiKey
+    },
+    body: JSON.stringify({
+      model: "mimo-v2.5-asr",
+      messages: [{
+        role: "user",
+        content: [{ type: "input_audio", input_audio: { data: audio.dataUrl } }]
+      }],
+      asr_options: { language: body.audioLanguage === "zh" || body.audioLanguage === "en" ? body.audioLanguage : "auto" },
+      stream: false
+    })
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    console.error(`MiMo ASR failed: HTTP ${response.status} ${text.slice(0, 500)}`);
+    throw new Error("音频转写失败，请检查文件格式和大小后重试。");
+  }
+  const data = JSON.parse(text) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: Partial<AiAssistantUsage>;
+  };
+  const transcript = data.choices?.[0]?.message?.content?.trim();
+  if (!transcript) throw new Error("没有识别到有效语音内容。");
+  const transcriptionUsage = normalizeUsage(data.usage);
+  if (!body.summarizeAudio) {
+    return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr", usage: transcriptionUsage };
+  }
+  try {
+    const summaryResponse = await summarizeAudioTranscript(transcript, settings);
+    return {
+      transcript,
+      summary: summaryResponse.summary,
+      warning: null,
+      model: `mimo-v2.5-asr + ${summaryResponse.model}`,
+      usage: combineUsage(transcriptionUsage, summaryResponse.usage)
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      transcript,
+      summary: null,
+      warning: "转写已完成，但摘要生成失败。",
+      model: "mimo-v2.5-asr",
+      usage: transcriptionUsage
+    };
+  }
+}
+
+function sanitizeTranscriptionAudio(value: AiAssistantRequest["audio"]): { dataUrl: string } {
+  const dataUrl = value?.dataUrl?.trim() ?? "";
+  if (!/^data:audio\/(?:mpeg|mp3|wav|x-wav);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl)) {
+    throw new Error("音频转写仅支持 MP3 和 WAV 文件。");
+  }
+  if (dataUrl.length > 10 * 1024 * 1024 + 100) {
+    throw new Error("音频编码后不能超过 10 MB，请压缩或拆分后重试。");
+  }
+  return { dataUrl };
+}
+
+async function summarizeAudioTranscript(transcript: string, settings: AiSettingsRow | null): Promise<{
+  summary: string;
+  model: string;
+  usage: AiAssistantUsage;
+}> {
+  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const credentials = configuredProviderCredentials(provider, settings);
+  if (!credentials.apiKey) throw new Error("音频已转写，但摘要模型暂未配置。");
+  const model = configuredModel(settings);
+  const response = await fetch(credentials.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${credentials.apiKey}`,
+      ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: "你是录音整理助手。请忠于转写原文，用简洁中文输出主题、要点、结论和明确的待办；没有的信息不要补充。" },
+        { role: "user", content: transcript.slice(0, 24_000) }
+      ],
+      thinking: { type: "disabled" },
+      temperature: 0.2,
+      max_tokens: 1200,
+      stream: false
+    })
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    console.error(`Audio summary failed: HTTP ${response.status} ${text.slice(0, 500)}`);
+    throw new Error("音频已转写，但生成摘要失败，请稍后重试。");
+  }
+  const data = JSON.parse(text) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: Partial<AiAssistantUsage>;
+  };
+  const summary = data.choices?.[0]?.message?.content?.trim();
+  if (!summary) throw new Error("音频已转写，但摘要为空。");
+  return { summary, model, usage: normalizeUsage(data.usage) };
+}
+
+function combineUsage(left: AiAssistantUsage, right: AiAssistantUsage): AiAssistantUsage {
+  return {
+    prompt_tokens: left.prompt_tokens + right.prompt_tokens,
+    completion_tokens: left.completion_tokens + right.completion_tokens,
+    total_tokens: left.total_tokens + right.total_tokens,
+    estimated_cost_cny: left.estimated_cost_cny == null || right.estimated_cost_cny == null
+      ? null
+      : Number((left.estimated_cost_cny + right.estimated_cost_cny).toFixed(8))
+  };
+}
+
 function configuredProviderCredentials(provider: "deepseek" | "mimo", settings: AiSettingsRow | null): ProviderCredentials {
   if (provider === "deepseek") {
     return {
@@ -756,6 +1009,10 @@ function configuredProviderCredentials(provider: "deepseek" | "mimo", settings: 
     };
   }
 
+  return configuredMimoCredentials(settings);
+}
+
+function configuredMimoCredentials(settings: AiSettingsRow | null): ProviderCredentials {
   const channel = configuredMimoChannel(settings);
   const legacyBaseUrl = optionalSecret("MIMO_BASE_URL");
   const legacyMatchesChannel = legacyBaseUrl
@@ -990,6 +1247,7 @@ async function logAiAssistantUsage(input: {
   userId: string;
   status: "success" | "error";
   accessMethod: string;
+  featureKey: AiFeatureKey;
   model: string;
   usage: AiAssistantUsage;
   latencyMs: number;
@@ -1003,6 +1261,7 @@ async function logAiAssistantUsage(input: {
       user_id: input.userId,
       status: input.status,
       access_method: input.accessMethod,
+      feature_key: input.featureKey,
       model: input.model,
       prompt_tokens: input.usage.prompt_tokens,
       completion_tokens: input.usage.completion_tokens,
@@ -1024,9 +1283,10 @@ async function logAiAssistantUsage(input: {
     });
     if (!response.ok) {
       const text = await response.text();
-      if (text.includes("estimated_cost_cny")) {
+      if (text.includes("estimated_cost_cny") || text.includes("feature_key")) {
         const legacyPayload: Record<string, unknown> = { ...payload };
         delete legacyPayload.estimated_cost_cny;
+        delete legacyPayload.feature_key;
         const retry = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage`, {
           method: "POST",
           headers: {

@@ -1,9 +1,9 @@
-export type HeaderToolId = "account" | "scheduleAssistant" | "aiAssistant" | "mindMap" | "quickEntry" | "search";
+export type HeaderToolId = "account" | "scheduleAssistant" | "aiAssistant" | "mindMap" | "audioTranscription" | "quickEntry" | "search";
 
 const STORAGE_KEY = "semester-schedule-header-tools";
 const LEGACY_DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"];
 
-export const DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "mindMap", "quickEntry", "search"];
+export const DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "mindMap", "audioTranscription", "quickEntry", "search"];
 
 export function loadHeaderToolSettings(): HeaderToolId[] {
   try {

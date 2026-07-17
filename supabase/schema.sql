@@ -273,15 +273,16 @@ create table if not exists public.ai_assistant_access (
 create table if not exists public.ai_assistant_settings (
   id boolean primary key default true check (id),
   enabled_for_all boolean not null default false,
-  daily_limit integer not null default 20 check (daily_limit between 1 and 100000),
-  weekly_limit integer not null default 100 check (weekly_limit between 1 and 1000000),
-  ordinary_daily_limit integer not null default 20 check (ordinary_daily_limit between 1 and 100000),
+  daily_limit integer not null default 20 check (daily_limit between 0 and 100000),
+  weekly_limit integer not null default 100 check (weekly_limit between daily_limit and 1000000),
+  ordinary_daily_limit integer not null default 20 check (ordinary_daily_limit between 0 and 100000),
   ordinary_weekly_limit integer not null default 100 check (ordinary_weekly_limit between ordinary_daily_limit and 1000000),
-  member_daily_limit integer not null default 50 check (member_daily_limit between 1 and 100000),
+  member_daily_limit integer not null default 50 check (member_daily_limit between 0 and 100000),
   member_weekly_limit integer not null default 300 check (member_weekly_limit between member_daily_limit and 1000000),
   provider text not null default 'deepseek' check (provider in ('deepseek', 'mimo')),
   model text not null default 'deepseek-v4-flash',
   mimo_channel text not null default 'payg' check (mimo_channel in ('payg', 'token_plan')),
+  feature_quotas jsonb not null default '{}'::jsonb,
   constraint ai_assistant_settings_model_catalog_check check (
     (provider = 'deepseek' and model in ('deepseek-v4-flash', 'deepseek-v4-pro'))
     or
@@ -300,6 +301,7 @@ create table if not exists public.ai_assistant_usage (
   requested_at timestamptz not null default now(),
   status text not null default 'success' check (status in ('success', 'error')),
   access_method text not null default '',
+  feature_key text not null default 'assistant',
   model text not null default '',
   prompt_tokens integer not null default 0 check (prompt_tokens >= 0),
   completion_tokens integer not null default 0 check (completion_tokens >= 0),
@@ -313,6 +315,9 @@ create table if not exists public.ai_assistant_usage (
 
 create index if not exists ai_assistant_usage_user_requested_idx
 on public.ai_assistant_usage (user_id, requested_at desc);
+
+create index if not exists ai_assistant_usage_user_feature_requested_idx
+on public.ai_assistant_usage (user_id, feature_key, requested_at desc);
 
 create or replace function public.apply_schedule_sync_metadata()
 returns trigger

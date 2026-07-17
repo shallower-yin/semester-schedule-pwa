@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { askAiMindMapMock, getAiAssistantConfigurationMock } = vi.hoisted(() => ({
   askAiMindMapMock: vi.fn(),
@@ -36,6 +36,8 @@ const emptyInput: ScheduleAssistantInput = {
 };
 
 describe("AI 思维导图", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     localStorage.clear();
     askAiMindMapMock.mockReset().mockResolvedValue({
@@ -64,11 +66,25 @@ describe("AI 思维导图", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
 
     await waitFor(() => expect(askAiMindMapMock).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "整理项目计划"
+      prompt: "整理项目计划",
+      depth: "standard"
     })));
     expect(await screen.findByRole("img", { name: "项目计划 思维导图" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "SVG" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "PNG" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "预览" }));
+    expect(screen.getByRole("dialog", { name: "思维导图预览" })).toBeInTheDocument();
     expect(localStorage.getItem("semester-schedule-mind-map:user-1")).toContain("项目计划");
+  });
+
+  it("支持深入模式和缩放到 0%", async () => {
+    render(<MindMapDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("思考程度"), { target: { value: "deep" } });
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "详细整理材料" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await waitFor(() => expect(askAiMindMapMock).toHaveBeenCalledWith(expect.objectContaining({ depth: "deep" })));
+    const zoomOut = screen.getByRole("button", { name: "缩小脑图" });
+    for (let index = 0; index < 10; index += 1) fireEvent.click(zoomOut);
+    expect(screen.getByText("0%")).toBeInTheDocument();
   });
 });

@@ -32,9 +32,23 @@ describe("管理后台 AI 模型选择", () => {
         provider: "mimo",
         model: "mimo-v2.5",
         mimo_channel: "token_plan",
+        feature_quotas: {
+          assistant: { enabled_for_all: true, ordinary_daily_limit: 2, ordinary_weekly_limit: 100, member_daily_limit: 30, member_weekly_limit: 210 },
+          mind_map: { enabled_for_all: true, ordinary_daily_limit: 1, ordinary_weekly_limit: 5, member_daily_limit: 10, member_weekly_limit: 50 },
+          audio_transcription: { enabled_for_all: false, ordinary_daily_limit: 0, ordinary_weekly_limit: 0, member_daily_limit: 3, member_weekly_limit: 10 }
+        },
         updated_at: null
       }
     });
+  });
+
+  it("为三个 AI 功能分别显示可填 0 的额度", async () => {
+    render(<AdminDialog onClose={vi.fn()} />);
+
+    expect(await screen.findByLabelText("AI 助手普通用户每日额度")).toHaveValue(2);
+    expect(screen.getByLabelText("AI 思维导图普通用户每日额度")).toHaveValue(1);
+    expect(screen.getByLabelText("音频转写普通用户每日额度")).toHaveValue(0);
+    expect(screen.getByLabelText("音频转写全员开放")).toHaveValue("0");
   });
 
   afterEach(cleanup);
@@ -57,6 +71,7 @@ describe("管理后台 AI 模型选择", () => {
   it("只清理超过保留期的临时云端记录", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<AdminDialog onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "用户与清理" }));
     await screen.findByText("临时数据清理");
 
     fireEvent.change(screen.getByLabelText("临时数据保留天数"), { target: { value: "120" } });

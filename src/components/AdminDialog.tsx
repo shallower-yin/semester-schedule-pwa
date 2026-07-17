@@ -16,6 +16,7 @@ import { Modal } from "./Modal";
 import { AdminFocusAudioManager } from "./AdminFocusAudioManager";
 import { AdminFeedbackInbox } from "./AdminFeedbackInbox";
 import { AI_MODEL_OPTIONS, defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "../lib/aiModels";
+import { AI_FEATURE_KEYS, AI_FEATURE_LABELS, defaultAiFeatureQuotas, type AiFeatureKey, type AiFeatureQuota } from "../lib/aiFeatures";
 
 interface AdminDialogProps {
   onClose: () => void;
@@ -35,11 +36,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [accessNote, setAccessNote] = useState("");
   const [userQuery, setUserQuery] = useState("");
   const [directIdentifier, setDirectIdentifier] = useState("");
-  const [globalEnabled, setGlobalEnabled] = useState(false);
-  const [ordinaryDailyLimit, setOrdinaryDailyLimit] = useState(20);
-  const [ordinaryWeeklyLimit, setOrdinaryWeeklyLimit] = useState(100);
-  const [memberDailyLimit, setMemberDailyLimit] = useState(50);
-  const [memberWeeklyLimit, setMemberWeeklyLimit] = useState(300);
+  const [featureQuotas, setFeatureQuotas] = useState(defaultAiFeatureQuotas);
   const [aiProvider, setAiProvider] = useState<AiProvider>("deepseek");
   const [aiModel, setAiModel] = useState("deepseek-v4-flash");
   const [mimoChannel, setMimoChannel] = useState<MimoChannel>("payg");
@@ -47,6 +44,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [cleanupRetentionDays, setCleanupRetentionDays] = useState(90);
   const [cleanupScope, setCleanupScope] = useState<"all" | "selected">("all");
   const [cleaningData, setCleaningData] = useState(false);
+  const [adminSection, setAdminSection] = useState<"ai" | "content" | "users">("ai");
 
   const selectedUser = useMemo(
     () => summary?.users.find((user) => user.id === selectedUserId) ?? null,
@@ -66,11 +64,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     try {
       const nextSummary = await getAdminSummary();
       setSummary(nextSummary);
-      setGlobalEnabled(nextSummary.aiSettings.enabled_for_all);
-      setOrdinaryDailyLimit(nextSummary.aiSettings.ordinary_daily_limit);
-      setOrdinaryWeeklyLimit(nextSummary.aiSettings.ordinary_weekly_limit);
-      setMemberDailyLimit(nextSummary.aiSettings.member_daily_limit);
-      setMemberWeeklyLimit(nextSummary.aiSettings.member_weekly_limit);
+      setFeatureQuotas(nextSummary.aiSettings.feature_quotas ?? defaultAiFeatureQuotas());
       setAiProvider(nextSummary.aiSettings.provider);
       setAiModel(nextSummary.aiSettings.model);
       setMimoChannel(nextSummary.aiSettings.mimo_channel);
@@ -142,37 +136,46 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setMessage("请选择当前 AI 提供商支持的模型。");
       return;
     }
-    if (ordinaryWeeklyLimit < ordinaryDailyLimit || memberWeeklyLimit < memberDailyLimit) {
-      setMessage("普通用户和会员的每周额度都不能低于每日额度。");
+    const invalidFeature = AI_FEATURE_KEYS.find((feature) => {
+      const quota = featureQuotas[feature];
+      return quota.ordinary_weekly_limit < quota.ordinary_daily_limit
+        || quota.member_weekly_limit < quota.member_daily_limit;
+    });
+    if (invalidFeature) {
+      setMessage(`${AI_FEATURE_LABELS[invalidFeature]}的每周额度不能低于每日额度。`);
       return;
     }
     setSavingSettings(true);
     setMessage("");
     try {
       const settings = await saveAdminAiSettings({
-        enabled_for_all: globalEnabled,
-        ordinary_daily_limit: ordinaryDailyLimit,
-        ordinary_weekly_limit: ordinaryWeeklyLimit,
-        member_daily_limit: memberDailyLimit,
-        member_weekly_limit: memberWeeklyLimit,
+        enabled_for_all: featureQuotas.assistant.enabled_for_all,
+        ordinary_daily_limit: featureQuotas.assistant.ordinary_daily_limit,
+        ordinary_weekly_limit: featureQuotas.assistant.ordinary_weekly_limit,
+        member_daily_limit: featureQuotas.assistant.member_daily_limit,
+        member_weekly_limit: featureQuotas.assistant.member_weekly_limit,
         provider: aiProvider,
         model: aiModel.trim(),
-        mimo_channel: mimoChannel
+        mimo_channel: mimoChannel,
+        feature_quotas: featureQuotas
       });
-      setGlobalEnabled(settings.enabled_for_all);
-      setOrdinaryDailyLimit(settings.ordinary_daily_limit);
-      setOrdinaryWeeklyLimit(settings.ordinary_weekly_limit);
-      setMemberDailyLimit(settings.member_daily_limit);
-      setMemberWeeklyLimit(settings.member_weekly_limit);
+      setFeatureQuotas(settings.feature_quotas);
       setAiProvider(settings.provider);
       setAiModel(settings.model);
       setMimoChannel(settings.mimo_channel);
-      setMessage(settings.enabled_for_all ? "已向所有登录用户开放 AI 助手。" : "已关闭 AI 助手全员权限。");
+      setMessage("AI 模型与分项权限额度已保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
     } finally {
       setSavingSettings(false);
     }
+  }
+
+  function updateFeatureQuota(feature: AiFeatureKey, patch: Partial<AiFeatureQuota>) {
+    setFeatureQuotas((current) => ({
+      ...current,
+      [feature]: { ...current[feature], ...patch }
+    }));
   }
 
   async function cleanupTransientData() {
@@ -222,11 +225,18 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
         {message && <p className="status-message">{message}</p>}
 
-        <section className="admin-access-editor admin-global-settings">
+        <nav className="admin-section-tabs" aria-label="管理后台分区">
+          <button type="button" className={adminSection === "ai" ? "active" : ""} onClick={() => setAdminSection("ai")}><KeyRound size={16} />AI 与权限</button>
+          <button type="button" className={adminSection === "content" ? "active" : ""} onClick={() => setAdminSection("content")}><Save size={16} />内容运营</button>
+          <button type="button" className={adminSection === "users" ? "active" : ""} onClick={() => setAdminSection("users")}><UsersRound size={16} />用户与清理</button>
+        </nav>
+
+        {adminSection === "ai" && <>
+          <section className="admin-access-editor admin-global-settings">
           <div className="section-heading">
-            <div><h3><KeyRound size={18} /> 全局 AI 权限与额度</h3></div>
+            <div><h3><KeyRound size={18} /> AI 模型、权限与分项额度</h3><p>各功能独立计次；额度填 0 表示该角色不可用，管理员不限额。</p></div>
           </div>
-          <div className="admin-ai-settings-grid">
+          <div className="admin-ai-provider-row">
             <label>
               AI 提供商
               <select value={aiProvider} onChange={(event) => {
@@ -251,37 +261,37 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 <option value="token_plan">Token Plan（tp，仅获授权后）</option>
               </select>
             </label>}
-            <label>
-              全员权限
-              <select value={globalEnabled ? "1" : "0"} onChange={(event) => setGlobalEnabled(event.target.value === "1")}>
-                <option value="1">开放</option>
-                <option value="0">关闭</option>
-              </select>
-            </label>
-            <label>
-              普通用户 / 日
-              <input type="number" min={1} max={100000} value={ordinaryDailyLimit} onChange={(event) => setOrdinaryDailyLimit(Number(event.target.value))} />
-            </label>
-            <label>
-              普通用户 / 周
-              <input type="number" min={ordinaryDailyLimit} max={1000000} value={ordinaryWeeklyLimit} onChange={(event) => setOrdinaryWeeklyLimit(Number(event.target.value))} />
-            </label>
-            <label>
-              会员 / 日
-              <input type="number" min={1} max={100000} value={memberDailyLimit} onChange={(event) => setMemberDailyLimit(Number(event.target.value))} />
-            </label>
-            <label>
-              会员 / 周
-              <input type="number" min={memberDailyLimit} max={1000000} value={memberWeeklyLimit} onChange={(event) => setMemberWeeklyLimit(Number(event.target.value))} />
-            </label>
-            <span className="admin-unlimited-note"><strong>管理员</strong>不限额</span>
             <button className="button primary" onClick={() => void saveGlobalSettings()} disabled={savingSettings}>
-              <Save size={16} />保存全局设置
+              <Save size={16} />保存 AI 设置
             </button>
           </div>
-        </section>
+          <div className="admin-feature-quota-table">
+            <div className="admin-feature-quota-header" aria-hidden="true">
+              <span>功能</span><span>全员开放</span><span>普通 / 日</span><span>普通 / 周</span><span>会员 / 日</span><span>会员 / 周</span><span>管理员</span>
+            </div>
+            {AI_FEATURE_KEYS.map((feature) => {
+              const quota = featureQuotas[feature];
+              return (
+                <div className="admin-feature-quota-row" key={feature}>
+                  <strong>{AI_FEATURE_LABELS[feature]}</strong>
+                  <label data-label="全员开放">
+                    <select aria-label={`${AI_FEATURE_LABELS[feature]}全员开放`} value={quota.enabled_for_all ? "1" : "0"} onChange={(event) => updateFeatureQuota(feature, { enabled_for_all: event.target.value === "1" })}>
+                      <option value="1">开放</option>
+                      <option value="0">关闭</option>
+                    </select>
+                  </label>
+                  <label data-label="普通 / 日"><input aria-label={`${AI_FEATURE_LABELS[feature]}普通用户每日额度`} type="number" min={0} max={100000} value={quota.ordinary_daily_limit} onChange={(event) => updateFeatureQuota(feature, { ordinary_daily_limit: Math.max(0, Number(event.target.value)) })} /></label>
+                  <label data-label="普通 / 周"><input aria-label={`${AI_FEATURE_LABELS[feature]}普通用户每周额度`} type="number" min={quota.ordinary_daily_limit} max={1000000} value={quota.ordinary_weekly_limit} onChange={(event) => updateFeatureQuota(feature, { ordinary_weekly_limit: Math.max(0, Number(event.target.value)) })} /></label>
+                  <label data-label="会员 / 日"><input aria-label={`${AI_FEATURE_LABELS[feature]}会员每日额度`} type="number" min={0} max={100000} value={quota.member_daily_limit} onChange={(event) => updateFeatureQuota(feature, { member_daily_limit: Math.max(0, Number(event.target.value)) })} /></label>
+                  <label data-label="会员 / 周"><input aria-label={`${AI_FEATURE_LABELS[feature]}会员每周额度`} type="number" min={quota.member_daily_limit} max={1000000} value={quota.member_weekly_limit} onChange={(event) => updateFeatureQuota(feature, { member_weekly_limit: Math.max(0, Number(event.target.value)) })} /></label>
+                  <span className="admin-unlimited-note">不限额</span>
+                </div>
+              );
+            })}
+          </div>
+          </section>
 
-        <section className="admin-access-editor admin-direct-access">
+          <section className="admin-access-editor admin-direct-access">
           <div className="section-heading">
             <div><h3><KeyRound size={18} /> 直接授权</h3><p>输入邮箱或账号 ID，可直接开通会员或管理员权限。</p></div>
           </div>
@@ -316,13 +326,17 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               <Save size={16} />保存权限
             </button>
           </div>
-        </section>
+          </section>
+        </>}
 
-        <AdminFocusAudioManager />
+        {adminSection === "content" && <>
+          <AdminFocusAudioManager />
 
-        <AdminFeedbackInbox />
+          <AdminFeedbackInbox />
+        </>}
 
-        <section className="admin-access-editor admin-data-cleanup">
+        {adminSection === "users" && <>
+          <section className="admin-access-editor admin-data-cleanup">
           <div className="section-heading">
             <div><h3><Database size={18} /> 临时数据清理</h3><p>仅删除过期的 AI 调用明细和提醒投递日志；累计 AI 统计将只保留期限内数据，长期日程数据不受影响。</p></div>
           </div>
@@ -342,9 +356,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               <Trash2 size={16} />{cleaningData ? "清理中" : "清理过期记录"}
             </button>
           </div>
-        </section>
+          </section>
 
-        <div className="admin-layout">
+          <div className="admin-layout">
           <section className="admin-user-list" aria-label="用户列表">
             {loading && !summary ? <p>正在读取用户列表...</p> : visibleUsers.map((user) => (
               <button
@@ -453,7 +467,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               <p>请选择一个用户。</p>
             )}
           </section>
-        </div>
+          </div>
+        </>}
       </div>
     </Modal>
   );

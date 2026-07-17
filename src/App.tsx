@@ -8,6 +8,7 @@ import {
   CalendarDays,
   CheckCircle2,
   AlertTriangle,
+  AudioLines,
   CircleHelp,
   ChevronLeft,
   ChevronRight,
@@ -43,6 +44,7 @@ import { AdminDialog } from "./components/AdminDialog";
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
+import { AudioTranscriptionDialog } from "./components/AudioTranscriptionDialog";
 import { BackupDialog } from "./components/BackupDialog";
 import { BatchEventsDialog } from "./components/BatchEventsDialog";
 import { CourseDialog } from "./components/CourseDialog";
@@ -165,6 +167,7 @@ export default function App() {
   const [showScheduleAssistant, setShowScheduleAssistant] = useState(false);
   const [showDeepSeekAssistant, setShowDeepSeekAssistant] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
+  const [showAudioTranscription, setShowAudioTranscription] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [showHeaderToolSettings, setShowHeaderToolSettings] = useState(false);
@@ -785,6 +788,11 @@ export default function App() {
       node: <button className="icon-button header-search-button" onClick={() => setShowMindMap(true)} aria-label="AI 思维导图"><Network size={18} /></button>
     },
     {
+      id: "audioTranscription",
+      label: "AI 音频转写",
+      node: <button className="icon-button header-search-button" onClick={() => setShowAudioTranscription(true)} aria-label="AI 音频转写"><AudioLines size={18} /></button>
+    },
+    {
       id: "quickEntry",
       label: "快速录入",
       node: <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
@@ -1138,6 +1146,7 @@ export default function App() {
           onClose={() => setShowMindMap(false)}
         />
       )}
+      {showAudioTranscription && <AudioTranscriptionDialog ownerId={ownerId} onClose={() => setShowAudioTranscription(false)} />}
       {showAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
       {showFeedback && <FeedbackDialog
         userId={user?.id ?? null}
