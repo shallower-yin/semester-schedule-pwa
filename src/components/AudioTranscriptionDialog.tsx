@@ -1,6 +1,7 @@
-import { Copy, Download, FileAudio, KeyRound, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
-import { transcribeAudio, type AudioLanguage, type AudioTranscriptionResult } from "../lib/audioTranscription";
+import { ArrowDown, ArrowUp, Copy, Download, FileAudio, KeyRound, Send, Sparkles, X } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
+import { askAboutAudioTranscript, MAX_AUDIO_FILES, transcribeAudioFiles, validateAudioFile, type AudioConversationMessage, type AudioLanguage, type AudioTranscriptionResult } from "../lib/audioTranscription";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 
@@ -10,31 +11,104 @@ interface AudioTranscriptionDialogProps {
 }
 
 export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptionDialogProps) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [language, setLanguage] = useState<AudioLanguage>("auto");
   const [summarize, setSummarize] = useState(true);
   const [accessCode, setAccessCode] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState("");
+  const [question, setQuestion] = useState("");
   const [result, setResult] = useState<AudioTranscriptionResult | null>(() => loadLatestResult(ownerId));
+  const task = useSyncExternalStore(subscribeAiTasks, () => getAiTaskSnapshot("audio_transcription"), () => getAiTaskSnapshot("audio_transcription"));
+  const loading = task.status === "running";
 
   useEffect(() => {
     setResult(loadLatestResult(ownerId));
   }, [ownerId]);
 
-  async function runTranscription() {
-    if (!file || loading) return;
-    setLoading(true);
+  useEffect(() => {
+    setAiTaskDialogOpen("audio_transcription", true);
+    return () => setAiTaskDialogOpen("audio_transcription", false);
+  }, []);
+
+  function addFiles(fileList: FileList | null) {
+    if (!fileList?.length) return;
     try {
-      const next = await transcribeAudio({ file, language, summarize, accessCode });
-      setResult(next);
-      localStorage.setItem(storageKey(ownerId), JSON.stringify(next));
-      if (next.access === "access-code") setAccessCode("");
-      showToast(next.warning || "音频转写完成。", next.warning ? "error" : "success");
+      const incoming = Array.from(fileList);
+      incoming.forEach(validateAudioFile);
+      setFiles((current) => {
+        const next = [...current];
+        incoming.forEach((file) => {
+          const key = `${file.name}:${file.size}:${file.lastModified}`;
+          if (!next.some((item) => `${item.name}:${item.size}:${item.lastModified}` === key)) next.push(file);
+        });
+        if (next.length > MAX_AUDIO_FILES) showToast(`一次最多选择 ${MAX_AUDIO_FILES} 个音频文件。`, "error");
+        return next.slice(0, MAX_AUDIO_FILES);
+      });
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "音频转写失败。", "error");
-    } finally {
-      setLoading(false);
+      showToast(error instanceof Error ? error.message : "读取音频失败。", "error");
     }
+  }
+
+  function moveFile(index: number, direction: -1 | 1) {
+    setFiles((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function runTranscription() {
+    if (!files.length || loading) return;
+    const selectedFiles = [...files];
+    setProgress("准备上传音频…");
+    const started = startAiTask({
+      feature: "audio_transcription",
+      label: `正在转写 ${selectedFiles.length} 个音频`,
+      successMessage: "音频转写已完成，点击可查看和继续提问。",
+      run: () => transcribeAudioFiles({
+        files: selectedFiles,
+        language,
+        summarize,
+        accessCode,
+        onProgress: (completed, total, fileName) => setProgress(completed >= total ? "正在整理结果…" : `正在处理 ${completed + 1}/${total}：${fileName}`)
+      }),
+      onSuccess: (next) => {
+        saveLatestResult(ownerId, next);
+        setResult(next);
+        setProgress("");
+        if (next.access === "access-code") setAccessCode("");
+      },
+      onError: () => setProgress("")
+    });
+    if (!started) showToast("已有音频任务正在处理。", "error");
+  }
+
+  function askQuestion() {
+    const trimmed = question.trim();
+    if (!result || !trimmed || loading) return;
+    const userMessage: AudioConversationMessage = { id: `u-${Date.now()}`, role: "user", content: trimmed };
+    const baseConversation = [...(result.conversation ?? []), userMessage];
+    const pendingResult = { ...result, conversation: baseConversation };
+    setResult(pendingResult);
+    saveLatestResult(ownerId, pendingResult);
+    setQuestion("");
+    startAiTask({
+      feature: "audio_transcription",
+      label: "正在回答音频内容问题",
+      successMessage: "音频内容问题已回答，点击可查看。",
+      run: () => askAboutAudioTranscript({ transcript: result.transcript, question: trimmed, history: result.conversation, accessCode }),
+      onSuccess: (response) => {
+        const next = {
+          ...pendingResult,
+          conversation: [...baseConversation, { id: `a-${Date.now()}`, role: "assistant" as const, content: response.answer }]
+        };
+        saveLatestResult(ownerId, next);
+        setResult(next);
+        if (response.access === "access-code") setAccessCode("");
+      }
+    });
   }
 
   async function copyText(value: string) {
@@ -55,7 +129,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${safeFileName(file?.name.replace(/\.(mp3|wav)$/i, "") || "音频")}-转写.txt`;
+    anchor.download = `${safeFileName(result.files?.[0]?.replace(/\.(mp3|wav)$/i, "") || "音频")}-转写.txt`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
@@ -77,8 +151,20 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
         <section className="audio-transcription-controls">
           <label className="audio-file-field">
             <span>音频文件</span>
-            <input type="file" accept=".mp3,.wav,audio/mpeg,audio/mp3,audio/wav" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            <input type="file" multiple accept=".mp3,.wav,audio/mpeg,audio/mp3,audio/wav" onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
           </label>
+          {files.length > 0 && (
+            <ol className="audio-file-list" aria-label="待转写音频顺序">
+              {files.map((file, index) => (
+                <li key={`${file.name}-${file.size}-${file.lastModified}`}>
+                  <span><strong>{index + 1}. {file.name}</strong><small>{formatFileSize(file.size)}</small></span>
+                  <button type="button" className="icon-button" aria-label={`上移 ${file.name}`} disabled={index === 0 || loading} onClick={() => moveFile(index, -1)}><ArrowUp size={14} /></button>
+                  <button type="button" className="icon-button" aria-label={`下移 ${file.name}`} disabled={index === files.length - 1 || loading} onClick={() => moveFile(index, 1)}><ArrowDown size={14} /></button>
+                  <button type="button" className="icon-button" aria-label={`移除 ${file.name}`} disabled={loading} onClick={() => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button>
+                </li>
+              ))}
+            </ol>
+          )}
           <label>识别语言
             <select value={language} onChange={(event) => setLanguage(event.target.value as AudioLanguage)}>
               <option value="auto">自动识别</option>
@@ -87,10 +173,11 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             </select>
           </label>
           <label className="checkbox-label"><input type="checkbox" checked={summarize} onChange={(event) => setSummarize(event.target.checked)} />转写后生成摘要</label>
-          <button type="button" className="button primary" disabled={!file || loading} onClick={() => void runTranscription()}>
-            <Sparkles size={16} />{loading ? "处理中…" : "开始转写"}
+          <button type="button" className="button primary" disabled={!files.length || loading} onClick={runTranscription}>
+            <Sparkles size={16} />{loading ? progress || "处理中…" : `开始转写${files.length > 1 ? `（${files.length} 段）` : ""}`}
           </button>
-          <p className="muted-note">支持 MP3、WAV，单个文件不超过 7 MB。音频会发送至 MiMo 接口处理，但不保存到应用数据库或 Storage。</p>
+          {task.status === "error" && <div className="ai-inline-error" role="alert"><span>{task.message}</span><button type="button" className="button secondary compact" onClick={() => retryAiTask("audio_transcription")}>重试</button></div>}
+          <p className="muted-note">支持 MP3、WAV，单个文件不超过 7 MB，最多 {MAX_AUDIO_FILES} 段。多段按列表顺序合并；音频只发送给转写接口，不保存到应用数据库或 Storage。</p>
         </section>
 
         <section className="audio-transcription-result">
@@ -106,9 +193,17 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
               {result.warning && <p className="status-message">{result.warning}</p>}
               {result.summary && <article><div><strong>摘要</strong><button type="button" className="icon-button" aria-label="复制摘要" onClick={() => void copyText(result.summary ?? "")}><Copy size={15} /></button></div><p>{result.summary}</p></article>}
               <article><strong>完整转写</strong><p>{result.transcript}</p></article>
+              <section className="audio-followup" aria-label="音频内容问答">
+                <header><strong>继续询问录音细节</strong><span>回答只依据当前转写内容</span></header>
+                {(result.conversation ?? []).map((message) => <p key={message.id} className={message.role}><strong>{message.role === "user" ? "你" : "AI"}</strong>{message.content}</p>)}
+                <form onSubmit={(event) => { event.preventDefault(); askQuestion(); }}>
+                  <input value={question} disabled={loading} placeholder="例如：谁负责下一步？具体截止时间是什么？" onChange={(event) => setQuestion(event.target.value)} />
+                  <button type="submit" className="button primary compact" disabled={loading || !question.trim()}><Send size={15} />发送</button>
+                </form>
+              </section>
             </>
           ) : (
-            <div className="audio-transcription-empty"><FileAudio size={42} /><strong>选择音频开始转写</strong><span>可只转文字，也可以同时整理摘要和待办。</span></div>
+            <div className="audio-transcription-empty"><FileAudio size={42} /><strong>选择音频开始转写</strong><span>可按顺序导入会议上半场、下半场，再统一整理和提问。</span></div>
           )}
         </section>
       </div>
@@ -120,6 +215,10 @@ function storageKey(ownerId: string): string {
   return `semester-schedule-audio-transcription:${ownerId}`;
 }
 
+function saveLatestResult(ownerId: string, result: AudioTranscriptionResult) {
+  localStorage.setItem(storageKey(ownerId), JSON.stringify(result));
+}
+
 function loadLatestResult(ownerId: string): AudioTranscriptionResult | null {
   try {
     const value = JSON.parse(localStorage.getItem(storageKey(ownerId)) ?? "null") as AudioTranscriptionResult | null;
@@ -127,6 +226,10 @@ function loadLatestResult(ownerId: string): AudioTranscriptionResult | null {
   } catch {
     return null;
   }
+}
+
+function formatFileSize(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function safeFileName(value: string): string {

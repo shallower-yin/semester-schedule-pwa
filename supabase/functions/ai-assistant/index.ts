@@ -1,12 +1,13 @@
 interface AiAssistantRequest {
   action?: "configuration";
-  mode?: "assistant" | "mind_map" | "audio_transcription";
+  mode?: "assistant" | "mind_map" | "audio_transcription" | "audio_followup";
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
   history?: AiAssistantHistoryMessage[];
   attachments?: AiAssistantAttachment[];
   audio?: { name?: string; mimeType?: string; dataUrl?: string };
+  audioTranscript?: string;
   audioLanguage?: "auto" | "zh" | "en";
   summarizeAudio?: boolean;
   mindMapDepth?: MindMapDepth;
@@ -264,11 +265,14 @@ Deno.serve(async (request) => {
       ? "mind_map"
       : body.mode === "audio_transcription"
         ? "audio_transcription"
-        : "assistant";
-    featureKey = mode;
+        : body.mode === "audio_followup"
+          ? "audio_followup"
+          : "assistant";
+    featureKey = mode === "audio_followup" ? "audio_transcription" : mode;
     const question = body.question?.trim();
     if (mode !== "audio_transcription" && !question) return jsonResponse({ error: "问题不能为空。" }, 400);
     if (mode === "audio_transcription" && !body.audio?.dataUrl) return jsonResponse({ error: "请选择要转写的音频文件。" }, 400);
+    if (mode === "audio_followup" && !body.audioTranscript?.trim()) return jsonResponse({ error: "请先完成音频转写。" }, 400);
     questionChars = mode === "audio_transcription" ? body.audio?.dataUrl?.length ?? 0 : question?.length ?? 0;
     const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
     if (!access.allowed) return jsonResponse({
@@ -314,6 +318,31 @@ Deno.serve(async (request) => {
         summary: audioResponse.summary,
         warning: audioResponse.warning,
         model: audioResponse.model,
+        access: access.method,
+        quota: quotaStatus
+      });
+    }
+
+    if (mode === "audio_followup") {
+      const followupResponse = await answerAudioTranscript(
+        question ?? "",
+        body.audioTranscript ?? "",
+        sanitizeHistory(body.history),
+        settings
+      );
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod,
+        featureKey,
+        model: followupResponse.model,
+        usage: followupResponse.usage,
+        latencyMs: Date.now() - startedAt,
+        questionChars
+      });
+      return jsonResponse({
+        answer: followupResponse.answer,
+        model: followupResponse.model,
         access: access.method,
         quota: quotaStatus
       });
@@ -714,6 +743,8 @@ async function askConfiguredProvider(
           content: mode === "mind_map" ? [
             "你是专业的思维导图整理助手。",
             "请根据用户主题、文字、图片或文档，提炼一棵结构清楚、层级合理的思维导图。",
+            "用户输入和附件是主要资料。只有用户明确要求查询自己的日程、课程、事项或某个时间范围时，才使用可参考的当前用户信息；否则禁止主动加入日程内容。",
+            "当用户要求总结附件或内容时，只总结附件和用户输入，不要扩展到其他资料。",
             "中心主题只能有一个；每个节点标签应简短明确，避免完整长句。",
             `当前思考程度为“${mindMapConfig.label}”：${mindMapConfig.instruction}`,
             `优先使用 ${mindMapConfig.branchRange} 个主要分支，每个分支继续拆分关键概念、步骤、原因、结果、例子或行动项。`,
@@ -988,6 +1019,58 @@ async function summarizeAudioTranscript(transcript: string, settings: AiSettings
   const summary = data.choices?.[0]?.message?.content?.trim();
   if (!summary) throw new Error("音频已转写，但摘要为空。");
   return { summary, model, usage: normalizeUsage(data.usage) };
+}
+
+async function answerAudioTranscript(
+  question: string,
+  transcript: string,
+  history: AiAssistantHistoryMessage[],
+  settings: AiSettingsRow | null
+): Promise<{ answer: string; model: string; usage: AiAssistantUsage }> {
+  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const credentials = configuredProviderCredentials(provider, settings);
+  if (!credentials.apiKey) throw new Error("音频问答模型暂未配置，请稍后再试。");
+  const model = configuredModel(settings);
+  const historyText = history.length
+    ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 5_000)
+    : "无";
+  const response = await fetch(credentials.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${credentials.apiKey}`,
+      ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: "你是录音内容问答助手。只能根据提供的转写原文回答，忠于原文；原文没有的信息要明确说明。回答简洁、具体，不要提及系统、模型或后台。"
+        },
+        {
+          role: "user",
+          content: `转写原文：\n${transcript.slice(0, 30_000)}\n\n最近问答：\n${historyText}\n\n当前问题：${question}`
+        }
+      ],
+      thinking: { type: "disabled" },
+      temperature: 0.2,
+      max_tokens: 1400,
+      stream: false
+    })
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    console.error(`Audio follow-up failed: HTTP ${response.status} ${text.slice(0, 500)}`);
+    throw new Error("音频内容问答失败，请稍后重试。");
+  }
+  const data = JSON.parse(text) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: Partial<AiAssistantUsage>;
+  };
+  const answer = data.choices?.[0]?.message?.content?.trim();
+  if (!answer) throw new Error("没有生成有效回答，请换一种问法重试。");
+  return { answer, model, usage: normalizeUsage(data.usage) };
 }
 
 function combineUsage(left: AiAssistantUsage, right: AiAssistantUsage): AiAssistantUsage {

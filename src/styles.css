@@ -6351,6 +6351,177 @@ textarea {
   color: var(--primary);
 }
 
+.ai-inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  color: #991b1b;
+  background: #fff7f7;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-inline-error span {
+  min-width: 0;
+}
+
+.ai-task-center {
+  position: fixed;
+  z-index: 2300;
+  right: 16px;
+  bottom: 18px;
+  display: grid;
+  width: min(360px, calc(100vw - 24px));
+  gap: 8px;
+}
+
+.ai-task-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: white;
+  box-shadow: 0 12px 36px rgb(15 23 42 / 16%);
+}
+
+.ai-task-notice.running {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.ai-task-notice .spin {
+  animation: ai-task-spin 0.9s linear infinite;
+}
+
+@keyframes ai-task-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ai-task-notice.success > svg {
+  color: #07824f;
+}
+
+.ai-task-notice.error > svg {
+  color: #c2413b;
+}
+
+.ai-task-notice.error {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+}
+
+.ai-task-notice > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-task-notice strong,
+.ai-task-notice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-task-notice span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.audio-file-list {
+  display: grid;
+  max-height: 164px;
+  overflow: auto;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.audio-file-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #f8fafc;
+}
+
+.audio-file-list li > span {
+  display: grid;
+  min-width: 0;
+}
+
+.audio-file-list strong,
+.audio-file-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-file-list strong {
+  font-size: 11px;
+}
+
+.audio-file-list small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.audio-followup {
+  display: grid;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.audio-followup > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.audio-followup > header span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.audio-followup > p {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.audio-followup > p.user {
+  margin-left: 36px;
+  color: white;
+  background: var(--primary);
+}
+
+.audio-followup > p.assistant {
+  margin-right: 36px;
+  background: white;
+}
+
+.audio-followup form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
 .mobile-sidebar-backdrop {
   display: none;
 }
@@ -7694,6 +7865,16 @@ textarea {
 
   .audio-transcription-controls > .button {
     margin-top: 0;
+  }
+
+  .audio-file-list,
+  .audio-transcription-controls > .ai-inline-error {
+    grid-column: 1 / -1;
+  }
+
+  .ai-task-center {
+    right: 10px;
+    bottom: calc(78px + env(safe-area-inset-bottom));
   }
 
   .admin-cleanup-controls {

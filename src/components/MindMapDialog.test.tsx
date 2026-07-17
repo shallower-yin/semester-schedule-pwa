@@ -87,4 +87,23 @@ describe("AI 思维导图", () => {
     for (let index = 0; index < 10; index += 1) fireEvent.click(zoomOut);
     expect(screen.getByText("0%")).toBeInTheDocument();
   });
+
+  it("普通附件总结不发送日程上下文", async () => {
+    render(<MindMapDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "总结内容" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await waitFor(() => expect(askAiMindMapMock).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "总结内容",
+      context: undefined
+    })));
+  });
+
+  it("生成失败后持续显示原因和重试入口", async () => {
+    askAiMindMapMock.mockRejectedValueOnce(new Error("标准模式生成超时，请稍后重试。"));
+    render(<MindMapDialog input={emptyInput} ownerId="user-2" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "整理材料" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("标准模式生成超时");
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
+  });
 });

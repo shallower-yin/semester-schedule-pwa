@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMindMapLayout, mindMapToSvg, splitMindMapLabel, type AiMindMapNode } from "./mindMap";
+import { buildMindMapLayout, mindMapNeedsScheduleContext, mindMapToSvg, splitMindMapLabel, type AiMindMapNode } from "./mindMap";
 
 const map: AiMindMapNode = {
   label: "项目计划",
@@ -27,5 +27,13 @@ describe("思维导图布局", () => {
     expect(svg).toContain("<svg");
     expect(svg).toContain("项目计划");
     expect(svg).toContain("<path");
+  });
+
+  it("只有明确询问日程时才读取用户日程上下文", () => {
+    expect(mindMapNeedsScheduleContext("总结内容")).toBe(false);
+    expect(mindMapNeedsScheduleContext("总结附件知识点")).toBe(false);
+    expect(mindMapNeedsScheduleContext("整理项目方案")).toBe(false);
+    expect(mindMapNeedsScheduleContext("梳理本周学习计划")).toBe(true);
+    expect(mindMapNeedsScheduleContext("总结明天的课程和待办")).toBe(true);
   });
 });

@@ -1,7 +1,8 @@
 import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { db, queueChange } from "../db";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
+import { getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
 import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
@@ -34,7 +35,6 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [messages, setMessages] = useState<Message[]>(() => loadAssistantHistory(ownerId));
   const [question, setQuestion] = useState("");
   const [accessCode, setAccessCode] = useState("");
-  const [loading, setLoading] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [configuration, setConfiguration] = useState<AiAssistantConfiguration>({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
@@ -44,6 +44,8 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const editingRef = useRef<HTMLTextAreaElement | null>(null);
   const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
+  const task = useSyncExternalStore(subscribeAiTasks, () => getAiTaskSnapshot("assistant"), () => getAiTaskSnapshot("assistant"));
+  const loading = task.status === "running";
 
   useEffect(() => {
     setMessages(loadAssistantHistory(ownerId));
@@ -68,6 +70,15 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }, []);
 
   useEffect(() => {
+    setAiTaskDialogOpen("assistant", true);
+    return () => setAiTaskDialogOpen("assistant", false);
+  }, []);
+
+  useEffect(() => {
+    if (task.status === "success" || task.status === "error") setMessages(loadAssistantHistory(ownerId));
+  }, [ownerId, task.status]);
+
+  useEffect(() => {
     const messagesNode = messagesRef.current;
     if (!messagesNode) return;
     const frame = window.requestAnimationFrame(() => {
@@ -82,10 +93,11 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     const trimmed = text.trim() || (effectiveAttachments.length ? "请识别附件中的日程信息，并创建对应事项。" : "");
     if (!trimmed || loading) return;
     const history = messagesToHistory(baseMessages);
-    setLoading(true);
     setQuestion("");
     const attachmentLabel = requestAttachments.length ? `\n附件：${requestAttachments.map((item) => item.name).join("、")}` : "";
-    setMessages([...baseMessages, { id: userMessageId, role: "user", content: `${trimmed}${attachmentLabel}` }]);
+    const messagesWithQuestion = [...baseMessages, { id: userMessageId, role: "user" as const, content: `${trimmed}${attachmentLabel}` }];
+    setMessages(messagesWithQuestion);
+    saveAssistantHistory(ownerId, messagesWithQuestion);
     setAttachments([]);
     if (effectiveAttachments.length) {
       setContextAttachments(effectiveAttachments);
@@ -95,27 +107,37 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         showToast("附件可用于当前对话，但本地设备没有足够空间长期保留。", "error");
       }
     }
-    try {
-      const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history, effectiveAttachments);
-      if (result.access === "access-code") setAccessCode("");
-      const created = await createRecordsFromActions(result.actions ?? [], trimmed, ownerId);
-      const content = [
-        result.answer,
-        created.length ? createdSummary(created) : ""
-      ].filter(Boolean).join("\n");
-      setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "assistant", content }]);
-      if (created.length) showToast(createdSummary(created).replace(/\n/g, "；"), "success");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "暂时不能使用 AI 助手。";
-      setMessages((current) => [...current, {
-        id: `e-${Date.now()}`,
-        role: "assistant",
-        content: `暂时不能使用 AI 助手：${message}`
-      }]);
-      showToast(message, "error");
-    } finally {
-      setLoading(false);
-    }
+    const started = startAiTask({
+      feature: "assistant",
+      label: "AI 助手正在回答",
+      successMessage: "AI 助手已回答，点击可查看当前对话。",
+      run: async () => {
+        const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history, effectiveAttachments);
+        const created = await createRecordsFromActions(result.actions ?? [], trimmed, ownerId);
+        return {
+          access: result.access,
+          created,
+          content: [result.answer, created.length ? createdSummary(created) : ""].filter(Boolean).join("\n")
+        };
+      },
+      onSuccess: ({ access, created, content }) => {
+        const next = [...messagesWithQuestion, { id: `a-${Date.now()}`, role: "assistant" as const, content }];
+        saveAssistantHistory(ownerId, next);
+        setMessages(next);
+        if (access === "access-code") setAccessCode("");
+        if (created.length) showToast(createdSummary(created).replace(/\n/g, "；"), "success");
+      },
+      onError: (error) => {
+        const next = [...messagesWithQuestion, {
+          id: `e-${Date.now()}`,
+          role: "assistant" as const,
+          content: `暂时不能使用 AI 助手：${error.message}`
+        }];
+        saveAssistantHistory(ownerId, next);
+        setMessages(next);
+      }
+    });
+    if (!started) showToast("AI 助手正在处理上一条消息。", "error");
   }
 
   async function ask(text = question) {

@@ -45,6 +45,7 @@ import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
 import { AudioTranscriptionDialog } from "./components/AudioTranscriptionDialog";
+import { AiTaskCenter } from "./components/AiTaskCenter";
 import { BackupDialog } from "./components/BackupDialog";
 import { BatchEventsDialog } from "./components/BatchEventsDialog";
 import { CourseDialog } from "./components/CourseDialog";
@@ -99,6 +100,7 @@ import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview
 import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
+import { AI_TASK_OPEN_EVENT, type AiTaskFeature } from "./lib/aiBackgroundTasks";
 import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
@@ -199,6 +201,33 @@ export default function App() {
   const [installMessage, setInstallMessage] = useState("");
   const [updatingApp, setUpdatingApp] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
+
+  useEffect(() => {
+    const openFeature = (feature: AiTaskFeature) => {
+      if (feature === "assistant") setShowDeepSeekAssistant(true);
+      if (feature === "mind_map") setShowMindMap(true);
+      if (feature === "audio_transcription") setShowAudioTranscription(true);
+    };
+    const consumeFeatureFromUrl = () => {
+      const url = new URL(window.location.href);
+      const feature = url.searchParams.get("ai");
+      if (feature !== "assistant" && feature !== "mind_map" && feature !== "audio_transcription") return;
+      openFeature(feature);
+      url.searchParams.delete("ai");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    };
+    const handleOpenTask = (event: Event) => {
+      const feature = (event as CustomEvent<{ feature?: AiTaskFeature }>).detail?.feature;
+      if (feature) openFeature(feature);
+    };
+    consumeFeatureFromUrl();
+    window.addEventListener(AI_TASK_OPEN_EVENT, handleOpenTask);
+    window.addEventListener("popstate", consumeFeatureFromUrl);
+    return () => {
+      window.removeEventListener(AI_TASK_OPEN_EVENT, handleOpenTask);
+      window.removeEventListener("popstate", consumeFeatureFromUrl);
+    };
+  }, []);
   const [availableRelease, setAvailableRelease] = useState<AppRelease | null>(null);
   const [mobileNavItems, setMobileNavItems] = useState<PageId[]>(() => loadMobileNavSettings());
   const [headerToolItems, setHeaderToolItems] = useState<HeaderToolId[]>(() => loadHeaderToolSettings());
@@ -1279,6 +1308,7 @@ export default function App() {
           onClose={() => setShowGlobalSearch(false)}
         />
       )}
+      <AiTaskCenter />
       <ToastHost />
     </div>
   );

@@ -1,8 +1,9 @@
 import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Sparkles, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
+import { getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration } from "../lib/deepSeekAssistant";
-import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapToSvg, splitMindMapLabel, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
+import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapNeedsScheduleContext, mindMapToSvg, splitMindMapLabel, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
 import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
@@ -22,11 +23,12 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   const [mindMap, setMindMap] = useState<AiMindMapNode | null>(() => loadMindMap(ownerId));
   const [attachments, setAttachments] = useState<AiAssistantAttachment[]>([]);
   const [configuration, setConfiguration] = useState<AiAssistantConfiguration>({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
-  const [loading, setLoading] = useState(false);
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [depth, setDepth] = useState<MindMapDepth>("standard");
   const [previewing, setPreviewing] = useState(false);
+  const task = useSyncExternalStore(subscribeAiTasks, () => getAiTaskSnapshot("mind_map"), () => getAiTaskSnapshot("mind_map"));
+  const loading = task.status === "running";
   useEffect(() => {
     void getAiAssistantConfiguration().then(setConfiguration);
   }, []);
@@ -34,6 +36,11 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   useEffect(() => {
     setMindMap(loadMindMap(ownerId));
   }, [ownerId]);
+
+  useEffect(() => {
+    setAiTaskDialogOpen("mind_map", true);
+    return () => setAiTaskDialogOpen("mind_map", false);
+  }, []);
 
   async function addAttachments(files: FileList | null) {
     if (!files?.length || !configuration.supportsAttachments) return;
@@ -52,25 +59,25 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   async function generate() {
     const question = prompt.trim() || (attachments.length ? "请根据附件内容生成一份结构清晰的思维导图。" : "");
     if (!question || loading) return;
-    setLoading(true);
-    try {
-      const result = await askAiMindMap({
+    const started = startAiTask({
+      feature: "mind_map",
+      label: "正在生成思维导图",
+      successMessage: "思维导图已生成，点击可查看结果。",
+      run: () => askAiMindMap({
         prompt: question,
-        context: buildDeepSeekScheduleContext(input, question),
+        context: mindMapNeedsScheduleContext(question) ? buildDeepSeekScheduleContext(input, question) : undefined,
         accessCode,
         attachments,
         depth
-      });
-      setMindMap(result.mindMap);
-      localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
-      setZoom(1);
-      if (result.access === "access-code") setAccessCode("");
-      showToast("思维导图已生成。", "success");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "思维导图生成失败。", "error");
-    } finally {
-      setLoading(false);
-    }
+      }),
+      onSuccess: (result) => {
+        localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
+        setMindMap(result.mindMap);
+        setZoom(1);
+        if (result.access === "access-code") setAccessCode("");
+      }
+    });
+    if (!started) showToast("已有思维导图正在生成。", "error");
   }
 
   return (
@@ -132,6 +139,12 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
               <Sparkles size={16} />{loading ? "生成中…" : "生成脑图"}
             </button>
           </div>
+          {task.status === "error" && (
+            <div className="ai-inline-error" role="alert">
+              <span>{task.message}</span>
+              <button type="button" className="button secondary compact" onClick={() => retryAiTask("mind_map")}>重试</button>
+            </div>
+          )}
         </section>
 
         <section className="mind-map-result" aria-label="思维导图结果">
