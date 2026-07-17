@@ -53,27 +53,18 @@ export async function askAiMindMap(input: {
   depth?: MindMapDepth;
 }): Promise<AiMindMapResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法生成思维导图。");
-  let lastError = "思维导图生成失败，请稍后重试。";
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const { data, error } = await supabase.functions.invoke<AiMindMapResult>("ai-assistant", {
-      body: {
-        mode: "mind_map",
-        question: input.prompt.trim(),
-        scheduleContext: input.context,
-        accessCode: input.accessCode?.trim() || undefined,
-        attachments: input.attachments?.slice(0, 3),
-        mindMapDepth: input.depth ?? "standard"
-      }
-    });
-    if (!error && data?.mindMap?.label) return data;
-    lastError = error ? await mindMapFunctionError(error) : "AI 没有返回有效的思维导图。";
-    if (attempt === 0 && mindMapErrorCanRetry(lastError)) {
-      await new Promise((resolve) => window.setTimeout(resolve, 600));
-      continue;
+  const { data, error } = await supabase.functions.invoke<AiMindMapResult>("ai-assistant", {
+    body: {
+      mode: "mind_map",
+      question: input.prompt.trim(),
+      scheduleContext: input.context,
+      accessCode: input.accessCode?.trim() || undefined,
+      attachments: input.attachments?.slice(0, 3),
+      mindMapDepth: input.depth ?? "standard"
     }
-    break;
-  }
-  throw new Error(lastError);
+  });
+  if (!error && data?.mindMap?.label) return data;
+  throw new Error(error ? await mindMapFunctionError(error) : "AI 没有返回有效的思维导图。");
 }
 
 export function mindMapNeedsScheduleContext(prompt: string): boolean {
@@ -247,11 +238,6 @@ async function mindMapFunctionError(error: unknown): Promise<string> {
     }
   }
   return fallback.includes("non-2xx") ? "思维导图生成失败，请稍后重试。" : fallback;
-}
-
-function mindMapErrorCanRetry(message: string): boolean {
-  return /(网络|连接|暂时不可用|稍后重试|格式无效|没有返回有效)/.test(message)
-    && !/(额度|权限|登录|访问口令)/.test(message);
 }
 
 function escapeXml(value: string): string {

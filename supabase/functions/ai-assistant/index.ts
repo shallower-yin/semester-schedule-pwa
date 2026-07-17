@@ -728,6 +728,8 @@ async function askConfiguredProvider(
       { type: "text", text: userText }
     ]
     : userText;
+  const completionLimit = mode === "mind_map" ? mindMapConfig.maxTokens : 900;
+  const supportsJsonOutput = provider === "deepseek" || model === "mimo-v2.5" || model === "mimo-v2.5-pro";
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -793,17 +795,61 @@ async function askConfiguredProvider(
       ],
       thinking: { type: "disabled" },
       temperature: mode === "mind_map" ? 0.3 : 0.2,
-      max_tokens: mode === "mind_map" ? mindMapConfig.maxTokens : 900,
+      ...(provider === "mimo" ? { max_completion_tokens: completionLimit } : { max_tokens: completionLimit }),
+      ...(supportsJsonOutput ? { response_format: { type: "json_object" } } : {}),
       stream: false
     })
   });
   const text = await response.text();
-  if (!response.ok) throw new Error("AI 助手暂时不可用，请稍后再试。");
-  const data = JSON.parse(text) as {
-    choices?: Array<{ message?: { content?: string } }>;
+  if (!response.ok) {
+    console.error("AI provider request failed", {
+      provider,
+      model,
+      mode,
+      status: response.status,
+      responseLength: text.length
+    });
+    if (response.status === 413) throw new Error("输入内容超过模型服务限制，请减少附件或文字后再试。");
+    if (response.status === 429) throw new Error("模型服务请求过于频繁，请稍后手动重试。");
+    if (response.status >= 500) throw new Error("模型服务当前不可用，请稍后手动重试。");
+    throw new Error(`模型服务请求失败（HTTP ${response.status}），请检查输入后再试。`);
+  }
+  let data: {
+    choices?: Array<{ finish_reason?: string; message?: { content?: string } }>;
     usage?: Partial<AiAssistantUsage>;
   };
-  const content = data.choices?.[0]?.message?.content?.trim();
+  try {
+    data = JSON.parse(text) as typeof data;
+  } catch {
+    console.error("AI provider returned invalid response JSON", {
+      provider,
+      model,
+      mode,
+      status: response.status,
+      responseLength: text.length
+    });
+    throw new Error("模型服务返回了无法解析的响应，请稍后手动重试。");
+  }
+  const choice = data.choices?.[0];
+  const finishReason = choice?.finish_reason ?? "unknown";
+  if (finishReason !== "stop") {
+    console.error("AI provider response did not finish normally", {
+      provider,
+      model,
+      mode,
+      finishReason,
+      responseLength: text.length,
+      contentLength: choice?.message?.content?.length ?? 0
+    });
+  }
+  if (finishReason === "length") {
+    throw new Error(mode === "mind_map"
+      ? "AI 输出达到长度上限，返回的脑图 JSON 不完整。请减少输入内容后手动重试。"
+      : "AI 输出达到长度上限，回答不完整。请缩短问题后手动重试。");
+  }
+  if (finishReason === "content_filter") throw new Error("内容未能通过模型安全检查，请调整输入后再试。");
+  if (finishReason === "insufficient_system_resource") throw new Error("模型服务当前资源不足，请稍后手动重试。");
+  const content = choice?.message?.content?.trim();
   if (!content) throw new Error("AI 助手没有返回有效回答。");
   return {
     ...(mode === "mind_map" ? parseMindMapResponse(content, mindMapConfig) : parseAssistantResponse(content, question)),
@@ -821,7 +867,7 @@ function parseMindMapResponse(content: string, config: ReturnType<typeof mindMap
   try {
     parsed = JSON.parse(cleaned) as { answer?: unknown; mindMap?: unknown };
   } catch {
-    throw new Error("AI 返回的思维导图格式无效，请重新生成。");
+    throw new Error("AI 返回的脑图 JSON 不完整或格式无效，请手动重试。");
   }
   const budget = { remaining: config.maxNodes };
   const mindMap = sanitizeMindMapNode(parsed.mindMap, 0, budget, config.maxDepth);
@@ -859,7 +905,7 @@ function mindMapDepthConfig(depth: MindMapDepth) {
     branchRange: "3 到 5",
     maxDepth: 4,
     maxNodes: 36,
-    maxTokens: 1400
+    maxTokens: 3000
   };
   if (depth === "deep") return {
     label: "深入",
@@ -867,7 +913,7 @@ function mindMapDepthConfig(depth: MindMapDepth) {
     branchRange: "5 到 9",
     maxDepth: 6,
     maxNodes: 100,
-    maxTokens: 4200
+    maxTokens: 8000
   };
   return {
     label: "标准",
@@ -875,7 +921,7 @@ function mindMapDepthConfig(depth: MindMapDepth) {
     branchRange: "4 到 7",
     maxDepth: 5,
     maxNodes: 64,
-    maxTokens: 2400
+    maxTokens: 6000
   };
 }
 
