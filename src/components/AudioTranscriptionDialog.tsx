@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Copy, Download, FileAudio, KeyRound, Send, Sparkles, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Download, FileAudio, KeyRound, Send, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { askAboutAudioTranscript, MAX_AUDIO_FILES, transcribeAudioFiles, validateAudioFile, type AudioConversationMessage, type AudioLanguage, type AudioTranscriptionResult } from "../lib/audioTranscription";
@@ -134,6 +134,14 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  function clearHistory() {
+    if (!window.confirm("确定清除当前设备上的转写结果、摘要和问答记录吗？此操作无法恢复。")) return;
+    localStorage.removeItem(storageKey(ownerId));
+    setResult(null);
+    setQuestion("");
+    showToast("转写历史记录已清除。", "success");
+  }
+
   return (
     <Modal
       title="AI 音频转写"
@@ -186,6 +194,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
               <header>
                 <div><FileAudio size={19} /><strong>转写结果</strong></div>
                 <div className="inline-actions">
+                  <button type="button" className="button danger-button compact" onClick={clearHistory}><Trash2 size={15} />清除记录</button>
                   <button type="button" className="icon-button" aria-label="复制完整转写" title="复制完整转写" onClick={() => void copyText(result.transcript)}><Copy size={16} /></button>
                   <button type="button" className="button secondary compact" onClick={downloadResult}><Download size={15} />TXT</button>
                 </div>

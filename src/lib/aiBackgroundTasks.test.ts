@@ -30,4 +30,23 @@ describe("AI 后台任务", () => {
     await vi.waitFor(() => expect(getAiTaskSnapshot("audio_transcription").status).toBe("error"));
     expect(getAiTaskSnapshot("audio_transcription").message).toBe("网络连接超时");
   });
+
+  it("成功提示三秒后自动消失", async () => {
+    vi.useFakeTimers();
+    try {
+      startAiTask({
+        feature: "assistant",
+        label: "回答中",
+        run: async () => "done"
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getAiTaskSnapshot("assistant").status).toBe("success");
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(getAiTaskSnapshot("assistant").status).toBe("success");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(getAiTaskSnapshot("assistant").status).toBe("idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

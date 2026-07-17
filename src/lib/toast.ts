@@ -9,7 +9,7 @@ export interface AppToast {
 
 export const APP_TOAST_EVENT = "semester-schedule-toast";
 
-export function showToast(message: string, tone: ToastTone = "info", durationMs = 3200): void {
+export function showToast(message: string, tone: ToastTone = "info", durationMs = 3000): void {
   const text = message.trim();
   if (!text) return;
   window.dispatchEvent(new CustomEvent<Omit<AppToast, "id">>(APP_TOAST_EVENT, {

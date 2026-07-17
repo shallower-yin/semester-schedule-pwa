@@ -37,6 +37,7 @@ const tasks = new Map<AiTaskFeature, AiTaskSnapshot>();
 const retries = new Map<AiTaskFeature, () => void>();
 const listeners = new Set<() => void>();
 const openDialogs = new Set<AiTaskFeature>();
+const dismissalTimers = new Map<AiTaskFeature, number>();
 let taskListSnapshot: AiTaskSnapshot[] = [];
 
 export function subscribeAiTasks(listener: () => void): () => void {
@@ -60,6 +61,7 @@ export function setAiTaskDialogOpen(feature: AiTaskFeature, open: boolean): void
 
 export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
   if (getAiTaskSnapshot(definition.feature).status === "running") return false;
+  clearDismissalTimer(definition.feature);
   const startedAt = Date.now();
   retries.set(definition.feature, () => startAiTask(definition));
   updateTask({
@@ -84,6 +86,7 @@ export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
         startedAt,
         completedAt: Date.now()
       });
+      scheduleSuccessDismissal(definition.feature);
       if (!openDialogs.has(definition.feature)) void showCompletionNotification(definition.feature, message);
     })
     .catch(async (cause) => {
@@ -108,9 +111,25 @@ export function retryAiTask(feature: AiTaskFeature): void {
 
 export function dismissAiTask(feature: AiTaskFeature): void {
   if (getAiTaskSnapshot(feature).status === "running") return;
+  clearDismissalTimer(feature);
   tasks.delete(feature);
   retries.delete(feature);
   emit();
+}
+
+function scheduleSuccessDismissal(feature: AiTaskFeature): void {
+  clearDismissalTimer(feature);
+  const timer = window.setTimeout(() => {
+    dismissalTimers.delete(feature);
+    if (getAiTaskSnapshot(feature).status === "success") dismissAiTask(feature);
+  }, 3000);
+  dismissalTimers.set(feature, timer);
+}
+
+function clearDismissalTimer(feature: AiTaskFeature): void {
+  const timer = dismissalTimers.get(feature);
+  if (timer !== undefined) window.clearTimeout(timer);
+  dismissalTimers.delete(feature);
 }
 
 export function openAiTask(feature: AiTaskFeature): void {

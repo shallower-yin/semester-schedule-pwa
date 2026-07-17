@@ -3221,9 +3221,9 @@ textarea {
   font-weight: 700;
 }
 
-.memo-meta-row {
+.form-stack .memo-meta-row {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
@@ -3260,7 +3260,7 @@ textarea {
 
 .memo-dialog-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, auto));
+  grid-template-columns: repeat(4, minmax(0, auto));
   justify-content: end;
   gap: 8px;
 }
@@ -7920,8 +7920,8 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .memo-meta-row {
-    grid-template-columns: 48px minmax(0, 1fr);
+  .form-stack .memo-meta-row {
+    grid-template-columns: 64px minmax(0, 1fr);
     gap: 7px;
   }
 
@@ -7944,13 +7944,13 @@ textarea {
   }
 
   .memo-dialog-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .memo-dialog-actions .button {
     min-width: 0;
-    padding-inline: 7px;
-    font-size: 12px;
+    padding-inline: 5px;
+    font-size: 11px;
   }
 
   .audio-transcription-controls {

@@ -37,7 +37,7 @@ import {
   X
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
 import { AdminDialog } from "./components/AdminDialog";
@@ -101,6 +101,8 @@ import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
 import { AI_TASK_OPEN_EVENT, type AiTaskFeature } from "./lib/aiBackgroundTasks";
+import { appHistoryLayer, appHistoryPage, initializeAppHistory, navigateAppHistory } from "./lib/appHistory";
+import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
@@ -201,6 +203,22 @@ export default function App() {
   const [installMessage, setInstallMessage] = useState("");
   const [updatingApp, setUpdatingApp] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const requestSidebarClose = useHistoryLayer(sidebarOpen, () => setSidebarOpen(false), "sidebar");
+
+  useEffect(() => {
+    initializeAppHistory(pageRef.current);
+    const handlePageHistory = (event: PopStateEvent) => {
+      const targetPage = appHistoryPage(event.state);
+      if (!targetPage) return;
+      pageRef.current = targetPage;
+      setPage(targetPage);
+      setSidebarOpen(false);
+    };
+    window.addEventListener("popstate", handlePageHistory);
+    return () => window.removeEventListener("popstate", handlePageHistory);
+  }, []);
 
   useEffect(() => {
     const openFeature = (feature: AiTaskFeature) => {
@@ -461,7 +479,7 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) && event.key !== "Escape") return;
       if (event.key === "/") {
         event.preventDefault();
         setShowGlobalSearch(true);
@@ -483,18 +501,10 @@ export default function App() {
       } else if (event.key.toLowerCase() === "t") {
         event.preventDefault();
         goToday();
-        setPage("today");
+        navigate("today");
       } else if (event.key === "Escape") {
-        setShowGlobalSearch(false);
-        setShowAddSchedule(false);
-        setShowBatchEvents(false);
-        setShowDataHealth(false);
-        setShowStats(false);
-        setShowScheduleAssistant(false);
-        setShowDeepSeekAssistant(false);
-        setShowMindMap(false);
-        setShowAdmin(false);
-        setShowHeaderToolSettings(false);
+        if (appHistoryLayer(window.history.state) || pageRef.current !== "today") window.history.back();
+        else if (sidebarOpen) requestSidebarClose();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -675,6 +685,10 @@ export default function App() {
   }
 
   function navigate(nextPage: Page) {
+    if (nextPage !== pageRef.current || appHistoryLayer(window.history.state)) {
+      navigateAppHistory(nextPage);
+    }
+    pageRef.current = nextPage;
     setPage(nextPage);
     setSidebarOpen(false);
   }
@@ -714,7 +728,7 @@ export default function App() {
       const course = courses.find((candidate) => candidate.id === result.id);
       if (course) {
         setCourseToEdit(course);
-        setPage("calendar");
+        navigate("calendar");
       }
       return;
     }
@@ -722,17 +736,17 @@ export default function App() {
       const eventItem = events.find((candidate) => candidate.id === result.id);
       if (eventItem) {
         setEventToEdit(eventItem);
-        setPage(eventItem.event_type === "habit" ? "habits" : "calendar");
+        navigate(eventItem.event_type === "habit" ? "habits" : "calendar");
       }
       return;
     }
     if (result.type === "anniversary") {
       setAnniversaryToOpen(result.id);
-      setPage("anniversaries");
+      navigate("anniversaries");
       return;
     }
     setMemoToOpen(result.id);
-    setPage("memos");
+    navigate("memos");
   }
 
   async function activateSemester(target: Semester) {
@@ -746,7 +760,7 @@ export default function App() {
         await queueChange("semesters", updated.id);
       }
     });
-    setPage("calendar");
+    navigate("calendar");
     setAnchorDate(new Date());
   }
 
@@ -878,9 +892,9 @@ export default function App() {
       <FocusFloatingTimer ownerId={ownerId} />
 
       {sidebarOpen && (
-        <div className="mobile-sidebar-backdrop" onClick={() => setSidebarOpen(false)}>
+        <div className="mobile-sidebar-backdrop" onClick={requestSidebarClose}>
           <aside className="mobile-sidebar" onClick={(event) => event.stopPropagation()}>
-            <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={() => setSidebarOpen(false)}><X /></button></div>
+            <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={requestSidebarClose}><X /></button></div>
             <nav>{renderNavigation(navItems)}</nav>
           </aside>
         </div>
@@ -1113,7 +1127,7 @@ export default function App() {
           ownerId={ownerId}
           onCreated={(item) => {
             setEventToEdit(item);
-            setPage("calendar");
+            navigate("calendar");
           }}
           onClose={() => setShowQuickEntry(false)}
         />

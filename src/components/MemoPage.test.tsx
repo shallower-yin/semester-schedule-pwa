@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import { setCurrentUserId, syncFields } from "../lib/identity";
 import type { Memo } from "../types";
@@ -69,6 +69,19 @@ describe("备忘录视图", () => {
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     fireEvent.keyDown(textarea, { key: "Enter" });
     await waitFor(() => expect(textarea).toHaveValue("○ 防晒\n○ "));
+  });
+
+  it("复制全文会按标题和正文复制完整备忘录", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<MemoPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "标题" }), { target: { value: "训练安排" } });
+    fireEvent.change(screen.getByLabelText("正文"), { target: { value: "深蹲 3 组\n俯卧撑 3 组" } });
+    fireEvent.click(screen.getByRole("button", { name: "复制全文" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("训练安排\n\n深蹲 3 组\n俯卧撑 3 组"));
   });
 
   it("可以直接点击正文里的待办圆圈切换完成状态", async () => {

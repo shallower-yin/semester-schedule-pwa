@@ -13,7 +13,7 @@ export function ToastHost() {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         message: detail.message,
         tone: detail.tone ?? "info",
-        durationMs: detail.durationMs ?? 3200
+        durationMs: detail.durationMs ?? 3000
       };
       setToasts((current) => [...current.slice(-2), toast]);
       window.setTimeout(() => {

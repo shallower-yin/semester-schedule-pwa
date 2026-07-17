@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarPlus, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, Search } from "lucide-react";
+import { CalendarPlus, Copy, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
@@ -442,6 +442,22 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
     focusTextareaAt(edit.cursor);
   }
 
+  async function copyFullText() {
+    const value = [title.trim(), content.trimEnd()].filter(Boolean).join("\n\n");
+    if (!value) {
+      showToast("没有可复制的内容。", "error");
+      return;
+    }
+    try {
+      if (navigator.clipboard) await navigator.clipboard.writeText(value);
+      else copyTextFallback(value);
+      showToast("已复制全文。", "success");
+    } catch {
+      copyTextFallback(value);
+      showToast("已复制全文。", "success");
+    }
+  }
+
   return (
     <Modal
       title={memo ? "编辑备忘录" : "新增备忘录"}
@@ -482,10 +498,22 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
         {message && <p className="auth-message error">{message}</p>}
         <div className="memo-dialog-actions">
           <button type="button" className="button secondary" onClick={onClose}>取消</button>
+          <button type="button" className="button secondary" onClick={() => void copyFullText()}><Copy size={16} />复制全文</button>
           <button className="button primary">保存备忘录</button>
           {memo && <button type="button" className="button danger-button" onClick={() => void remove()}>删除备忘录</button>}
         </div>
       </form>
     </Modal>
   );
+}
+
+function copyTextFallback(content: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = content;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
