@@ -14,6 +14,7 @@ export default defineConfig(() => {
   const releaseSequence = process.env.VITE_APP_VERSION_SEQUENCE ?? dailyCommitSequence(releaseDate);
   const appVersion = `${releaseDate}.${releaseSequence}`;
   const appCommit = shortCommitHash();
+  assertReleaseNotesMatchCurrentCommit();
   const releaseNotes = loadReleaseNotes();
   const releaseManifest = JSON.stringify({
     version: appVersion,
@@ -168,4 +169,12 @@ function loadReleaseNotes(): { title: string; notes: string[] } {
   } catch {
     return { title: "版本更新", notes: ["优化应用体验并修复已知问题。"] };
   }
+}
+
+function assertReleaseNotesMatchCurrentCommit() {
+  if (!process.env.GITHUB_ACTIONS) return;
+  const currentCommit = (process.env.GITHUB_SHA || runGit(["rev-parse", "HEAD"])).trim();
+  const releaseNotesCommit = runGit(["log", "-1", "--format=%H", "--", "release-notes.json"]);
+  if (!currentCommit || currentCommit === releaseNotesCommit) return;
+  throw new Error("release-notes.json 未随当前版本更新，已停止发布，避免向用户展示旧版更新说明。");
 }
