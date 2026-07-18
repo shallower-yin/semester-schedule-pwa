@@ -37,18 +37,26 @@ await configure("CORS", new PutBucketCorsCommand({
 await configure("lifecycle", new PutBucketLifecycleConfigurationCommand({
   Bucket: bucket,
   LifecycleConfiguration: {
-    Rules: [{
-      ID: "delete-abandoned-ai-audio",
-      Status: "Enabled",
-      Filter: { Prefix: "ai-audio/" },
-      Expiration: { Days: 1 }
-    }]
+    Rules: [
+      {
+        ID: "delete-abandoned-ai-audio",
+        Status: "Enabled",
+        Filter: { Prefix: "ai-audio/" },
+        Expiration: { Days: 1 }
+      },
+      {
+        ID: "delete-abandoned-ai-documents",
+        Status: "Enabled",
+        Filter: { Prefix: "ai-documents/" },
+        Expiration: { Days: 1 }
+      }
+    ]
   }
 }));
 
 if (failures.length) throw new Error(`R2 bucket management failed: ${failures.join(", ")}`);
 
-console.log(`R2 bucket "${bucket}" is reachable; browser CORS and one-day temporary audio cleanup are configured.`);
+console.log(`R2 bucket "${bucket}" is reachable; browser CORS and one-day temporary AI file cleanup are configured.`);
 
 function required(name) {
   const value = process.env[name]?.trim();

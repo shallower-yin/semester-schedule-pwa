@@ -1,4 +1,12 @@
 import type { PDFPageProxy } from "pdfjs-dist";
+import { supabase } from "./supabase";
+
+export interface AiRemoteDocumentPage {
+  objectKey: string;
+  pageNumber: number;
+  mimeType: "image/jpeg";
+  size: number;
+}
 
 export interface AiAssistantAttachment {
   name: string;
@@ -7,6 +15,8 @@ export interface AiAssistantAttachment {
   dataUrl?: string;
   text?: string;
   pageImages?: string[];
+  remotePages?: AiRemoteDocumentPage[];
+  documentId?: string;
   pageCount?: number;
   processedPageCount?: number;
   notice?: string;
@@ -22,15 +32,23 @@ export interface AiAttachmentContextRecord {
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
+const MAX_PDF_BYTES = 100 * 1024 * 1024;
 const MAX_DOCUMENT_TEXT = 40_000;
 const MAX_PDF_IMAGE_PAGES = 24;
+const MAX_PDF_TOTAL_PAGES = 120;
 const MAX_PDF_IMAGE_DATA_CHARS = 7_000_000;
 const MAX_PDF_IMAGE_DIMENSION = 1400;
+const PDF_UPLOAD_BATCH_SIZE = 8;
 
 export const AI_IMAGE_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/bmp";
 export const AI_DOCUMENT_ACCEPT = "application/pdf,.docx,.txt,.md,.csv";
 
-export async function prepareAiAssistantAttachment(file: File): Promise<AiAssistantAttachment> {
+export async function prepareAiAssistantAttachment(file: File, options: {
+  accessCode?: string;
+  feature?: "assistant" | "mind_map";
+  signal?: AbortSignal;
+  onProgress?: (completed: number, total: number) => void;
+} = {}): Promise<AiAssistantAttachment> {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   const inferredImageType = imageMimeTypeForExtension(extension);
   const imageMimeType = IMAGE_TYPES.has(file.type) ? file.type : inferredImageType;
@@ -38,9 +56,12 @@ export async function prepareAiAssistantAttachment(file: File): Promise<AiAssist
     if (file.size > MAX_IMAGE_BYTES) throw new Error("单张图片不能超过 6 MB。");
     return { name: file.name, mimeType: imageMimeType, kind: "image", dataUrl: await readDataUrl(file, imageMimeType) };
   }
-  if (file.size > MAX_DOCUMENT_BYTES) throw new Error("单个文档不能超过 12 MB。");
+  const isPdf = file.type === "application/pdf" || extension === "pdf";
+  if (file.size > (isPdf ? MAX_PDF_BYTES : MAX_DOCUMENT_BYTES)) {
+    throw new Error(isPdf ? "单个 PDF 不能超过 100 MB。" : "单个文档不能超过 12 MB。");
+  }
 
-  if (file.type === "application/pdf" || extension === "pdf") return await extractPdfAttachment(file);
+  if (isPdf) return await extractPdfAttachment(file, options);
 
   let text = "";
   if (extension === "docx") text = await extractDocxText(file);
@@ -57,7 +78,12 @@ export async function prepareAiAssistantAttachment(file: File): Promise<AiAssist
   };
 }
 
-async function extractPdfAttachment(file: File): Promise<AiAssistantAttachment> {
+async function extractPdfAttachment(file: File, options: {
+  accessCode?: string;
+  feature?: "assistant" | "mind_map";
+  signal?: AbortSignal;
+  onProgress?: (completed: number, total: number) => void;
+}): Promise<AiAssistantAttachment> {
   const [pdfjs, workerModule] = await Promise.all([
     import("pdfjs-dist"),
     import("pdfjs-dist/build/pdf.worker.mjs?url")
@@ -82,13 +108,19 @@ async function extractPdfAttachment(file: File): Promise<AiAssistantAttachment> 
     };
   }
 
+  if (document.numPages > MAX_PDF_IMAGE_PAGES) {
+    return await uploadScannedPdfPages(file, document, options);
+  }
+
   const pageImages: string[] = [];
   let dataChars = 0;
   const pageLimit = Math.min(document.numPages, MAX_PDF_IMAGE_PAGES);
   for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
     const dataUrl = await renderPdfPageImage(page);
-    if (pageImages.length > 0 && dataChars + dataUrl.length > MAX_PDF_IMAGE_DATA_CHARS) break;
+    if (pageImages.length > 0 && dataChars + dataUrl.length > MAX_PDF_IMAGE_DATA_CHARS) {
+      return await uploadScannedPdfPages(file, document, options);
+    }
     pageImages.push(dataUrl);
     dataChars += dataUrl.length;
   }
@@ -108,6 +140,86 @@ async function extractPdfAttachment(file: File): Promise<AiAssistantAttachment> 
   };
 }
 
+async function uploadScannedPdfPages(
+  file: File,
+  document: { numPages: number; getPage: (pageNumber: number) => Promise<PDFPageProxy> },
+  options: {
+    accessCode?: string;
+    feature?: "assistant" | "mind_map";
+    signal?: AbortSignal;
+    onProgress?: (completed: number, total: number) => void;
+  }
+): Promise<AiAssistantAttachment> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法读取长篇扫描 PDF。");
+  const total = Math.min(document.numPages, MAX_PDF_TOTAL_PAGES);
+  const remotePages: AiRemoteDocumentPage[] = [];
+  let documentId = "";
+  options.onProgress?.(0, total);
+  try {
+    for (let start = 1; start <= total; start += PDF_UPLOAD_BATCH_SIZE) {
+      throwIfAborted(options.signal);
+      const pageNumbers = Array.from({ length: Math.min(PDF_UPLOAD_BATCH_SIZE, total - start + 1) }, (_, index) => start + index);
+      const rendered = await mapWithConcurrency(pageNumbers, 2, async (pageNumber) => {
+        throwIfAborted(options.signal);
+        const page = await document.getPage(pageNumber);
+        return { pageNumber, blob: await renderPdfPageBlob(page) };
+      });
+      const { data, error } = await supabase.functions.invoke<{
+        documentId: string;
+        uploads: Array<{ pageNumber: number; objectKey: string; uploadUrl: string }>;
+      }>("ai-assistant", {
+        signal: options.signal,
+        body: {
+          action: "create_document_page_uploads",
+          accessCode: options.accessCode?.trim() || undefined,
+          document: {
+            documentId: documentId || undefined,
+            name: file.name,
+            pageCount: total,
+            feature: options.feature ?? "assistant",
+            pages: rendered.map(({ pageNumber, blob }) => ({ pageNumber, size: blob.size, mimeType: "image/jpeg" }))
+          }
+        }
+      });
+      if (error || !data?.uploads?.length) throw new Error(await functionErrorMessage(error, "无法创建 PDF 页面上传任务。"));
+      documentId = data.documentId;
+      const renderedByPage = new Map(rendered.map((item) => [item.pageNumber, item.blob]));
+      const uploaded = await mapWithConcurrency(data.uploads, 3, async (ticket) => {
+        throwIfAborted(options.signal);
+        const blob = renderedByPage.get(ticket.pageNumber);
+        if (!blob) throw new Error(`PDF 第 ${ticket.pageNumber} 页读取失败。`);
+        const response = await fetch(ticket.uploadUrl, {
+          method: "PUT",
+          headers: { "content-type": "image/jpeg" },
+          body: blob,
+          signal: options.signal
+        });
+        if (!response.ok) throw new Error(`PDF 第 ${ticket.pageNumber} 页上传失败（HTTP ${response.status}）。`);
+        return { objectKey: ticket.objectKey, pageNumber: ticket.pageNumber, mimeType: "image/jpeg" as const, size: blob.size };
+      });
+      remotePages.push(...uploaded);
+      options.onProgress?.(remotePages.length, total);
+    }
+  } catch (error) {
+    await releaseAiAssistantAttachments([{ name: file.name, mimeType: "application/pdf", kind: "document", documentId, remotePages }]);
+    throw error;
+  }
+  const notice = document.numPages > total
+    ? `扫描版 PDF 共 ${document.numPages} 页，当前支持读取前 ${total} 页`
+    : `扫描版 PDF 已上传 ${total} 页，将由 AI 分批读取`;
+  return {
+    name: file.name,
+    mimeType: file.type || "application/pdf",
+    kind: "document",
+    text: notice,
+    remotePages,
+    documentId,
+    pageCount: document.numPages,
+    processedPageCount: total,
+    notice
+  };
+}
+
 async function renderPdfPageImage(page: PDFPageProxy): Promise<string> {
   const baseViewport = page.getViewport({ scale: 1 });
   const scale = Math.min(2.2, MAX_PDF_IMAGE_DIMENSION / Math.max(baseViewport.width, baseViewport.height));
@@ -121,6 +233,59 @@ async function renderPdfPageImage(page: PDFPageProxy): Promise<string> {
   canvas.height = 1;
   if (!dataUrl.startsWith("data:image/jpeg;base64,")) throw new Error("当前浏览器无法读取扫描版 PDF 页面。");
   return dataUrl;
+}
+
+async function renderPdfPageBlob(page: PDFPageProxy): Promise<Blob> {
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale = Math.min(2.2, MAX_PDF_IMAGE_DIMENSION / Math.max(baseViewport.width, baseViewport.height));
+  const viewport = page.getViewport({ scale: Math.max(0.5, scale) });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(viewport.width));
+  canvas.height = Math.max(1, Math.ceil(viewport.height));
+  await page.render({ canvas, viewport }).promise;
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.76));
+  canvas.width = 1;
+  canvas.height = 1;
+  if (!blob) throw new Error("当前浏览器无法读取扫描版 PDF 页面。");
+  return blob;
+}
+
+export async function releaseAiAssistantAttachments(attachments: AiAssistantAttachment[]): Promise<void> {
+  if (!supabase) return;
+  const objectKeys = attachments.flatMap((attachment) => attachment.remotePages?.map((page) => page.objectKey) ?? []);
+  if (!objectKeys.length) return;
+  await supabase.functions.invoke("ai-assistant", {
+    body: { action: "delete_document_uploads", document: { objectKeys } }
+  }).catch(() => undefined);
+}
+
+async function functionErrorMessage(error: unknown, fallback: string): Promise<string> {
+  const context = (error as { context?: unknown })?.context;
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: unknown };
+      if (typeof payload.error === "string" && payload.error.trim()) return payload.error.trim();
+    } catch {
+      // Use the fallback below.
+    }
+  }
+  return error instanceof Error && error.message && !error.message.includes("non-2xx") ? error.message : fallback;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("操作已取消。", "AbortError");
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const output = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      output[index] = await mapper(items[index], index);
+    }
+  }));
+  return output;
 }
 
 async function extractDocxText(file: File): Promise<string> {

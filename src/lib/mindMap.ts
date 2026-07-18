@@ -10,6 +10,7 @@ export interface AiMindMapResult {
   answer: string;
   mindMap: AiMindMapNode;
   access?: string;
+  processedAttachments?: AiAssistantAttachment[];
 }
 
 export type MindMapDepth = "quick" | "standard" | "deep";

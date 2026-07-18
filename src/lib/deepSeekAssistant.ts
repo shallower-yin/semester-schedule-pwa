@@ -13,6 +13,7 @@ export interface DeepSeekAssistantResult {
   accessBound?: boolean;
   quota?: DeepSeekAssistantQuotaStatus;
   actions?: DeepSeekAssistantAction[];
+  processedAttachments?: AiAssistantAttachment[];
 }
 
 export interface AiAssistantConfiguration {

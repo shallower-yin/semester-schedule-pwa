@@ -3,7 +3,7 @@ import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
 import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
 
 interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "create_document_page_uploads" | "delete_document_uploads";
   mode?: "assistant" | "mind_map" | "audio_transcription" | "audio_followup";
   question?: string;
   scheduleContext?: unknown;
@@ -16,6 +16,14 @@ interface AiAssistantRequest {
   audioLanguage?: "auto" | "zh" | "en";
   summarizeAudio?: boolean;
   mindMapDepth?: MindMapDepth;
+  document?: {
+    documentId?: string;
+    name?: string;
+    pageCount?: number;
+    feature?: "assistant" | "mind_map";
+    pages?: Array<{ pageNumber?: number; size?: number; mimeType?: string }>;
+    objectKeys?: string[];
+  };
   audioRange?: {
     objectKey?: string;
     fileName?: string;
@@ -36,6 +44,8 @@ interface AiAssistantAttachment {
   dataUrl?: string;
   text?: string;
   pageImages?: string[];
+  remotePages?: Array<{ objectKey?: string; pageNumber?: number; mimeType?: string; size?: number }>;
+  documentId?: string;
   pageCount?: number;
   processedPageCount?: number;
 }
@@ -99,6 +109,8 @@ interface AiAssistantResponse {
   mindMap?: AiMindMapNode;
   model: string;
   usage: AiAssistantUsage;
+  processedAttachments?: AiAssistantAttachment[];
+  temporaryDocumentKeys?: string[];
 }
 
 interface ParsedAssistantResponse {
@@ -346,6 +358,17 @@ Deno.serve(async (request) => {
         supportsAudioTranscription: Boolean(configuredMimoAudioCredentials(settings).apiKey)
       });
     }
+    if (body.action === "create_document_page_uploads") {
+      featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
+      const uploadAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!uploadAccess.allowed) return jsonResponse({ error: uploadAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = uploadAccess.method ?? "";
+      return jsonResponse(await createR2DocumentPageUploads(user.id, body.document));
+    }
+    if (body.action === "delete_document_uploads") {
+      await deleteR2DocumentPageObjects(user.id, body.document?.objectKeys);
+      return jsonResponse({ ok: true });
+    }
     if (body.action === "create_audio_upload") {
       featureKey = "audio_transcription";
       const uploadAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
@@ -465,7 +488,7 @@ Deno.serve(async (request) => {
 
     const history = sanitizeHistory(body.history);
     const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
-    const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)));
+    const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)), user.id);
     const assistantResponse = await askConfiguredProvider(question ?? "", body.scheduleContext, history, quotaStatus, settings, attachments, mode, normalizeMindMapDepth(body.mindMapDepth), request.signal);
     await logAiAssistantUsage({
       userId: user.id,
@@ -478,10 +501,16 @@ Deno.serve(async (request) => {
       questionChars,
       diagnosticId
     });
+    if (assistantResponse.temporaryDocumentKeys?.length) {
+      await deleteR2DocumentPageObjects(user.id, assistantResponse.temporaryDocumentKeys).catch((error) => {
+        console.error("Failed to delete processed PDF pages", { error: String(error) });
+      });
+    }
     return jsonResponse({
       answer: assistantResponse.answer,
       actions: assistantResponse.actions,
       mindMap: assistantResponse.mindMap,
+      processedAttachments: assistantResponse.processedAttachments,
       access: access.method,
       accessBound: false,
       quota: quotaStatus
@@ -823,6 +852,14 @@ async function askConfiguredProvider(
   const { apiKey, endpoint } = configuredProviderCredentials(provider, settings);
   if (!apiKey) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const model = configuredModel(settings);
+  const resolvedDocuments = await resolveRemoteDocumentAttachments(attachments, {
+    provider,
+    model,
+    apiKey,
+    endpoint,
+    signal
+  });
+  const resolvedAttachments = resolvedDocuments.attachments;
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
   const historyText = history.length
     ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 3_000)
@@ -839,14 +876,14 @@ async function askConfiguredProvider(
     second: "2-digit",
     hour12: false
   });
-  const documentText = attachments
+  const documentText = resolvedAttachments
     .filter((attachment) => attachment.kind === "document" && attachment.text)
     .map((attachment) => `文档 ${attachment.name ?? "未命名"}：\n${attachment.text}`)
     .join("\n\n");
   const userText = mode === "mind_map"
     ? `${contextText && contextText !== "{}" ? `可参考的当前用户信息：\n${contextText}\n\n` : ""}${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}需要生成思维导图的主题或内容：${question}`
     : `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户问题：${question}`;
-  const visualAttachments = attachments.flatMap((attachment) => {
+  const visualAttachments = resolvedAttachments.flatMap((attachment) => {
     if (attachment.kind === "image" && attachment.dataUrl) return [attachment.dataUrl];
     if (attachment.kind === "document" && attachment.pageImages?.length) return attachment.pageImages;
     return [];
@@ -984,8 +1021,135 @@ async function askConfiguredProvider(
   return {
     ...(mode === "mind_map" ? parseMindMapResponse(content, mindMapConfig) : parseAssistantResponse(content, question)),
     model,
-    usage: normalizeUsage(data.usage)
+    usage: combineUsage(resolvedDocuments.usage, normalizeUsage(data.usage)),
+    processedAttachments: resolvedDocuments.processedAttachments,
+    temporaryDocumentKeys: resolvedDocuments.temporaryDocumentKeys
   };
+}
+
+async function resolveRemoteDocumentAttachments(
+  attachments: AiAssistantAttachment[],
+  providerConfig: {
+    provider: "deepseek" | "mimo";
+    model: string;
+    apiKey: string;
+    endpoint: string;
+    signal?: AbortSignal;
+  }
+): Promise<{
+  attachments: AiAssistantAttachment[];
+  processedAttachments: AiAssistantAttachment[];
+  temporaryDocumentKeys: string[];
+  usage: AiAssistantUsage;
+}> {
+  const resolved: AiAssistantAttachment[] = [];
+  const processedAttachments: AiAssistantAttachment[] = [];
+  const temporaryDocumentKeys: string[] = [];
+  let usage = emptyUsage();
+  for (const attachment of attachments) {
+    const remotePages = attachment.remotePages?.filter((page) => page.objectKey && page.pageNumber) ?? [];
+    if (!remotePages.length) {
+      resolved.push(attachment);
+      continue;
+    }
+    throwIfAborted(providerConfig.signal);
+    const batches = chunkArray(remotePages, 6);
+    const extracted = await mapWithConcurrency(batches, 2, async (batch) => {
+      const result = await extractRemoteDocumentBatch(attachment.name ?? "未命名 PDF", batch, providerConfig);
+      return result;
+    }, providerConfig.signal);
+    extracted.forEach((result) => { usage = combineUsage(usage, result.usage); });
+    const text = extracted
+      .map((result, index) => `第 ${index * 6 + 1}-${Math.min(remotePages.length, (index + 1) * 6)} 页：\n${result.text}`)
+      .join("\n\n")
+      .slice(0, 100_000);
+    const processed: AiAssistantAttachment = {
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      kind: "document",
+      text,
+      pageCount: attachment.pageCount,
+      processedPageCount: remotePages.length
+    };
+    resolved.push(processed);
+    processedAttachments.push(processed);
+    temporaryDocumentKeys.push(...remotePages.map((page) => page.objectKey!));
+  }
+  return { attachments: resolved, processedAttachments, temporaryDocumentKeys, usage };
+}
+
+async function extractRemoteDocumentBatch(
+  documentName: string,
+  pages: NonNullable<AiAssistantAttachment["remotePages"]>,
+  providerConfig: {
+    provider: "deepseek" | "mimo";
+    model: string;
+    apiKey: string;
+    endpoint: string;
+    signal?: AbortSignal;
+  }
+): Promise<{ text: string; usage: AiAssistantUsage }> {
+  throwIfAborted(providerConfig.signal);
+  const images = await Promise.all(pages.map(async (page) => {
+    const bytes = await downloadR2DocumentPage(page.objectKey!);
+    return `data:image/jpeg;base64,${bytesToBase64(bytes)}`;
+  }));
+  throwIfAborted(providerConfig.signal);
+  const pageLabel = pages.map((page) => page.pageNumber).join("、");
+  const response = await fetch(providerConfig.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${providerConfig.apiKey}`,
+      ...(providerConfig.provider === "mimo" ? { "api-key": providerConfig.apiKey } : {})
+    },
+    signal: providerConfig.signal,
+    body: JSON.stringify({
+      model: providerConfig.model,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "你负责读取扫描文档页面。按页面顺序提取标题、正文、表格、数字、公式含义和关键图示信息。",
+            "不要猜测看不清的内容；不要加入日程或其他外部信息；不要输出 Markdown 代码块。",
+            "保持信息完整但压缩重复内容，本批结果控制在 2000 个汉字以内，并用页码标明内容来源。"
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: [
+            ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+            { type: "text", text: `文档“${documentName}”的第 ${pageLabel} 页，请逐页读取。` }
+          ]
+        }
+      ],
+      thinking: { type: "disabled" },
+      temperature: 0.1,
+      ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
+      stream: false
+    })
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    if (response.status === 429) throw new Error("扫描 PDF 分批读取过于频繁，请稍后手动重试。");
+    if (response.status >= 500) throw new Error("扫描 PDF 读取服务暂时不可用，请稍后手动重试。");
+    throw new Error(`扫描 PDF 第 ${pageLabel} 页读取失败（HTTP ${response.status}）。`);
+  }
+  let data: { choices?: Array<{ message?: { content?: string } }>; usage?: Partial<AiAssistantUsage> };
+  try {
+    data = JSON.parse(responseText) as typeof data;
+  } catch {
+    throw new Error(`扫描 PDF 第 ${pageLabel} 页返回格式无效，请手动重试。`);
+  }
+  const text = data.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error(`扫描 PDF 第 ${pageLabel} 页没有读取到有效内容。`);
+  return { text: text.slice(0, 5_000), usage: normalizeUsage(data.usage) };
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
 }
 
 function parseMindMapResponse(content: string, config: ReturnType<typeof mindMapDepthConfig>): ParsedAssistantResponse {
@@ -1095,7 +1259,7 @@ function r2Configuration(): { client: S3Client; bucket: string } {
   const secretAccessKey = optionalSecret("R2_SECRET_ACCESS_KEY");
   const bucket = optionalSecret("R2_BUCKET");
   if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
-    throw new Error("长音频上传服务暂未配置，请联系管理员。");
+    throw new Error("临时文件服务暂未配置，请联系管理员。");
   }
   cachedR2Client ??= new S3Client({
     region: "auto",
@@ -1152,6 +1316,67 @@ async function createR2AudioUpload(userId: string, value: AiAssistantRequest["au
     uploadUrl,
     expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
   };
+}
+
+async function createR2DocumentPageUploads(userId: string, value: AiAssistantRequest["document"]): Promise<{
+  documentId: string;
+  uploads: Array<{ pageNumber: number; objectKey: string; uploadUrl: string }>;
+  expiresAt: string;
+}> {
+  const requestedId = value?.documentId?.trim() ?? "";
+  const documentId = requestedId && /^[a-f0-9-]{20,50}$/i.test(requestedId) ? requestedId : crypto.randomUUID();
+  const pageCount = clampNumber(value?.pageCount, 1, 120, 1);
+  if (!Array.isArray(value?.pages) || !value.pages.length || value.pages.length > 8) {
+    throw new Error("PDF 页面上传批次无效。");
+  }
+  const seen = new Set<number>();
+  const pages = value.pages.map((page) => {
+    const pageNumber = clampNumber(page?.pageNumber, 1, pageCount, 0);
+    const size = Number(page?.size);
+    if (!pageNumber || seen.has(pageNumber) || !Number.isFinite(size) || size <= 0 || size > 3 * 1024 * 1024) {
+      throw new Error("PDF 页面大小或页码无效。");
+    }
+    seen.add(pageNumber);
+    return { pageNumber, size };
+  });
+  const { client, bucket } = r2Configuration();
+  const uploads = await Promise.all(pages.map(async ({ pageNumber }) => {
+    const objectKey = `ai-documents/${userId}/${documentId}/page-${String(pageNumber).padStart(4, "0")}.jpg`;
+    return {
+      pageNumber,
+      objectKey,
+      uploadUrl: await getSignedUrl(client, new PutObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+        ContentType: "image/jpeg"
+      }), { expiresIn: 15 * 60 })
+    };
+  }));
+  return { documentId, uploads, expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+}
+
+function userDocumentPageObjectKey(userId: string, value: unknown): string {
+  const objectKey = typeof value === "string" ? value.trim() : "";
+  if (!objectKey.startsWith(`ai-documents/${userId}/`) || !/^ai-documents\/[a-f0-9-]+\/[a-f0-9-]+\/page-\d{4}\.jpg$/i.test(objectKey)) {
+    throw new Error("无效的临时 PDF 页面。");
+  }
+  return objectKey;
+}
+
+async function downloadR2DocumentPage(objectKey: string): Promise<Uint8Array> {
+  const { client, bucket } = r2Configuration();
+  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+  if (!response.Body) throw new Error("临时 PDF 页面读取失败，请重新上传后重试。");
+  const bytes = await response.Body.transformToByteArray();
+  if (!bytes.length || bytes.length > 3 * 1024 * 1024) throw new Error("临时 PDF 页面大小无效。");
+  return bytes;
+}
+
+async function deleteR2DocumentPageObjects(userId: string, value: unknown): Promise<void> {
+  if (!Array.isArray(value)) return;
+  const objectKeys = [...new Set(value.slice(0, 120).map((item) => userDocumentPageObjectKey(userId, item)))];
+  const { client, bucket } = r2Configuration();
+  await mapWithConcurrency(objectKeys, 5, (objectKey) => client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey })).then(() => undefined));
 }
 
 async function downloadR2AudioObject(objectKey: string): Promise<Uint8Array> {
@@ -1730,7 +1955,7 @@ function modelSupportsAttachments(provider: "deepseek" | "mimo", model: string):
   return provider === "mimo" && model === "mimo-v2.5";
 }
 
-function sanitizeAttachments(value: unknown, allowed: boolean): AiAssistantAttachment[] {
+function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): AiAssistantAttachment[] {
   if (!Array.isArray(value) || value.length === 0) return [];
   if (!allowed) throw new Error("当前 AI 模型不支持图片或文档导入，请让管理员切换到 Xiaomi MiMo。");
   const result: AiAssistantAttachment[] = [];
@@ -1745,8 +1970,11 @@ function sanitizeAttachments(value: unknown, allowed: boolean): AiAssistantAttac
       }
       result.push({ name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
     } else if (record.kind === "document") {
-      const text = typeof record.text === "string" ? record.text.trim().slice(0, 40_000) : "";
+      const processedPageCount = clampNumber(record.processedPageCount, 0, 120, 0);
+      const textLimit = processedPageCount > 24 && !Array.isArray(record.remotePages) ? 100_000 : 40_000;
+      const text = typeof record.text === "string" ? record.text.trim().slice(0, textLimit) : "";
       const pageImages: string[] = [];
+      const remotePages: NonNullable<AiAssistantAttachment["remotePages"]> = [];
       let totalImageChars = 0;
       if (Array.isArray(record.pageImages)) {
         for (const pageImage of record.pageImages.slice(0, 24)) {
@@ -1756,15 +1984,35 @@ function sanitizeAttachments(value: unknown, allowed: boolean): AiAssistantAttac
           totalImageChars += pageImage.length;
         }
       }
-      if (!text && !pageImages.length) continue;
+      if (Array.isArray(record.remotePages)) {
+        const seenPages = new Set<number>();
+        for (const item of record.remotePages.slice(0, 120)) {
+          if (!item || typeof item !== "object") continue;
+          const page = item as Record<string, unknown>;
+          const pageNumber = clampNumber(page.pageNumber, 1, 120, 0);
+          const size = clampNumber(page.size, 1, 3 * 1024 * 1024, 0);
+          if (!pageNumber || !size || seenPages.has(pageNumber)) continue;
+          remotePages.push({
+            objectKey: userDocumentPageObjectKey(userId, page.objectKey),
+            pageNumber,
+            mimeType: "image/jpeg",
+            size
+          });
+          seenPages.add(pageNumber);
+        }
+        remotePages.sort((left, right) => Number(left.pageNumber) - Number(right.pageNumber));
+      }
+      if (!text && !pageImages.length && !remotePages.length) continue;
       result.push({
         name,
         mimeType: typeof record.mimeType === "string" ? record.mimeType.slice(0, 120) : "text/plain",
         kind: "document",
         text,
         pageImages,
-        pageCount: clampNumber(record.pageCount, 0, 500, pageImages.length),
-        processedPageCount: pageImages.length
+        remotePages,
+        documentId: typeof record.documentId === "string" ? record.documentId.slice(0, 50) : undefined,
+        pageCount: clampNumber(record.pageCount, 0, 500, remotePages.length || pageImages.length),
+        processedPageCount: remotePages.length || processedPageCount || pageImages.length
       });
     }
   }

@@ -1,6 +1,6 @@
 import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Sparkles, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
+import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration } from "../lib/deepSeekAssistant";
 import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapNeedsScheduleContext, mindMapToSvg, splitMindMapLabel, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
@@ -24,6 +24,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   const [attachments, setAttachments] = useState<AiAssistantAttachment[]>([]);
   const [configuration, setConfiguration] = useState<AiAssistantConfiguration>({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
   const [preparingAttachment, setPreparingAttachment] = useState(false);
+  const [attachmentProgress, setAttachmentProgress] = useState("");
   const [zoom, setZoom] = useState(1);
   const [depth, setDepth] = useState<MindMapDepth>("standard");
   const [previewing, setPreviewing] = useState(false);
@@ -47,12 +48,17 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
     setPreparingAttachment(true);
     try {
       const available = Math.max(0, 3 - attachments.length);
-      const prepared = await Promise.all(Array.from(files).slice(0, available).map(prepareAiAssistantAttachment));
+      const prepared = await Promise.all(Array.from(files).slice(0, available).map((file) => prepareAiAssistantAttachment(file, {
+        accessCode,
+        feature: "mind_map",
+        onProgress: (completed, total) => setAttachmentProgress(`上传 PDF ${completed}/${total} 页`)
+      })));
       setAttachments((current) => [...current, ...prepared].slice(0, 3));
     } catch (error) {
       showToast(error instanceof Error ? error.message : "读取附件失败。", "error");
     } finally {
       setPreparingAttachment(false);
+      setAttachmentProgress("");
     }
   }
 
@@ -74,6 +80,9 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
       onSuccess: (result) => {
         localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
         setMindMap(result.mindMap);
+        if (result.processedAttachments?.length) {
+          setAttachments((current) => replaceProcessedAttachments(current, result.processedAttachments ?? []));
+        }
         setZoom(1);
         if (result.access === "access-code") setAccessCode("");
       }
@@ -113,7 +122,11 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
                 <span key={`${attachment.name}-${index}`}>
                   {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}
                   <strong>{attachment.name}</strong>
-                  <button type="button" className="icon-button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={13} /></button>
+                  <button type="button" className="icon-button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((current) => {
+                    const removed = current[index];
+                    if (removed) void releaseAiAssistantAttachments([removed]);
+                    return current.filter((_, itemIndex) => itemIndex !== index);
+                  })}><X size={13} /></button>
                 </span>
               ))}
             </div>
@@ -130,7 +143,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
               <AttachmentSourcePicker
                 imageAccept={AI_IMAGE_ACCEPT}
                 documentAccept={AI_DOCUMENT_ACCEPT}
-                label={preparingAttachment ? "读取中" : `附件 ${attachments.length}/3`}
+                label={preparingAttachment ? attachmentProgress || "读取中" : `附件 ${attachments.length}/3`}
                 ariaLabel="选择脑图附件来源"
                 disabled={loading || preparingAttachment || attachments.length >= 3}
                 onFiles={addAttachments}
@@ -246,6 +259,11 @@ export function MindMapCanvas({ root, zoom, onPreview }: { root: AiMindMapNode; 
 
 function mindMapStorageKey(ownerId: string): string {
   return `semester-schedule-mind-map:${ownerId}`;
+}
+
+function replaceProcessedAttachments(current: AiAssistantAttachment[], processed: AiAssistantAttachment[]): AiAssistantAttachment[] {
+  const replacements = new Map(processed.map((attachment) => [`${attachment.kind}:${attachment.name}`, attachment]));
+  return current.map((attachment) => replacements.get(`${attachment.kind}:${attachment.name}`) ?? attachment);
 }
 
 function loadMindMap(ownerId: string): AiMindMapNode | null {
