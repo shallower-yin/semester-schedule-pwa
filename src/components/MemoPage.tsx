@@ -497,7 +497,7 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
         </div>
         {message && <p className="auth-message error">{message}</p>}
         <div className="memo-dialog-actions">
-          <button type="button" className="button secondary" onClick={onClose}>取消</button>
+          <button type="button" className="button secondary memo-cancel-button" onClick={onClose}>取消</button>
           <button type="button" className="button secondary" onClick={() => void copyFullText()}><Copy size={16} />复制全文</button>
           <button className="button primary">保存备忘录</button>
           {memo && <button type="button" className="button danger-button" onClick={() => void remove()}>删除备忘录</button>}

@@ -355,7 +355,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   return (
     <Modal title={eventItem ? `编辑${itemLabel}` : `新增${itemLabel}`} onClose={onClose}>
       <form className="form-stack" onSubmit={save}>
-        <label>标题<input required autoFocus value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <label>标题<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <div className="template-toolbar">
           <label>模板
             <select value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}>

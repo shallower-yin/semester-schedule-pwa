@@ -2423,6 +2423,11 @@ textarea {
   color: #92400e;
 }
 
+.admin-access-badge.banned {
+  color: #b42318;
+  background: #fee4e2;
+}
+
 .admin-detail-panel {
   display: grid;
   align-content: start;
@@ -2443,6 +2448,30 @@ textarea {
   overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 13px;
+}
+
+.admin-detail-header small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.admin-account-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-channel-note {
+  margin: 8px 0 0 !important;
+  padding: 8px 10px;
+  border-left: 3px solid #e4a11b;
+  color: #684d18;
+  background: #fff9e8;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .admin-data-note {
@@ -3840,6 +3869,45 @@ textarea {
   font-size: 13px;
 }
 
+.mobile-ai-toolbox-entry {
+  display: none;
+}
+
+.ai-toolbox-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-toolbox-grid button {
+  display: flex;
+  min-width: 0;
+  min-height: 112px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  text-align: left;
+}
+
+.ai-toolbox-grid button > svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.ai-toolbox-grid button span {
+  display: grid;
+  gap: 6px;
+}
+
+.ai-toolbox-grid button small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .health-page {
   max-width: 1220px;
   margin: 0 auto;
@@ -3961,6 +4029,26 @@ textarea {
   margin-top: 12px;
 }
 
+.health-entry-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 180px) auto minmax(0, 180px);
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.health-entry-controls label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.health-entry-controls input {
+  min-height: 38px;
+}
+
 .health-exercise-button {
   display: flex;
   align-items: center;
@@ -4042,11 +4130,30 @@ textarea {
   gap: 8px;
 }
 
-.admin-ai-error-log-list code {
-  padding: 2px 5px;
-  border-radius: 4px;
-  color: #a61b1b;
-  background: #fff0f0;
+.admin-ai-error-log-list article.error {
+  border-color: #f3c5c1;
+}
+
+.admin-call-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #067647;
+  background: #dcfae6;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.admin-call-status.error {
+  color: #b42318;
+  background: #fee4e2;
+}
+
+.admin-call-status.running {
+  color: #175cd3;
+  background: #eaf2ff;
 }
 
 .admin-ai-error-log-list time {
@@ -4064,6 +4171,12 @@ textarea {
 
 .admin-ai-error-log-list small {
   color: var(--muted);
+}
+
+.admin-ai-error-log-list .admin-call-user {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 @media (max-width: 1500px) and (min-width: 901px) {
@@ -5052,6 +5165,30 @@ textarea {
   margin-top: 5px;
   color: #52705f;
   font-size: 12px;
+}
+
+.account-username-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 15px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.account-username-editor label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.account-username-editor input {
+  min-width: 0;
 }
 
 .account-sync-state-card {
@@ -6882,41 +7019,24 @@ textarea {
     background: var(--accent-soft);
   }
 
-  .mobile-ai-toolbox {
+  .mobile-ai-toolbox-entry {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    gap: 9px;
     margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px solid var(--border);
-  }
-
-  .mobile-ai-toolbox h2 {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin: 0 4px 8px;
-    font-size: 14px;
-  }
-
-  .mobile-ai-toolbox > div {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-  }
-
-  .mobile-ai-toolbox button {
-    display: flex;
-    min-width: 0;
-    min-height: 68px;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: 5px;
-    padding: 7px 4px;
+    padding: 12px;
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
     background: #f8fafc;
-    font-size: 10px;
-    font-weight: 700;
+    font-weight: 750;
+  }
+
+  .mobile-ai-toolbox-entry svg:last-child {
+    margin-left: auto;
+    color: var(--muted);
   }
 
   main {
@@ -8225,6 +8345,26 @@ textarea {
 }
 
 @media (max-width: 580px) {
+  .health-heading > svg {
+    display: none;
+  }
+
+  .ai-toolbox-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-toolbox-grid button {
+    min-height: 84px;
+  }
+
+  .health-entry-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .health-entry-controls label:last-child {
+    grid-column: 1 / -1;
+  }
+
   .focus-record-grid {
     grid-template-columns: 1fr;
   }
@@ -8265,13 +8405,16 @@ textarea {
   }
 
   .memo-dialog-actions {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: .52fr .95fr 1.14fr 1.08fr;
+    gap: 5px;
   }
 
   .memo-dialog-actions .button {
     min-width: 0;
-    padding-inline: 5px;
+    gap: 3px;
+    padding-inline: 3px;
     font-size: 11px;
+    white-space: nowrap;
   }
 
   .audio-transcription-controls {

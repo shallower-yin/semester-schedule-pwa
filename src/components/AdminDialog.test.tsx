@@ -1,17 +1,20 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { cleanupAdminTransientDataMock, getAdminSummaryMock } = vi.hoisted(() => ({
+const { cleanupAdminTransientDataMock, getAdminSummaryMock, getAdminAiCallLogsMock } = vi.hoisted(() => ({
   cleanupAdminTransientDataMock: vi.fn(),
-  getAdminSummaryMock: vi.fn()
+  getAdminSummaryMock: vi.fn(),
+  getAdminAiCallLogsMock: vi.fn()
 }));
 
 vi.mock("../lib/admin", () => ({
   getAdminSummary: getAdminSummaryMock,
+  getAdminAiCallLogs: getAdminAiCallLogsMock,
   cleanupAdminTransientData: cleanupAdminTransientDataMock,
   getAdminUserDetails: vi.fn(),
   saveAdminAiAccess: vi.fn(),
-  saveAdminAiSettings: vi.fn()
+  saveAdminAiSettings: vi.fn(),
+  setAdminAccountBan: vi.fn()
 }));
 
 import { AdminDialog } from "./AdminDialog";
@@ -20,9 +23,11 @@ describe("管理后台 AI 模型选择", () => {
   beforeEach(() => {
     cleanupAdminTransientDataMock.mockReset();
     cleanupAdminTransientDataMock.mockResolvedValue({ aiUsageDeleted: 12, reminderDeliveriesDeleted: 5 });
+    getAdminAiCallLogsMock.mockResolvedValue([]);
     getAdminSummaryMock.mockResolvedValue({
       passwordVisible: false,
       users: [],
+      aiCallLogs: [],
       aiSettings: {
         enabled_for_all: true,
         ordinary_daily_limit: 2,
@@ -45,7 +50,7 @@ describe("管理后台 AI 模型选择", () => {
   it("为三个 AI 功能分别显示可填 0 的额度", async () => {
     render(<AdminDialog onClose={vi.fn()} />);
 
-    expect(await screen.findByLabelText("AI 助手普通用户每日额度")).toHaveValue(2);
+    await waitFor(() => expect(screen.getByLabelText("AI 助手普通用户每日额度")).toHaveValue(2));
     expect(screen.getByLabelText("AI 思维导图普通用户每日额度")).toHaveValue(1);
     expect(screen.getByLabelText("音频转写普通用户每日额度")).toHaveValue(0);
     expect(screen.getByLabelText("音频转写全员开放")).toHaveValue("0");

@@ -1,9 +1,10 @@
-type AdminAction = "whoami" | "summary" | "details" | "set-ai-access" | "get-ai-settings" | "set-ai-settings";
+type AdminAction = "whoami" | "summary" | "details" | "set-ai-access" | "get-ai-settings" | "set-ai-settings" | "set-account-ban";
 
 interface AdminRequest {
   action?: AdminAction;
   targetUserId?: string;
   targetEmail?: string;
+  banned?: boolean;
   access?: {
     enabled?: boolean;
     role?: "member" | "admin";
@@ -41,6 +42,7 @@ interface SupabaseUser {
   last_sign_in_at?: string | null;
   confirmed_at?: string | null;
   user_metadata?: Record<string, unknown>;
+  banned_until?: string | null;
 }
 
 interface AiAccessRow {
@@ -177,6 +179,11 @@ Deno.serve(async (request) => {
       if (!body.targetUserId && !body.targetEmail) return jsonResponse({ error: "缺少用户 ID 或邮箱。" }, 400);
       return jsonResponse(await setAiAccess(body.targetUserId, body.targetEmail, body.access, serviceRoleKey));
     }
+    if (body.action === "set-account-ban") {
+      if (!body.targetUserId) return jsonResponse({ error: "缺少用户 ID。" }, 400);
+      if (body.targetUserId === user.id) return jsonResponse({ error: "不能封禁当前登录的管理员账号。" }, 400);
+      return jsonResponse(await setAccountBan(body.targetUserId, Boolean(body.banned), serviceRoleKey));
+    }
     if (body.action === "get-ai-settings") {
       return jsonResponse(await getAiSettings(serviceRoleKey));
     }
@@ -219,6 +226,33 @@ async function authAdminGet<T>(path: string, serviceRoleKey: string): Promise<T>
     throw new Error("读取账号信息失败，请稍后再试。");
   }
   return JSON.parse(text) as T;
+}
+
+async function authAdminUpdate<T>(path: string, body: Record<string, unknown>, serviceRoleKey: string): Promise<T> {
+  const response = await fetch(`${supabaseUrl}/auth/v1/admin/${path}`, {
+    method: "PUT",
+    headers: serviceHeaders(serviceRoleKey, { "content-type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    console.error(`修改账号状态失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+    throw new Error("修改账号状态失败，请稍后再试。");
+  }
+  return JSON.parse(text) as T;
+}
+
+async function setAccountBan(targetUserId: string, banned: boolean, serviceRoleKey: string) {
+  const user = await authAdminUpdate<SupabaseUser>(
+    `users/${encodeURIComponent(targetUserId)}`,
+    { ban_duration: banned ? "876000h" : "none" },
+    serviceRoleKey
+  );
+  return {
+    id: user.id,
+    email: user.email ?? "",
+    bannedUntil: user.banned_until ?? null
+  };
 }
 
 async function restGet<T>(

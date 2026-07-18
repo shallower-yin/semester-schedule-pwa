@@ -42,7 +42,19 @@ jobs:
             --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
-            --data @/tmp/ai-feature-quotas-query.json
+              --data @/tmp/ai-feature-quotas-query.json
+
+      - name: Apply AI call records and account migration
+        env:
+          MIGRATION_FILE: supabase/migrations/20260718_ai_call_records_and_accounts.sql
+        run: |
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-call-records-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/ai-call-records-query.json
 
       - name: Configure function secrets
         env:

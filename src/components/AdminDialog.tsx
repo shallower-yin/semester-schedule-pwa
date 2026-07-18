@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Database, Eye, EyeOff, KeyRound, RefreshCw, Save, Trash2, UsersRound } from "lucide-react";
+import { Ban, CheckCircle2, Database, Eye, EyeOff, KeyRound, RefreshCw, Save, ShieldCheck, Trash2, UsersRound } from "lucide-react";
 import {
   cleanupAdminTransientData,
+  getAdminAiCallLogs,
   getAdminSummary,
   getAdminUserDetails,
   saveAdminAiAccess,
   saveAdminAiSettings,
+  setAdminAccountBan,
   type AdminAiAccess,
   type AdminRole,
   type AdminSummary,
@@ -45,6 +47,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [cleanupScope, setCleanupScope] = useState<"all" | "selected">("all");
   const [cleaningData, setCleaningData] = useState(false);
   const [adminSection, setAdminSection] = useState<"ai" | "content" | "users">("ai");
+  const [changingAccountStatus, setChangingAccountStatus] = useState(false);
 
   const selectedUser = useMemo(
     () => summary?.users.find((user) => user.id === selectedUserId) ?? null,
@@ -54,7 +57,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     const query = userQuery.trim().toLowerCase();
     if (!query) return summary?.users ?? [];
     return (summary?.users ?? []).filter((user) =>
-      `${user.email}\n${user.id}\n${user.aiAccess?.note ?? ""}`.toLowerCase().includes(query)
+      `${user.username}\n${user.email}\n${user.aiAccess?.note ?? ""}`.toLowerCase().includes(query)
     );
   }, [summary?.users, userQuery]);
 
@@ -86,6 +89,33 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setMessage(error instanceof Error ? error.message : "读取用户数据失败。");
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function refreshAiCallLogs() {
+    try {
+      const aiCallLogs = await getAdminAiCallLogs();
+      setSummary((current) => current ? { ...current, aiCallLogs } : current);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "刷新 AI 调用记录失败。");
+    }
+  }
+
+  async function changeAccountStatus() {
+    if (!selectedUser) return;
+    const isBanned = accountIsBanned(selectedUser.bannedUntil);
+    const label = selectedUser.username || selectedUser.email;
+    if (!window.confirm(`${isBanned ? "解封" : "封禁"}账号“${label}”？`)) return;
+    setChangingAccountStatus(true);
+    setMessage("");
+    try {
+      await setAdminAccountBan(selectedUser.id, !isBanned);
+      await loadSummary();
+      setMessage(isBanned ? "账号已解封。" : "账号已封禁，后续登录和令牌刷新将被拒绝。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "修改账号状态失败。");
+    } finally {
+      setChangingAccountStatus(false);
     }
   }
 
@@ -205,6 +235,12 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }, []);
 
   useEffect(() => {
+    if (adminSection !== "ai") return;
+    const timer = window.setInterval(() => void refreshAiCallLogs(), 15_000);
+    return () => window.clearInterval(timer);
+  }, [adminSection]);
+
+  useEffect(() => {
     const access = selectedUser?.aiAccess ?? details?.aiAccess ?? null;
     setAccessEnabled(Boolean(access?.enabled));
     setAccessRole(access?.role ?? "member");
@@ -217,7 +253,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       <div className="admin-dialog">
         <div className="admin-toolbar">
           <span><UsersRound size={17} /> {summary?.users.length ?? 0} 个账号</span>
-          <input value={userQuery} placeholder="搜索邮箱或账号 ID" onChange={(event) => setUserQuery(event.target.value)} />
+          <input value={userQuery} placeholder="搜索用户名或邮箱" onChange={(event) => setUserQuery(event.target.value)} />
           <button className="button secondary compact" onClick={() => void loadSummary()} disabled={loading}>
             <RefreshCw size={16} />刷新
           </button>
@@ -265,6 +301,11 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               <Save size={16} />保存 AI 设置
             </button>
           </div>
+          {aiProvider === "mimo" && (
+            <p className="admin-channel-note">
+              音频转写固定使用按量 API；此处通道只控制主模型。MiMo Token Plan 官方仅授权 AI 编程工具，普通应用调用请选按量 API。
+            </p>
+          )}
           <div className="admin-feature-quota-table">
             <div className="admin-feature-quota-header" aria-hidden="true">
               <span>功能</span><span>全员开放</span><span>普通 / 日</span><span>普通 / 周</span><span>会员 / 日</span><span>会员 / 周</span><span>管理员</span>
@@ -293,12 +334,12 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
           <section className="admin-access-editor admin-direct-access">
           <div className="section-heading">
-            <div><h3><KeyRound size={18} /> 直接授权</h3><p>输入邮箱或账号 ID，可直接开通会员或管理员权限。</p></div>
+            <div><h3><KeyRound size={18} /> 直接授权</h3><p>输入邮箱，可直接开通会员或管理员权限。</p></div>
           </div>
           <div className="form-grid admin-direct-access-grid">
             <label>
-              邮箱或账号 ID
-              <input value={directIdentifier} onChange={(event) => setDirectIdentifier(event.target.value)} placeholder="user@example.com 或账号 ID" />
+              邮箱
+              <input type="email" value={directIdentifier} onChange={(event) => setDirectIdentifier(event.target.value)} placeholder="user@example.com" />
             </label>
             <label>
               启用
@@ -330,17 +371,23 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
           <section className="admin-access-editor admin-ai-error-logs">
             <div className="section-heading">
-              <div><h3><Database size={18} /> AI 错误诊断</h3><p>显示最近 30 条失败请求；用户报错时可按诊断编号定位上游状态与分段。</p></div>
+              <div><h3><Database size={18} /> AI 调用记录</h3><p>显示最近 50 条思维导图与音频转写调用，成功和失败都会记录；AI 助手不显示。列表每 15 秒自动刷新。</p></div>
+              <button className="button secondary compact" type="button" onClick={() => void refreshAiCallLogs()}><RefreshCw size={15} />刷新记录</button>
             </div>
             <div className="admin-ai-error-log-list">
-              {(summary?.aiErrorLogs ?? []).map((log) => (
-                <article key={`${log.diagnosticId}-${log.requestedAt}`}>
-                  <div><strong>{aiFeatureName(log.featureKey)}</strong><code>{log.diagnosticId?.slice(0, 8) || "无编号"}</code><time>{formatDateTime(log.requestedAt)}</time></div>
-                  <p>{log.error}</p>
+              {(summary?.aiCallLogs ?? []).map((log) => (
+                <article className={log.status} key={`${log.userId}-${log.requestedAt}-${log.featureKey}`}>
+                  <div>
+                    <strong>{aiFeatureName(log.featureKey)}</strong>
+                    <span className={`admin-call-status ${log.status}`}>{log.status === "success" ? <CheckCircle2 size={13} /> : log.status === "running" ? <RefreshCw size={13} /> : <Ban size={13} />}{log.status === "success" ? "成功" : log.status === "running" ? "处理中" : "失败"}</span>
+                    <time>{formatDateTime(log.requestedAt)}</time>
+                  </div>
+                  <p className="admin-call-user">{log.username || log.email || "未命名用户"}{log.username && log.email ? ` · ${log.email}` : ""}</p>
+                  <p>{log.status === "success" ? `调用完成${log.model ? ` · ${log.model}` : ""}` : log.status === "running" ? "调用已发出，正在等待结果" : log.error || "调用失败"}</p>
                   <small>{diagnosticDetailsText(log.details)}{log.latencyMs != null ? ` · ${log.latencyMs} ms` : ""}</small>
                 </article>
               ))}
-              {summary && !(summary.aiErrorLogs ?? []).length && <p className="muted-note">暂无可显示的 AI 错误记录。</p>}
+              {summary && !(summary.aiCallLogs ?? []).length && <p className="muted-note">暂无思维导图或音频转写调用记录。</p>}
             </div>
           </section>
         </>}
@@ -383,10 +430,12 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 onClick={() => selectUser(user.id)}
               >
                 <span>
-                  <strong>{user.email || "未显示邮箱"}</strong>
-                  <small>{user.id}</small>
+                  <strong>{user.username || user.email || "未命名用户"}</strong>
+                  <small>{user.username ? user.email : "尚未设置用户名"}</small>
                 </span>
-                <span className={accessBadgeClass(user.aiAccess)}>{accessLabel(user.aiAccess)}</span>
+                <span className={accountIsBanned(user.bannedUntil) ? "admin-access-badge banned" : accessBadgeClass(user.aiAccess)}>
+                  {accountIsBanned(user.bannedUntil) ? "已封禁" : accessLabel(user.aiAccess)}
+                </span>
                 <small>
                   AI 今日 {user.aiUsage.today.requestCount} 次 · 本月 {user.aiUsage.month.requestCount} 次 · 累计 {user.aiUsage.requestCount} 次
                 </small>
@@ -400,13 +449,20 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
               <>
                 <header className="admin-detail-header">
                   <div>
-                    <h3>{selectedUser.email || "用户详情"}</h3>
-                    <p>{selectedUser.id}</p>
+                    <h3>{selectedUser.username || selectedUser.email || "用户详情"}</h3>
+                    <p>{selectedUser.email}</p>
+                    <small>账号 ID：{selectedUser.id}</small>
                   </div>
-                  <button className="button secondary compact" onClick={() => void toggleDetails(selectedUser.id)} disabled={detailLoading}>
-                    {details?.user.id === selectedUser.id ? <EyeOff size={16} /> : <Eye size={16} />}
-                    {detailLoading ? "读取中" : details?.user.id === selectedUser.id ? "隐藏数据" : "查看数据"}
-                  </button>
+                  <div className="admin-account-actions">
+                    <button className={accountIsBanned(selectedUser.bannedUntil) ? "button secondary compact" : "button danger-button compact"} onClick={() => void changeAccountStatus()} disabled={changingAccountStatus}>
+                      {accountIsBanned(selectedUser.bannedUntil) ? <ShieldCheck size={16} /> : <Ban size={16} />}
+                      {changingAccountStatus ? "处理中" : accountIsBanned(selectedUser.bannedUntil) ? "解封账号" : "封禁账号"}
+                    </button>
+                    <button className="button secondary compact" onClick={() => void toggleDetails(selectedUser.id)} disabled={detailLoading}>
+                      {details?.user.id === selectedUser.id ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {detailLoading ? "读取中" : details?.user.id === selectedUser.id ? "隐藏数据" : "查看数据"}
+                    </button>
+                  </div>
                 </header>
                 {details?.user.id !== selectedUser.id && (
                   <p className="admin-data-note">当前仅显示账号与 AI 权限；点击“查看数据”后再显示该账号的日程数据概览。</p>
@@ -601,4 +657,10 @@ function accessLabel(access: AdminAiAccess | null): string {
 function accessBadgeClass(access: AdminAiAccess | null): string {
   const label = accessLabel(access);
   return label === "管理员" ? "admin-access-badge admin" : label === "会员" ? "admin-access-badge member" : "admin-access-badge";
+}
+
+function accountIsBanned(bannedUntil: string | null): boolean {
+  if (!bannedUntil) return false;
+  const timestamp = new Date(bannedUntil).getTime();
+  return Number.isFinite(timestamp) && timestamp > Date.now();
 }

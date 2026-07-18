@@ -35,6 +35,8 @@ export function HealthPage({ ownerId }: HealthPageProps) {
   const [reminderInterval, setReminderInterval] = useState("");
   const [reminderStart, setReminderStart] = useState("");
   const [reminderEnd, setReminderEnd] = useState("");
+  const [movementAmount, setMovementAmount] = useState("5");
+  const [exerciseAmount, setExerciseAmount] = useState("10");
   const [showRecent, setShowRecent] = useState(false);
 
   const today = localDate(new Date());
@@ -49,6 +51,8 @@ export function HealthPage({ ownerId }: HealthPageProps) {
   const effectiveGoal = Math.max(250, numericOr(waterGoal, profile.daily_water_goal_ml) ?? 2000);
   const waterPercent = Math.min(100, Math.round((water / effectiveGoal) * 100));
   const weightHistory = useMemo(() => logs.filter((item) => item.kind === "weight").slice(0, 7), [logs]);
+  const movementEntry = clamp(Math.round(numericOr(movementAmount, 5) ?? 5), 1, 600);
+  const exerciseEntry = clamp(Math.round(numericOr(exerciseAmount, 10) ?? 10), 1, 10000);
 
   async function addLog(kind: HealthLogKind, amount: number, unit: HealthLog["unit"], activity: string | null = null) {
     const record: HealthLog = { ...syncFields(), kind, logged_at: new Date().toISOString(), amount, unit, activity, note: "" };
@@ -114,11 +118,16 @@ export function HealthPage({ ownerId }: HealthPageProps) {
       </section>
 
       <section className="health-action-band">
-        <div className="health-band-title"><div><Activity /><h2>活动与训练</h2></div><button className="button secondary compact" onClick={() => void addLog("movement", 5, "minute", "站立活动")}>活动 5 分钟</button></div>
+        <div className="health-band-title"><div><Activity /><h2>活动与训练</h2></div></div>
+        <div className="health-entry-controls">
+          <label>活动分钟<input aria-label="本次活动分钟" type="number" inputMode="numeric" min={1} max={600} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} /></label>
+          <button className="button secondary compact" onClick={() => void addLog("movement", movementEntry, "minute", "站立活动")}>记录 {movementEntry} 分钟</button>
+          <label>训练次数<input aria-label="本次训练次数" type="number" inputMode="numeric" min={1} max={10000} value={exerciseAmount} onChange={(event) => setExerciseAmount(event.target.value)} /></label>
+        </div>
         <div className="health-exercise-grid">
           {EXERCISES.map((exercise) => (
-            <button key={exercise.id} className="health-exercise-button" onClick={() => void addLog("exercise", 10, "rep", exercise.label)}>
-              <strong>{exercise.label}</strong><span>+10 次</span>
+            <button key={exercise.id} className="health-exercise-button" onClick={() => void addLog("exercise", exerciseEntry, "rep", exercise.label)}>
+              <strong>{exercise.label}</strong><span>+{exerciseEntry} 次</span>
             </button>
           ))}
         </div>

@@ -47,7 +47,9 @@ export interface AdminUserCounts {
 
 export interface AdminUserSummary {
   id: string;
+  username: string;
   email: string;
+  bannedUntil: string | null;
   createdAt: string | null;
   lastSignInAt: string | null;
   confirmedAt: string | null;
@@ -60,17 +62,20 @@ export interface AdminSummary {
   passwordVisible: false;
   users: AdminUserSummary[];
   aiSettings: AdminAiSettings;
-  aiErrorLogs: AdminAiErrorLog[];
+  aiCallLogs: AdminAiCallLog[];
 }
 
-export interface AdminAiErrorLog {
+export interface AdminAiCallLog {
   requestedAt: string;
   userId: string;
+  username: string;
+  email: string;
   featureKey: string;
+  status: "running" | "success" | "error";
   model: string;
   diagnosticId: string | null;
   latencyMs: number | null;
-  error: string;
+  error: string | null;
   details: Record<string, unknown>;
 }
 
@@ -164,6 +169,12 @@ interface AdminListUserRow {
   ai_month_estimated_cost_cny: number | string | null;
 }
 
+interface AdminAccountProfileRow {
+  user_id: string;
+  username: string | null;
+  banned_until: string | null;
+}
+
 type AiAccessRpcRow = {
   user_id: string;
   enabled: boolean;
@@ -176,34 +187,31 @@ type AiAccessRpcRow = {
 
 export async function getAdminSummary(): Promise<AdminSummary> {
   if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
-  const [{ data, error }, settingsResult, errorLogsResult] = await Promise.all([
+  const [{ data, error }, settingsResult, profilesResult, callLogsResult] = await Promise.all([
     supabase.rpc("admin_list_users"),
     supabase.rpc("admin_get_ai_settings"),
-    supabase.rpc("admin_list_ai_error_logs", { p_limit: 30 })
+    supabase.rpc("admin_list_account_profiles"),
+    supabase.rpc("admin_list_ai_call_logs", { p_limit: 50 })
   ]);
   if (error) throw new Error(formatAdminError(error.message));
   if (settingsResult.error) throw new Error(formatAdminError(settingsResult.error.message));
+  if (profilesResult.error) throw new Error(formatAdminError(profilesResult.error.message));
+  if (callLogsResult.error) throw new Error(formatAdminError(callLogsResult.error.message));
   const rows = (Array.isArray(data) ? data as AdminListUserRow[] : [])
     .filter((row) => !isSmokeTestAccount(row.email));
+  const profiles = new Map(
+    (Array.isArray(profilesResult.data) ? profilesResult.data as AdminAccountProfileRow[] : [])
+      .map((row) => [row.user_id, row] as const)
+  );
   return {
     passwordVisible: false,
     aiSettings: normalizeAiSettings(settingsResult.data),
-    aiErrorLogs: errorLogsResult.error ? [] : (Array.isArray(errorLogsResult.data) ? errorLogsResult.data : []).map((row) => {
-      const value = row as Record<string, unknown>;
-      return {
-        requestedAt: String(value.requested_at ?? ""),
-        userId: String(value.user_id ?? ""),
-        featureKey: String(value.feature_key ?? "assistant"),
-        model: String(value.model ?? ""),
-        diagnosticId: typeof value.diagnostic_id === "string" ? value.diagnostic_id : null,
-        latencyMs: value.latency_ms == null ? null : Number(value.latency_ms),
-        error: String(value.error ?? "未知错误"),
-        details: value.diagnostic_details && typeof value.diagnostic_details === "object" ? value.diagnostic_details as Record<string, unknown> : {}
-      };
-    }),
+    aiCallLogs: normalizeAiCallLogs(callLogsResult.data),
     users: rows.map((row) => ({
       id: row.id,
+      username: profiles.get(row.id)?.username?.trim() ?? "",
       email: row.email ?? "",
+      bannedUntil: profiles.get(row.id)?.banned_until ?? null,
       createdAt: row.created_at ?? null,
       lastSignInAt: row.last_sign_in_at ?? null,
       confirmedAt: row.confirmed_at ?? null,
@@ -254,7 +262,7 @@ export async function getAdminSummary(): Promise<AdminSummary> {
 }
 
 function isSmokeTestAccount(email: string | null | undefined): boolean {
-  return email?.toLowerCase() === "codex-ai-smoke@example.com";
+  return /^codex-[a-z0-9-]+-smoke@example\.com$/i.test(email ?? "");
 }
 
 export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_at">): Promise<AdminAiSettings> {
@@ -313,7 +321,31 @@ export async function getAdminUserDetails(targetUserId: string): Promise<AdminUs
   const { data, error } = await supabase.rpc("admin_get_user_details", { p_target_user_id: targetUserId });
   if (error) throw new Error(formatAdminError(error.message));
   const result = data as AdminUserDetails;
-  return { ...result, aiUsage: normalizeAiUsage(result.aiUsage) };
+  return {
+    ...result,
+    user: {
+      ...result.user,
+      username: result.user.username ?? "",
+      bannedUntil: result.user.bannedUntil ?? null
+    },
+    aiUsage: normalizeAiUsage(result.aiUsage)
+  };
+}
+
+export async function getAdminAiCallLogs(): Promise<AdminAiCallLog[]> {
+  if (!supabase) throw new Error("云端服务未配置，无法读取 AI 调用记录。");
+  const { data, error } = await supabase.rpc("admin_list_ai_call_logs", { p_limit: 50 });
+  if (error) throw new Error(formatAdminError(error.message));
+  return normalizeAiCallLogs(data);
+}
+
+export async function setAdminAccountBan(targetUserId: string, banned: boolean): Promise<void> {
+  if (!supabase) throw new Error("云端服务未配置，无法管理账号状态。");
+  const { data, error } = await supabase.functions.invoke("admin", {
+    body: { action: "set-account-ban", targetUserId, banned }
+  });
+  if (error) throw new Error(error.message || "修改账号状态失败。");
+  if (data?.error) throw new Error(String(data.error));
 }
 
 export async function saveAdminAiAccess(input: SaveAdminAccessInput): Promise<{ aiAccess: AdminAiAccess | null }> {
@@ -357,6 +389,27 @@ function normalizeAiAccess(row: AiAccessRpcRow): AdminAiAccess {
     created_at: row.created_at,
     updated_at: row.updated_at
   };
+}
+
+function normalizeAiCallLogs(value: unknown): AdminAiCallLog[] {
+  return (Array.isArray(value) ? value : []).map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      requestedAt: String(item.requested_at ?? ""),
+      userId: String(item.user_id ?? ""),
+      username: String(item.username ?? "").trim(),
+      email: String(item.email ?? "").trim(),
+      featureKey: String(item.feature_key ?? "assistant"),
+      status: item.status === "success" ? "success" : item.status === "running" ? "running" : "error",
+      model: String(item.model ?? ""),
+      diagnosticId: typeof item.diagnostic_id === "string" ? item.diagnostic_id : null,
+      latencyMs: item.latency_ms == null ? null : Number(item.latency_ms),
+      error: typeof item.error === "string" && item.error.trim() ? item.error : null,
+      details: item.diagnostic_details && typeof item.diagnostic_details === "object"
+        ? item.diagnostic_details as Record<string, unknown>
+        : {}
+    };
+  });
 }
 
 function normalizeAiUsage(row: Partial<Record<keyof AdminAiUsage, unknown>> | null | undefined): AdminAiUsage {

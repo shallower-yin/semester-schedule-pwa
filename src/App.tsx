@@ -8,7 +8,6 @@ import {
   CalendarDays,
   CheckCircle2,
   AlertTriangle,
-  AudioLines,
   CircleHelp,
   ChevronLeft,
   ChevronRight,
@@ -22,7 +21,6 @@ import {
   LogIn,
   Menu,
   MessageSquareText,
-  Network,
   NotebookText,
   Pencil,
   Plus,
@@ -41,6 +39,7 @@ import type { User } from "@supabase/supabase-js";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
+import { AiToolboxDialog } from "./components/AiToolboxDialog";
 import { AdminDialog } from "./components/AdminDialog";
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
@@ -175,6 +174,7 @@ export default function App() {
   const [showDeepSeekAssistant, setShowDeepSeekAssistant] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
   const [showAudioTranscription, setShowAudioTranscription] = useState(false);
+  const [showAiToolbox, setShowAiToolbox] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showMobileNavSettings, setShowMobileNavSettings] = useState(false);
   const [showHeaderToolSettings, setShowHeaderToolSettings] = useState(false);
@@ -833,16 +833,6 @@ export default function App() {
       node: <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="AI 助手"><BrainCircuit size={18} /></button>
     },
     {
-      id: "mindMap",
-      label: "AI 思维导图",
-      node: <button className="icon-button header-search-button" onClick={() => setShowMindMap(true)} aria-label="AI 思维导图"><Network size={18} /></button>
-    },
-    {
-      id: "audioTranscription",
-      label: "AI 音频转写",
-      node: <button className="icon-button header-search-button" onClick={() => setShowAudioTranscription(true)} aria-label="AI 音频转写"><AudioLines size={18} /></button>
-    },
-    {
       id: "quickEntry",
       label: "快速录入",
       node: <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
@@ -856,7 +846,7 @@ export default function App() {
   const selectedHeaderTools = headerTools
     .filter((item) => headerToolItems.includes(item.id))
     .sort((left, right) => headerToolItems.indexOf(left.id) - headerToolItems.indexOf(right.id));
-  const mobileHeaderTools = headerTools.filter((item) => item.id === "account" || item.id === "aiAssistant");
+  const mobileHeaderTools = selectedHeaderTools;
 
   function renderSettingsSection(title: string, description: string, children: ReactNode) {
     return (
@@ -909,14 +899,7 @@ export default function App() {
           <aside className="mobile-sidebar" onClick={(event) => event.stopPropagation()}>
             <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={requestSidebarClose}><X /></button></div>
             <nav>{renderNavigation(navItems)}</nav>
-            <section className="mobile-ai-toolbox" aria-label="AI 工具箱">
-              <h2><Sparkles size={16} />AI 工具箱</h2>
-              <div>
-                <button onClick={() => { setShowDeepSeekAssistant(true); setSidebarOpen(false); }}><BrainCircuit size={18} />AI 助手</button>
-                <button onClick={() => { setShowMindMap(true); setSidebarOpen(false); }}><Network size={18} />AI 思维导图</button>
-                <button onClick={() => { setShowAudioTranscription(true); setSidebarOpen(false); }}><AudioLines size={18} />AI 音频转写</button>
-              </div>
-            </section>
+            <button className="mobile-ai-toolbox-entry" onClick={() => { setShowAiToolbox(true); setSidebarOpen(false); }}><Sparkles size={18} />AI 工具箱<ChevronRight size={17} /></button>
           </aside>
         </div>
       )}
@@ -1213,6 +1196,12 @@ export default function App() {
         />
       )}
       {showAudioTranscription && <AudioTranscriptionDialog ownerId={ownerId} onClose={() => setShowAudioTranscription(false)} />}
+      {showAiToolbox && <AiToolboxDialog
+        onOpenAssistant={() => setShowDeepSeekAssistant(true)}
+        onOpenMindMap={() => setShowMindMap(true)}
+        onOpenAudioTranscription={() => setShowAudioTranscription(true)}
+        onClose={() => setShowAiToolbox(false)}
+      />}
       {showAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
       {showFeedback && <FeedbackDialog
         userId={user?.id ?? null}

@@ -279,7 +279,7 @@ Deno.serve(async (request) => {
         model: configuredModel(settings),
         mimoChannel: configuredMimoChannel(settings),
         supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
-        supportsAudioTranscription: Boolean(configuredMimoCredentials(settings).apiKey)
+        supportsAudioTranscription: Boolean(configuredMimoAudioCredentials(settings).apiKey)
       });
     }
     if (body.action === "create_audio_upload") {
@@ -335,6 +335,20 @@ Deno.serve(async (request) => {
     }
 
     const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
+    if (featureKey !== "assistant") {
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "running",
+        accessMethod,
+        featureKey,
+        model: configuredModel(settings),
+        usage: emptyUsage(),
+        latencyMs: Date.now() - startedAt,
+        questionChars,
+        diagnosticId,
+        diagnosticDetails: { stage: "started" }
+      });
+    }
     if (mode === "audio_transcription") {
       const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id);
       await logAiAssistantUsage({
@@ -345,7 +359,8 @@ Deno.serve(async (request) => {
         model: audioResponse.model,
         usage: audioResponse.usage,
         latencyMs: Date.now() - startedAt,
-        questionChars
+        questionChars,
+        diagnosticId
       });
       return jsonResponse({
         transcript: audioResponse.transcript,
@@ -372,7 +387,8 @@ Deno.serve(async (request) => {
         model: followupResponse.model,
         usage: followupResponse.usage,
         latencyMs: Date.now() - startedAt,
-        questionChars
+        questionChars,
+        diagnosticId
       });
       return jsonResponse({
         answer: followupResponse.answer,
@@ -394,7 +410,8 @@ Deno.serve(async (request) => {
       model: assistantResponse.model,
       usage: assistantResponse.usage,
       latencyMs: Date.now() - startedAt,
-      questionChars
+      questionChars,
+      diagnosticId
     });
     return jsonResponse({
       answer: assistantResponse.answer,
@@ -1173,13 +1190,24 @@ async function transcribeUploadedAudios(
   const parts: string[] = [];
   let transcriptionUsage = emptyUsage();
   try {
-    for (let index = 0; index < audios.length; index += 1) {
-      const audio = audios[index];
-      const bytes = await downloadR2AudioObject(audio.objectKey);
-      const chunks = splitAudioForAsr(bytes, audio.name, audio.mimeType);
-      const results = await mapWithConcurrency(chunks, 2, (chunk, chunkIndex) =>
-        transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length)
-      );
+    const prepared = await Promise.all(audios.map(async (audio) => ({
+      audio,
+      chunks: splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType)
+    })));
+    const tasks = prepared.flatMap(({ audio, chunks }, fileIndex) => chunks.map((chunk, chunkIndex) => ({
+      audio,
+      chunk,
+      fileIndex,
+      chunkIndex,
+      chunkCount: chunks.length
+    })));
+    const taskResults = await mapWithConcurrency(tasks, 4, (task) =>
+      transcribeAudioChunk(task.chunk, body.audioLanguage, credentials, task.audio.name, task.chunkIndex, task.chunkCount)
+    );
+
+    for (let index = 0; index < prepared.length; index += 1) {
+      const { audio, chunks } = prepared[index];
+      const results = tasks.flatMap((task, taskIndex) => task.fileIndex === index ? [taskResults[taskIndex]] : []);
       const fileTranscript = results.map((result, chunkIndex) => chunks.length === 1
         ? result.transcript
         : `【${audio.name} · 分段 ${chunkIndex + 1}/${chunks.length}】\n${result.transcript}`
@@ -1251,7 +1279,7 @@ async function transcribeAudioChunk(
       response.status === 413
         ? "当前音频分段仍超过模型请求限制，请联系管理员并提供诊断编号。"
         : `音频转写失败（HTTP ${response.status}），请稍后重试。`,
-      { stage: "mimo_asr", providerStatus: response.status, providerError, fileName, chunk: chunkIndex + 1, chunkCount, chunkBytes: chunk.bytes.length }
+      { stage: "mimo_asr", providerStatus: response.status, providerError, fileName, chunk: chunkIndex + 1, chunkCount, chunkBytes: chunk.bytes.length, chunkDurationMs: chunk.durationMs ?? null }
     );
   }
   let data: {
@@ -1450,9 +1478,9 @@ function configuredMimoCredentials(settings: AiSettingsRow | null): ProviderCred
   };
 }
 
-function configuredMimoAudioCredentials(settings: AiSettingsRow | null): ProviderCredentials {
+function configuredMimoAudioCredentials(_settings: AiSettingsRow | null): ProviderCredentials {
   const paygApiKey = optionalSecret("MIMO_PAYG_API_KEY");
-  if (!paygApiKey) return configuredMimoCredentials(settings);
+  if (!paygApiKey) return { apiKey: "", endpoint: "" };
   const baseUrl = optionalSecret("MIMO_PAYG_BASE_URL") || "https://api.xiaomimimo.com/v1";
   return {
     apiKey: paygApiKey,
@@ -1674,7 +1702,7 @@ function estimateCostCny(promptTokens: number, completionTokens: number): number
 
 async function logAiAssistantUsage(input: {
   userId: string;
-  status: "success" | "error";
+  status: "running" | "success" | "error";
   accessMethod: string;
   featureKey: AiFeatureKey;
   model: string;
@@ -1704,13 +1732,15 @@ async function logAiAssistantUsage(input: {
       diagnostic_id: input.diagnosticId ?? null,
       diagnostic_details: input.diagnosticDetails ?? {}
     };
-    const response = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage`, {
+    const usageUrl = new URL(`${supabaseUrl}/rest/v1/ai_assistant_usage`);
+    if (input.diagnosticId) usageUrl.searchParams.set("on_conflict", "diagnostic_id");
+    const response = await fetch(usageUrl, {
       method: "POST",
       headers: {
         apikey: serviceRoleKey,
         authorization: `Bearer ${serviceRoleKey}`,
         "content-type": "application/json",
-        prefer: "return=minimal"
+        prefer: input.diagnosticId ? "resolution=merge-duplicates,return=minimal" : "return=minimal"
       },
       body: JSON.stringify(payload)
     });

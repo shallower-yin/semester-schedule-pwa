@@ -1,0 +1,38 @@
+name: Smoke test audio transcription
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_key_1:
+        description: First temporary R2 source object key
+        required: true
+      source_key_2:
+        description: Second temporary R2 source object key
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+      PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      SOURCE_KEY_1: ${{ inputs.source_key_1 }}
+      SOURCE_KEY_2: ${{ inputs.source_key_2 }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Transcribe both real audio files together
+        run: node scripts/smoke-audio-transcription.mjs

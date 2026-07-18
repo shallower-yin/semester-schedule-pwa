@@ -21,8 +21,13 @@ describe("健康第一阶段", () => {
     fireEvent.click(screen.getByRole("button", { name: "+250 ml" }));
     await waitFor(() => expect(screen.getByText("250 ml")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "深蹲 +10 次" }));
-    await waitFor(() => expect(screen.getByText("10 次")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("本次训练次数"), { target: { value: "18" } });
+    fireEvent.click(screen.getByRole("button", { name: "深蹲 +18 次" }));
+    await waitFor(() => expect(screen.getByText("18 次")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("本次活动分钟"), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "记录 8 分钟" }));
+    await waitFor(() => expect(screen.getByText("8 分钟")).toBeInTheDocument());
 
     fireEvent.change(screen.getByLabelText("身高（cm）"), { target: { value: "170" } });
     fireEvent.change(screen.getByLabelText("本次体重（kg）"), { target: { value: "65" } });

@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, Download, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, Download, LogOut, RefreshCw, Save, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { db, queueChange } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
@@ -41,6 +41,8 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   const [healthRefreshKey, setHealthRefreshKey] = useState(0);
   const [accountAccess, setAccountAccess] = useState<AdminAiAccess | null>(null);
   const [accountTypeLoading, setAccountTypeLoading] = useState(true);
+  const [username, setUsername] = useState(() => String(user.user_metadata?.display_name ?? ""));
+  const [savingUsername, setSavingUsername] = useState(false);
   const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, message, healthRefreshKey]);
 
   useEffect(() => {
@@ -183,6 +185,25 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     onClose();
   }
 
+  async function saveUsername() {
+    const value = username.trim();
+    if (!value || value.length > 24) {
+      showToast("用户名需要填写 1 至 24 个字符。", "error");
+      return;
+    }
+    setSavingUsername(true);
+    try {
+      const { error } = await supabase!.auth.updateUser({ data: { display_name: value } });
+      if (error) throw error;
+      setUsername(value);
+      showToast("用户名已保存。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "保存用户名失败。", "error");
+    } finally {
+      setSavingUsername(false);
+    }
+  }
+
   async function runSync() {
     await onSync();
     setHealthRefreshKey((value) => value + 1);
@@ -214,12 +235,22 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   return (
     <Modal title="账号与同步" onClose={onClose}>
       <div className="account-summary">
-        <div className="account-avatar">{user.email?.slice(0, 1).toUpperCase() ?? "U"}</div>
+        <div className="account-avatar">{(username || user.email || "U").slice(0, 1).toUpperCase()}</div>
         <div>
-          <strong>{user.email}</strong>
+          <strong>{username || user.email}</strong>
+          {username && <span><UserRound size={14} />{user.email}</span>}
           <span><CheckCircle2 size={14} />{user.email_confirmed_at ? "邮箱已验证" : "等待邮箱验证"}</span>
           <span><ShieldCheck size={14} />账户类型：{accountTypeLoading ? "正在检查" : accountTypeLabel(accountAccess)}</span>
         </div>
+      </div>
+      <div className="account-username-editor">
+        <label>
+          用户名
+          <input maxLength={24} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="填写一个称呼" />
+        </label>
+        <button className="button secondary compact" disabled={savingUsername} onClick={() => void saveUsername()}>
+          <Save size={16} />{savingUsername ? "保存中" : "保存"}
+        </button>
       </div>
       <div className={`account-sync-state-card ${syncStatus.tone}`}>
         {syncStatus.state === "error" ? <AlertTriangle size={20} /> : syncStatus.state === "synced" ? <CheckCircle2 size={20} /> : <Cloud size={20} />}

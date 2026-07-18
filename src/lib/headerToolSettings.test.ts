@@ -20,13 +20,13 @@ describe("顶部按钮设置", () => {
     expect(loadHeaderToolSettings()).toEqual(["search", "aiAssistant"]);
   });
 
-  it("把旧版默认工具顺序升级为包含思维导图的新默认值", () => {
+  it("保留原有顶部工具默认顺序", () => {
     localStorage.setItem("semester-schedule-header-tools", JSON.stringify(["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"]));
     expect(loadHeaderToolSettings()).toEqual(DEFAULT_HEADER_TOOLS);
   });
 
-  it("把上一版默认工具顺序升级为包含音频转写的新默认值", () => {
-    localStorage.setItem("semester-schedule-header-tools", JSON.stringify(["account", "scheduleAssistant", "aiAssistant", "mindMap", "quickEntry", "search"]));
+  it("从旧设置中移除已收进 AI 工具箱的独立入口", () => {
+    localStorage.setItem("semester-schedule-header-tools", JSON.stringify(["account", "scheduleAssistant", "aiAssistant", "mindMap", "audioTranscription", "quickEntry", "search"]));
     expect(loadHeaderToolSettings()).toEqual(DEFAULT_HEADER_TOOLS);
   });
 });

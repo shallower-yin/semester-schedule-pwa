@@ -1,18 +1,21 @@
-export type HeaderToolId = "account" | "scheduleAssistant" | "aiAssistant" | "mindMap" | "audioTranscription" | "quickEntry" | "search";
+export type HeaderToolId = "account" | "scheduleAssistant" | "aiAssistant" | "quickEntry" | "search";
 
 const STORAGE_KEY = "semester-schedule-header-tools";
 const PREVIOUS_DEFAULT_HEADER_TOOL_SETS: HeaderToolId[][] = [
-  ["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"],
-  ["account", "scheduleAssistant", "aiAssistant", "mindMap", "quickEntry", "search"]
+  ["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"]
 ];
 
-export const DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "mindMap", "audioTranscription", "quickEntry", "search"];
+const RETIRED_AI_TOOL_IDS = new Set(["mindMap", "audioTranscription"]);
+
+export const DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"];
 
 export function loadHeaderToolSettings(): HeaderToolId[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as unknown;
     if (!Array.isArray(parsed)) return DEFAULT_HEADER_TOOLS;
-    const valid = parsed.filter((item): item is HeaderToolId => DEFAULT_HEADER_TOOLS.includes(item as HeaderToolId));
+    const valid = parsed.filter((item): item is HeaderToolId =>
+      typeof item === "string" && !RETIRED_AI_TOOL_IDS.has(item) && DEFAULT_HEADER_TOOLS.includes(item as HeaderToolId)
+    );
     if (PREVIOUS_DEFAULT_HEADER_TOOL_SETS.some((previous) =>
       valid.length === previous.length && previous.every((item, index) => valid[index] === item)
     )) {

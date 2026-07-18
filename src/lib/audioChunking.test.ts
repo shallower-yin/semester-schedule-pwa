@@ -21,6 +21,18 @@ describe("audio chunking", () => {
     expect(chunks.reduce((sum, chunk) => sum + chunk.bytes.length, 0)).toBe(bytes.length);
   });
 
+  it("keeps long MP3 chunks within six minutes", () => {
+    const frameLength = 417;
+    const frameCount = 15_000;
+    const bytes = new Uint8Array(frameLength * frameCount);
+    for (let offset = 0; offset < bytes.length; offset += frameLength) {
+      bytes.set([0xff, 0xfb, 0x90, 0x00], offset);
+    }
+    const chunks = splitAudioForAsr(bytes, "long-meeting.mp3", "audio/mpeg", 6_000_000);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => (chunk.durationMs ?? 0) <= 360_050)).toBe(true);
+  });
+
   it("creates independently valid WAV chunks", () => {
     const bytes = createWav(8_000);
     const chunks = splitAudioForAsr(bytes, "meeting.wav", "audio/wav", 2_100);
