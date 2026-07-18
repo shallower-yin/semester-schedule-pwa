@@ -3,7 +3,7 @@ import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
 import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
 
 interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range";
   mode?: "assistant" | "mind_map" | "audio_transcription" | "audio_followup";
   question?: string;
   scheduleContext?: unknown;
@@ -16,6 +16,17 @@ interface AiAssistantRequest {
   audioLanguage?: "auto" | "zh" | "en";
   summarizeAudio?: boolean;
   mindMapDepth?: MindMapDepth;
+  audioRange?: {
+    objectKey?: string;
+    fileName?: string;
+    language?: "auto" | "zh" | "en";
+    chunkIndex?: number;
+    chunkCount?: number;
+    nominalStart?: number;
+    nominalEnd?: number;
+    fetchStart?: number;
+    fetchEnd?: number;
+  };
 }
 
 interface AiAssistantAttachment {
@@ -249,6 +260,37 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+async function hmacAudioRange(userId: string, range: NonNullable<AiAssistantRequest["audioRange"]>): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(serviceRoleSecret()),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const payload = [
+    userId,
+    range.objectKey,
+    range.fileName,
+    range.language,
+    range.chunkIndex,
+    range.chunkCount,
+    range.nominalStart,
+    range.nominalEnd,
+    range.fetchStart,
+    range.fetchEnd
+  ].join("|");
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return difference === 0;
+}
+
 const supabaseUrl = requiredSecret("SUPABASE_URL");
 const publishableKeys = JSON.parse(requiredSecret("SUPABASE_PUBLISHABLE_KEYS")) as Record<string, string>;
 const publishableKey = publishableKeys.default;
@@ -272,6 +314,24 @@ Deno.serve(async (request) => {
     currentUser = user;
     const serviceRoleKey = serviceRoleSecret();
     const settings = serviceRoleKey ? await getAiSettings(serviceRoleKey) : null;
+    if (body.action === "transcribe_audio_range") {
+      const range = sanitizeInternalAudioRange(body.audioRange, user.id);
+      const expectedSignature = await hmacAudioRange(user.id, range);
+      const suppliedSignature = request.headers.get("x-audio-range-signature") ?? "";
+      if (!constantTimeEqual(suppliedSignature, expectedSignature)) return jsonResponse({ error: "Invalid audio range signature" }, 403);
+      const credentials = configuredMimoAudioCredentials(settings);
+      if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
+      const bytes = await downloadR2AudioRange(range.objectKey!, range.fetchStart!, range.fetchEnd!);
+      const chunk = extractMp3RangeForAsr(bytes, range.fetchStart!, range.nominalStart!, range.nominalEnd!);
+      return jsonResponse(await transcribeAudioChunk(
+        chunk,
+        range.language,
+        credentials,
+        range.fileName!,
+        range.chunkIndex!,
+        range.chunkCount!
+      ));
+    }
     if (body.action === "configuration") {
       const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
       return jsonResponse({
@@ -350,7 +410,7 @@ Deno.serve(async (request) => {
       });
     }
     if (mode === "audio_transcription") {
-      const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id);
+      const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id, authorization);
       await logAiAssistantUsage({
         userId: user.id,
         status: "success",
@@ -1123,7 +1183,7 @@ function sanitizeUploadedAudios(value: unknown, userId: string): UploadedAudioIn
   });
 }
 
-async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: AiSettingsRow | null, userId: string): Promise<{
+async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: AiSettingsRow | null, userId: string, authorization: string): Promise<{
   transcript: string;
   summary: string | null;
   warning: string | null;
@@ -1131,7 +1191,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
   usage: AiAssistantUsage;
 }> {
   const uploadedAudios = sanitizeUploadedAudios(body.audios, userId);
-  if (uploadedAudios.length) return await transcribeUploadedAudios(uploadedAudios, body, settings);
+  if (uploadedAudios.length) return await transcribeUploadedAudios(uploadedAudios, body, settings, userId, authorization);
 
   const audio = sanitizeTranscriptionAudio(body.audio);
   const credentials = configuredMimoAudioCredentials(settings);
@@ -1192,7 +1252,9 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
 async function transcribeUploadedAudios(
   audios: UploadedAudioInput[],
   body: AiAssistantRequest,
-  settings: AiSettingsRow | null
+  settings: AiSettingsRow | null,
+  userId: string,
+  authorization: string
 ): Promise<{
   transcript: string;
   summary: string | null;
@@ -1247,11 +1309,9 @@ async function transcribeUploadedAudios(
       );
     }
 
-    const rangeResults = await mapWithConcurrency(rangeTasks, 2, async (task) => {
-      const range = await downloadR2AudioRange(task.audio.objectKey, task.fetchStart, task.fetchEnd);
-      const chunk = extractMp3RangeForAsr(range, task.fetchStart, task.nominalStart, task.nominalEnd);
-      return await transcribeAudioChunk(chunk, body.audioLanguage, credentials, task.audio.name, task.chunkIndex, task.chunkCount);
-    });
+    const rangeResults = await mapWithConcurrency(rangeTasks, 2, (task) =>
+      transcribeRemoteAudioRange(task, body.audioLanguage, userId, authorization)
+    );
     rangeTasks.forEach((task, index) => {
       resultsByFile[task.fileIndex][task.chunkIndex] = rangeResults[index];
     });
@@ -1297,6 +1357,89 @@ async function transcribeUploadedAudios(
         console.error("Failed to delete temporary R2 audio", { objectKey: audio.objectKey, error: String(error) });
       }
     }));
+  }
+}
+
+function sanitizeInternalAudioRange(value: AiAssistantRequest["audioRange"], userId: string): NonNullable<AiAssistantRequest["audioRange"]> {
+  const objectKey = userAudioObjectKey(userId, value?.objectKey);
+  const fileName = typeof value?.fileName === "string" ? value.fileName.trim().slice(0, 180) : "";
+  const language = value?.language === "zh" || value?.language === "en" ? value.language : "auto";
+  const numbers = {
+    chunkIndex: Number(value?.chunkIndex),
+    chunkCount: Number(value?.chunkCount),
+    nominalStart: Number(value?.nominalStart),
+    nominalEnd: Number(value?.nominalEnd),
+    fetchStart: Number(value?.fetchStart),
+    fetchEnd: Number(value?.fetchEnd)
+  };
+  if (!fileName || !Object.values(numbers).every(Number.isSafeInteger)) throw new Error("Invalid audio range metadata");
+  if (
+    numbers.chunkIndex < 0 || numbers.chunkCount < 1 || numbers.chunkIndex >= numbers.chunkCount ||
+    numbers.fetchStart < 0 || numbers.nominalStart < numbers.fetchStart ||
+    numbers.nominalEnd < numbers.nominalStart || numbers.fetchEnd < numbers.nominalEnd ||
+    numbers.fetchEnd - numbers.fetchStart + 1 > MAX_ASR_AUDIO_CHUNK_BYTES + MP3_RANGE_OVERLAP_BYTES * 2
+  ) throw new Error("Invalid audio range bounds");
+  return { objectKey, fileName, language, ...numbers };
+}
+
+async function transcribeRemoteAudioRange(
+  task: {
+    audio: UploadedAudioInput;
+    chunkIndex: number;
+    chunkCount: number;
+    nominalStart: number;
+    nominalEnd: number;
+    fetchStart: number;
+    fetchEnd: number;
+  },
+  language: AiAssistantRequest["audioLanguage"],
+  userId: string,
+  authorization: string
+): Promise<{ transcript: string; usage: AiAssistantUsage }> {
+  const audioRange: NonNullable<AiAssistantRequest["audioRange"]> = {
+    objectKey: task.audio.objectKey,
+    fileName: task.audio.name,
+    language: language === "zh" || language === "en" ? language : "auto",
+    chunkIndex: task.chunkIndex,
+    chunkCount: task.chunkCount,
+    nominalStart: task.nominalStart,
+    nominalEnd: task.nominalEnd,
+    fetchStart: task.fetchStart,
+    fetchEnd: task.fetchEnd
+  };
+  const signature = await hmacAudioRange(userId, audioRange);
+  const response = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
+    method: "POST",
+    headers: {
+      authorization,
+      apikey: publishableKey,
+      "content-type": "application/json",
+      "x-audio-range-signature": signature
+    },
+    body: JSON.stringify({ action: "transcribe_audio_range", audioRange })
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new DiagnosticError(`音频“${task.audio.name}”第 ${task.chunkIndex + 1}/${task.chunkCount} 段转写失败，请稍后重试。`, {
+      stage: "audio_range_worker",
+      workerStatus: response.status,
+      workerError: safeProviderError(text),
+      fileName: task.audio.name,
+      chunk: task.chunkIndex + 1,
+      chunkCount: task.chunkCount
+    });
+  }
+  try {
+    const payload = JSON.parse(text) as { transcript?: string; usage?: AiAssistantUsage };
+    if (!payload.transcript) throw new Error("Missing transcript");
+    return { transcript: payload.transcript, usage: normalizeUsage(payload.usage) };
+  } catch {
+    throw new DiagnosticError("音频分段服务返回了无法解析的结果，请稍后重试。", {
+      stage: "audio_range_worker_parse",
+      fileName: task.audio.name,
+      chunk: task.chunkIndex + 1,
+      responsePreview: text.slice(0, 300)
+    });
   }
 }
 
