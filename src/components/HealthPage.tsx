@@ -44,6 +44,7 @@ export function HealthPage({ ownerId }: HealthPageProps) {
   const water = sum(todayLogs, "water");
   const movementMinutes = sum(todayLogs, "movement");
   const exerciseReps = sum(todayLogs, "exercise");
+  const latestActivityLog = todayLogs.find((item) => item.kind === "movement" || item.kind === "exercise") ?? null;
   const latestWeight = logs.find((item) => item.kind === "weight")?.amount ?? null;
   const effectiveHeight = numericOr(height, profile.height_cm);
   const effectiveWeight = numericOr(weight, latestWeight);
@@ -62,12 +63,17 @@ export function HealthPage({ ownerId }: HealthPageProps) {
     showToast(`${logLabel(record)}，已记录。`, "success");
   }
 
-  async function removeLatest(kind: HealthLogKind) {
-    const record = logs.find((item) => item.kind === kind && localDate(new Date(item.logged_at)) === today);
+  async function removeLog(record: HealthLog | null) {
     if (!record) return;
     const deleted = { ...record, ...syncFields(record), deleted_at: new Date().toISOString() };
     await db.healthLogs.put(deleted);
     await queueChange("healthLogs", deleted.id, "delete");
+    showToast(`已撤销：${logLabel(record)}。`, "success");
+  }
+
+  async function removeLatest(kind: HealthLogKind) {
+    const record = todayLogs.find((item) => item.kind === kind) ?? null;
+    await removeLog(record);
   }
 
   async function saveProfile() {
@@ -132,7 +138,18 @@ export function HealthPage({ ownerId }: HealthPageProps) {
       </section>
 
       <section className="health-action-band">
-        <div className="health-band-title"><div><Activity /><h2>活动与训练</h2></div></div>
+        <div className="health-band-title">
+          <div><Activity /><h2>活动与训练</h2></div>
+          <button
+            className="icon-button"
+            aria-label="撤销最近一次活动或训练"
+            title="撤销最近一次活动或训练"
+            disabled={!latestActivityLog}
+            onClick={() => void removeLog(latestActivityLog)}
+          >
+            <Undo2 size={16} />
+          </button>
+        </div>
         <div className="health-entry-controls" aria-label="自定义活动与训练数量">
           <label>活动分钟<input aria-label="本次活动分钟" type="number" inputMode="numeric" min={1} max={600} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} /></label>
           <button className="button secondary compact health-movement-button" onClick={() => void addLog("movement", movementEntry, "minute", "站立活动")}><Activity size={16} />记录 {movementEntry} 分钟</button>

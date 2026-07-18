@@ -4012,7 +4012,8 @@ textarea {
 
 .health-secondary-summary article {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
   align-content: center;
   gap: 5px 9px;
   min-width: 0;
@@ -4020,7 +4021,7 @@ textarea {
 }
 
 .health-secondary-summary article > svg {
-  grid-row: 1 / 4;
+  grid-row: 1 / 3;
   padding: 7px;
   border-radius: 8px;
   box-sizing: content-box;
@@ -4045,6 +4046,20 @@ textarea {
 .health-secondary-summary small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.health-secondary-summary span,
+.health-secondary-summary strong {
+  align-self: center;
+  white-space: nowrap;
+}
+
+.health-secondary-summary strong {
+  text-align: right;
+}
+
+.health-secondary-summary small {
+  grid-column: 2 / 4;
 }
 
 .health-secondary-summary strong {
@@ -8116,19 +8131,25 @@ textarea {
   }
 
   .health-secondary-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .health-secondary-summary article {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    gap: 4px;
-    padding: 10px 6px;
-    text-align: center;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    justify-items: stretch;
+    gap: 3px 7px;
+    min-height: 68px;
+    padding: 9px 10px;
+    text-align: left;
   }
 
   .health-secondary-summary article > svg {
-    grid-row: auto;
+    grid-row: 1 / 3;
+    padding: 5px;
+  }
+
+  .health-secondary-summary article:last-child {
+    grid-column: 1 / -1;
   }
 
   .health-secondary-summary strong {
@@ -8137,6 +8158,7 @@ textarea {
   }
 
   .health-secondary-summary small {
+    grid-column: 2 / 4;
     overflow: hidden;
     max-width: 100%;
     text-overflow: ellipsis;

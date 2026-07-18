@@ -1029,13 +1029,10 @@ export default function App() {
           <section className="content-page">
             <div className="page-heading"><div><h1>设置</h1><p>管理备份、界面和可选学生功能；账号同步请使用顶部按钮。</p></div></div>
             <div className="settings-sections">
-              {renderSettingsSection("常用", "版本、皮肤、备份和安装入口。", (
+              {renderSettingsSection("常用", "版本、皮肤、安装和反馈入口。", (
                 <>
                   <button className="setting-card" onClick={() => needRefresh ? void applyAppUpdate() : window.location.reload()} disabled={updatingApp}>
                     <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
-                  </button>
-                  <button className="setting-card" onClick={() => setShowBackup(true)}>
-                    <Database /><span><strong>数据备份</strong><small>{lastBackupText}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
                     <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
@@ -1066,6 +1063,9 @@ export default function App() {
               ))}
               {renderSettingsSection("高级", "界面入口和维护功能集中放置。", (
                 <>
+                  <button className="setting-card" onClick={() => setShowBackup(true)}>
+                    <Database /><span><strong>数据备份</strong><small>{lastBackupText} · 用于误删恢复或迁移设备</small></span><ChevronRight />
+                  </button>
                   <button className="setting-card" onClick={() => setShowDataHealth(true)}>
                     <Database /><span><strong>数据健康检查</strong><small>检查同步、重复分类和异常事项</small></span><ChevronRight />
                   </button>

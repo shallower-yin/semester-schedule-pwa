@@ -37,4 +37,26 @@ describe("健康第一阶段", () => {
     await waitFor(async () => expect(await db.healthProfiles.count()).toBe(1));
     await waitFor(async () => expect((await db.healthLogs.toArray()).filter((item) => item.kind === "weight")).toHaveLength(1));
   });
+
+  it("可以依次撤销当天最近的活动与训练记录", async () => {
+    render(<HealthPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "深蹲 +10 次" }));
+    await waitFor(() => expect(screen.getByText("10 次")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "记录 5 分钟" }));
+    await waitFor(() => expect(screen.getByText("5 分钟")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "撤销最近一次活动或训练" }));
+    await waitFor(async () => {
+      const active = (await db.healthLogs.toArray()).filter((item) => !item.deleted_at);
+      expect(active.map((item) => item.kind)).toEqual(["exercise"]);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "撤销最近一次活动或训练" }));
+    await waitFor(async () => {
+      const active = (await db.healthLogs.toArray()).filter((item) => !item.deleted_at);
+      expect(active).toHaveLength(0);
+    });
+  });
 });
