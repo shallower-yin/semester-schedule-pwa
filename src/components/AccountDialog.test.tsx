@@ -86,7 +86,6 @@ describe("账号与同步布局", () => {
         syncing={false}
         message="同步完成"
         onSync={vi.fn()}
-        onPullRemote={vi.fn()}
         onClose={vi.fn()}
       />
     );
@@ -97,6 +96,9 @@ describe("账号与同步布局", () => {
     expect(screen.getByText(/上次同步/)).not.toHaveTextContent("3301469532@qq.com");
     expect(container.querySelector(".sync-detail-card")).not.toBeInTheDocument();
     expect(container.querySelector(".sync-health-card")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新拉取云端" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "立即同步" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
 
     const notificationRow = screen.getByText("浏览器能力").closest("article");
     expect(notificationRow).toHaveTextContent("支持系统通知和应用后台服务。");
@@ -111,7 +113,6 @@ describe("账号与同步布局", () => {
         syncing={false}
         message=""
         onSync={vi.fn()}
-        onPullRemote={vi.fn()}
         onClose={vi.fn()}
       />
     );

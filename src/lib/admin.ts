@@ -195,18 +195,16 @@ export async function getAdminSummary(): Promise<AdminSummary> {
   ]);
   if (error) throw new Error(formatAdminError(error.message));
   if (settingsResult.error) throw new Error(formatAdminError(settingsResult.error.message));
-  if (profilesResult.error) throw new Error(formatAdminError(profilesResult.error.message));
-  if (callLogsResult.error) throw new Error(formatAdminError(callLogsResult.error.message));
   const rows = (Array.isArray(data) ? data as AdminListUserRow[] : [])
     .filter((row) => !isSmokeTestAccount(row.email));
   const profiles = new Map(
-    (Array.isArray(profilesResult.data) ? profilesResult.data as AdminAccountProfileRow[] : [])
+    (!profilesResult.error && Array.isArray(profilesResult.data) ? profilesResult.data as AdminAccountProfileRow[] : [])
       .map((row) => [row.user_id, row] as const)
   );
   return {
     passwordVisible: false,
     aiSettings: normalizeAiSettings(settingsResult.data),
-    aiCallLogs: normalizeAiCallLogs(callLogsResult.data),
+    aiCallLogs: normalizeAiCallLogs(callLogsResult.error ? [] : callLogsResult.data),
     users: rows.map((row) => ({
       id: row.id,
       username: profiles.get(row.id)?.username?.trim() ?? "",

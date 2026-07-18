@@ -117,7 +117,7 @@ import {
   type BeforeInstallPromptEvent
 } from "./lib/pwaInstall";
 import { supabase, supabaseConfigured } from "./lib/supabase";
-import { adoptAnonymousData, getLastSync, getSyncHealth, pullRemoteNow, syncNow, type SyncResult } from "./lib/sync";
+import { adoptAnonymousData, getLastSync, getSyncHealth, syncNow, type SyncResult } from "./lib/sync";
 import { buildSyncStatus } from "./lib/syncStatus";
 import type { Anniversary, Course, EventItem, EventType, Memo, PageId, Semester } from "./types";
 
@@ -547,28 +547,6 @@ export default function App() {
     }
   }
 
-  async function handlePullRemote(): Promise<SyncResult | void> {
-    if (!user) {
-      setAuthDialogMode("login");
-      return;
-    }
-    setSyncing(true);
-    setSyncMessage("");
-    try {
-      const result = await pullRemoteNow(user.id);
-      setLastSync(result.completed_at);
-      setSyncMessage(`已重新拉取云端：下载 ${result.downloaded} 条。`);
-      showToast(`已重新拉取云端：下载 ${result.downloaded} 条。`, "success");
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "拉取云端失败";
-      setSyncMessage(message);
-      showToast(message, "error");
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   async function requestInstall() {
     if (!installPrompt || installing) return;
     setInstalling(true);
@@ -588,10 +566,34 @@ export default function App() {
     }
   }
 
-  async function applyAppUpdate() {
+  async function applyAppUpdate(mode: "immediate" | "background" = "immediate") {
     if (updatingApp) return;
+    const release = availableRelease;
+    if (!release) return;
     setUpdatingApp(true);
-    if (availableRelease?.appUrl && !isCurrentAppUrl(availableRelease.appUrl)) {
+    if (mode === "background") {
+      setAvailableRelease(null);
+      setUpdateMessage("正在后台下载新版本…");
+      showToast("已开始后台下载新版本，你可以继续使用应用。", "info");
+      try {
+        const fileCount = await installOfflineAppUpdate(release, ({ completed, total }) => {
+          setUpdateMessage(`后台下载更新文件 ${completed}/${total}…`);
+        });
+        skipReleaseVersion(release.version);
+        setNeedRefresh(true);
+        setUpdateMessage(`后台更新已准备完成，共 ${fileCount} 个文件。`);
+        showToast("新版本已在后台准备完成，下次打开应用时生效。", "success", 6000);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "后台更新失败，请稍后重试。";
+        setAvailableRelease(release);
+        setUpdateMessage(message);
+        showToast(`后台更新失败：${message}`, "error", 6000);
+      } finally {
+        setUpdatingApp(false);
+      }
+      return;
+    }
+    if (release.appUrl && !isCurrentAppUrl(release.appUrl)) {
       if (!user && pendingChanges > 0) {
         setUpdatingApp(false);
         const message = "切换到免代理更新线路前，请先登录同步或导出 JSON 备份，避免本机数据留在旧网址。";
@@ -608,15 +610,15 @@ export default function App() {
         }
       }
       setUpdateMessage("正在切换到免代理更新线路…");
-      window.location.assign(availableRelease.appUrl);
+      window.location.assign(release.appUrl);
       return;
     }
 
     let mirrorError = "";
-    if (availableRelease) {
+    if (release) {
       try {
         setUpdateMessage("正在从免代理线路下载更新文件…");
-        const fileCount = await installOfflineAppUpdate(availableRelease, ({ completed, total }) => {
+        const fileCount = await installOfflineAppUpdate(release, ({ completed, total }) => {
           setUpdateMessage(`正在下载更新文件 ${completed}/${total}…`);
         });
         setUpdateMessage(`已安装 ${fileCount} 个更新文件，正在重新打开…`);
@@ -1304,7 +1306,6 @@ export default function App() {
           syncing={syncing}
           message={syncMessage}
           onSync={handleSync}
-          onPullRemote={handlePullRemote}
           onClose={() => setShowAccount(false)}
         />
       )}
@@ -1333,6 +1334,7 @@ export default function App() {
           updating={updatingApp}
           updateMessage={updateMessage}
           onSkip={skipAvailableRelease}
+          onBackgroundUpdate={() => void applyAppUpdate("background")}
           onUpdate={() => void applyAppUpdate()}
         />
       )}

@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, BellRing, Camera, CheckCircle2, Cloud, CloudDownload, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
+import { AlertTriangle, BellRing, Camera, CheckCircle2, Cloud, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
@@ -29,11 +29,10 @@ interface AccountDialogProps {
   syncing: boolean;
   message: string;
   onSync: () => Promise<SyncResult | void>;
-  onPullRemote: () => Promise<SyncResult | void>;
   onClose: () => void;
 }
 
-export function AccountDialog({ user, pendingChanges, lastSync, syncing, message, onSync, onPullRemote, onClose }: AccountDialogProps) {
+export function AccountDialog({ user, pendingChanges, lastSync, syncing, message, onSync, onClose }: AccountDialogProps) {
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus | null>(null);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [diagnosticSteps, setDiagnosticSteps] = useState<NotificationDiagnosticStep[]>([]);
@@ -245,11 +244,6 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     setHealthRefreshKey((value) => value + 1);
   }
 
-  async function pullRemote() {
-    await onPullRemote();
-    setHealthRefreshKey((value) => value + 1);
-  }
-
   async function exportBackup() {
     downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
     showToast("备份文件已导出。", "success");
@@ -329,7 +323,6 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       {(hasSyncProblem || syncStatus.needsRecoveryActions) && (
         <div className="sync-recovery-actions" aria-label="同步失败处理">
           <button className="button secondary compact" disabled={syncing} onClick={() => void runSync()}><RefreshCw size={16} />重试同步</button>
-          <button className="button secondary compact" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={16} />重新拉取云端</button>
           <button className="button secondary compact" onClick={() => void exportBackup()}><Download size={16} />导出备份</button>
         </div>
       )}
@@ -368,7 +361,6 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       </div>
       <div className="account-sync-actions">
         <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : syncStatus.primaryAction === "retry" ? "重试同步" : "立即同步"}</button>
-        <button className="button secondary" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={17} />重新拉取云端</button>
         <button className="button secondary" onClick={logout}><LogOut size={17} />退出登录</button>
       </div>
     </Modal>

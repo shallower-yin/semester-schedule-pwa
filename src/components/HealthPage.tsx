@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { Activity, Bell, ChevronDown, ChevronUp, Dumbbell, GlassWater, HeartPulse, Save, Scale, Undo2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Activity, Bell, ChevronDown, ChevronUp, Clock3, Dumbbell, Footprints, GlassWater, HeartPulse, History, Plus, RotateCcw, Save, Scale, Undo2 } from "lucide-react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { db, queueChange } from "../db";
 import { DEFAULT_HEALTH_PROFILE } from "../lib/health";
 import { syncFields } from "../lib/identity";
@@ -13,9 +13,9 @@ interface HealthPageProps {
 }
 
 const EXERCISES = [
-  { id: "push_up", label: "俯卧撑" },
-  { id: "sit_up", label: "仰卧起坐" },
-  { id: "squat", label: "深蹲" }
+  { id: "push_up", label: "俯卧撑", tone: "coral", icon: Dumbbell },
+  { id: "sit_up", label: "仰卧起坐", tone: "blue", icon: RotateCcw },
+  { id: "squat", label: "深蹲", tone: "green", icon: Footprints }
 ] as const;
 
 export function HealthPage({ ownerId }: HealthPageProps) {
@@ -37,7 +37,7 @@ export function HealthPage({ ownerId }: HealthPageProps) {
   const [reminderEnd, setReminderEnd] = useState("");
   const [movementAmount, setMovementAmount] = useState("5");
   const [exerciseAmount, setExerciseAmount] = useState("10");
-  const [showRecent, setShowRecent] = useState(false);
+  const [showRecent, setShowRecent] = useState(true);
 
   const today = localDate(new Date());
   const todayLogs = logs.filter((item) => localDate(new Date(item.logged_at)) === today);
@@ -50,6 +50,7 @@ export function HealthPage({ ownerId }: HealthPageProps) {
   const bmi = effectiveHeight && effectiveWeight ? effectiveWeight / ((effectiveHeight / 100) ** 2) : null;
   const effectiveGoal = Math.max(250, numericOr(waterGoal, profile.daily_water_goal_ml) ?? 2000);
   const waterPercent = Math.min(100, Math.round((water / effectiveGoal) * 100));
+  const remainingWater = Math.max(0, effectiveGoal - water);
   const weightHistory = useMemo(() => logs.filter((item) => item.kind === "weight").slice(0, 7), [logs]);
   const movementEntry = clamp(Math.round(numericOr(movementAmount, 5) ?? 5), 1, 600);
   const exerciseEntry = clamp(Math.round(numericOr(exerciseAmount, 10) ?? 10), 1, 10000);
@@ -58,6 +59,7 @@ export function HealthPage({ ownerId }: HealthPageProps) {
     const record: HealthLog = { ...syncFields(), kind, logged_at: new Date().toISOString(), amount, unit, activity, note: "" };
     await db.healthLogs.add(record);
     await queueChange("healthLogs", record.id);
+    showToast(`${logLabel(record)}，已记录。`, "success");
   }
 
   async function removeLatest(kind: HealthLogKind) {
@@ -101,45 +103,65 @@ export function HealthPage({ ownerId }: HealthPageProps) {
         <HeartPulse size={28} />
       </header>
 
-      <section className="health-summary-grid">
-        <article><GlassWater /><span>今日饮水</span><strong>{water} ml</strong><small>{waterPercent}% / {effectiveGoal} ml</small></article>
-        <article><Activity /><span>起身活动</span><strong>{movementMinutes} 分钟</strong><small>建议每小时活动一次</small></article>
-        <article><Dumbbell /><span>今日训练</span><strong>{exerciseReps} 次</strong><small>按实际完成次数记录</small></article>
-        <article><Scale /><span>BMI</span><strong>{bmi ? bmi.toFixed(1) : "--"}</strong><small>{bmiLabel(bmi)}</small></article>
+      <section className="health-summary-grid" aria-label="今日健康概览">
+        <article className="health-water-summary">
+          <div className="health-water-ring" style={{ "--health-water-progress": `${waterPercent}%` } as CSSProperties} aria-label={`今日饮水 ${water} 毫升，完成 ${waterPercent}%`}>
+            <span><strong>{water} ml</strong><small>{waterPercent}%</small></span>
+          </div>
+          <div className="health-water-summary-copy">
+            <span><GlassWater size={18} />今日饮水</span>
+            <strong>{remainingWater > 0 ? `还差 ${remainingWater} ml` : "今日目标已达成"}</strong>
+            <small>目标 {effectiveGoal} ml</small>
+          </div>
+        </article>
+        <div className="health-secondary-summary">
+          <article className="movement"><Activity /><span>起身活动</span><strong>{movementMinutes} 分钟</strong><small>今日累计</small></article>
+          <article className="exercise"><Dumbbell /><span>今日训练</span><strong>{exerciseReps} 次</strong><small>今日累计</small></article>
+          <article className={`bmi ${bmiTone(bmi)}`}><Scale /><span>BMI</span><strong>{bmi ? bmi.toFixed(1) : "--"}</strong><small>{bmiLabel(bmi)}</small></article>
+        </div>
       </section>
 
       <section className="health-action-band">
         <div className="health-band-title"><div><GlassWater /><h2>饮水</h2></div><button className="icon-button" aria-label="撤销最近一次饮水" title="撤销最近一次饮水" disabled={!todayLogs.some((item) => item.kind === "water")} onClick={() => void removeLatest("water")}><Undo2 size={16} /></button></div>
-        <div className="health-quick-actions">
-          <button className="button secondary" onClick={() => void addLog("water", 250, "ml")}>+250 ml</button>
-          <button className="button secondary" onClick={() => void addLog("water", 500, "ml")}>+500 ml</button>
-        </div>
+        <div className="health-progress-copy"><span>今日 {water} / {effectiveGoal} ml</span><strong>{waterPercent}%</strong></div>
         <div className="health-progress" aria-label={`饮水目标完成 ${waterPercent}%`}><span style={{ width: `${waterPercent}%` }} /></div>
+        <div className="health-quick-actions">
+          <button className="button secondary" aria-label="+250 ml" onClick={() => void addLog("water", 250, "ml")}><Plus size={17} />250 ml</button>
+          <button className="button secondary" aria-label="+500 ml" onClick={() => void addLog("water", 500, "ml")}><Plus size={17} />500 ml</button>
+        </div>
       </section>
 
       <section className="health-action-band">
         <div className="health-band-title"><div><Activity /><h2>活动与训练</h2></div></div>
-        <div className="health-entry-controls">
+        <div className="health-entry-controls" aria-label="自定义活动与训练数量">
           <label>活动分钟<input aria-label="本次活动分钟" type="number" inputMode="numeric" min={1} max={600} value={movementAmount} onChange={(event) => setMovementAmount(event.target.value)} /></label>
-          <button className="button secondary compact" onClick={() => void addLog("movement", movementEntry, "minute", "站立活动")}>记录 {movementEntry} 分钟</button>
+          <button className="button secondary compact health-movement-button" onClick={() => void addLog("movement", movementEntry, "minute", "站立活动")}><Activity size={16} />记录 {movementEntry} 分钟</button>
           <label>训练次数<input aria-label="本次训练次数" type="number" inputMode="numeric" min={1} max={10000} value={exerciseAmount} onChange={(event) => setExerciseAmount(event.target.value)} /></label>
         </div>
         <div className="health-exercise-grid">
-          {EXERCISES.map((exercise) => (
-            <button key={exercise.id} className="health-exercise-button" onClick={() => void addLog("exercise", exerciseEntry, "rep", exercise.label)}>
-              <strong>{exercise.label}</strong><span>+{exerciseEntry} 次</span>
-            </button>
-          ))}
+          {EXERCISES.map((exercise) => {
+            const ExerciseIcon = exercise.icon;
+            return (
+              <button key={exercise.id} className={`health-exercise-button ${exercise.tone}`} onClick={() => void addLog("exercise", exerciseEntry, "rep", exercise.label)}>
+                <ExerciseIcon size={20} /><strong>{exercise.label}</strong><span>+{exerciseEntry} 次</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
       <section className="health-settings-grid">
         <article className="health-settings-panel">
           <div className="health-band-title"><div><Scale /><h2>身体数据</h2></div></div>
-          <div className="compact-form-grid">
-            <label>身高（cm）<input inputMode="decimal" value={height} placeholder={profile.height_cm ? String(profile.height_cm) : "例如 175"} onChange={(event) => setHeight(event.target.value)} /></label>
-            <label>本次体重（kg）<input inputMode="decimal" value={weight} placeholder={latestWeight ? String(latestWeight) : "例如 65"} onChange={(event) => setWeight(event.target.value)} /></label>
-            <label>饮水目标（ml）<input inputMode="numeric" value={waterGoal} placeholder={String(profile.daily_water_goal_ml)} onChange={(event) => setWaterGoal(event.target.value)} /></label>
+          <div className="health-body-layout">
+            <div className="compact-form-grid">
+              <label>身高（cm）<input aria-label="身高（cm）" inputMode="decimal" value={height} placeholder={profile.height_cm ? String(profile.height_cm) : "例如 175"} onChange={(event) => setHeight(event.target.value)} /></label>
+              <label>本次体重（kg）<input aria-label="本次体重（kg）" inputMode="decimal" value={weight} placeholder={latestWeight ? String(latestWeight) : "例如 65"} onChange={(event) => setWeight(event.target.value)} /></label>
+              <label>饮水目标（ml）<input aria-label="饮水目标（ml）" inputMode="numeric" value={waterGoal} placeholder={String(profile.daily_water_goal_ml)} onChange={(event) => setWaterGoal(event.target.value)} /></label>
+            </div>
+            <div className={`health-bmi-result ${bmiTone(bmi)}`} aria-live="polite">
+              <span>BMI</span><strong>{bmi ? bmi.toFixed(1) : "--"}</strong><small>{bmiLabel(bmi)}</small>
+            </div>
           </div>
           {weightHistory.length > 0 && <p className="health-history-line">最近体重：{weightHistory.map((item) => `${item.amount}kg`).join(" · ")}</p>}
         </article>
@@ -159,8 +181,14 @@ export function HealthPage({ ownerId }: HealthPageProps) {
         <button className="button primary" onClick={() => void saveProfile()}><Save size={16} />保存设置</button>
       </div>
       {showRecent && <section className="health-recent-list">
-        {logs.slice(0, 20).map((item) => <article key={item.id}><span>{logLabel(item)}</span><small>{new Date(item.logged_at).toLocaleString("zh-CN", { hour12: false })}</small></article>)}
-        {!logs.length && <p>还没有健康记录。</p>}
+        <header><div><History size={18} /><h2>最近记录</h2></div><span>今日共 {todayLogs.length} 条</span></header>
+        <div className="health-timeline">
+          {logs.slice(0, 20).map((item) => <article key={item.id} className={item.kind}>
+            <span className="health-timeline-icon">{logIcon(item)}</span>
+            <div><strong>{logLabel(item)}</strong><small><Clock3 size={12} />{formatLogDate(item.logged_at)}</small></div>
+          </article>)}
+          {!logs.length && <p className="health-empty-state">今天从一杯水或一次活动开始记录吧。</p>}
+        </div>
       </section>}
     </section>
   );
@@ -199,9 +227,30 @@ function bmiLabel(value: number | null): string {
   return "较高";
 }
 
+function bmiTone(value: number | null): "empty" | "low" | "normal" | "high" {
+  if (!value) return "empty";
+  if (value < 18.5) return "low";
+  if (value < 24) return "normal";
+  return "high";
+}
+
 function logLabel(item: HealthLog): string {
   if (item.kind === "water") return `饮水 ${item.amount} ml`;
   if (item.kind === "movement") return `${item.activity || "活动"} ${item.amount} 分钟`;
   if (item.kind === "exercise") return `${item.activity || "训练"} ${item.amount} 次`;
   return `体重 ${item.amount} kg`;
+}
+
+function logIcon(item: HealthLog) {
+  if (item.kind === "water") return <GlassWater size={16} />;
+  if (item.kind === "movement") return <Activity size={16} />;
+  if (item.kind === "exercise") return <Dumbbell size={16} />;
+  return <Scale size={16} />;
+}
+
+function formatLogDate(value: string): string {
+  const date = new Date(value);
+  const today = localDate(new Date());
+  const prefix = localDate(date) === today ? "今天" : `${date.getMonth() + 1}月${date.getDate()}日`;
+  return `${prefix} ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
 }

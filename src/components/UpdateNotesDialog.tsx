@@ -1,4 +1,4 @@
-import { RefreshCw, Rocket } from "lucide-react";
+import { Download, RefreshCw, Rocket } from "lucide-react";
 import type { AppRelease } from "../lib/appRelease";
 
 interface UpdateNotesDialogProps {
@@ -7,6 +7,7 @@ interface UpdateNotesDialogProps {
   updating: boolean;
   updateMessage: string;
   onSkip: () => void;
+  onBackgroundUpdate: () => void;
   onUpdate: () => void;
 }
 
@@ -16,6 +17,7 @@ export function UpdateNotesDialog({
   updating,
   updateMessage,
   onSkip,
+  onBackgroundUpdate,
   onUpdate
 }: UpdateNotesDialogProps) {
   return (
@@ -32,6 +34,7 @@ export function UpdateNotesDialog({
         </div>
         <footer>
           <button type="button" className="button secondary" disabled={updating} onClick={onSkip}>跳过此版本</button>
+          <button type="button" className="button secondary" disabled={updating} onClick={onBackgroundUpdate}><Download size={16} />后台更新</button>
           <button type="button" className="button primary" disabled={updating} onClick={onUpdate}><RefreshCw size={16} />{updating ? "更新中…" : "立即更新"}</button>
         </footer>
       </section>

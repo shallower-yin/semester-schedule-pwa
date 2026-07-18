@@ -31,7 +31,7 @@ describe("健康第一阶段", () => {
 
     fireEvent.change(screen.getByLabelText("身高（cm）"), { target: { value: "170" } });
     fireEvent.change(screen.getByLabelText("本次体重（kg）"), { target: { value: "65" } });
-    expect(screen.getByText("22.5")).toBeInTheDocument();
+    expect(screen.getAllByText("22.5")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
     await waitFor(async () => expect(await db.healthProfiles.count()).toBe(1));
