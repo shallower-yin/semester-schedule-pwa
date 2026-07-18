@@ -51,9 +51,11 @@ export async function askAiMindMap(input: {
   accessCode?: string;
   attachments?: AiAssistantAttachment[];
   depth?: MindMapDepth;
+  signal?: AbortSignal;
 }): Promise<AiMindMapResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法生成思维导图。");
   const { data, error } = await supabase.functions.invoke<AiMindMapResult>("ai-assistant", {
+    signal: input.signal,
     body: {
       mode: "mind_map",
       question: input.prompt.trim(),

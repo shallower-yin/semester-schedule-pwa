@@ -35,6 +35,9 @@ interface AiAssistantAttachment {
   kind?: "image" | "document";
   dataUrl?: string;
   text?: string;
+  pageImages?: string[];
+  pageCount?: number;
+  processedPageCount?: number;
 }
 
 interface SupabaseUser {
@@ -329,7 +332,8 @@ Deno.serve(async (request) => {
         credentials,
         range.fileName!,
         range.chunkIndex!,
-        range.chunkCount!
+        range.chunkCount!,
+        request.signal
       ));
     }
     if (body.action === "configuration") {
@@ -410,7 +414,7 @@ Deno.serve(async (request) => {
       });
     }
     if (mode === "audio_transcription") {
-      const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id, authorization);
+      const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id, authorization, request.signal);
       await logAiAssistantUsage({
         userId: user.id,
         status: "success",
@@ -437,7 +441,8 @@ Deno.serve(async (request) => {
         question ?? "",
         body.audioTranscript ?? "",
         sanitizeHistory(body.history),
-        settings
+        settings,
+        request.signal
       );
       await logAiAssistantUsage({
         userId: user.id,
@@ -461,7 +466,7 @@ Deno.serve(async (request) => {
     const history = sanitizeHistory(body.history);
     const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
     const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)));
-    const assistantResponse = await askConfiguredProvider(question ?? "", body.scheduleContext, history, quotaStatus, settings, attachments, mode, normalizeMindMapDepth(body.mindMapDepth));
+    const assistantResponse = await askConfiguredProvider(question ?? "", body.scheduleContext, history, quotaStatus, settings, attachments, mode, normalizeMindMapDepth(body.mindMapDepth), request.signal);
     await logAiAssistantUsage({
       userId: user.id,
       status: "success",
@@ -811,7 +816,8 @@ async function askConfiguredProvider(
   settings: AiSettingsRow | null,
   attachments: AiAssistantAttachment[],
   mode: "assistant" | "mind_map",
-  mindMapDepth: MindMapDepth
+  mindMapDepth: MindMapDepth,
+  signal?: AbortSignal
 ): Promise<AiAssistantResponse> {
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const { apiKey, endpoint } = configuredProviderCredentials(provider, settings);
@@ -840,9 +846,14 @@ async function askConfiguredProvider(
   const userText = mode === "mind_map"
     ? `${contextText && contextText !== "{}" ? `可参考的当前用户信息：\n${contextText}\n\n` : ""}${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}需要生成思维导图的主题或内容：${question}`
     : `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户问题：${question}`;
-  const userContent: string | Array<Record<string, unknown>> = attachments.some((attachment) => attachment.kind === "image")
+  const visualAttachments = attachments.flatMap((attachment) => {
+    if (attachment.kind === "image" && attachment.dataUrl) return [attachment.dataUrl];
+    if (attachment.kind === "document" && attachment.pageImages?.length) return attachment.pageImages;
+    return [];
+  });
+  const userContent: string | Array<Record<string, unknown>> = visualAttachments.length
     ? [
-      ...attachments.flatMap((attachment) => attachment.kind === "image" && attachment.dataUrl ? [{ type: "image_url", image_url: { url: attachment.dataUrl } }] : []),
+      ...visualAttachments.map((dataUrl) => ({ type: "image_url", image_url: { url: dataUrl } })),
       { type: "text", text: userText }
     ]
     : userText;
@@ -855,6 +866,7 @@ async function askConfiguredProvider(
       authorization: `Bearer ${apiKey}`,
       ...(provider === "mimo" ? { "api-key": apiKey } : {})
     },
+    signal,
     body: JSON.stringify({
       model,
       messages: [
@@ -1069,6 +1081,12 @@ function configuredMimoChannel(settings: AiSettingsRow | null): "payg" | "token_
   return settings?.mimo_channel === "token_plan" ? "token_plan" : "payg";
 }
 
+function configuredModelDisplayName(settings: AiSettingsRow | null): string {
+  const model = configuredModel(settings);
+  if (settings?.provider !== "mimo") return model;
+  return `${model}（${configuredMimoChannel(settings) === "token_plan" ? "Token Plan" : "按量 API"}）`;
+}
+
 let cachedR2Client: S3Client | null = null;
 
 function r2Configuration(): { client: S3Client; bucket: string } {
@@ -1183,7 +1201,7 @@ function sanitizeUploadedAudios(value: unknown, userId: string): UploadedAudioIn
   });
 }
 
-async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: AiSettingsRow | null, userId: string, authorization: string): Promise<{
+async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: AiSettingsRow | null, userId: string, authorization: string, signal?: AbortSignal): Promise<{
   transcript: string;
   summary: string | null;
   warning: string | null;
@@ -1191,7 +1209,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
   usage: AiAssistantUsage;
 }> {
   const uploadedAudios = sanitizeUploadedAudios(body.audios, userId);
-  if (uploadedAudios.length) return await transcribeUploadedAudios(uploadedAudios, body, settings, userId, authorization);
+  if (uploadedAudios.length) return await transcribeUploadedAudios(uploadedAudios, body, settings, userId, authorization, signal);
 
   const audio = sanitizeTranscriptionAudio(body.audio);
   const credentials = configuredMimoAudioCredentials(settings);
@@ -1203,6 +1221,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
       authorization: `Bearer ${credentials.apiKey}`,
       "api-key": credentials.apiKey
     },
+    signal,
     body: JSON.stringify({
       model: "mimo-v2.5-asr",
       messages: [{
@@ -1229,7 +1248,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
     return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr", usage: transcriptionUsage };
   }
   try {
-    const summaryResponse = await summarizeAudioTranscript(transcript, settings);
+    const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
     return {
       transcript,
       summary: summaryResponse.summary,
@@ -1238,6 +1257,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
       usage: combineUsage(transcriptionUsage, summaryResponse.usage)
     };
   } catch (error) {
+    if (signal?.aborted) throw error;
     console.error(error);
     return {
       transcript,
@@ -1254,7 +1274,8 @@ async function transcribeUploadedAudios(
   body: AiAssistantRequest,
   settings: AiSettingsRow | null,
   userId: string,
-  authorization: string
+  authorization: string,
+  signal?: AbortSignal
 ): Promise<{
   transcript: string;
   summary: string | null;
@@ -1281,6 +1302,7 @@ async function transcribeUploadedAudios(
     const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
 
     for (let fileIndex = 0; fileIndex < audios.length; fileIndex += 1) {
+      throwIfAborted(signal);
       const audio = audios[fileIndex];
       const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
       if (isLargeMp3) {
@@ -1305,12 +1327,12 @@ async function transcribeUploadedAudios(
 
       const chunks = splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType);
       resultsByFile[fileIndex] = await mapWithConcurrency(chunks, 2, (chunk, chunkIndex) =>
-        transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length)
+        transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length, signal), signal
       );
     }
 
     const rangeResults = await mapWithConcurrency(rangeTasks, 2, (task) =>
-      transcribeRemoteAudioRange(task, body.audioLanguage, userId, authorization)
+      transcribeRemoteAudioRange(task, body.audioLanguage, userId, authorization, signal), signal
     );
     rangeTasks.forEach((task, index) => {
       resultsByFile[task.fileIndex][task.chunkIndex] = rangeResults[index];
@@ -1331,7 +1353,7 @@ async function transcribeUploadedAudios(
       return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: transcriptionUsage };
     }
     try {
-      const summaryResponse = await summarizeAudioTranscript(transcript, settings);
+      const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
       return {
         transcript,
         summary: summaryResponse.summary,
@@ -1340,6 +1362,7 @@ async function transcribeUploadedAudios(
         usage: combineUsage(transcriptionUsage, summaryResponse.usage)
       };
     } catch (error) {
+      if (signal?.aborted) throw error;
       console.error(error);
       return {
         transcript,
@@ -1394,7 +1417,8 @@ async function transcribeRemoteAudioRange(
   },
   language: AiAssistantRequest["audioLanguage"],
   userId: string,
-  authorization: string
+  authorization: string,
+  signal?: AbortSignal
 ): Promise<{ transcript: string; usage: AiAssistantUsage }> {
   const audioRange: NonNullable<AiAssistantRequest["audioRange"]> = {
     objectKey: task.audio.objectKey,
@@ -1416,7 +1440,8 @@ async function transcribeRemoteAudioRange(
       "content-type": "application/json",
       "x-audio-range-signature": signature
     },
-    body: JSON.stringify({ action: "transcribe_audio_range", audioRange })
+    body: JSON.stringify({ action: "transcribe_audio_range", audioRange }),
+    signal
   });
   const text = await response.text();
   if (!response.ok) {
@@ -1449,7 +1474,8 @@ async function transcribeAudioChunk(
   credentials: ProviderCredentials,
   fileName: string,
   chunkIndex: number,
-  chunkCount: number
+  chunkCount: number,
+  signal?: AbortSignal
 ): Promise<{ transcript: string; usage: AiAssistantUsage }> {
   const dataUrl = `data:${chunk.mimeType};base64,${bytesToBase64(chunk.bytes)}`;
   const response = await fetch(credentials.endpoint, {
@@ -1459,6 +1485,7 @@ async function transcribeAudioChunk(
       authorization: `Bearer ${credentials.apiKey}`,
       "api-key": credentials.apiKey
     },
+    signal,
     body: JSON.stringify({
       model: "mimo-v2.5-asr",
       messages: [{ role: "user", content: [{ type: "input_audio", input_audio: { data: dataUrl } }] }],
@@ -1494,11 +1521,12 @@ async function transcribeAudioChunk(
   return { transcript, usage: normalizeUsage(data.usage) };
 }
 
-async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>, signal?: AbortSignal): Promise<R[]> {
   const result = new Array<R>(items.length);
   let nextIndex = 0;
   const worker = async () => {
     while (nextIndex < items.length) {
+      throwIfAborted(signal);
       const index = nextIndex;
       nextIndex += 1;
       result[index] = await mapper(items[index], index);
@@ -1506,6 +1534,11 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
   return result;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new DOMException("操作已取消。", "AbortError");
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -1537,7 +1570,7 @@ function sanitizeTranscriptionAudio(value: AiAssistantRequest["audio"]): { dataU
   return { dataUrl };
 }
 
-async function summarizeAudioTranscript(transcript: string, settings: AiSettingsRow | null): Promise<{
+async function summarizeAudioTranscript(transcript: string, settings: AiSettingsRow | null, signal?: AbortSignal): Promise<{
   summary: string;
   model: string;
   usage: AiAssistantUsage;
@@ -1553,6 +1586,7 @@ async function summarizeAudioTranscript(transcript: string, settings: AiSettings
       authorization: `Bearer ${credentials.apiKey}`,
       ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
     },
+    signal,
     body: JSON.stringify({
       model,
       messages: [
@@ -1576,14 +1610,15 @@ async function summarizeAudioTranscript(transcript: string, settings: AiSettings
   };
   const summary = data.choices?.[0]?.message?.content?.trim();
   if (!summary) throw new Error("音频已转写，但摘要为空。");
-  return { summary, model, usage: normalizeUsage(data.usage) };
+  return { summary, model: configuredModelDisplayName(settings), usage: normalizeUsage(data.usage) };
 }
 
 async function answerAudioTranscript(
   question: string,
   transcript: string,
   history: AiAssistantHistoryMessage[],
-  settings: AiSettingsRow | null
+  settings: AiSettingsRow | null,
+  signal?: AbortSignal
 ): Promise<{ answer: string; model: string; usage: AiAssistantUsage }> {
   const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
   const credentials = configuredProviderCredentials(provider, settings);
@@ -1599,6 +1634,7 @@ async function answerAudioTranscript(
       authorization: `Bearer ${credentials.apiKey}`,
       ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
     },
+    signal,
     body: JSON.stringify({
       model,
       messages: [
@@ -1628,7 +1664,7 @@ async function answerAudioTranscript(
   };
   const answer = data.choices?.[0]?.message?.content?.trim();
   if (!answer) throw new Error("没有生成有效回答，请换一种问法重试。");
-  return { answer, model, usage: normalizeUsage(data.usage) };
+  return { answer, model: configuredModelDisplayName(settings), usage: normalizeUsage(data.usage) };
 }
 
 function combineUsage(left: AiAssistantUsage, right: AiAssistantUsage): AiAssistantUsage {
@@ -1708,12 +1744,27 @@ function sanitizeAttachments(value: unknown, allowed: boolean): AiAssistantAttac
         throw new Error(`图片“${name}”格式不支持或文件过大。`);
       }
       result.push({ name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
-    } else if (record.kind === "document" && typeof record.text === "string" && record.text.trim()) {
+    } else if (record.kind === "document") {
+      const text = typeof record.text === "string" ? record.text.trim().slice(0, 40_000) : "";
+      const pageImages: string[] = [];
+      let totalImageChars = 0;
+      if (Array.isArray(record.pageImages)) {
+        for (const pageImage of record.pageImages.slice(0, 24)) {
+          if (typeof pageImage !== "string" || !/^data:image\/(?:jpeg|png);base64,/i.test(pageImage) || pageImage.length > 2_500_000) continue;
+          if (totalImageChars + pageImage.length > 7_500_000) break;
+          pageImages.push(pageImage);
+          totalImageChars += pageImage.length;
+        }
+      }
+      if (!text && !pageImages.length) continue;
       result.push({
         name,
         mimeType: typeof record.mimeType === "string" ? record.mimeType.slice(0, 120) : "text/plain",
         kind: "document",
-        text: record.text.trim().slice(0, 40_000)
+        text,
+        pageImages,
+        pageCount: clampNumber(record.pageCount, 0, 500, pageImages.length),
+        processedPageCount: pageImages.length
       });
     }
   }

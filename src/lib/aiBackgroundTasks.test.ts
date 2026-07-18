@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { dismissAiTask, getAiTaskSnapshot, startAiTask } from "./aiBackgroundTasks";
+import { cancelAiTask, dismissAiTask, getAiTaskSnapshot, startAiTask } from "./aiBackgroundTasks";
 
 describe("AI 后台任务", () => {
   beforeEach(() => {
@@ -48,5 +48,25 @@ describe("AI 后台任务", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("取消任务会中止请求且不再写入失败状态", async () => {
+    let taskSignal: AbortSignal | undefined;
+    const onSuccess = vi.fn();
+    startAiTask({
+      feature: "mind_map",
+      label: "生成中",
+      run: (signal) => {
+        taskSignal = signal;
+        return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+      },
+      onSuccess
+    });
+    await vi.waitFor(() => expect(taskSignal).toBeDefined());
+    expect(cancelAiTask("mind_map")).toBe(true);
+    expect(taskSignal?.aborted).toBe(true);
+    await Promise.resolve();
+    expect(getAiTaskSnapshot("mind_map").status).toBe("idle");
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });

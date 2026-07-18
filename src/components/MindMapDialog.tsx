@@ -1,7 +1,7 @@
 import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Sparkles, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, type AiAssistantAttachment } from "../lib/assistantAttachments";
-import { getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
+import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration } from "../lib/deepSeekAssistant";
 import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapNeedsScheduleContext, mindMapToSvg, splitMindMapLabel, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
@@ -63,12 +63,13 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
       feature: "mind_map",
       label: "正在生成思维导图",
       successMessage: "思维导图已生成，点击可查看结果。",
-      run: () => askAiMindMap({
+      run: (signal) => askAiMindMap({
         prompt: question,
         context: mindMapNeedsScheduleContext(question) ? buildDeepSeekScheduleContext(input, question) : undefined,
         accessCode,
         attachments,
-        depth
+        depth,
+        signal
       }),
       onSuccess: (result) => {
         localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
@@ -135,9 +136,15 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
                 onFiles={addAttachments}
               />
             )}
-            <button type="button" className="button primary" disabled={loading || (!prompt.trim() && attachments.length === 0)} onClick={() => void generate()}>
-              <Sparkles size={16} />{loading ? "生成中…" : "生成脑图"}
-            </button>
+            {loading ? (
+              <button type="button" className="button danger-button" onClick={() => { if (cancelAiTask("mind_map")) showToast("已取消思维导图生成。", "success"); }}>
+                <X size={16} />取消生成
+              </button>
+            ) : (
+              <button type="button" className="button primary" disabled={!prompt.trim() && attachments.length === 0} onClick={() => void generate()}>
+                <Sparkles size={16} />生成脑图
+              </button>
+            )}
           </div>
           {task.status === "error" && (
             <div className="ai-inline-error" role="alert">

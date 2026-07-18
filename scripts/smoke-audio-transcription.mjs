@@ -41,7 +41,7 @@ try {
   const response = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
     method: "POST",
     headers: { apikey: publishableKey, authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ mode: "audio_transcription", audios, audioLanguage: "zh", summarizeAudio: false })
+    body: JSON.stringify({ mode: "audio_transcription", audios, audioLanguage: "zh", summarizeAudio: true })
   });
   const payload = await readJson(response);
   if (!response.ok) {
@@ -55,8 +55,11 @@ try {
   if (!transcript.includes("张宏伟1.mp3") || !transcript.includes("张宏伟3.mp3") || transcript.length < 100) {
     throw new Error(`audio smoke returned incomplete combined transcript (${transcript.length} chars)`);
   }
+  if (typeof payload?.summary !== "string" || payload.summary.trim().length < 20) {
+    throw new Error("audio smoke did not return a usable summary");
+  }
   succeeded = true;
-  console.log(`PASS combined audio transcription: ${transcript.length} characters, model ${payload.model}`);
+  console.log(`PASS combined audio transcription and summary: ${transcript.length} characters, model ${payload.model}`);
 } finally {
   await Promise.all(copiedKeys.map((key) => r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined)));
   if (succeeded) await Promise.all(sourceKeys.map((key) => r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined)));

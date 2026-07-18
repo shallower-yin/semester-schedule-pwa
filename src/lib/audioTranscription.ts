@@ -44,6 +44,7 @@ export async function transcribeAudioFiles(input: {
   language: AudioLanguage;
   summarize: boolean;
   accessCode?: string;
+  signal?: AbortSignal;
   onProgress?: (completed: number, total: number, fileName: string) => void;
 }): Promise<AudioTranscriptionResult> {
   if (!input.files.length) throw new Error("请选择要转写的音频文件。");
@@ -56,10 +57,11 @@ export async function transcribeAudioFiles(input: {
     for (let index = 0; index < input.files.length; index += 1) {
       const file = input.files[index];
       input.onProgress?.(index, input.files.length, file.name);
-      uploaded.push(await uploadAudioFile(file, input.accessCode));
+      uploaded.push(await uploadAudioFile(file, input.accessCode, input.signal));
       input.onProgress?.(index + 1, input.files.length, file.name);
     }
     const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+      signal: input.signal,
       body: {
         mode: "audio_transcription",
         audios: uploaded,
@@ -87,12 +89,14 @@ export async function transcribeAudio(input: {
   language: AudioLanguage;
   summarize: boolean;
   accessCode?: string;
+  signal?: AbortSignal;
 }): Promise<SingleAudioTranscriptionResult> {
   return await transcribeAudioFiles({
     files: [input.file],
     language: input.language,
     summarize: input.summarize,
-    accessCode: input.accessCode
+    accessCode: input.accessCode,
+    signal: input.signal
   }) as SingleAudioTranscriptionResult;
 }
 
@@ -101,12 +105,14 @@ export async function askAboutAudioTranscript(input: {
   question: string;
   history?: AudioConversationMessage[];
   accessCode?: string;
+  signal?: AbortSignal;
 }): Promise<{ answer: string; model: string; access?: string }> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法询问音频内容。");
   const history: DeepSeekAssistantHistoryMessage[] = (input.history ?? [])
     .slice(-6)
     .map((message) => ({ role: message.role, content: message.content.slice(0, 800) }));
   const { data, error } = await supabase.functions.invoke<{ answer: string; model: string; access?: string }>("ai-assistant", {
+    signal: input.signal,
     body: {
       mode: "audio_followup",
       question: input.question.trim(),
@@ -140,10 +146,11 @@ function normalizedAudioMimeType(file: File): string {
   } as Record<string, string>)[extension ?? ""] ?? (file.type || "application/octet-stream");
 }
 
-async function uploadAudioFile(file: File, accessCode?: string): Promise<UploadedAudio> {
+async function uploadAudioFile(file: File, accessCode?: string, signal?: AbortSignal): Promise<UploadedAudio> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法上传音频。");
   const mimeType = normalizedAudioMimeType(file);
   const { data, error } = await supabase.functions.invoke<AudioUploadTicket>("ai-assistant", {
+    signal,
     body: {
       action: "create_audio_upload",
       audio: { name: file.name, mimeType, size: file.size },
@@ -155,7 +162,8 @@ async function uploadAudioFile(file: File, accessCode?: string): Promise<Uploade
   const response = await fetch(data.uploadUrl, {
     method: "PUT",
     headers: { "content-type": mimeType },
-    body: file
+    body: file,
+    signal
   });
   if (!response.ok) throw new Error(`音频上传失败（HTTP ${response.status}）。`);
   return { name: file.name, mimeType, size: file.size, objectKey: data.objectKey };

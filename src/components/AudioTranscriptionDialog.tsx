@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Copy, Download, FileAudio, KeyRound, Send, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
+import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { askAboutAudioTranscript, MAX_AUDIO_FILES, transcribeAudioFiles, validateAudioFile, type AudioConversationMessage, type AudioLanguage, type AudioTranscriptionResult } from "../lib/audioTranscription";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
@@ -67,11 +67,12 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
       feature: "audio_transcription",
       label: `正在转写 ${selectedFiles.length} 个音频`,
       successMessage: "音频转写已完成，点击可查看和继续提问。",
-      run: () => transcribeAudioFiles({
+      run: (signal) => transcribeAudioFiles({
         files: selectedFiles,
         language,
         summarize,
         accessCode,
+        signal,
         onProgress: (completed, total, fileName) => setProgress(completed >= total ? "正在整理结果…" : `正在处理 ${completed + 1}/${total}：${fileName}`)
       }),
       onSuccess: (next) => {
@@ -98,7 +99,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
       feature: "audio_transcription",
       label: "正在回答音频内容问题",
       successMessage: "音频内容问题已回答，点击可查看。",
-      run: () => askAboutAudioTranscript({ transcript: result.transcript, question: trimmed, history: result.conversation, accessCode }),
+      run: (signal) => askAboutAudioTranscript({ transcript: result.transcript, question: trimmed, history: result.conversation, accessCode, signal }),
       onSuccess: (response) => {
         const next = {
           ...pendingResult,
@@ -181,9 +182,15 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             </select>
           </label>
           <label className="checkbox-label"><input type="checkbox" checked={summarize} onChange={(event) => setSummarize(event.target.checked)} />转写后生成摘要</label>
-          <button type="button" className="button primary" disabled={!files.length || loading} onClick={runTranscription}>
-            <Sparkles size={16} />{loading ? progress || "处理中…" : `开始转写${files.length > 1 ? `（${files.length} 段）` : ""}`}
-          </button>
+          {loading ? (
+            <button type="button" className="button danger-button" onClick={() => { if (cancelAiTask("audio_transcription")) { setProgress(""); showToast("已取消当前音频处理。", "success"); } }}>
+              <X size={16} />取消处理
+            </button>
+          ) : (
+            <button type="button" className="button primary" disabled={!files.length} onClick={runTranscription}>
+              <Sparkles size={16} />{`开始转写${files.length > 1 ? `（${files.length} 段）` : ""}`}
+            </button>
+          )}
           {task.status === "error" && <div className="ai-inline-error" role="alert"><span>{task.message}</span><button type="button" className="button secondary compact" onClick={() => retryAiTask("audio_transcription")}>重试</button></div>}
           <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 MP3、WAV 会自动分段转写；其他大文件请先转换格式。音频完成或失败后会从临时存储删除。</p>
         </section>

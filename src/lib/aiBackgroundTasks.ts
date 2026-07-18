@@ -14,7 +14,7 @@ interface AiTaskDefinition<T> {
   feature: AiTaskFeature;
   label: string;
   successMessage?: string;
-  run: () => Promise<T>;
+  run: (signal: AbortSignal) => Promise<T>;
   onSuccess?: (result: T) => void | Promise<void>;
   onError?: (error: Error) => void | Promise<void>;
 }
@@ -35,6 +35,7 @@ const idleSnapshots: Record<AiTaskFeature, AiTaskSnapshot> = {
 
 const tasks = new Map<AiTaskFeature, AiTaskSnapshot>();
 const retries = new Map<AiTaskFeature, () => void>();
+const controllers = new Map<AiTaskFeature, AbortController>();
 const listeners = new Set<() => void>();
 const openDialogs = new Set<AiTaskFeature>();
 const dismissalTimers = new Map<AiTaskFeature, number>();
@@ -63,6 +64,8 @@ export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
   if (getAiTaskSnapshot(definition.feature).status === "running") return false;
   clearDismissalTimer(definition.feature);
   const startedAt = Date.now();
+  const controller = new AbortController();
+  controllers.set(definition.feature, controller);
   retries.set(definition.feature, () => startAiTask(definition));
   updateTask({
     feature: definition.feature,
@@ -74,9 +77,11 @@ export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
   });
 
   void Promise.resolve()
-    .then(definition.run)
+    .then(() => definition.run(controller.signal))
     .then(async (result) => {
+      if (controller.signal.aborted || !isCurrentTask(definition.feature, startedAt)) return;
       await definition.onSuccess?.(result);
+      controllers.delete(definition.feature);
       const message = definition.successMessage ?? `${FEATURE_LABELS[definition.feature]}已完成。`;
       updateTask({
         feature: definition.feature,
@@ -90,6 +95,8 @@ export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
       if (!openDialogs.has(definition.feature)) void showCompletionNotification(definition.feature, message);
     })
     .catch(async (cause) => {
+      if (controller.signal.aborted || !isCurrentTask(definition.feature, startedAt)) return;
+      controllers.delete(definition.feature);
       const error = cause instanceof Error ? cause : new Error(String(cause || "AI 任务失败。"));
       await definition.onError?.(error);
       updateTask({
@@ -109,12 +116,27 @@ export function retryAiTask(feature: AiTaskFeature): void {
   retries.get(feature)?.();
 }
 
-export function dismissAiTask(feature: AiTaskFeature): void {
-  if (getAiTaskSnapshot(feature).status === "running") return;
-  clearDismissalTimer(feature);
+export function cancelAiTask(feature: AiTaskFeature): boolean {
+  if (getAiTaskSnapshot(feature).status !== "running") return false;
+  controllers.get(feature)?.abort(new DOMException("用户取消了操作。", "AbortError"));
+  controllers.delete(feature);
   tasks.delete(feature);
   retries.delete(feature);
   emit();
+  return true;
+}
+
+export function dismissAiTask(feature: AiTaskFeature): void {
+  if (getAiTaskSnapshot(feature).status === "running") return;
+  clearDismissalTimer(feature);
+  controllers.delete(feature);
+  tasks.delete(feature);
+  retries.delete(feature);
+  emit();
+}
+
+function isCurrentTask(feature: AiTaskFeature, startedAt: number): boolean {
+  return getAiTaskSnapshot(feature).status === "running" && getAiTaskSnapshot(feature).startedAt === startedAt;
 }
 
 function scheduleSuccessDismissal(feature: AiTaskFeature): void {

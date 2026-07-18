@@ -1,5 +1,13 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { transcribeAudioFilesMock } = vi.hoisted(() => ({ transcribeAudioFilesMock: vi.fn() }));
+
+vi.mock("../lib/audioTranscription", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/audioTranscription")>();
+  return { ...actual, transcribeAudioFiles: transcribeAudioFilesMock };
+});
+
 import { AudioTranscriptionDialog } from "./AudioTranscriptionDialog";
 
 describe("AI 音频转写", () => {
@@ -7,6 +15,7 @@ describe("AI 音频转写", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    transcribeAudioFilesMock.mockReset();
   });
 
   it("支持选择多段音频并移除误选文件", () => {
@@ -61,5 +70,22 @@ describe("AI 音频转写", () => {
     expect(localStorage.getItem(storageKey)).toBeNull();
     expect(screen.getByText("选择音频开始转写")).toBeInTheDocument();
     expect(screen.queryByText("需要清除的转写。")).not.toBeInTheDocument();
+  });
+
+  it("转写过程中可以取消上传和处理请求", async () => {
+    let signal: AbortSignal | undefined;
+    transcribeAudioFilesMock.mockImplementationOnce((input: { signal?: AbortSignal }) => {
+      signal = input.signal;
+      return new Promise(() => undefined);
+    });
+    render(<AudioTranscriptionDialog ownerId="user-cancel" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("音频文件"), {
+      target: { files: [new File(["audio"], "录音.mp3", { type: "audio/mpeg" })] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始转写" }));
+    await screen.findByRole("button", { name: "取消处理" });
+    fireEvent.click(screen.getByRole("button", { name: "取消处理" }));
+    expect(signal?.aborted).toBe(true);
+    expect(screen.getByRole("button", { name: "开始转写" })).toBeInTheDocument();
   });
 });
