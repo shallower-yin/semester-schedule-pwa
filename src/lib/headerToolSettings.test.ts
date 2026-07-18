@@ -16,7 +16,7 @@ describe("顶部按钮设置", () => {
   });
 
   it("过滤无效工具并去重", () => {
-    localStorage.setItem("semester-schedule-header-tools", JSON.stringify(["search", "bad", "search", "aiAssistant"]));
+    localStorage.setItem("semester-schedule-header-tools-v2", JSON.stringify(["search", "bad", "search", "aiAssistant"]));
     expect(loadHeaderToolSettings()).toEqual(["search", "aiAssistant"]);
   });
 
@@ -25,8 +25,13 @@ describe("顶部按钮设置", () => {
     expect(loadHeaderToolSettings()).toEqual(DEFAULT_HEADER_TOOLS);
   });
 
-  it("从旧设置中移除已收进 AI 工具箱的独立入口", () => {
+  it("旧设置迁移时保持手机端默认不显示脑图和音频入口", () => {
     localStorage.setItem("semester-schedule-header-tools", JSON.stringify(["account", "scheduleAssistant", "aiAssistant", "mindMap", "audioTranscription", "quickEntry", "search"]));
     expect(loadHeaderToolSettings()).toEqual(DEFAULT_HEADER_TOOLS);
+  });
+
+  it("允许用户主动勾选脑图和音频入口", () => {
+    expect(saveHeaderToolSettings(["account", "mindMap", "audioTranscription"])).toEqual(["account", "mindMap", "audioTranscription"]);
+    expect(loadHeaderToolSettings()).toEqual(["account", "mindMap", "audioTranscription"]);
   });
 });

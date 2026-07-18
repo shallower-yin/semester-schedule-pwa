@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, BellRing, CheckCircle2, Cloud, CloudDownload, Download, LogOut, RefreshCw, Save, ShieldCheck, UserRound } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, BellRing, Camera, CheckCircle2, Cloud, CloudDownload, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
 import { toISODate } from "../lib/date";
@@ -42,7 +42,12 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   const [accountAccess, setAccountAccess] = useState<AdminAiAccess | null>(null);
   const [accountTypeLoading, setAccountTypeLoading] = useState(true);
   const [username, setUsername] = useState(() => String(user.user_metadata?.display_name ?? ""));
+  const [usernameDraft, setUsernameDraft] = useState(() => String(user.user_metadata?.display_name ?? ""));
+  const [editingUsername, setEditingUsername] = useState(false);
   const [savingUsername, setSavingUsername] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(() => accountAvatarUrl(user));
+  const [savingAvatar, setSavingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, message, healthRefreshKey]);
 
   useEffect(() => {
@@ -186,7 +191,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   }
 
   async function saveUsername() {
-    const value = username.trim();
+    const value = usernameDraft.trim();
     if (!value || value.length > 24) {
       showToast("用户名需要填写 1 至 24 个字符。", "error");
       return;
@@ -196,11 +201,42 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       const { error } = await supabase!.auth.updateUser({ data: { display_name: value } });
       if (error) throw error;
       setUsername(value);
+      setUsernameDraft(value);
+      setEditingUsername(false);
       showToast("用户名已保存。", "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "保存用户名失败。", "error");
     } finally {
       setSavingUsername(false);
+    }
+  }
+
+  async function changeAvatar(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) {
+      showToast("请选择不超过 8 MB 的图片。", "error");
+      return;
+    }
+    setSavingAvatar(true);
+    try {
+      const avatarBlob = await resizeAccountAvatar(file);
+      const avatarPath = `${user.id}/avatar.jpg`;
+      const { error: uploadError } = await supabase!.storage
+        .from("account-avatars")
+        .upload(avatarPath, avatarBlob, { cacheControl: "3600", contentType: "image/jpeg", upsert: true });
+      if (uploadError) throw uploadError;
+      const publicUrl = supabase!.storage.from("account-avatars").getPublicUrl(avatarPath).data.publicUrl;
+      const { error } = await supabase!.auth.updateUser({
+        data: { account_avatar_path: avatarPath, account_avatar_url: publicUrl }
+      });
+      if (error) throw error;
+      setAvatarUrl(`${publicUrl}?v=${Date.now()}`);
+      showToast("头像已更新。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "更新头像失败。", "error");
+    } finally {
+      setSavingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
     }
   }
 
@@ -224,7 +260,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     authReady: true,
     cloudConfigured: supabaseConfigured,
     signedIn: true,
-    userEmail: user.email,
+    userEmail: null,
     syncing,
     pendingChanges,
     failedChanges: syncHealth?.failed ?? 0,
@@ -235,64 +271,60 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   return (
     <Modal title="账号与同步" onClose={onClose}>
       <div className="account-summary">
-        <div className="account-avatar">{(username || user.email || "U").slice(0, 1).toUpperCase()}</div>
+        <input
+          ref={avatarInputRef}
+          className="visually-hidden"
+          type="file"
+          accept="image/*"
+          onChange={(event) => void changeAvatar(event.target.files?.[0])}
+        />
+        <button
+          type="button"
+          className="account-avatar"
+          disabled={savingAvatar}
+          onClick={() => avatarInputRef.current?.click()}
+          aria-label="更换头像"
+          title="更换头像"
+        >
+          {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{(username || user.email || "U").slice(0, 1).toUpperCase()}</span>}
+          <i><Camera size={12} /></i>
+        </button>
         <div>
-          <strong>{username || user.email}</strong>
-          {username && <span><UserRound size={14} />{user.email}</span>}
+          {editingUsername ? (
+            <div className="account-inline-username-editor">
+              <input
+                autoFocus
+                maxLength={24}
+                value={usernameDraft}
+                onChange={(event) => setUsernameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void saveUsername();
+                  if (event.key === "Escape") {
+                    setUsernameDraft(username);
+                    setEditingUsername(false);
+                  }
+                }}
+                aria-label="用户名"
+              />
+              <button type="button" className="icon-button" disabled={savingUsername} onClick={() => void saveUsername()} aria-label="保存用户名"><Save size={15} /></button>
+              <button type="button" className="icon-button" disabled={savingUsername} onClick={() => { setUsernameDraft(username); setEditingUsername(false); }} aria-label="取消编辑用户名"><X size={15} /></button>
+            </div>
+          ) : (
+            <button type="button" className="account-username-button" onClick={() => { setUsernameDraft(username); setEditingUsername(true); }}>
+              <strong>{username || "设置用户名"}</strong><Pencil size={14} />
+            </button>
+          )}
+          {user.email && <span><UserRound size={14} />{user.email}</span>}
           <span><CheckCircle2 size={14} />{user.email_confirmed_at ? "邮箱已验证" : "等待邮箱验证"}</span>
           <span><ShieldCheck size={14} />账户类型：{accountTypeLoading ? "正在检查" : accountTypeLabel(accountAccess)}</span>
         </div>
       </div>
-      <div className="account-username-editor">
-        <label>
-          用户名
-          <input maxLength={24} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="填写一个称呼" />
-        </label>
-        <button className="button secondary compact" disabled={savingUsername} onClick={() => void saveUsername()}>
-          <Save size={16} />{savingUsername ? "保存中" : "保存"}
-        </button>
-      </div>
       <div className={`account-sync-state-card ${syncStatus.tone}`}>
         {syncStatus.state === "error" ? <AlertTriangle size={20} /> : syncStatus.state === "synced" ? <CheckCircle2 size={20} /> : <Cloud size={20} />}
-        <div>
+        <div className="account-sync-state-copy">
           <strong>{syncStatus.title}</strong>
           <span>{syncStatus.detail}</span>
         </div>
-      </div>
-      <div className="sync-detail-card">
-        <div><span>待同步</span><strong>{pendingChanges} 条</strong></div>
-        <div><span>异常项</span><strong>{syncHealth?.failed ?? 0} 条</strong></div>
-        <div><span>上次同步</span><strong>{lastSync ? new Date(lastSync).toLocaleString("zh-CN") : "尚未同步"}</strong></div>
-        <div><span>最早待同步</span><strong>{syncHealth?.oldest_queued_at ? new Date(syncHealth.oldest_queued_at).toLocaleString("zh-CN") : "无"}</strong></div>
-      </div>
-      <div className={`sync-health-card ${syncHealth?.failed ? "has-error" : ""}`}>
-        <div className="sync-health-title">
-          {syncHealth?.failed ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
-          <div>
-            <strong>{syncHealth?.pending ? "同步诊断" : "同步状态正常"}</strong>
-            <span>
-              {syncHealth
-                ? `${syncHealth.online ? "在线" : "离线"} · ${syncHealth.cloud_configured ? "云端已配置" : "云端未配置"} · ${new Date(syncHealth.checked_at).toLocaleTimeString("zh-CN")}`
-                : "正在检查…"}
-            </span>
-          </div>
-          <button className="icon-button" onClick={() => setHealthRefreshKey((value) => value + 1)} aria-label="重新检查同步状态"><RefreshCw size={16} /></button>
-        </div>
-        {syncHealth?.tables.length ? (
-          <div className="sync-health-list">
-            {syncHealth.tables.slice(0, 6).map((table) => (
-              <article key={table.table_name}>
-                <div>
-                  <strong>{table.label}</strong>
-                  <span>{table.pending} 条待同步 · 失败 {table.failed} 条 · 尝试 {table.attempts} 次</span>
-                </div>
-                {table.last_error && <p>{table.last_error}</p>}
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p>没有等待同步的数据。若手机和电脑不一致，可以点击“重新拉取云端”。</p>
-        )}
       </div>
       {(hasSyncProblem || syncStatus.needsRecoveryActions) && (
         <div className="sync-recovery-actions" aria-label="同步失败处理">
@@ -326,14 +358,15 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         </div>
       )}
       {notificationMessage && <p className="auth-message">{notificationMessage}</p>}
-      {message && <p className="auth-message">{message}</p>}
-      <div className="form-stack">
+      <div className="account-test-actions">
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void testNotification()}>
           <BellRing size={17} />发送测试通知
         </button>
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void scheduleRealReminderTest()}>
-          <BellRing size={17} />创建 1 分钟后提醒测试
+          <BellRing size={17} />1 分钟后提醒测试
         </button>
+      </div>
+      <div className="account-sync-actions">
         <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : syncStatus.primaryAction === "retry" ? "重试同步" : "立即同步"}</button>
         <button className="button secondary" disabled={syncing} onClick={() => void pullRemote()}><CloudDownload size={17} />重新拉取云端</button>
         <button className="button secondary" onClick={logout}><LogOut size={17} />退出登录</button>
@@ -353,4 +386,52 @@ function formatAccountSyncDate(value: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "暂无同步记录";
   return date.toLocaleString("zh-CN");
+}
+
+function accountAvatarUrl(user: User): string {
+  const value = String(
+    user.user_metadata?.account_avatar_url
+    ?? user.user_metadata?.avatar_data_url
+    ?? user.user_metadata?.avatar_url
+    ?? ""
+  ).trim();
+  return /^(?:https:\/\/|data:image\/(?:jpeg|png|webp);base64,)/i.test(value) ? value : "";
+}
+
+async function resizeAccountAvatar(file: File): Promise<Blob> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("无法读取这张图片。"));
+      element.src = objectUrl;
+    });
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    if (!side) throw new Error("图片尺寸无效。");
+    const canvas = document.createElement("canvas");
+    canvas.width = 192;
+    canvas.height = 192;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("当前浏览器无法处理头像图片。");
+    context.drawImage(
+      image,
+      (image.naturalWidth - side) / 2,
+      (image.naturalHeight - side) / 2,
+      side,
+      side,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("头像图片压缩失败。"));
+      }, "image/jpeg", 0.82);
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }

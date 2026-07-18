@@ -42,7 +42,7 @@ export function HeaderToolSettingsDialog({ options, value, onChange, onClose }: 
   return (
     <Modal title="顶部按钮设置" onClose={onClose}>
       <div className="mobile-nav-settings">
-        <p>勾选要放在顶部的工具，并调整显示顺序。未勾选的工具仍可从设置页或其他入口使用。</p>
+        <p>勾选要放在手机顶部的工具，并调整显示顺序。电脑端会完整显示全部工具。</p>
         <div className="mobile-nav-option-list">
           {options.map((option) => {
             const selected = draft.includes(option.id);

@@ -21,7 +21,9 @@ import {
   LogIn,
   Menu,
   MessageSquareText,
+  Network,
   NotebookText,
+  AudioLines,
   Pencil,
   Plus,
   RefreshCw,
@@ -833,6 +835,16 @@ export default function App() {
       node: <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="AI 助手"><BrainCircuit size={18} /></button>
     },
     {
+      id: "mindMap",
+      label: "AI 思维导图",
+      node: <button className="icon-button header-search-button" onClick={() => setShowMindMap(true)} aria-label="AI 思维导图"><Network size={18} /></button>
+    },
+    {
+      id: "audioTranscription",
+      label: "AI 音频转写",
+      node: <button className="icon-button header-search-button" onClick={() => setShowAudioTranscription(true)} aria-label="AI 音频转写"><AudioLines size={18} /></button>
+    },
+    {
       id: "quickEntry",
       label: "快速录入",
       node: <button className="icon-button header-search-button" onClick={() => setShowQuickEntry(true)} aria-label="快速录入"><Sparkles size={18} /></button>
@@ -847,6 +859,7 @@ export default function App() {
     .filter((item) => headerToolItems.includes(item.id))
     .sort((left, right) => headerToolItems.indexOf(left.id) - headerToolItems.indexOf(right.id));
   const mobileHeaderTools = selectedHeaderTools;
+  const desktopHeaderTools = headerTools;
 
   function renderSettingsSection(title: string, description: string, children: ReactNode) {
     return (
@@ -884,7 +897,7 @@ export default function App() {
         <nav className="desktop-nav">{renderNavigation(navItems)}</nav>
         <div className="header-status">
           <span className="desktop-header-tools">
-            {selectedHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
+            {desktopHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
           </span>
           <span className="mobile-header-tools">
             {mobileHeaderTools.map((tool) => <span key={tool.id} className="header-tool">{tool.node}</span>)}
@@ -1058,7 +1071,7 @@ export default function App() {
                     <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
-                    <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义顶部显示哪些工具和顺序</small></span><ChevronRight />
+                    <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义手机顶部工具；电脑端完整显示</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => void hardReloadApp()} disabled={updatingApp}>
                     <RefreshCw /><span><strong>清缓存重载</strong><small>手机 PWA 更新没生效时使用，会重新获取最新资源</small></span><ChevronRight />
