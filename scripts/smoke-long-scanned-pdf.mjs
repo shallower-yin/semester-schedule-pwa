@@ -64,11 +64,37 @@ try {
   if (processed?.kind !== "document" || processed?.processedPageCount !== pageCount || typeof processed?.text !== "string") {
     throw new Error(`long scanned PDF smoke returned invalid processed attachment: ${JSON.stringify(processed).slice(0, 500)}`);
   }
+
+  const followupResponse = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
+    method: "POST",
+    headers: { apikey: publishableKey, authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      mode: "mind_map_followup",
+      question: "What repeated English word appears on the scanned document pages?",
+      mindMap: payload.mindMap,
+      attachments: payload.processedAttachments,
+      history: []
+    })
+  });
+  const followupPayload = await readJson(followupResponse);
+  if (!followupResponse.ok) {
+    if (followupPayload?.diagnosticId) {
+      const diagnostic = await fetchDiagnostic(followupPayload.diagnosticId);
+      console.error("Mind map follow-up diagnostic:", JSON.stringify(diagnostic));
+    }
+    throw new Error(`mind map follow-up smoke failed: HTTP ${followupResponse.status} ${JSON.stringify(followupPayload).slice(0, 800)}`);
+  }
+  if (typeof followupPayload?.answer !== "string" || !followupPayload.answer.trim()) {
+    throw new Error(`mind map follow-up smoke returned an empty answer: ${JSON.stringify(followupPayload).slice(0, 500)}`);
+  }
+
   await new Promise((resolve) => setTimeout(resolve, 1_000));
   for (const objectKey of objectKeys) {
     if (await objectExists(objectKey)) throw new Error(`temporary page was not deleted after success: ${objectKey}`);
   }
-  console.log(`PASS ${pageCount}-page scanned PDF: ${processed.text.length} extracted characters, model ${payload.model ?? "configured default"}`);
+  console.log(
+    `PASS ${pageCount}-page scanned PDF: ${processed.text.length} extracted characters; follow-up: ${followupPayload.answer.trim().slice(0, 120)}`
+  );
 } finally {
   await Promise.all(objectKeys.map((key) => r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined)));
   if (userId) {
