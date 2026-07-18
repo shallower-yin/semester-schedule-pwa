@@ -7,6 +7,7 @@ export interface AudioChunk {
 // 7,000,000 raw bytes become about 9.33 MB after Base64, leaving room in MiMo's 10 MB JSON request body.
 export const MAX_ASR_AUDIO_CHUNK_BYTES = 7_000_000;
 export const MAX_ASR_AUDIO_CHUNK_DURATION_MS = 6 * 60 * 1000;
+export const MP3_RANGE_OVERLAP_BYTES = 4_096;
 
 export function splitAudioForAsr(
   bytes: Uint8Array,
@@ -19,6 +20,33 @@ export function splitAudioForAsr(
   if (extension === "mp3") return splitMp3(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/mpeg" }));
   if (extension === "wav") return splitWav(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/wav" }));
   throw new Error("超过 7 MB 的音频目前仅支持 MP3、WAV 自动分段，请先转换格式后重试。");
+}
+
+export function extractMp3RangeForAsr(
+  bytes: Uint8Array,
+  absoluteOffset: number,
+  nominalStart: number,
+  nominalEnd: number
+): AudioChunk {
+  let offset = absoluteOffset === 0 ? id3v2End(bytes) : 0;
+  const frames: Array<{ start: number; end: number; durationMs: number }> = [];
+  let durationMs = 0;
+  while (offset + 4 <= bytes.length) {
+    const frame = mp3FrameInfo(bytes, offset);
+    if (!frame || offset + frame.length > bytes.length) {
+      offset += 1;
+      continue;
+    }
+    const globalStart = absoluteOffset + offset;
+    if (globalStart >= nominalStart && globalStart <= nominalEnd) {
+      frames.push({ start: offset, end: offset + frame.length, durationMs: frame.durationMs });
+      durationMs += frame.durationMs;
+    }
+    offset += frame.length;
+  }
+  if (!frames.length) throw new Error("无法从 MP3 分段中识别有效音频帧，请转换为标准 MP3 后重试。");
+  const total = frames.reduce((sum, frame) => sum + frame.end - frame.start, 0);
+  return { bytes: copyFrames(bytes, frames, total), mimeType: "audio/mpeg", durationMs };
 }
 
 function splitMp3(bytes: Uint8Array, maxBytes: number): Array<{ bytes: Uint8Array; durationMs: number }> {

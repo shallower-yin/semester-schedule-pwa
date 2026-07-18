@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitAudioForAsr } from "../../supabase/functions/_shared/audioChunking";
+import { extractMp3RangeForAsr, splitAudioForAsr } from "../../supabase/functions/_shared/audioChunking";
 
 describe("audio chunking", () => {
   it("keeps small files intact", () => {
@@ -31,6 +31,18 @@ describe("audio chunking", () => {
     const chunks = splitAudioForAsr(bytes, "long-meeting.mp3", "audio/mpeg", 6_000_000);
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks.every((chunk) => (chunk.durationMs ?? 0) <= 360_050)).toBe(true);
+  });
+
+  it("assigns overlapping R2 ranges without duplicating MP3 frames", () => {
+    const frameLength = 417;
+    const bytes = new Uint8Array(frameLength * 20);
+    for (let offset = 0; offset < bytes.length; offset += frameLength) {
+      bytes.set([0xff, 0xfb, 0x90, 0x00], offset);
+    }
+    const boundary = 3_000;
+    const first = extractMp3RangeForAsr(bytes, 0, 0, boundary - 1);
+    const second = extractMp3RangeForAsr(bytes, 0, boundary, bytes.length - 1);
+    expect(first.bytes.length + second.bytes.length).toBe(bytes.length);
   });
 
   it("creates independently valid WAV chunks", () => {

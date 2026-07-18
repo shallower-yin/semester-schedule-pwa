@@ -1,6 +1,6 @@
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "npm:@aws-sdk/client-s3@3.1089.0";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "npm:@aws-sdk/client-s3@3.1089.0";
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
-import { splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
+import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
 
 interface AiAssistantRequest {
   action?: "configuration" | "create_audio_upload" | "delete_audio_upload";
@@ -1083,6 +1083,21 @@ async function downloadR2AudioObject(objectKey: string): Promise<Uint8Array> {
   return await response.Body.transformToByteArray();
 }
 
+async function headR2AudioObject(objectKey: string): Promise<number> {
+  const { client, bucket } = r2Configuration();
+  const response = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
+  const size = Number(response.ContentLength ?? 0);
+  if (!Number.isFinite(size) || size <= 0) throw new Error("临时音频文件大小无效，请重新上传后重试。");
+  return size;
+}
+
+async function downloadR2AudioRange(objectKey: string, start: number, end: number): Promise<Uint8Array> {
+  const { client, bucket } = r2Configuration();
+  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey, Range: `bytes=${start}-${end}` }));
+  if (!response.Body) throw new Error("临时音频分段读取失败，请重新上传后重试。");
+  return await response.Body.transformToByteArray();
+}
+
 async function deleteR2AudioObject(userId: string, value: unknown): Promise<void> {
   await deleteR2AudioObjectByKey(userAudioObjectKey(userId, value));
 }
@@ -1190,27 +1205,63 @@ async function transcribeUploadedAudios(
   const parts: string[] = [];
   let transcriptionUsage = emptyUsage();
   try {
-    const prepared = await Promise.all(audios.map(async (audio) => ({
-      audio,
-      chunks: splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType)
-    })));
-    const tasks = prepared.flatMap(({ audio, chunks }, fileIndex) => chunks.map((chunk, chunkIndex) => ({
-      audio,
-      chunk,
-      fileIndex,
-      chunkIndex,
-      chunkCount: chunks.length
-    })));
-    const taskResults = await mapWithConcurrency(tasks, 4, (task) =>
-      transcribeAudioChunk(task.chunk, body.audioLanguage, credentials, task.audio.name, task.chunkIndex, task.chunkCount)
-    );
+    const resultsByFile: Array<Array<{ transcript: string; usage: AiAssistantUsage }>> = audios.map(() => []);
+    const rangeTasks: Array<{
+      audio: UploadedAudioInput;
+      fileIndex: number;
+      chunkIndex: number;
+      chunkCount: number;
+      nominalStart: number;
+      nominalEnd: number;
+      fetchStart: number;
+      fetchEnd: number;
+    }> = [];
+    const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
 
-    for (let index = 0; index < prepared.length; index += 1) {
-      const { audio, chunks } = prepared[index];
-      const results = tasks.flatMap((task, taskIndex) => task.fileIndex === index ? [taskResults[taskIndex]] : []);
-      const fileTranscript = results.map((result, chunkIndex) => chunks.length === 1
+    for (let fileIndex = 0; fileIndex < audios.length; fileIndex += 1) {
+      const audio = audios[fileIndex];
+      const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
+      if (isLargeMp3) {
+        const objectSize = await headR2AudioObject(audio.objectKey);
+        const chunkCount = Math.ceil(objectSize / nominalChunkBytes);
+        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+          const nominalStart = chunkIndex * nominalChunkBytes;
+          const nominalEnd = Math.min(objectSize - 1, nominalStart + nominalChunkBytes - 1);
+          rangeTasks.push({
+            audio,
+            fileIndex,
+            chunkIndex,
+            chunkCount,
+            nominalStart,
+            nominalEnd,
+            fetchStart: Math.max(0, nominalStart - MP3_RANGE_OVERLAP_BYTES),
+            fetchEnd: Math.min(objectSize - 1, nominalEnd + MP3_RANGE_OVERLAP_BYTES)
+          });
+        }
+        continue;
+      }
+
+      const chunks = splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType);
+      resultsByFile[fileIndex] = await mapWithConcurrency(chunks, 2, (chunk, chunkIndex) =>
+        transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length)
+      );
+    }
+
+    const rangeResults = await mapWithConcurrency(rangeTasks, 2, async (task) => {
+      const range = await downloadR2AudioRange(task.audio.objectKey, task.fetchStart, task.fetchEnd);
+      const chunk = extractMp3RangeForAsr(range, task.fetchStart, task.nominalStart, task.nominalEnd);
+      return await transcribeAudioChunk(chunk, body.audioLanguage, credentials, task.audio.name, task.chunkIndex, task.chunkCount);
+    });
+    rangeTasks.forEach((task, index) => {
+      resultsByFile[task.fileIndex][task.chunkIndex] = rangeResults[index];
+    });
+
+    for (let index = 0; index < audios.length; index += 1) {
+      const audio = audios[index];
+      const results = resultsByFile[index];
+      const fileTranscript = results.map((result, chunkIndex) => results.length === 1
         ? result.transcript
-        : `【${audio.name} · 分段 ${chunkIndex + 1}/${chunks.length}】\n${result.transcript}`
+        : `【${audio.name} · 分段 ${chunkIndex + 1}/${results.length}】\n${result.transcript}`
       ).join("\n\n");
       parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
       transcriptionUsage = results.reduce((usage, result) => combineUsage(usage, result.usage), transcriptionUsage);
