@@ -5,7 +5,7 @@ const supabaseUrl = required("SUPABASE_URL").replace(/\/$/, "");
 const publishableKey = required("PUBLISHABLE_KEY");
 const serviceRoleKey = required("SERVICE_ROLE_KEY");
 const bucket = required("R2_BUCKET");
-const pageCount = 25;
+const pageCount = boundedInteger("SMOKE_PAGE_COUNT", 25, 1, 120);
 const smokeEmail = "codex-scanned-pdf-smoke@example.com";
 const password = `${crypto.randomUUID()}Aa1!`;
 const documentId = crypto.randomUUID();
@@ -200,4 +200,9 @@ function required(name) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing ${name}`);
   return value;
+}
+
+function boundedInteger(name, fallback, minimum, maximum) {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
 }

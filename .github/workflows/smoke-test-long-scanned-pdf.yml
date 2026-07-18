@@ -2,6 +2,11 @@ name: Smoke test long scanned PDF
 
 on:
   workflow_dispatch:
+    inputs:
+      page_count:
+        description: Number of scanned PDF pages to verify (1-120)
+        required: false
+        default: "25"
 
 permissions:
   contents: read
@@ -18,6 +23,7 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      SMOKE_PAGE_COUNT: ${{ inputs.page_count || '25' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -25,5 +31,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Read and clean a 25-page scanned PDF
+      - name: Read and clean a configurable scanned PDF
         run: node scripts/smoke-long-scanned-pdf.mjs
