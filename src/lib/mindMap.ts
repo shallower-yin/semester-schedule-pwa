@@ -13,6 +13,18 @@ export interface AiMindMapResult {
   processedAttachments?: AiAssistantAttachment[];
 }
 
+export interface AiMindMapFollowupMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AiMindMapFollowupResult {
+  answer: string;
+  model?: string;
+  access?: string;
+  processedAttachments?: AiAssistantAttachment[];
+}
+
 export type MindMapDepth = "quick" | "standard" | "deep";
 
 export interface MindMapLayoutNode {
@@ -68,6 +80,30 @@ export async function askAiMindMap(input: {
   });
   if (!error && data?.mindMap?.label) return data;
   throw new Error(error ? await mindMapFunctionError(error) : "AI 没有返回有效的思维导图。");
+}
+
+export async function askAiMindMapFollowup(input: {
+  question: string;
+  mindMap: AiMindMapNode;
+  accessCode?: string;
+  attachments?: AiAssistantAttachment[];
+  history?: AiMindMapFollowupMessage[];
+  signal?: AbortSignal;
+}): Promise<AiMindMapFollowupResult> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法追问思维导图。");
+  const { data, error } = await supabase.functions.invoke<AiMindMapFollowupResult>("ai-assistant", {
+    signal: input.signal,
+    body: {
+      mode: "mind_map_followup",
+      question: input.question.trim(),
+      mindMap: input.mindMap,
+      accessCode: input.accessCode?.trim() || undefined,
+      attachments: input.attachments?.slice(0, 3),
+      history: input.history?.slice(-6)
+    }
+  });
+  if (!error && data?.answer?.trim()) return data;
+  throw new Error(error ? await mindMapFunctionError(error) : "AI 没有返回有效回答。");
 }
 
 export function mindMapNeedsScheduleContext(prompt: string): boolean {

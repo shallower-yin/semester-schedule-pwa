@@ -1,10 +1,11 @@
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "npm:@aws-sdk/client-s3@3.1089.0";
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
 import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
+import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
   action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "create_document_page_uploads" | "delete_document_uploads";
-  mode?: "assistant" | "mind_map" | "audio_transcription" | "audio_followup";
+  mode?: "assistant" | "mind_map" | "mind_map_followup" | "audio_transcription" | "audio_followup";
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
@@ -16,6 +17,7 @@ interface AiAssistantRequest {
   audioLanguage?: "auto" | "zh" | "en";
   summarizeAudio?: boolean;
   mindMapDepth?: MindMapDepth;
+  mindMap?: AiMindMapNode;
   document?: {
     documentId?: string;
     name?: string;
@@ -382,12 +384,18 @@ Deno.serve(async (request) => {
     }
     const mode = body.mode === "mind_map"
       ? "mind_map"
+      : body.mode === "mind_map_followup"
+        ? "mind_map_followup"
       : body.mode === "audio_transcription"
         ? "audio_transcription"
         : body.mode === "audio_followup"
           ? "audio_followup"
           : "assistant";
-    featureKey = mode === "audio_followup" ? "audio_transcription" : mode;
+    featureKey = mode === "audio_followup"
+      ? "audio_transcription"
+      : mode === "mind_map_followup"
+        ? "mind_map"
+        : mode;
     const question = body.question?.trim();
     if (mode !== "audio_transcription" && !question) return jsonResponse({ error: "问题不能为空。" }, 400);
     if (mode === "audio_transcription" && !body.audio?.dataUrl && !body.audios?.length) return jsonResponse({ error: "请选择要转写的音频文件。" }, 400);
@@ -489,6 +497,51 @@ Deno.serve(async (request) => {
     const history = sanitizeHistory(body.history);
     const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
     const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)), user.id);
+    if (mode === "mind_map_followup") {
+      const mindMap = sanitizeMindMapNode(body.mindMap, 0, { remaining: 100 }, 6);
+      if (!mindMap) return jsonResponse({ error: "请先生成思维导图后再追问。" }, 400);
+      const credentials = configuredProviderCredentials(provider, settings);
+      if (!credentials.apiKey) throw new Error("思维导图问答模型暂未配置，请稍后再试。");
+      const resolvedDocuments = await resolveRemoteDocumentAttachments(attachments, {
+        provider,
+        model: configuredModel(settings),
+        apiKey: credentials.apiKey,
+        endpoint: credentials.endpoint,
+        signal: request.signal
+      });
+      const followupResponse = await answerMindMapFollowup(
+        question ?? "",
+        mindMap,
+        resolvedDocuments.attachments,
+        history,
+        settings,
+        request.signal
+      );
+      const usage = combineUsage(resolvedDocuments.usage, followupResponse.usage);
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod,
+        featureKey,
+        model: followupResponse.model,
+        usage,
+        latencyMs: Date.now() - startedAt,
+        questionChars,
+        diagnosticId
+      });
+      if (resolvedDocuments.temporaryDocumentKeys.length) {
+        await deleteR2DocumentPageObjects(user.id, resolvedDocuments.temporaryDocumentKeys).catch((error) => {
+          console.error("Failed to delete PDF pages after mind map follow-up", { error: String(error) });
+        });
+      }
+      return jsonResponse({
+        answer: followupResponse.answer,
+        model: followupResponse.model,
+        processedAttachments: resolvedDocuments.processedAttachments,
+        access: access.method,
+        quota: quotaStatus
+      });
+    }
     const assistantResponse = await askConfiguredProvider(question ?? "", body.scheduleContext, history, quotaStatus, settings, attachments, mode, normalizeMindMapDepth(body.mindMapDepth), request.signal);
     await logAiAssistantUsage({
       userId: user.id,
@@ -1009,17 +1062,21 @@ async function askConfiguredProvider(
       contentLength: choice?.message?.content?.length ?? 0
     });
   }
-  if (finishReason === "length") {
-    throw new Error(mode === "mind_map"
-      ? "AI 输出达到长度上限，返回的脑图 JSON 不完整。请减少输入内容后手动重试。"
-      : "AI 输出达到长度上限，回答不完整。请缩短问题后手动重试。");
-  }
   if (finishReason === "content_filter") throw new Error("内容未能通过模型安全检查，请调整输入后再试。");
   if (finishReason === "insufficient_system_resource") throw new Error("模型服务当前资源不足，请稍后手动重试。");
   const content = choice?.message?.content?.trim();
   if (!content) throw new Error("AI 助手没有返回有效回答。");
+  if (finishReason === "length" && mode !== "mind_map") {
+    throw new Error("AI 输出达到长度上限，回答不完整。请缩短问题后手动重试。");
+  }
+  const parsedResponse = mode === "mind_map"
+    ? parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason })
+    : parseAssistantResponse(content, question);
+  if (finishReason === "length" && parsedResponse.mindMap) {
+    parsedResponse.answer = "输出达到长度上限，已保留能够完整解析的脑图内容。";
+  }
   return {
-    ...(mode === "mind_map" ? parseMindMapResponse(content, mindMapConfig) : parseAssistantResponse(content, question)),
+    ...parsedResponse,
     model,
     usage: combineUsage(resolvedDocuments.usage, normalizeUsage(data.usage)),
     processedAttachments: resolvedDocuments.processedAttachments,
@@ -1162,16 +1219,22 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-function parseMindMapResponse(content: string, config: ReturnType<typeof mindMapDepthConfig>): ParsedAssistantResponse {
-  const cleaned = content
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
+function parseMindMapResponse(
+  content: string,
+  config: ReturnType<typeof mindMapDepthConfig>,
+  diagnostic: { provider: string; model: string; finishReason: string }
+): ParsedAssistantResponse {
   let parsed: { answer?: unknown; mindMap?: unknown };
   try {
-    parsed = JSON.parse(cleaned) as { answer?: unknown; mindMap?: unknown };
+    parsed = parseMindMapJson(content).value as { answer?: unknown; mindMap?: unknown };
   } catch {
-    throw new Error("AI 返回的脑图 JSON 不完整或格式无效，请手动重试。");
+    throw new DiagnosticError("AI 返回的脑图 JSON 不完整或格式无效，请手动重试。", {
+      stage: "mind_map_json_parse",
+      provider: diagnostic.provider,
+      model: diagnostic.model,
+      finishReason: diagnostic.finishReason,
+      contentLength: content.length
+    });
   }
   const budget = { remaining: config.maxNodes };
   const mindMap = sanitizeMindMapNode(parsed.mindMap, 0, budget, config.maxDepth);
@@ -1898,6 +1961,95 @@ async function answerAudioTranscript(
     usage?: Partial<AiAssistantUsage>;
   };
   const answer = data.choices?.[0]?.message?.content?.trim();
+  if (!answer) throw new Error("没有生成有效回答，请换一种问法重试。");
+  return { answer, model: configuredModelDisplayName(settings), usage: normalizeUsage(data.usage) };
+}
+
+async function answerMindMapFollowup(
+  question: string,
+  mindMap: AiMindMapNode,
+  attachments: AiAssistantAttachment[],
+  history: AiAssistantHistoryMessage[],
+  settings: AiSettingsRow | null,
+  signal?: AbortSignal
+): Promise<{ answer: string; model: string; usage: AiAssistantUsage }> {
+  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const credentials = configuredProviderCredentials(provider, settings);
+  if (!credentials.apiKey) throw new Error("思维导图问答模型暂未配置，请稍后再试。");
+  const model = configuredModel(settings);
+  const historyText = history.length
+    ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 5_000)
+    : "无";
+  const documentText = attachments
+    .filter((attachment) => attachment.kind === "document" && attachment.text)
+    .map((attachment) => `文档 ${attachment.name ?? "未命名"}：\n${attachment.text}`)
+    .join("\n\n")
+    .slice(0, 60_000);
+  const visualAttachments = attachments.flatMap((attachment) => {
+    if (attachment.kind === "image" && attachment.dataUrl) return [attachment.dataUrl];
+    if (attachment.kind === "document" && attachment.pageImages?.length) return attachment.pageImages;
+    return [];
+  });
+  const questionText = [
+    `当前思维导图：\n${JSON.stringify(mindMap)}`,
+    documentText ? `附件提取内容：\n${documentText}` : "",
+    `最近追问：\n${historyText}`,
+    `当前问题：${question}`
+  ].filter(Boolean).join("\n\n");
+  const userContent: string | Array<Record<string, unknown>> = visualAttachments.length
+    ? [
+      ...visualAttachments.map((url) => ({ type: "image_url", image_url: { url } })),
+      { type: "text", text: questionText }
+    ]
+    : questionText;
+  const response = await fetch(credentials.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${credentials.apiKey}`,
+      ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
+    },
+    signal,
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "你是思维导图内容问答助手。",
+            "只能根据当前思维导图、附件提取内容和当前对话回答，不得加入日程或其他外部资料。",
+            "资料没有覆盖的问题要直接说明，不要猜测；回答要具体、易读，可以使用简短列表。",
+            "不要提及系统、模型、后台或附件处理过程。"
+          ].join("\n")
+        },
+        { role: "user", content: userContent }
+      ],
+      thinking: { type: "disabled" },
+      temperature: 0.2,
+      ...(provider === "mimo" ? { max_completion_tokens: 1800 } : { max_tokens: 1800 }),
+      stream: false
+    })
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new DiagnosticError("思维导图内容问答失败，请稍后重试。", {
+      stage: "mind_map_followup",
+      providerStatus: response.status,
+      providerError: safeProviderError(text)
+    });
+  }
+  let data: { choices?: Array<{ finish_reason?: string; message?: { content?: string } }>; usage?: Partial<AiAssistantUsage> };
+  try {
+    data = JSON.parse(text) as typeof data;
+  } catch {
+    throw new DiagnosticError("思维导图问答返回格式无效，请稍后重试。", {
+      stage: "mind_map_followup_parse",
+      responseLength: text.length
+    });
+  }
+  const choice = data.choices?.[0];
+  if (choice?.finish_reason === "length") throw new Error("回答达到长度上限，请缩短问题后重试。");
+  const answer = choice?.message?.content?.trim();
   if (!answer) throw new Error("没有生成有效回答，请换一种问法重试。");
   return { answer, model: configuredModelDisplayName(settings), usage: normalizeUsage(data.usage) };
 }

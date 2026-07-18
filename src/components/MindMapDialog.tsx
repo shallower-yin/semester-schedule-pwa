@@ -1,9 +1,9 @@
-import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Sparkles, X } from "lucide-react";
+import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration } from "../lib/deepSeekAssistant";
-import { askAiMindMap, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapNeedsScheduleContext, mindMapToSvg, splitMindMapLabel, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
+import { askAiMindMap, askAiMindMapFollowup, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapNeedsScheduleContext, mindMapToSvg, splitMindMapLabel, type AiMindMapFollowupMessage, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
 import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
@@ -17,6 +17,11 @@ interface MindMapDialogProps {
 
 const EXAMPLES = ["梳理本周学习计划", "整理项目方案", "总结附件知识点"];
 
+interface MindMapFollowupTurn {
+  question: string;
+  answer: string;
+}
+
 export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   const [prompt, setPrompt] = useState("");
   const [accessCode, setAccessCode] = useState("");
@@ -28,6 +33,11 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   const [zoom, setZoom] = useState(1);
   const [depth, setDepth] = useState<MindMapDepth>("standard");
   const [previewing, setPreviewing] = useState(false);
+  const [followupQuestion, setFollowupQuestion] = useState("");
+  const [followupTurns, setFollowupTurns] = useState<MindMapFollowupTurn[]>([]);
+  const [followupLoading, setFollowupLoading] = useState(false);
+  const [followupError, setFollowupError] = useState("");
+  const followupControllerRef = useRef<AbortController | null>(null);
   const task = useSyncExternalStore(subscribeAiTasks, () => getAiTaskSnapshot("mind_map"), () => getAiTaskSnapshot("mind_map"));
   const loading = task.status === "running";
   useEffect(() => {
@@ -36,11 +46,16 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
 
   useEffect(() => {
     setMindMap(loadMindMap(ownerId));
+    setFollowupTurns([]);
+    setFollowupError("");
   }, [ownerId]);
 
   useEffect(() => {
     setAiTaskDialogOpen("mind_map", true);
-    return () => setAiTaskDialogOpen("mind_map", false);
+    return () => {
+      setAiTaskDialogOpen("mind_map", false);
+      followupControllerRef.current?.abort();
+    };
   }, []);
 
   async function addAttachments(files: FileList | null) {
@@ -80,6 +95,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
       onSuccess: (result) => {
         localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
         setMindMap(result.mindMap);
+        setFollowupTurns([]);
+        setFollowupError("");
         if (result.processedAttachments?.length) {
           setAttachments((current) => replaceProcessedAttachments(current, result.processedAttachments ?? []));
         }
@@ -88,6 +105,40 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
       }
     });
     if (!started) showToast("已有思维导图正在生成。", "error");
+  }
+
+  async function submitFollowup() {
+    const question = followupQuestion.trim();
+    if (!question || !mindMap || followupLoading) return;
+    const history: AiMindMapFollowupMessage[] = followupTurns.flatMap((turn) => [
+      { role: "user", content: turn.question },
+      { role: "assistant", content: turn.answer }
+    ]);
+    const controller = new AbortController();
+    followupControllerRef.current = controller;
+    setFollowupLoading(true);
+    setFollowupError("");
+    try {
+      const result = await askAiMindMapFollowup({
+        question,
+        mindMap,
+        accessCode,
+        attachments,
+        history,
+        signal: controller.signal
+      });
+      setFollowupTurns((current) => [...current, { question, answer: result.answer }]);
+      setFollowupQuestion("");
+      if (result.processedAttachments?.length) {
+        setAttachments((current) => replaceProcessedAttachments(current, result.processedAttachments ?? []));
+      }
+      if (result.access === "access-code") setAccessCode("");
+    } catch (error) {
+      if (!controller.signal.aborted) setFollowupError(error instanceof Error ? error.message : "追问失败，请稍后重试。");
+    } finally {
+      if (followupControllerRef.current === controller) followupControllerRef.current = null;
+      setFollowupLoading(false);
+    }
   }
 
   return (
@@ -182,6 +233,33 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
                 </div>
               </div>
               <MindMapCanvas root={mindMap} zoom={zoom} onPreview={() => setPreviewing(true)} />
+              <div className="mind-map-followup">
+                {followupTurns.length > 0 && (
+                  <div className="mind-map-followup-history" aria-live="polite">
+                    {followupTurns.map((turn, index) => (
+                      <div key={`${turn.question}-${index}`}>
+                        <strong>{turn.question}</strong>
+                        <p>{turn.answer}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <form onSubmit={(event) => { event.preventDefault(); void submitFollowup(); }}>
+                  <input
+                    value={followupQuestion}
+                    maxLength={1000}
+                    aria-label="追问思维导图"
+                    placeholder="继续追问附件或脑图中的内容"
+                    onChange={(event) => setFollowupQuestion(event.target.value)}
+                  />
+                  {followupLoading ? (
+                    <button type="button" className="icon-button danger-button" aria-label="取消追问" onClick={() => followupControllerRef.current?.abort()}><X size={17} /></button>
+                  ) : (
+                    <button type="submit" className="icon-button primary" aria-label="发送追问" disabled={!followupQuestion.trim()}><Send size={17} /></button>
+                  )}
+                </form>
+                {followupError && <div className="ai-inline-error" role="alert"><span>{followupError}</span></div>}
+              </div>
             </>
           ) : (
             <div className="mind-map-empty"><Network size={42} /><strong>输入主题后生成思维导图</strong><span>AI 会提炼中心主题、主要分支和关键节点。</span></div>

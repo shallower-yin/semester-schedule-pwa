@@ -1,15 +1,16 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { askAiMindMapMock, getAiAssistantConfigurationMock, prepareAiAssistantAttachmentMock } = vi.hoisted(() => ({
+const { askAiMindMapMock, askAiMindMapFollowupMock, getAiAssistantConfigurationMock, prepareAiAssistantAttachmentMock } = vi.hoisted(() => ({
   askAiMindMapMock: vi.fn(),
+  askAiMindMapFollowupMock: vi.fn(),
   getAiAssistantConfigurationMock: vi.fn(),
   prepareAiAssistantAttachmentMock: vi.fn()
 }));
 
 vi.mock("../lib/mindMap", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/mindMap")>();
-  return { ...actual, askAiMindMap: askAiMindMapMock };
+  return { ...actual, askAiMindMap: askAiMindMapMock, askAiMindMapFollowup: askAiMindMapFollowupMock };
 });
 
 vi.mock("../lib/deepSeekAssistant", async (importOriginal) => {
@@ -56,6 +57,7 @@ describe("AI 思维导图", () => {
         ]
       }
     });
+    askAiMindMapFollowupMock.mockReset().mockResolvedValue({ answer: "传感器通过敏感元件、转换元件和调理电路完成测量。" });
     getAiAssistantConfigurationMock.mockReset().mockResolvedValue({
       provider: "deepseek",
       model: "deepseek-chat",
@@ -147,5 +149,21 @@ describe("AI 思维导图", () => {
     fireEvent.click(screen.getByRole("button", { name: "取消生成" }));
     expect(signal?.aborted).toBe(true);
     expect(screen.getByRole("button", { name: "生成脑图" })).toBeInTheDocument();
+  });
+
+  it("生成后可以基于当前脑图和附件继续追问", async () => {
+    render(<MindMapDialog input={emptyInput} ownerId="user-followup" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "整理振动测试" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await screen.findByRole("img", { name: "项目计划 思维导图" });
+
+    fireEvent.change(screen.getByRole("textbox", { name: "追问思维导图" }), { target: { value: "传感器如何完成测量？" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送追问" }));
+
+    await waitFor(() => expect(askAiMindMapFollowupMock).toHaveBeenCalledWith(expect.objectContaining({
+      question: "传感器如何完成测量？",
+      mindMap: expect.objectContaining({ label: "项目计划" })
+    })));
+    expect(await screen.findByText(/敏感元件/)).toBeInTheDocument();
   });
 });
