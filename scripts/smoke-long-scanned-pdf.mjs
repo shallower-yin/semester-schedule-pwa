@@ -124,7 +124,7 @@ async function objectExists(objectKey) {
 
 async function fetchDiagnostic(diagnosticId) {
   const response = await fetch(
-    `${supabaseUrl}/rest/v1/ai_assistant_usage?diagnostic_id=eq.${encodeURIComponent(diagnosticId)}&select=status,error_message,diagnostic_details,latency_ms,created_at&limit=1`,
+    `${supabaseUrl}/rest/v1/ai_assistant_usage?diagnostic_id=eq.${encodeURIComponent(diagnosticId)}&select=status,error,diagnostic_details,latency_ms,created_at&limit=1`,
     { headers: serviceHeaders() }
   );
   const payload = await readJson(response);
