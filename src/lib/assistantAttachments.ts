@@ -8,6 +8,12 @@ export interface AiRemoteDocumentPage {
   size: number;
 }
 
+export interface AiAttachmentProcessingUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
 export interface AiAssistantAttachment {
   name: string;
   mimeType: string;
@@ -20,6 +26,7 @@ export interface AiAssistantAttachment {
   pageCount?: number;
   processedPageCount?: number;
   notice?: string;
+  processingUsage?: AiAttachmentProcessingUsage;
 }
 
 export interface AiAttachmentContextRecord {
@@ -39,6 +46,7 @@ const MAX_PDF_TOTAL_PAGES = 120;
 const MAX_PDF_IMAGE_DATA_CHARS = 7_000_000;
 const MAX_PDF_IMAGE_DIMENSION = 1400;
 const PDF_UPLOAD_BATCH_SIZE = 8;
+const PDF_EXTRACTION_BATCH_SIZE = 6;
 
 export const AI_IMAGE_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/bmp";
 export const AI_DOCUMENT_ACCEPT = "application/pdf,.docx,.txt,.md,.csv";
@@ -215,9 +223,84 @@ async function uploadScannedPdfPages(
     remotePages,
     documentId,
     pageCount: document.numPages,
-    processedPageCount: total,
+    processedPageCount: 0,
     notice
   };
+}
+
+export async function processAiRemoteDocumentAttachments(attachments: AiAssistantAttachment[], options: {
+  accessCode?: string;
+  feature?: "assistant" | "mind_map";
+  signal?: AbortSignal;
+  onProgress?: (completed: number, total: number) => void;
+  onUpdate?: (attachments: AiAssistantAttachment[]) => void;
+} = {}): Promise<AiAssistantAttachment[]> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法读取长篇扫描 PDF。");
+  const working = attachments.map(cloneAttachment);
+  const totals = working.map((attachment) => attachmentProgress(attachment));
+  const total = totals.reduce((sum, value) => sum + value.total, 0);
+  let completed = totals.reduce((sum, value) => sum + value.completed, 0);
+  options.onProgress?.(completed, total);
+
+  for (let attachmentIndex = 0; attachmentIndex < working.length; attachmentIndex += 1) {
+    let attachment = working[attachmentIndex];
+    let remaining = [...(attachment.remotePages ?? [])].sort((left, right) => left.pageNumber - right.pageNumber);
+    if (!remaining.length) continue;
+    const progress = attachmentProgress(attachment);
+    const textParts = progress.completed > 0 && attachment.text?.trim() ? [attachment.text.trim()] : [];
+    let processedPageCount = progress.completed;
+    let processingUsage = normalizeProcessingUsage(attachment.processingUsage);
+
+    while (remaining.length) {
+      throwIfAborted(options.signal);
+      const batch = remaining.slice(0, PDF_EXTRACTION_BATCH_SIZE);
+      const firstPage = batch[0].pageNumber;
+      const lastPage = batch[batch.length - 1].pageNumber;
+      const { data, error } = await supabase.functions.invoke<{
+        text?: string;
+        usage?: Partial<AiAttachmentProcessingUsage>;
+      }>("ai-assistant", {
+        signal: options.signal,
+        body: {
+          action: "extract_document_batch",
+          accessCode: options.accessCode?.trim() || undefined,
+          attachments: [{
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            kind: "document",
+            documentId: attachment.documentId,
+            pageCount: attachment.pageCount,
+            remotePages: batch
+          }],
+          document: { feature: options.feature ?? "assistant" }
+        }
+      });
+      if (error || !data?.text?.trim()) {
+        const reason = await functionErrorMessage(error, `扫描 PDF 第 ${firstPage}-${lastPage} 页读取失败。`);
+        throw new Error(`扫描 PDF 已读取 ${processedPageCount}/${progress.total} 页；${reason} 已完成内容已保留，重试将从未完成页继续。`);
+      }
+
+      textParts.push(`第 ${firstPage}-${lastPage} 页：\n${data.text.trim()}`);
+      processingUsage = combineProcessingUsage(processingUsage, normalizeProcessingUsage(data.usage));
+      remaining = remaining.slice(batch.length);
+      processedPageCount += batch.length;
+      completed += batch.length;
+      attachment = {
+        ...attachment,
+        text: textParts.join("\n\n").slice(0, 100_000),
+        remotePages: remaining.length ? remaining : undefined,
+        processedPageCount,
+        processingUsage,
+        notice: remaining.length
+          ? `扫描版 PDF 已读取 ${processedPageCount}/${progress.total} 页`
+          : `扫描版 PDF 已完成 ${processedPageCount} 页读取`
+      };
+      working[attachmentIndex] = attachment;
+      options.onProgress?.(completed, total);
+      options.onUpdate?.(working.map(cloneAttachment));
+    }
+  }
+  return working;
 }
 
 async function renderPdfPageImage(page: PDFPageProxy): Promise<string> {
@@ -274,6 +357,37 @@ async function functionErrorMessage(error: unknown, fallback: string): Promise<s
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("操作已取消。", "AbortError");
+}
+
+function cloneAttachment(attachment: AiAssistantAttachment): AiAssistantAttachment {
+  return {
+    ...attachment,
+    remotePages: attachment.remotePages?.map((page) => ({ ...page })),
+    pageImages: attachment.pageImages ? [...attachment.pageImages] : undefined,
+    processingUsage: attachment.processingUsage ? { ...attachment.processingUsage } : undefined
+  };
+}
+
+function attachmentProgress(attachment: AiAssistantAttachment): { completed: number; total: number } {
+  const remaining = attachment.remotePages?.length ?? 0;
+  const hasExtractedText = Boolean(attachment.text?.trim()) && !/将由 AI 分批读取|已上传 \d+ 页/.test(attachment.text ?? "");
+  const reported = hasExtractedText ? Math.max(0, Number(attachment.processedPageCount) || 0) : 0;
+  return { completed: reported, total: reported + remaining };
+}
+
+function normalizeProcessingUsage(value: Partial<AiAttachmentProcessingUsage> | undefined): AiAttachmentProcessingUsage {
+  const promptTokens = Math.max(0, Math.round(Number(value?.prompt_tokens) || 0));
+  const completionTokens = Math.max(0, Math.round(Number(value?.completion_tokens) || 0));
+  const totalTokens = Math.max(0, Math.round(Number(value?.total_tokens) || 0)) || promptTokens + completionTokens;
+  return { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens };
+}
+
+function combineProcessingUsage(left: AiAttachmentProcessingUsage, right: AiAttachmentProcessingUsage): AiAttachmentProcessingUsage {
+  return {
+    prompt_tokens: left.prompt_tokens + right.prompt_tokens,
+    completion_tokens: left.completion_tokens + right.completion_tokens,
+    total_tokens: left.total_tokens + right.total_tokens
+  };
 }
 
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {

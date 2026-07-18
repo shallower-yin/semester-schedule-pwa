@@ -1,4 +1,4 @@
-import type { AiAssistantAttachment } from "./assistantAttachments";
+import { processAiRemoteDocumentAttachments, type AiAssistantAttachment } from "./assistantAttachments";
 import { supabase } from "./supabase";
 
 export interface AiMindMapNode {
@@ -65,8 +65,20 @@ export async function askAiMindMap(input: {
   attachments?: AiAssistantAttachment[];
   depth?: MindMapDepth;
   signal?: AbortSignal;
+  onAttachmentProgress?: (completed: number, total: number) => void;
+  onAttachmentsProcessed?: (attachments: AiAssistantAttachment[]) => void;
 }): Promise<AiMindMapResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法生成思维导图。");
+  const sourceAttachments = input.attachments?.slice(0, 3) ?? [];
+  const hadRemoteDocuments = sourceAttachments.some((attachment) => attachment.remotePages?.length);
+  const processedAttachments = await processAiRemoteDocumentAttachments(sourceAttachments, {
+    accessCode: input.accessCode,
+    feature: "mind_map",
+    signal: input.signal,
+    onProgress: input.onAttachmentProgress,
+    onUpdate: input.onAttachmentsProcessed
+  });
+  input.onAttachmentsProcessed?.(processedAttachments);
   const { data, error } = await supabase.functions.invoke<AiMindMapResult>("ai-assistant", {
     signal: input.signal,
     body: {
@@ -74,12 +86,17 @@ export async function askAiMindMap(input: {
       question: input.prompt.trim(),
       scheduleContext: input.context,
       accessCode: input.accessCode?.trim() || undefined,
-      attachments: input.attachments?.slice(0, 3),
+      attachments: processedAttachments,
       mindMapDepth: input.depth ?? "standard"
     }
   });
-  if (!error && data?.mindMap?.label) return data;
-  throw new Error(error ? await mindMapFunctionError(error) : "AI 没有返回有效的思维导图。");
+  if (!error && data?.mindMap?.label) {
+    return { ...data, processedAttachments: processedAttachments.map(clearProcessingUsage) };
+  }
+  const message = error ? await mindMapFunctionError(error) : "AI 没有返回有效的思维导图。";
+  throw new Error(hadRemoteDocuments
+    ? `PDF 文字已读取完成，但脑图生成失败：${message} 重试不会再次识别 PDF。`
+    : message);
 }
 
 export async function askAiMindMapFollowup(input: {
@@ -291,6 +308,11 @@ function escapeXml(value: string): string {
 
 function safeFileName(value: string): string {
   return value.replace(/[\\/:*?"<>|]/g, "-").trim() || "AI脑图";
+}
+
+function clearProcessingUsage(attachment: AiAssistantAttachment): AiAssistantAttachment {
+  const { processingUsage: _processingUsage, ...cleaned } = attachment;
+  return cleaned;
 }
 
 function leafCount(node: AiMindMapNode): number {

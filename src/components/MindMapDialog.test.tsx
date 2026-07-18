@@ -136,6 +136,51 @@ describe("AI 思维导图", () => {
     expect(screen.getByText("扫描讲义.pdf")).toBeInTheDocument();
   });
 
+  it("最终生成失败后重试会复用已经读取的 PDF 文字", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    prepareAiAssistantAttachmentMock.mockResolvedValueOnce({
+      name: "长讲义.pdf",
+      mimeType: "application/pdf",
+      kind: "document",
+      text: "扫描版 PDF 已上传 8 页，将由 AI 分批读取。",
+      remotePages: [{ pageNumber: 1, objectKey: "ai-documents/user/doc/page-0001.jpg", mimeType: "image/jpeg", size: 1024 }],
+      pageCount: 8,
+      processedPageCount: 0
+    });
+    askAiMindMapMock
+      .mockImplementationOnce(async (request: { onAttachmentsProcessed?: (attachments: unknown[]) => void }) => {
+        request.onAttachmentsProcessed?.([{
+          name: "长讲义.pdf",
+          mimeType: "application/pdf",
+          kind: "document",
+          text: "已经读取的 PDF 文字",
+          pageCount: 8,
+          processedPageCount: 8
+        }]);
+        throw new Error("PDF 文字已读取完成，但脑图生成失败");
+      })
+      .mockResolvedValueOnce({
+        answer: "已生成",
+        mindMap: { label: "讲义", children: [] }
+      });
+
+    render(<MindMapDialog input={emptyInput} ownerId="user-resume" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "选择脑图附件来源" });
+    fireEvent.change(screen.getByLabelText("从电脑选择文件"), {
+      target: { files: [new File(["scan"], "长讲义.pdf", { type: "application/pdf" })] }
+    });
+    await screen.findByText("长讲义.pdf");
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("PDF 文字已读取完成");
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+
+    await waitFor(() => expect(askAiMindMapMock).toHaveBeenCalledTimes(2));
+    const retryAttachment = askAiMindMapMock.mock.calls[1]?.[0]?.attachments?.[0];
+    expect(retryAttachment).toEqual(expect.objectContaining({ text: "已经读取的 PDF 文字" }));
+    expect(retryAttachment).not.toHaveProperty("remotePages");
+    expect(await screen.findByRole("img", { name: "讲义 思维导图" })).toBeInTheDocument();
+  });
+
   it("生成过程中可以取消当前请求", async () => {
     let signal: AbortSignal | undefined;
     askAiMindMapMock.mockImplementationOnce((input: { signal?: AbortSignal }) => {

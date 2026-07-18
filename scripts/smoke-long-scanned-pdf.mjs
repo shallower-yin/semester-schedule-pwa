@@ -34,6 +34,47 @@ try {
     remotePages.push({ pageNumber, objectKey, size: pageImage.length });
   }
 
+  const textParts = [];
+  const processingUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  for (let start = 0; start < remotePages.length; start += 6) {
+    const batch = remotePages.slice(start, start + 6);
+    const batchResponse = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
+      method: "POST",
+      headers: { apikey: publishableKey, authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "extract_document_batch",
+        document: { feature: "mind_map" },
+        attachments: [{
+          kind: "document",
+          name: "25页扫描文档.pdf",
+          mimeType: "application/pdf",
+          pageCount,
+          documentId,
+          remotePages: batch
+        }]
+      })
+    });
+    const batchPayload = await readJson(batchResponse);
+    if (!batchResponse.ok || typeof batchPayload?.text !== "string") {
+      throw new Error(`scanned PDF batch ${start + 1} failed: HTTP ${batchResponse.status} ${JSON.stringify(batchPayload).slice(0, 800)}`);
+    }
+    textParts.push(`第 ${start + 1}-${Math.min(pageCount, start + batch.length)} 页：\n${batchPayload.text}`);
+    processingUsage.prompt_tokens += Number(batchPayload?.usage?.prompt_tokens ?? 0);
+    processingUsage.completion_tokens += Number(batchPayload?.usage?.completion_tokens ?? 0);
+    processingUsage.total_tokens += Number(batchPayload?.usage?.total_tokens ?? 0);
+    for (const page of batch) {
+      if (await objectExists(page.objectKey)) throw new Error(`completed batch page was not deleted: ${page.objectKey}`);
+    }
+  }
+  const processed = {
+    kind: "document",
+    name: "25页扫描文档.pdf",
+    mimeType: "application/pdf",
+    pageCount,
+    processedPageCount: pageCount,
+    text: textParts.join("\n\n"),
+    processingUsage
+  };
   const response = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
     method: "POST",
     headers: { apikey: publishableKey, authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -41,14 +82,7 @@ try {
       mode: "mind_map",
       question: "请把附件的读取过程整理成一份简洁的长文档处理思维导图。",
       mindMapDepth: "quick",
-      attachments: [{
-        kind: "document",
-        name: "25页扫描文档.pdf",
-        mimeType: "application/pdf",
-        pageCount,
-        documentId,
-        remotePages
-      }]
+      attachments: [processed]
     })
   });
   const payload = await readJson(response);
@@ -60,10 +94,6 @@ try {
     throw new Error(`long scanned PDF smoke failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 800)}`);
   }
   if (!payload?.mindMap?.label) throw new Error("long scanned PDF smoke did not return a mind map");
-  const processed = payload?.processedAttachments?.[0];
-  if (processed?.kind !== "document" || processed?.processedPageCount !== pageCount || typeof processed?.text !== "string") {
-    throw new Error(`long scanned PDF smoke returned invalid processed attachment: ${JSON.stringify(processed).slice(0, 500)}`);
-  }
 
   const followupResponse = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
     method: "POST",
@@ -72,7 +102,7 @@ try {
       mode: "mind_map_followup",
       question: "What repeated English word appears on the scanned document pages?",
       mindMap: payload.mindMap,
-      attachments: payload.processedAttachments,
+      attachments: [{ ...processed, processingUsage: undefined }],
       history: []
     })
   });

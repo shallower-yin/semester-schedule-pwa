@@ -80,19 +80,29 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   async function generate() {
     const question = prompt.trim() || (attachments.length ? "请根据附件内容生成一份结构清晰的思维导图。" : "");
     if (!question || loading) return;
+    let taskAttachments = attachments;
+    setAttachmentProgress(attachments.some((attachment) => attachment.remotePages?.length) ? "准备读取扫描 PDF" : "");
     const started = startAiTask({
       feature: "mind_map",
       label: "正在生成思维导图",
       successMessage: "思维导图已生成，点击可查看结果。",
       run: (signal) => askAiMindMap({
-        prompt: question,
-        context: mindMapNeedsScheduleContext(question) ? buildDeepSeekScheduleContext(input, question) : undefined,
-        accessCode,
-        attachments,
-        depth,
-        signal
-      }),
+          prompt: question,
+          context: mindMapNeedsScheduleContext(question) ? buildDeepSeekScheduleContext(input, question) : undefined,
+          accessCode,
+          attachments: taskAttachments,
+          depth,
+          signal,
+          onAttachmentProgress: (completed, total) => {
+            if (total > 0) setAttachmentProgress(completed < total ? `正在读取扫描 PDF ${completed}/${total} 页` : "PDF 读取完成，正在生成脑图");
+          },
+          onAttachmentsProcessed: (nextAttachments) => {
+            taskAttachments = nextAttachments;
+            setAttachments(nextAttachments);
+          }
+        }),
       onSuccess: (result) => {
+        setAttachmentProgress("");
         localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
         setMindMap(result.mindMap);
         setFollowupTurns([]);
@@ -102,7 +112,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
         }
         setZoom(1);
         if (result.access === "access-code") setAccessCode("");
-      }
+      },
+      onError: () => setAttachmentProgress("")
     });
     if (!started) showToast("已有思维导图正在生成。", "error");
   }
@@ -210,6 +221,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
               </button>
             )}
           </div>
+          {loading && attachmentProgress && <p className="mind-map-processing-status" role="status">{attachmentProgress}</p>}
           {task.status === "error" && (
             <div className="ai-inline-error" role="alert">
               <span>{task.message}</span>

@@ -4,7 +4,7 @@ import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYT
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "create_document_page_uploads" | "delete_document_uploads";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "create_document_page_uploads" | "extract_document_batch" | "delete_document_uploads";
   mode?: "assistant" | "mind_map" | "mind_map_followup" | "audio_transcription" | "audio_followup";
   question?: string;
   scheduleContext?: unknown;
@@ -50,6 +50,7 @@ interface AiAssistantAttachment {
   documentId?: string;
   pageCount?: number;
   processedPageCount?: number;
+  processingUsage?: AiAssistantUsage;
 }
 
 interface SupabaseUser {
@@ -323,6 +324,7 @@ Deno.serve(async (request) => {
   let accessMethod = "";
   let questionChars = 0;
   let featureKey: AiFeatureKey = "assistant";
+  let observedUsage = emptyUsage();
   try {
     const authorization = request.headers.get("authorization") ?? "";
     if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 AI 助手。" }, 401);
@@ -366,6 +368,34 @@ Deno.serve(async (request) => {
       if (!uploadAccess.allowed) return jsonResponse({ error: uploadAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
       accessMethod = uploadAccess.method ?? "";
       return jsonResponse(await createR2DocumentPageUploads(user.id, body.document));
+    }
+    if (body.action === "extract_document_batch") {
+      featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
+      const batchAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!batchAccess.allowed) return jsonResponse({ error: batchAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = batchAccess.method ?? "";
+      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
+      if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
+      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+      const model = configuredModel(settings);
+      const credentials = configuredProviderCredentials(provider, settings);
+      if (!credentials.apiKey) throw new Error("扫描 PDF 读取服务暂未配置。");
+      const document = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, model), user.id)
+        .find((attachment) => attachment.kind === "document" && attachment.remotePages?.length);
+      const pages = document?.remotePages ?? [];
+      if (!document || !pages.length || pages.length > 6) throw new Error("扫描 PDF 分批参数无效，请重新选择文件。");
+      const result = await extractRemoteDocumentBatch(document.name ?? "未命名 PDF", pages, {
+        provider,
+        model,
+        apiKey: credentials.apiKey,
+        endpoint: credentials.endpoint,
+        signal: request.signal
+      });
+      observedUsage = result.usage;
+      await deleteR2DocumentPageObjects(user.id, pages.map((page) => page.objectKey!)).catch((error) => {
+        console.error("Failed to delete extracted PDF pages", { diagnosticId, error: String(error) });
+      });
+      return jsonResponse({ text: result.text, usage: result.usage, processedPageCount: pages.length, model });
     }
     if (body.action === "delete_document_uploads") {
       await deleteR2DocumentPageObjects(user.id, body.document?.objectKeys);
@@ -497,6 +527,7 @@ Deno.serve(async (request) => {
     const history = sanitizeHistory(body.history);
     const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
     const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)), user.id);
+    observedUsage = attachments.reduce((usage, attachment) => combineUsage(usage, attachment.processingUsage ?? emptyUsage()), emptyUsage());
     if (mode === "mind_map_followup") {
       const mindMap = sanitizeMindMapNode(body.mindMap, 0, { remaining: 100 }, 6);
       if (!mindMap) return jsonResponse({ error: "请先生成思维导图后再追问。" }, 400);
@@ -570,6 +601,7 @@ Deno.serve(async (request) => {
     });
   } catch (error) {
     const diagnosticDetails = error instanceof DiagnosticError ? error.details : {};
+    const failureUsage = combineUsage(observedUsage, usageFromDiagnosticDetails(diagnosticDetails));
     const publicMessage = error instanceof Error ? error.message : "AI 助手请求失败。";
     console.error("AI request failed", { diagnosticId, featureKey, message: publicMessage, ...diagnosticDetails });
     if (currentUser) {
@@ -579,7 +611,7 @@ Deno.serve(async (request) => {
         accessMethod,
         featureKey,
         model: "configured-provider",
-        usage: emptyUsage(),
+        usage: failureUsage,
         latencyMs: Date.now() - startedAt,
         questionChars,
         error: publicMessage,
@@ -1069,8 +1101,9 @@ async function askConfiguredProvider(
   if (finishReason === "length" && mode !== "mind_map") {
     throw new Error("AI 输出达到长度上限，回答不完整。请缩短问题后手动重试。");
   }
+  const providerUsage = normalizeUsage(data.usage);
   const parsedResponse = mode === "mind_map"
-    ? parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason })
+    ? parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason, providerUsage })
     : parseAssistantResponse(content, question);
   if (finishReason === "length" && parsedResponse.mindMap) {
     parsedResponse.answer = "输出达到长度上限，已保留能够完整解析的脑图内容。";
@@ -1078,7 +1111,7 @@ async function askConfiguredProvider(
   return {
     ...parsedResponse,
     model,
-    usage: combineUsage(resolvedDocuments.usage, normalizeUsage(data.usage)),
+    usage: combineUsage(resolvedDocuments.usage, providerUsage),
     processedAttachments: resolvedDocuments.processedAttachments,
     temporaryDocumentKeys: resolvedDocuments.temporaryDocumentKeys
   };
@@ -1104,9 +1137,11 @@ async function resolveRemoteDocumentAttachments(
   const temporaryDocumentKeys: string[] = [];
   let usage = emptyUsage();
   for (const attachment of attachments) {
+    usage = combineUsage(usage, attachment.processingUsage ?? emptyUsage());
     const remotePages = attachment.remotePages?.filter((page) => page.objectKey && page.pageNumber) ?? [];
     if (!remotePages.length) {
-      resolved.push(attachment);
+      const { processingUsage: _processingUsage, ...processedAttachment } = attachment;
+      resolved.push(processedAttachment);
       continue;
     }
     throwIfAborted(providerConfig.signal);
@@ -1222,7 +1257,7 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 function parseMindMapResponse(
   content: string,
   config: ReturnType<typeof mindMapDepthConfig>,
-  diagnostic: { provider: string; model: string; finishReason: string }
+  diagnostic: { provider: string; model: string; finishReason: string; providerUsage: AiAssistantUsage }
 ): ParsedAssistantResponse {
   let parsed: { answer?: unknown; mindMap?: unknown };
   try {
@@ -1233,7 +1268,8 @@ function parseMindMapResponse(
       provider: diagnostic.provider,
       model: diagnostic.model,
       finishReason: diagnostic.finishReason,
-      contentLength: content.length
+      contentLength: content.length,
+      providerUsage: diagnostic.providerUsage
     });
   }
   const budget = { remaining: config.maxNodes };
@@ -2133,6 +2169,7 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
       result.push({ name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
     } else if (record.kind === "document") {
       const processedPageCount = clampNumber(record.processedPageCount, 0, 120, 0);
+      const processingUsage = sanitizeClientUsage(record.processingUsage);
       const textLimit = processedPageCount > 24 && !Array.isArray(record.remotePages) ? 100_000 : 40_000;
       const text = typeof record.text === "string" ? record.text.trim().slice(0, textLimit) : "";
       const pageImages: string[] = [];
@@ -2174,7 +2211,8 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
         remotePages,
         documentId: typeof record.documentId === "string" ? record.documentId.slice(0, 50) : undefined,
         pageCount: clampNumber(record.pageCount, 0, 500, remotePages.length || pageImages.length),
-        processedPageCount: remotePages.length || processedPageCount || pageImages.length
+        processedPageCount: processedPageCount || pageImages.length,
+        processingUsage
       });
     }
   }
@@ -2338,6 +2376,20 @@ function normalizeUsage(usage: Partial<AiAssistantUsage> | undefined): AiAssista
     total_tokens: totalTokens,
     estimated_cost_cny: estimateCostCny(promptTokens, completionTokens)
   };
+}
+
+function sanitizeClientUsage(value: unknown): AiAssistantUsage {
+  if (!value || typeof value !== "object") return emptyUsage();
+  const record = value as Record<string, unknown>;
+  return normalizeUsage({
+    prompt_tokens: clampNumber(record.prompt_tokens, 0, 50_000_000, 0),
+    completion_tokens: clampNumber(record.completion_tokens, 0, 50_000_000, 0),
+    total_tokens: clampNumber(record.total_tokens, 0, 100_000_000, 0)
+  });
+}
+
+function usageFromDiagnosticDetails(details: Record<string, unknown>): AiAssistantUsage {
+  return sanitizeClientUsage(details.providerUsage);
 }
 
 function emptyUsage(): AiAssistantUsage {

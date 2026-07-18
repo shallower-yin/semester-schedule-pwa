@@ -6757,6 +6757,13 @@ textarea {
   gap: 8px;
 }
 
+.mind-map-processing-status {
+  margin: 0;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .mind-map-depth-control {
   display: grid;
   grid-template-columns: auto 82px;

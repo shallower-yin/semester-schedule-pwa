@@ -11,7 +11,7 @@ vi.mock("pdfjs-dist", () => ({
 
 vi.mock("pdfjs-dist/build/pdf.worker.mjs?url", () => ({ default: "pdf.worker.mjs" }));
 
-import { prepareAiAssistantAttachment } from "./assistantAttachments";
+import { prepareAiAssistantAttachment, processAiRemoteDocumentAttachments } from "./assistantAttachments";
 
 describe("AI 助手附件", () => {
   beforeEach(() => {
@@ -91,9 +91,53 @@ describe("AI 助手附件", () => {
 
     expect(attachment.pageImages).toBeUndefined();
     expect(attachment.remotePages).toHaveLength(25);
-    expect(attachment.processedPageCount).toBe(25);
+    expect(attachment.processedPageCount).toBe(0);
     expect(invokeMock).toHaveBeenCalledTimes(4);
     expect(fetch).toHaveBeenCalledTimes(25);
     expect(progress).toHaveBeenLastCalledWith(25, 25);
+  });
+
+  it("按 6 页一批读取远程 PDF 并在每批后保留进度", async () => {
+    const remotePages = Array.from({ length: 8 }, (_, index) => ({
+      pageNumber: index + 1,
+      objectKey: `ai-documents/user-1/doc/page-${String(index + 1).padStart(4, "0")}.jpg`,
+      mimeType: "image/jpeg" as const,
+      size: 1024
+    }));
+    invokeMock.mockImplementation(async (_name: string, options: { body: { action?: string; attachments?: Array<{ remotePages?: typeof remotePages }> } }) => {
+      const pages = options.body.attachments?.[0]?.remotePages ?? [];
+      return {
+        data: {
+          text: `读取第 ${pages[0]?.pageNumber}-${pages.at(-1)?.pageNumber} 页`,
+          usage: { prompt_tokens: pages.length * 100, completion_tokens: pages.length * 10, total_tokens: pages.length * 110 }
+        },
+        error: null
+      };
+    });
+    const onProgress = vi.fn();
+    const onUpdate = vi.fn();
+
+    const [attachment] = await processAiRemoteDocumentAttachments([{
+      name: "长讲义.pdf",
+      mimeType: "application/pdf",
+      kind: "document",
+      text: "扫描版 PDF 已上传 8 页，将由 AI 分批读取。",
+      remotePages,
+      pageCount: 8,
+      processedPageCount: 0
+    }], { feature: "mind_map", onProgress, onUpdate });
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock.mock.calls[0]?.[1]?.body.attachments[0].remotePages).toHaveLength(6);
+    expect(invokeMock.mock.calls[1]?.[1]?.body.attachments[0].remotePages).toHaveLength(2);
+    expect(onProgress).toHaveBeenNthCalledWith(1, 0, 8);
+    expect(onProgress).toHaveBeenNthCalledWith(2, 6, 8);
+    expect(onProgress).toHaveBeenLastCalledWith(8, 8);
+    expect(onUpdate).toHaveBeenCalledTimes(2);
+    expect(attachment.remotePages).toBeUndefined();
+    expect(attachment.processedPageCount).toBe(8);
+    expect(attachment.text).toContain("读取第 1-6 页");
+    expect(attachment.text).toContain("读取第 7-8 页");
+    expect(attachment.processingUsage).toEqual({ prompt_tokens: 800, completion_tokens: 80, total_tokens: 880 });
   });
 });
