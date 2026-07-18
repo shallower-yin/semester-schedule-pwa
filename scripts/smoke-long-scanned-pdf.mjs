@@ -52,7 +52,13 @@ try {
     })
   });
   const payload = await readJson(response);
-  if (!response.ok) throw new Error(`long scanned PDF smoke failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 800)}`);
+  if (!response.ok) {
+    if (payload?.diagnosticId) {
+      const diagnostic = await fetchDiagnostic(payload.diagnosticId);
+      console.error("Scanned PDF diagnostic:", JSON.stringify(diagnostic));
+    }
+    throw new Error(`long scanned PDF smoke failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 800)}`);
+  }
   if (!payload?.mindMap?.label) throw new Error("long scanned PDF smoke did not return a mind map");
   const processed = payload?.processedAttachments?.[0];
   if (processed?.kind !== "document" || processed?.processedPageCount !== pageCount || typeof processed?.text !== "string") {
@@ -114,6 +120,15 @@ async function objectExists(objectKey) {
     if (status === 404 || error?.name === "NotFound") return false;
     throw error;
   }
+}
+
+async function fetchDiagnostic(diagnosticId) {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/ai_assistant_usage?diagnostic_id=eq.${encodeURIComponent(diagnosticId)}&select=status,error_message,diagnostic_details,latency_ms,created_at&limit=1`,
+    { headers: serviceHeaders() }
+  );
+  const payload = await readJson(response);
+  return response.ok ? payload?.[0] ?? null : { lookupStatus: response.status, payload };
 }
 
 function serviceHeaders(extra = {}) {

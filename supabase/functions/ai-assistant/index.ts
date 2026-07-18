@@ -1054,7 +1054,7 @@ async function resolveRemoteDocumentAttachments(
     }
     throwIfAborted(providerConfig.signal);
     const batches = chunkArray(remotePages, 6);
-    const extracted = await mapWithConcurrency(batches, 2, async (batch) => {
+    const extracted = await mapWithConcurrency(batches, 1, async (batch) => {
       const result = await extractRemoteDocumentBatch(attachment.name ?? "未命名 PDF", batch, providerConfig);
       return result;
     }, providerConfig.signal);
@@ -1131,9 +1131,19 @@ async function extractRemoteDocumentBatch(
   });
   const responseText = await response.text();
   if (!response.ok) {
-    if (response.status === 429) throw new Error("扫描 PDF 分批读取过于频繁，请稍后手动重试。");
-    if (response.status >= 500) throw new Error("扫描 PDF 读取服务暂时不可用，请稍后手动重试。");
-    throw new Error(`扫描 PDF 第 ${pageLabel} 页读取失败（HTTP ${response.status}）。`);
+    const publicMessage = response.status === 429
+      ? "扫描 PDF 分批读取过于频繁，请稍后手动重试。"
+      : response.status >= 500
+        ? "扫描 PDF 读取服务暂时不可用，请稍后手动重试。"
+        : `扫描 PDF 第 ${pageLabel} 页读取失败（HTTP ${response.status}）。`;
+    throw new DiagnosticError(publicMessage, {
+      stage: "scanned_pdf_batch",
+      providerStatus: response.status,
+      providerError: safeProviderError(responseText),
+      documentName,
+      pages: pageLabel,
+      batchPageCount: pages.length
+    });
   }
   let data: { choices?: Array<{ message?: { content?: string } }>; usage?: Partial<AiAssistantUsage> };
   try {
