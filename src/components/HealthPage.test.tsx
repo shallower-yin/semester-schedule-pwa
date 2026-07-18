@@ -52,6 +52,7 @@ describe("健康第一阶段", () => {
       const active = (await db.healthLogs.toArray()).filter((item) => !item.deleted_at);
       expect(active.map((item) => item.kind)).toEqual(["exercise"]);
     });
+    await waitFor(() => expect(screen.getByText("0 分钟")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "撤销最近一次活动或训练" }));
     await waitFor(async () => {
