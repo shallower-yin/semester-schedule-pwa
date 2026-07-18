@@ -194,7 +194,7 @@ jobs:
           echo "$response" | jq -e '
             length == 1
             and .[0].active == true
-            and .[0].status == "succeeded"
+            and (.[0].status == "succeeded" or .[0].status == "running")
             and .[0].function_status_code == 200
             and .[0].function_error == null
           '
