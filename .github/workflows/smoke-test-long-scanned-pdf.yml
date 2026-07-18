@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       page_count:
-        description: Number of scanned PDF pages to verify (1-120)
+        description: Number of scanned PDF pages to verify
         required: false
         default: "25"
 

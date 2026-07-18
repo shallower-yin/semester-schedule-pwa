@@ -8,6 +8,12 @@ export interface AiRemoteDocumentPage {
   size: number;
 }
 
+export interface AiDocumentTextBatch {
+  startPage: number;
+  endPage: number;
+  text: string;
+}
+
 export interface AiAttachmentProcessingUsage {
   prompt_tokens: number;
   completion_tokens: number;
@@ -22,6 +28,7 @@ export interface AiAssistantAttachment {
   text?: string;
   pageImages?: string[];
   remotePages?: AiRemoteDocumentPage[];
+  pendingTextBatches?: AiDocumentTextBatch[];
   documentId?: string;
   pageCount?: number;
   processedPageCount?: number;
@@ -42,11 +49,12 @@ const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
 const MAX_DOCUMENT_TEXT = 40_000;
 const MAX_PDF_IMAGE_PAGES = 24;
-const MAX_PDF_TOTAL_PAGES = 120;
+const DEFAULT_MAX_PDF_TOTAL_PAGES = 120;
 const MAX_PDF_IMAGE_DATA_CHARS = 7_000_000;
 const MAX_PDF_IMAGE_DIMENSION = 1400;
 const PDF_UPLOAD_BATCH_SIZE = 8;
 const PDF_EXTRACTION_BATCH_SIZE = 6;
+const PDF_TEXT_BATCH_CHARS = 48_000;
 
 export const AI_IMAGE_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/bmp";
 export const AI_DOCUMENT_ACCEPT = "application/pdf,.docx,.txt,.md,.csv";
@@ -99,20 +107,41 @@ async function extractPdfAttachment(file: File, options: {
   pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default;
   const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
   const document = await task.promise;
-  const pageTexts: string[] = [];
-  for (let pageNumber = 1; pageNumber <= Math.min(document.numPages, 120); pageNumber += 1) {
+  const configuredLimit = await configuredPdfPageLimit(options.accessCode, options.signal);
+  if (document.numPages > configuredLimit) {
+    throw new Error(`这份 PDF 共 ${document.numPages} 页，当前服务安全范围为 ${configuredLimit} 页。请联系管理员调整文档页数范围，或拆分后重试。`);
+  }
+  const pageTexts: Array<{ pageNumber: number; text: string }> = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    throwIfAborted(options.signal);
     const page = await document.getPage(pageNumber);
     const content = await page.getTextContent();
-    pageTexts.push(content.items.map((item) => "str" in item ? item.str : "").join(" "));
-    if (pageTexts.join("\n").length >= MAX_DOCUMENT_TEXT) break;
+    const text = content.items.map((item) => "str" in item ? item.str : "").join(" ").replace(/\u0000/g, "").trim();
+    if (text) pageTexts.push({ pageNumber, text });
   }
-  const normalized = pageTexts.join("\n").replace(/\u0000/g, "").trim();
+  const normalized = pageTexts.map((page) => page.text).join("\n").trim();
   if (normalized) {
+    if (normalized.length > MAX_DOCUMENT_TEXT) {
+      const pendingTextBatches = buildPdfTextBatches(pageTexts);
+      const notice = `文本型 PDF 共 ${document.numPages} 页，将分 ${pendingTextBatches.length} 批整理`;
+      return {
+        name: file.name,
+        mimeType: file.type || "application/pdf",
+        kind: "document",
+        text: notice,
+        pendingTextBatches,
+        pageCount: document.numPages,
+        processedPageCount: 0,
+        notice
+      };
+    }
     return {
       name: file.name,
       mimeType: file.type || "application/pdf",
       kind: "document",
-      text: normalized.slice(0, MAX_DOCUMENT_TEXT)
+      text: normalized,
+      pageCount: document.numPages,
+      processedPageCount: document.numPages
     };
   }
 
@@ -159,7 +188,7 @@ async function uploadScannedPdfPages(
   }
 ): Promise<AiAssistantAttachment> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法读取长篇扫描 PDF。");
-  const total = Math.min(document.numPages, MAX_PDF_TOTAL_PAGES);
+  const total = document.numPages;
   const remotePages: AiRemoteDocumentPage[] = [];
   let documentId = "";
   options.onProgress?.(0, total);
@@ -212,9 +241,7 @@ async function uploadScannedPdfPages(
     await releaseAiAssistantAttachments([{ name: file.name, mimeType: "application/pdf", kind: "document", documentId, remotePages }]);
     throw error;
   }
-  const notice = document.numPages > total
-    ? `扫描版 PDF 共 ${document.numPages} 页，当前支持读取前 ${total} 页`
-    : `扫描版 PDF 已上传 ${total} 页，将由 AI 分批读取`;
+  const notice = `扫描版 PDF 已上传 ${total} 页，将由 AI 分批读取`;
   return {
     name: file.name,
     mimeType: file.type || "application/pdf",
@@ -245,11 +272,58 @@ export async function processAiRemoteDocumentAttachments(attachments: AiAssistan
   for (let attachmentIndex = 0; attachmentIndex < working.length; attachmentIndex += 1) {
     let attachment = working[attachmentIndex];
     let remaining = [...(attachment.remotePages ?? [])].sort((left, right) => left.pageNumber - right.pageNumber);
-    if (!remaining.length) continue;
+    let pendingTextBatches = [...(attachment.pendingTextBatches ?? [])].sort((left, right) => left.startPage - right.startPage);
+    if (!remaining.length && !pendingTextBatches.length) continue;
     const progress = attachmentProgress(attachment);
     const textParts = progress.completed > 0 && attachment.text?.trim() ? [attachment.text.trim()] : [];
     let processedPageCount = progress.completed;
     let processingUsage = normalizeProcessingUsage(attachment.processingUsage);
+
+    while (pendingTextBatches.length) {
+      throwIfAborted(options.signal);
+      const batch = pendingTextBatches[0];
+      const { data, error } = await supabase.functions.invoke<{
+        text?: string;
+        usage?: Partial<AiAttachmentProcessingUsage>;
+      }>("ai-assistant", {
+        signal: options.signal,
+        body: {
+          action: "summarize_document_batch",
+          accessCode: options.accessCode?.trim() || undefined,
+          document: {
+            name: attachment.name,
+            pageCount: attachment.pageCount,
+            startPage: batch.startPage,
+            endPage: batch.endPage,
+            text: batch.text,
+            feature: options.feature ?? "assistant"
+          }
+        }
+      });
+      if (error || !data?.text?.trim()) {
+        const reason = await functionErrorMessage(error, `PDF 第 ${batch.startPage}-${batch.endPage} 页整理失败。`);
+        throw new Error(`PDF 已整理 ${processedPageCount}/${progress.total} 页；${reason} 已完成内容已保留，重试将从未完成页继续。`);
+      }
+      textParts.push(`第 ${batch.startPage}-${batch.endPage} 页：\n${data.text.trim()}`);
+      processingUsage = combineProcessingUsage(processingUsage, normalizeProcessingUsage(data.usage));
+      pendingTextBatches = pendingTextBatches.slice(1);
+      const completedPages = batch.endPage - batch.startPage + 1;
+      processedPageCount += completedPages;
+      completed += completedPages;
+      attachment = {
+        ...attachment,
+        text: textParts.join("\n\n").slice(0, 100_000),
+        pendingTextBatches: pendingTextBatches.length ? pendingTextBatches : undefined,
+        processedPageCount,
+        processingUsage,
+        notice: pendingTextBatches.length
+          ? `文本型 PDF 已整理 ${processedPageCount}/${progress.total} 页`
+          : `文本型 PDF 已完成 ${processedPageCount} 页整理`
+      };
+      working[attachmentIndex] = attachment;
+      options.onProgress?.(completed, total);
+      options.onUpdate?.(working.map(cloneAttachment));
+    }
 
     while (remaining.length) {
       throwIfAborted(options.signal);
@@ -363,6 +437,7 @@ function cloneAttachment(attachment: AiAssistantAttachment): AiAssistantAttachme
   return {
     ...attachment,
     remotePages: attachment.remotePages?.map((page) => ({ ...page })),
+    pendingTextBatches: attachment.pendingTextBatches?.map((batch) => ({ ...batch })),
     pageImages: attachment.pageImages ? [...attachment.pageImages] : undefined,
     processingUsage: attachment.processingUsage ? { ...attachment.processingUsage } : undefined
   };
@@ -370,9 +445,44 @@ function cloneAttachment(attachment: AiAssistantAttachment): AiAssistantAttachme
 
 function attachmentProgress(attachment: AiAssistantAttachment): { completed: number; total: number } {
   const remaining = attachment.remotePages?.length ?? 0;
-  const hasExtractedText = Boolean(attachment.text?.trim()) && !/将由 AI 分批读取|已上传 \d+ 页/.test(attachment.text ?? "");
+  const pendingTextPages = attachment.pendingTextBatches?.reduce((sum, batch) => sum + batch.endPage - batch.startPage + 1, 0) ?? 0;
+  const hasExtractedText = Boolean(attachment.text?.trim()) && !/将由 AI 分批读取|将分 \d+ 批整理|已上传 \d+ 页/.test(attachment.text ?? "");
   const reported = hasExtractedText ? Math.max(0, Number(attachment.processedPageCount) || 0) : 0;
-  return { completed: reported, total: reported + remaining };
+  return { completed: reported, total: reported + remaining + pendingTextPages };
+}
+
+function buildPdfTextBatches(pages: Array<{ pageNumber: number; text: string }>): AiDocumentTextBatch[] {
+  const batches: AiDocumentTextBatch[] = [];
+  let current: AiDocumentTextBatch | null = null;
+  for (const page of pages) {
+    const pageText = `第 ${page.pageNumber} 页：\n${page.text}`;
+    if (current && current.text.length + pageText.length + 2 > PDF_TEXT_BATCH_CHARS) {
+      batches.push(current);
+      current = null;
+    }
+    if (!current) current = { startPage: page.pageNumber, endPage: page.pageNumber, text: pageText };
+    else {
+      current.endPage = page.pageNumber;
+      current.text += `\n\n${pageText}`;
+    }
+  }
+  if (current) batches.push(current);
+  return batches;
+}
+
+async function configuredPdfPageLimit(accessCode?: string, signal?: AbortSignal): Promise<number> {
+  if (!supabase) return DEFAULT_MAX_PDF_TOTAL_PAGES;
+  try {
+    const response = await supabase.functions.invoke<{ maxDocumentPages?: number }>("ai-assistant", {
+      signal,
+      body: { action: "configuration", accessCode: accessCode?.trim() || undefined }
+    });
+    const value = Number(response?.data?.maxDocumentPages);
+    return !response?.error && Number.isInteger(value) && value > 0 ? value : DEFAULT_MAX_PDF_TOTAL_PAGES;
+  } catch {
+    throwIfAborted(signal);
+    return DEFAULT_MAX_PDF_TOTAL_PAGES;
+  }
 }
 
 function normalizeProcessingUsage(value: Partial<AiAttachmentProcessingUsage> | undefined): AiAttachmentProcessingUsage {

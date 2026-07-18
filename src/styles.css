@@ -6766,13 +6766,14 @@ textarea {
 
 .mind-map-depth-control {
   display: grid;
-  grid-template-columns: auto 82px;
+  grid-template-columns: minmax(82px, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   margin-right: auto;
   color: #46546b;
   font-size: 11px;
   font-weight: 750;
+  white-space: nowrap;
 }
 
 .mind-map-depth-control select {

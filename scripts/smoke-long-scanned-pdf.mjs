@@ -5,7 +5,7 @@ const supabaseUrl = required("SUPABASE_URL").replace(/\/$/, "");
 const publishableKey = required("PUBLISHABLE_KEY");
 const serviceRoleKey = required("SERVICE_ROLE_KEY");
 const bucket = required("R2_BUCKET");
-const pageCount = boundedInteger("SMOKE_PAGE_COUNT", 25, 1, 120);
+const pageCount = positiveInteger("SMOKE_PAGE_COUNT", 25);
 const smokeEmail = "codex-scanned-pdf-smoke@example.com";
 const password = `${crypto.randomUUID()}Aa1!`;
 const documentId = crypto.randomUUID();
@@ -22,6 +22,7 @@ const pageImage = Buffer.from(
 let userId = "";
 const objectKeys = [];
 try {
+  await verifyPublicConfiguration();
   const user = await createSmokeUser();
   userId = user.id;
   await grantAccess(userId);
@@ -132,6 +133,18 @@ try {
   }
 }
 
+async function verifyPublicConfiguration() {
+  const response = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
+    method: "POST",
+    headers: { apikey: publishableKey, authorization: `Bearer ${publishableKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ action: "configuration" })
+  });
+  const payload = await readJson(response);
+  if (!response.ok || !Number.isInteger(payload?.maxDocumentPages) || payload.maxDocumentPages < 1) {
+    throw new Error(`public AI configuration failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+  }
+}
+
 async function createSmokeUser() {
   const listed = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1000`, { headers: serviceHeaders() });
   const listPayload = await readJson(listed);
@@ -202,7 +215,7 @@ function required(name) {
   return value;
 }
 
-function boundedInteger(name, fallback, minimum, maximum) {
+function positiveInteger(name, fallback) {
   const value = Number.parseInt(process.env[name] ?? "", 10);
-  return Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
+  return Number.isInteger(value) && value > 0 ? value : fallback;
 }

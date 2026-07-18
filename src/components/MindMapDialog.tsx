@@ -81,7 +81,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
     const question = prompt.trim() || (attachments.length ? "请根据附件内容生成一份结构清晰的思维导图。" : "");
     if (!question || loading) return;
     let taskAttachments = attachments;
-    setAttachmentProgress(attachments.some((attachment) => attachment.remotePages?.length) ? "准备读取扫描 PDF" : "");
+    setAttachmentProgress(attachments.some((attachment) => attachment.remotePages?.length || attachment.pendingTextBatches?.length) ? "准备分批读取文档" : "");
     const started = startAiTask({
       feature: "mind_map",
       label: "正在生成思维导图",
@@ -94,7 +94,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
           depth,
           signal,
           onAttachmentProgress: (completed, total) => {
-            if (total > 0) setAttachmentProgress(completed < total ? `正在读取扫描 PDF ${completed}/${total} 页` : "PDF 读取完成，正在生成脑图");
+            if (total > 0) setAttachmentProgress(completed < total ? `正在读取文档 ${completed}/${total} 页` : "文档读取完成，正在生成脑图");
           },
           onAttachmentsProcessed: (nextAttachments) => {
             taskAttachments = nextAttachments;

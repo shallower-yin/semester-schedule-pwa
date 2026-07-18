@@ -4,7 +4,7 @@ import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYT
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "create_document_page_uploads" | "extract_document_batch" | "delete_document_uploads";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
   mode?: "assistant" | "mind_map" | "mind_map_followup" | "audio_transcription" | "audio_followup";
   question?: string;
   scheduleContext?: unknown;
@@ -25,6 +25,9 @@ interface AiAssistantRequest {
     feature?: "assistant" | "mind_map";
     pages?: Array<{ pageNumber?: number; size?: number; mimeType?: string }>;
     objectKeys?: string[];
+    startPage?: number;
+    endPage?: number;
+    text?: string;
   };
   audioRange?: {
     objectKey?: string;
@@ -212,6 +215,13 @@ class DiagnosticError extends Error {
   }
 }
 
+class PublicHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "PublicHttpError";
+  }
+}
+
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
@@ -254,6 +264,11 @@ const PRIVATE_INFORMATION_RULES = [
 
 function optionalSecret(name: string): string {
   return Deno.env.get(name)?.trim() ?? "";
+}
+
+function configuredMaxDocumentPages(): number {
+  const value = Number.parseInt(optionalSecret("AI_MAX_DOCUMENT_PAGES"), 10);
+  return Number.isInteger(value) && value > 0 ? Math.min(value, 2_000) : 120;
 }
 
 function serviceRoleSecret(): string {
@@ -329,10 +344,21 @@ Deno.serve(async (request) => {
     const authorization = request.headers.get("authorization") ?? "";
     if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 AI 助手。" }, 401);
     const body = await request.json() as AiAssistantRequest;
-    const user = await getUser(authorization);
-    currentUser = user;
     const serviceRoleKey = serviceRoleSecret();
     const settings = serviceRoleKey ? await getAiSettings(serviceRoleKey) : null;
+    if (body.action === "configuration") {
+      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+      return jsonResponse({
+        provider,
+        model: configuredModel(settings),
+        mimoChannel: configuredMimoChannel(settings),
+        supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
+        supportsAudioTranscription: Boolean(configuredMimoAudioCredentials(settings).apiKey),
+        maxDocumentPages: configuredMaxDocumentPages()
+      });
+    }
+    const user = await getUser(authorization);
+    currentUser = user;
     if (body.action === "transcribe_audio_range") {
       const range = sanitizeInternalAudioRange(body.audioRange, user.id);
       const expectedSignature = await hmacAudioRange(user.id, range);
@@ -351,16 +377,6 @@ Deno.serve(async (request) => {
         range.chunkCount!,
         request.signal
       ));
-    }
-    if (body.action === "configuration") {
-      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
-      return jsonResponse({
-        provider,
-        model: configuredModel(settings),
-        mimoChannel: configuredMimoChannel(settings),
-        supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
-        supportsAudioTranscription: Boolean(configuredMimoAudioCredentials(settings).apiKey)
-      });
     }
     if (body.action === "create_document_page_uploads") {
       featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
@@ -396,6 +412,28 @@ Deno.serve(async (request) => {
         console.error("Failed to delete extracted PDF pages", { diagnosticId, error: String(error) });
       });
       return jsonResponse({ text: result.text, usage: result.usage, processedPageCount: pages.length, model });
+    }
+    if (body.action === "summarize_document_batch") {
+      featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
+      const batchAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!batchAccess.allowed) return jsonResponse({ error: batchAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = batchAccess.method ?? "";
+      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
+      if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
+      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+      const model = configuredModel(settings);
+      const credentials = configuredProviderCredentials(provider, settings);
+      if (!credentials.apiKey) throw new Error("长文档整理服务暂未配置。");
+      const batch = sanitizeDocumentTextBatch(body.document);
+      const result = await summarizeDocumentTextBatch(batch, {
+        provider,
+        model,
+        apiKey: credentials.apiKey,
+        endpoint: credentials.endpoint,
+        signal: request.signal
+      });
+      observedUsage = result.usage;
+      return jsonResponse({ text: result.text, usage: result.usage, processedPageCount: batch.endPage - batch.startPage + 1, model });
     }
     if (body.action === "delete_document_uploads") {
       await deleteR2DocumentPageObjects(user.id, body.document?.objectKeys);
@@ -619,10 +657,11 @@ Deno.serve(async (request) => {
         diagnosticDetails
       });
     }
+    const status = error instanceof PublicHttpError ? error.status : 500;
     return jsonResponse({
       error: `${publicMessage}（诊断编号：${diagnosticId.slice(0, 8)}）`,
       diagnosticId
-    }, 500);
+    }, status);
   }
 });
 
@@ -633,7 +672,7 @@ async function getUser(authorization: string): Promise<SupabaseUser> {
       authorization
     }
   });
-  if (!response.ok) throw new Error("登录状态已过期，请重新登录。");
+  if (!response.ok) throw new PublicHttpError("登录状态已过期，请重新登录。", 401);
   return await response.json() as SupabaseUser;
 }
 
@@ -1248,6 +1287,95 @@ async function extractRemoteDocumentBatch(
   return { text: text.slice(0, 5_000), usage: normalizeUsage(data.usage) };
 }
 
+function sanitizeDocumentTextBatch(value: AiAssistantRequest["document"]): {
+  name: string;
+  pageCount: number;
+  startPage: number;
+  endPage: number;
+  text: string;
+} {
+  const pageCount = positiveInteger(value?.pageCount, "PDF 总页数无效。");
+  if (pageCount > configuredMaxDocumentPages()) {
+    throw new Error(`这份 PDF 共 ${pageCount} 页，超过当前服务安全范围 ${configuredMaxDocumentPages()} 页。`);
+  }
+  const startPage = positiveInteger(value?.startPage, "PDF 起始页无效。");
+  const endPage = positiveInteger(value?.endPage, "PDF 结束页无效。");
+  const text = typeof value?.text === "string" ? value.text.replace(/\u0000/g, "").trim() : "";
+  if (startPage > endPage || endPage > pageCount || !text || text.length > 50_000) {
+    throw new Error("PDF 文本批次无效，请重新选择文件。");
+  }
+  return {
+    name: typeof value?.name === "string" ? value.name.trim().slice(0, 180) || "未命名 PDF" : "未命名 PDF",
+    pageCount,
+    startPage,
+    endPage,
+    text
+  };
+}
+
+async function summarizeDocumentTextBatch(
+  batch: ReturnType<typeof sanitizeDocumentTextBatch>,
+  providerConfig: {
+    provider: "deepseek" | "mimo";
+    model: string;
+    apiKey: string;
+    endpoint: string;
+    signal?: AbortSignal;
+  }
+): Promise<{ text: string; usage: AiAssistantUsage }> {
+  throwIfAborted(providerConfig.signal);
+  const response = await fetch(providerConfig.endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${providerConfig.apiKey}`,
+      ...(providerConfig.provider === "mimo" ? { "api-key": providerConfig.apiKey } : {})
+    },
+    signal: providerConfig.signal,
+    body: JSON.stringify({
+      model: providerConfig.model,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "你负责压缩长文档的一个连续分页批次，为后续思维导图或问答保留可靠上下文。",
+            "保留标题层级、定义、论点、步骤、公式含义、关键数字、例子和结论，删除重复表述。",
+            "不得加入文档以外的信息；使用页码标明来源；结果控制在 2000 个汉字以内。"
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: `文档“${batch.name}”第 ${batch.startPage}-${batch.endPage} 页：\n\n${batch.text}`
+        }
+      ],
+      thinking: { type: "disabled" },
+      temperature: 0.1,
+      ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
+      stream: false
+    })
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new DiagnosticError(`PDF 第 ${batch.startPage}-${batch.endPage} 页整理失败，请稍后重试。`, {
+      stage: "document_text_batch",
+      providerStatus: response.status,
+      providerError: safeProviderError(responseText),
+      documentName: batch.name,
+      startPage: batch.startPage,
+      endPage: batch.endPage
+    });
+  }
+  let data: { choices?: Array<{ message?: { content?: string } }>; usage?: Partial<AiAssistantUsage> };
+  try {
+    data = JSON.parse(responseText) as typeof data;
+  } catch {
+    throw new Error(`PDF 第 ${batch.startPage}-${batch.endPage} 页整理结果格式无效，请重试。`);
+  }
+  const text = data.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error(`PDF 第 ${batch.startPage}-${batch.endPage} 页没有生成有效摘要。`);
+  return { text: text.slice(0, 5_000), usage: normalizeUsage(data.usage) };
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
@@ -1434,7 +1562,10 @@ async function createR2DocumentPageUploads(userId: string, value: AiAssistantReq
 }> {
   const requestedId = value?.documentId?.trim() ?? "";
   const documentId = requestedId && /^[a-f0-9-]{20,50}$/i.test(requestedId) ? requestedId : crypto.randomUUID();
-  const pageCount = clampNumber(value?.pageCount, 1, 120, 1);
+  const pageCount = positiveInteger(value?.pageCount, "PDF 总页数无效。");
+  if (pageCount > configuredMaxDocumentPages()) {
+    throw new Error(`这份 PDF 共 ${pageCount} 页，超过当前服务安全范围 ${configuredMaxDocumentPages()} 页。`);
+  }
   if (!Array.isArray(value?.pages) || !value.pages.length || value.pages.length > 8) {
     throw new Error("PDF 页面上传批次无效。");
   }
@@ -1483,7 +1614,7 @@ async function downloadR2DocumentPage(objectKey: string): Promise<Uint8Array> {
 
 async function deleteR2DocumentPageObjects(userId: string, value: unknown): Promise<void> {
   if (!Array.isArray(value)) return;
-  const objectKeys = [...new Set(value.slice(0, 120).map((item) => userDocumentPageObjectKey(userId, item)))];
+  const objectKeys = [...new Set(value.slice(0, configuredMaxDocumentPages()).map((item) => userDocumentPageObjectKey(userId, item)))];
   const { client, bucket } = r2Configuration();
   await mapWithConcurrency(objectKeys, 5, (objectKey) => client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey })).then(() => undefined));
 }
@@ -2168,9 +2299,9 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
       }
       result.push({ name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
     } else if (record.kind === "document") {
-      const processedPageCount = clampNumber(record.processedPageCount, 0, 120, 0);
+      const processedPageCount = clampNumber(record.processedPageCount, 0, configuredMaxDocumentPages(), 0);
       const processingUsage = sanitizeClientUsage(record.processingUsage);
-      const textLimit = processedPageCount > 24 && !Array.isArray(record.remotePages) ? 100_000 : 40_000;
+      const textLimit = processedPageCount > 0 && !Array.isArray(record.remotePages) ? 100_000 : 40_000;
       const text = typeof record.text === "string" ? record.text.trim().slice(0, textLimit) : "";
       const pageImages: string[] = [];
       const remotePages: NonNullable<AiAssistantAttachment["remotePages"]> = [];
@@ -2185,10 +2316,10 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
       }
       if (Array.isArray(record.remotePages)) {
         const seenPages = new Set<number>();
-        for (const item of record.remotePages.slice(0, 120)) {
+        for (const item of record.remotePages.slice(0, configuredMaxDocumentPages())) {
           if (!item || typeof item !== "object") continue;
           const page = item as Record<string, unknown>;
-          const pageNumber = clampNumber(page.pageNumber, 1, 120, 0);
+          const pageNumber = clampNumber(page.pageNumber, 1, configuredMaxDocumentPages(), 0);
           const size = clampNumber(page.size, 1, 3 * 1024 * 1024, 0);
           if (!pageNumber || !size || seenPages.has(pageNumber)) continue;
           remotePages.push({
@@ -2210,7 +2341,7 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
         pageImages,
         remotePages,
         documentId: typeof record.documentId === "string" ? record.documentId.slice(0, 50) : undefined,
-        pageCount: clampNumber(record.pageCount, 0, 500, remotePages.length || pageImages.length),
+        pageCount: clampNumber(record.pageCount, 0, configuredMaxDocumentPages(), remotePages.length || pageImages.length),
         processedPageCount: processedPageCount || pageImages.length,
         processingUsage
       });
@@ -2363,6 +2494,12 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.min(max, Math.max(min, Math.round(numeric)));
+}
+
+function positiveInteger(value: unknown, message: string): number {
+  const numeric = Number(value);
+  if (!Number.isSafeInteger(numeric) || numeric < 1) throw new Error(message);
+  return numeric;
 }
 
 function normalizeUsage(usage: Partial<AiAssistantUsage> | undefined): AiAssistantUsage {

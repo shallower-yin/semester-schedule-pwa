@@ -70,7 +70,7 @@ export async function askAiMindMap(input: {
 }): Promise<AiMindMapResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法生成思维导图。");
   const sourceAttachments = input.attachments?.slice(0, 3) ?? [];
-  const hadRemoteDocuments = sourceAttachments.some((attachment) => attachment.remotePages?.length);
+  const hadPendingDocuments = sourceAttachments.some((attachment) => attachment.remotePages?.length || attachment.pendingTextBatches?.length);
   const processedAttachments = await processAiRemoteDocumentAttachments(sourceAttachments, {
     accessCode: input.accessCode,
     feature: "mind_map",
@@ -94,7 +94,7 @@ export async function askAiMindMap(input: {
     return { ...data, processedAttachments: processedAttachments.map(clearProcessingUsage) };
   }
   const message = error ? await mindMapFunctionError(error) : "AI 没有返回有效的思维导图。";
-  throw new Error(hadRemoteDocuments
+  throw new Error(hadPendingDocuments
     ? `PDF 文字已读取完成，但脑图生成失败：${message} 重试不会再次识别 PDF。`
     : message);
 }
