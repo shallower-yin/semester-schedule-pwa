@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { focusAudioPublicUrl, listFocusAudioTracks, type FocusAudioKind, type FocusAudioTrack } from "../lib/focusAudio";
 import {
   FOCUS_PICTURE_IN_PICTURE_MUTE_EVENT,
@@ -94,7 +94,7 @@ export function FocusAudioProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(FOCUS_PICTURE_IN_PICTURE_MUTE_EVENT, handlePictureInPictureMute);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
     setCurrentTime(0);

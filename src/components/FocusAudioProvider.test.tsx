@@ -79,6 +79,7 @@ describe("全局专注音频", () => {
   it("离开专注页后保持播放，并响应系统小窗静音", async () => {
     render(<FocusAudioProvider><AudioHarness /></FocusAudioProvider>);
     await screen.findByRole("combobox", { name: "选择专注音频" });
+    await waitFor(() => expect(HTMLMediaElement.prototype.load).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "播放音频" }));
     await waitFor(() => expect(screen.getByTestId("playback-state")).toHaveTextContent("播放中"));
 
