@@ -44,7 +44,13 @@ try {
     body: JSON.stringify({ mode: "audio_transcription", audios, audioLanguage: "zh", summarizeAudio: false })
   });
   const payload = await readJson(response);
-  if (!response.ok) throw new Error(`audio smoke failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 500)}`);
+  if (!response.ok) {
+    if (payload?.diagnosticId) {
+      const diagnostic = await fetchDiagnostic(payload.diagnosticId);
+      console.error("Audio diagnostic:", JSON.stringify(diagnostic));
+    }
+    throw new Error(`audio smoke failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 500)}`);
+  }
   const transcript = typeof payload?.transcript === "string" ? payload.transcript : "";
   if (!transcript.includes("张宏伟1.mp3") || !transcript.includes("张宏伟3.mp3") || transcript.length < 100) {
     throw new Error(`audio smoke returned incomplete combined transcript (${transcript.length} chars)`);
@@ -92,6 +98,15 @@ async function signIn() {
   const payload = await readJson(response);
   if (!response.ok || !payload?.access_token) throw new Error(`smoke sign-in failed: HTTP ${response.status}`);
   return payload.access_token;
+}
+
+async function fetchDiagnostic(diagnosticId) {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/ai_assistant_usage?diagnostic_id=eq.${encodeURIComponent(diagnosticId)}&select=status,error_message,diagnostic_details,latency_ms,created_at&limit=1`,
+    { headers: serviceHeaders() }
+  );
+  const payload = await readJson(response);
+  return response.ok ? payload?.[0] ?? null : { lookupStatus: response.status, payload };
 }
 
 function serviceHeaders(extra = {}) {
