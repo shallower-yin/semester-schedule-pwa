@@ -1,6 +1,6 @@
 # 日程计划表
 
-面向 Android Edge/Chrome、Windows Edge/Chrome 和普通网页浏览器的响应式 PWA。数据优先保存在浏览器 IndexedDB 中，登录后通过 Supabase 在设备间同步。
+同时面向 Android APK、Android Edge/Chrome、Windows Edge/Chrome 和普通网页浏览器的响应式日程应用。数据优先保存在浏览器 IndexedDB 中，登录后通过 Supabase 在设备间同步。
 
 ## 在线使用
 
@@ -56,7 +56,7 @@
 - PWA 离线缓存与更新提示
 - PWA 更新支持分阶段状态提示和清缓存重载入口
 - Vitest 日期、周数和重复规则测试
-- Supabase 邮箱密码、魔法链接和找回密码
+- Supabase 邮箱密码注册、登录和找回密码
 - PostgreSQL RLS、多设备同步和最后修改者生效
 - 可选事项提醒、应用内系统通知和后台 Web Push
 - 应用内 PWA 安装入口，可创建桌面或主屏幕图标
