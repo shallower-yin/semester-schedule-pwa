@@ -422,21 +422,52 @@ export async function purgeLocalSoftDeletedRecords(userId: string): Promise<numb
   return deleteIds.length;
 }
 
-async function downloadRemoteTables(userId: string): Promise<number> {
-  if (!supabase) throw new Error("云端服务尚未配置");
-  let downloaded = 0;
-  const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
+const REMOTE_PAGE_SIZE = 1000;
 
-  for (const config of TABLES) {
-    const { data, error } = await supabase.from(config.remote).select("*").eq("user_id", userId);
+interface RemoteTableFetch {
+  rows: Record<string, unknown>[];
+  complete: boolean;
+}
+
+async function fetchRemoteTableRows(remote: string, userId: string): Promise<RemoteTableFetch> {
+  if (!supabase) throw new Error("云端服务尚未配置");
+  const rows: Record<string, unknown>[] = [];
+  let total: number | null = null;
+  for (;;) {
+    const from = rows.length;
+    const { data, error, count } = await supabase
+      .from(remote)
+      .select("*", { count: "exact" })
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .range(from, from + REMOTE_PAGE_SIZE - 1);
     if (error) {
       if (error.code === "PGRST205" || error.message.includes("schema cache")) {
         throw new Error("云端数据表尚未初始化，请联系管理员处理");
       }
-      throw new Error(`${config.remote} 下载失败：${error.message}`);
+      throw new Error(`${remote} 下载失败：${error.message}`);
     }
-    const records = (data ?? []).map((record) => normalizeRemoteRecord(config.local, record));
-    recordsByTable.set(config.local, records);
+    if (typeof count === "number") total = count;
+    const page = data ?? [];
+    rows.push(...page);
+    if (!page.length) break;
+    if (total != null && rows.length >= total) break;
+    // 没有 count 时无法区分“已到末尾”和“被服务端截断”，保守停止并按不完整处理
+    if (total == null && page.length < REMOTE_PAGE_SIZE) break;
+  }
+  return { rows, complete: total != null && rows.length >= total };
+}
+
+async function downloadRemoteTables(userId: string): Promise<number> {
+  if (!supabase) throw new Error("云端服务尚未配置");
+  let downloaded = 0;
+  const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
+  const incompleteTables = new Set<SyncTableName>();
+
+  for (const config of TABLES) {
+    const { rows, complete } = await fetchRemoteTableRows(config.remote, userId);
+    if (!complete) incompleteTables.add(config.local);
+    recordsByTable.set(config.local, rows.map((record) => normalizeRemoteRecord(config.local, record)));
   }
 
   const hardDeleteIds = collectHardDeleteIds(recordsByTable);
@@ -473,7 +504,10 @@ async function downloadRemoteTables(userId: string): Promise<number> {
       }
       downloaded += activeRecords.length;
     }
-    await deleteLocalRecordsMissingFromRemote(config.local, userId, activeRemoteIds);
+    // 拉取不完整时跳过镜像删除，避免把云端仍存在的记录误删本地
+    if (!incompleteTables.has(config.local)) {
+      await deleteLocalRecordsMissingFromRemote(config.local, userId, activeRemoteIds);
+    }
   }
 
   await deduplicateCategories(userId);
