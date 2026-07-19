@@ -9231,3 +9231,439 @@ textarea {
     padding-inline: 8px;
   }
 }
+
+/* Compact health workspace: keep labels and values together across viewports. */
+.health-page {
+  max-width: 1400px;
+  gap: 10px;
+}
+
+.health-summary-grid {
+  gap: 8px;
+}
+
+.health-water-summary {
+  min-height: 96px;
+  gap: 14px;
+  padding: 10px 14px;
+}
+
+.health-water-ring {
+  width: 76px;
+  height: 76px;
+  padding: 7px;
+}
+
+.health-water-ring strong {
+  font-size: 15px;
+}
+
+.health-water-summary-copy {
+  gap: 3px;
+}
+
+.health-water-summary-copy > strong {
+  font-size: 18px;
+}
+
+.health-secondary-summary {
+  gap: 8px;
+}
+
+.health-secondary-summary article {
+  min-height: 96px;
+  padding: 10px 12px;
+}
+
+.health-secondary-summary strong {
+  font-size: 18px;
+}
+
+.health-action-band,
+.health-settings-panel,
+.health-recent-list {
+  padding: 12px 14px;
+}
+
+.health-water-band {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 220px) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.health-water-band .health-progress-copy,
+.health-water-band .health-progress,
+.health-water-band .health-quick-actions {
+  margin-top: 0;
+}
+
+.health-water-band .health-progress-copy {
+  min-width: 0;
+}
+
+.health-water-band .health-quick-actions {
+  flex-wrap: nowrap;
+}
+
+.health-water-band .health-quick-actions .button {
+  min-width: 104px;
+  min-height: 38px;
+  padding: 7px 12px;
+}
+
+.health-training-band .health-band-title {
+  min-height: 32px;
+}
+
+.health-entry-controls {
+  grid-template-columns: minmax(190px, 1fr) minmax(180px, 1.2fr) minmax(190px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 10px;
+}
+
+.health-inline-field {
+  display: grid;
+  grid-template-columns: max-content minmax(64px, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.health-inline-field > span {
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.health-inline-field input,
+.health-inline-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+}
+
+.health-entry-controls .health-inline-field {
+  display: grid;
+}
+
+.health-entry-controls .button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.health-exercise-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.health-exercise-button {
+  min-height: 48px;
+  padding: 8px 12px;
+}
+
+.health-settings-grid {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.health-settings-panel {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.health-settings-panel > .health-band-title {
+  min-width: 0;
+}
+
+.health-settings-panel .health-band-title h2,
+.health-settings-panel .switch-label {
+  white-space: nowrap;
+}
+
+.health-reminder-panel {
+  grid-template-columns: 190px minmax(0, 1fr);
+}
+
+.health-body-layout {
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) minmax(160px, .8fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 0;
+}
+
+.health-bmi-result {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.health-bmi-result strong {
+  font-size: 20px;
+}
+
+.health-bmi-result small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-history-line {
+  grid-column: 2;
+  margin: -2px 0 0;
+}
+
+.health-reminder-form {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 10px;
+}
+
+.health-page-actions {
+  justify-content: flex-end;
+}
+
+.health-timeline {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  padding-left: 0;
+}
+
+.health-timeline::before {
+  display: none;
+}
+
+.health-timeline article {
+  grid-template-columns: 28px minmax(0, 1fr);
+  min-height: 48px;
+  padding: 5px 10px;
+  border-left: 1px solid var(--border);
+}
+
+.health-timeline article:nth-child(5n + 1) {
+  border-left: 0;
+}
+
+.health-timeline-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.health-exercise-editor-list {
+  display: grid;
+  gap: 6px;
+}
+
+.health-exercise-editor-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 5px 8px 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.health-exercise-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.health-exercise-add-row .button {
+  min-width: 92px;
+}
+
+@media (max-width: 900px) {
+  .health-water-band {
+    grid-template-columns: auto minmax(150px, 1fr) auto;
+  }
+
+  .health-water-band .health-progress {
+    grid-column: 1 / -1;
+  }
+
+  .health-entry-controls {
+    grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr);
+  }
+
+  .health-settings-panel {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .health-reminder-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .health-body-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .health-history-line {
+    grid-column: 1;
+  }
+
+  .health-timeline {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .health-timeline article:nth-child(5n + 1) {
+    border-left: 1px solid var(--border);
+  }
+
+  .health-timeline article:nth-child(3n + 1) {
+    border-left: 0;
+  }
+}
+
+@media (max-width: 580px) {
+  .health-page {
+    gap: 8px;
+  }
+
+  .health-heading {
+    margin-bottom: 0;
+  }
+
+  .health-water-summary {
+    min-height: 100px;
+    padding: 10px 12px;
+  }
+
+  .health-secondary-summary article {
+    min-height: 58px;
+    padding: 7px 8px;
+  }
+
+  .health-action-band,
+  .health-settings-panel,
+  .health-recent-list {
+    padding: 10px;
+  }
+
+  .health-water-band {
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .health-water-band .health-progress-copy,
+  .health-water-band .health-progress,
+  .health-water-band .health-quick-actions {
+    grid-column: 1 / -1;
+  }
+
+  .health-water-band .health-quick-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .health-entry-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    margin: 6px 0;
+    padding: 7px;
+  }
+
+  .health-entry-controls .health-movement-button,
+  .health-entry-controls .health-inline-field:last-of-type,
+  .health-entry-controls .health-manage-exercises {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .health-inline-field {
+    grid-template-columns: max-content minmax(54px, 1fr);
+    gap: 5px;
+  }
+
+  .health-entry-controls .health-inline-field {
+    grid-template-columns: 1fr 58px;
+  }
+
+  .health-entry-controls .health-inline-field > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .health-entry-controls .button {
+    min-width: 0;
+    padding-inline: 7px;
+  }
+
+  .health-exercise-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .health-exercise-button {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    justify-items: start;
+    gap: 5px;
+    min-height: 44px;
+    padding: 7px 8px;
+    text-align: left;
+  }
+
+  .health-exercise-button > svg {
+    grid-row: 1 / 3;
+  }
+
+  .health-exercise-button span {
+    grid-column: 2;
+    font-size: 10px;
+  }
+
+  .health-exercise-button strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .health-body-layout,
+  .health-reminder-form {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .health-bmi-result {
+    justify-content: flex-start;
+  }
+
+  .health-timeline {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding-left: 4px;
+  }
+
+  .health-timeline::before {
+    display: block;
+  }
+
+  .health-timeline article,
+  .health-timeline article:nth-child(3n + 1),
+  .health-timeline article:nth-child(5n + 1) {
+    grid-template-columns: 32px minmax(0, 1fr);
+    min-height: 50px;
+    padding: 6px 0;
+    border-left: 0;
+  }
+
+  .health-timeline-icon {
+    width: 32px;
+    height: 32px;
+  }
+}

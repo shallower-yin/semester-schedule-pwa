@@ -2,9 +2,12 @@ import { db } from "../db";
 import type { HealthProfile } from "../types";
 import { showHealthMovementReminder } from "./notifications";
 
+export const DEFAULT_EXERCISE_ITEMS = ["俯卧撑", "仰卧起坐", "深蹲"];
+
 export const DEFAULT_HEALTH_PROFILE = {
   height_cm: null,
   daily_water_goal_ml: 2000,
+  exercise_items: [...DEFAULT_EXERCISE_ITEMS],
   movement_reminder_enabled: false,
   movement_interval_minutes: 60,
   reminder_start_time: "09:00",

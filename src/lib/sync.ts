@@ -223,6 +223,7 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       ...record,
       height_cm: record.height_cm == null ? null : Number(record.height_cm),
       daily_water_goal_ml: Number(record.daily_water_goal_ml ?? 2000),
+      exercise_items: normalizeExerciseItems(record.exercise_items),
       movement_reminder_enabled: Boolean(record.movement_reminder_enabled),
       movement_interval_minutes: Number(record.movement_interval_minutes ?? 60),
       reminder_start_time: String(record.reminder_start_time ?? "09:00").slice(0, 5),
@@ -258,6 +259,15 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
     };
   }
   return record;
+}
+
+function normalizeExerciseItems(value: unknown): string[] {
+  if (!Array.isArray(value)) return ["俯卧撑", "仰卧起坐", "深蹲"];
+  const items = value
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .slice(0, 12);
+  return items.length ? [...new Set(items)] : ["俯卧撑", "仰卧起坐", "深蹲"];
 }
 
 function emptyDeleteMap(): Map<SyncTableName, Set<string>> {

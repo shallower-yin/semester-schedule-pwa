@@ -152,6 +152,7 @@ export interface FocusSession extends SyncFields {
 export interface HealthProfile extends SyncFields {
   height_cm: number | null;
   daily_water_goal_ml: number;
+  exercise_items: string[];
   movement_reminder_enabled: boolean;
   movement_interval_minutes: number;
   reminder_start_time: string;

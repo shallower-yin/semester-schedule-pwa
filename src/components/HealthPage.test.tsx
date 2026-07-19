@@ -60,4 +60,23 @@ describe("健康第一阶段", () => {
       expect(active).toHaveLength(0);
     });
   });
+
+  it("可以增减训练项目并随健康设置保存", async () => {
+    render(<HealthPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "增减训练项目" }));
+    fireEvent.change(screen.getByLabelText("新训练项目名称"), { target: { value: "平板支撑" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除俯卧撑" }));
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+
+    expect(screen.getByRole("button", { name: "平板支撑 +10 次" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "俯卧撑 +10 次" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(async () => {
+      const saved = await db.healthProfiles.where("user_id").equals("local").first();
+      expect(saved?.exercise_items).toEqual(["仰卧起坐", "深蹲", "平板支撑"]);
+    });
+  });
 });
