@@ -46,13 +46,23 @@ jobs:
               mailer_templates_magic_link_content: $content
             }' > /tmp/auth-template-payload.json
 
-          curl --fail-with-body --silent --show-error \
+          http_status="$(curl --silent --show-error \
             --request PATCH \
             --url "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
             --data @/tmp/auth-template-payload.json \
-            --output /tmp/auth-template-update-response.json
+            --output /tmp/auth-template-update-response.json \
+            --write-out '%{http_code}')"
+
+          if [[ "$http_status" != 2* ]]; then
+            safe_detail="$(jq --raw-output \
+              '[.message, .error, .msg] | map(select(type == "string")) | first // "Management API returned no safe error detail."' \
+              /tmp/auth-template-update-response.json 2>/dev/null \
+              || echo "Management API returned a non-JSON error response.")"
+            echo "Supabase auth template update failed (HTTP $http_status): $safe_detail"
+            exit 1
+          fi
 
       - name: Verify hosted template
         run: |
