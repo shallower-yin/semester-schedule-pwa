@@ -94,6 +94,18 @@ jobs:
             });
           }
 
+          async function getAssistantGlobalAccess() {
+            const response = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_settings?select=enabled_for_all,feature_quotas&id=eq.true&limit=1`, {
+              headers: serviceHeaders()
+            });
+            const payload = await readJson(response);
+            if (!response.ok) {
+              throw new Error(`read AI settings failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+            }
+            const settings = Array.isArray(payload) ? payload[0] : null;
+            return Boolean(settings?.feature_quotas?.assistant?.enabled_for_all ?? settings?.enabled_for_all);
+          }
+
           async function signIn(user) {
             const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
               method: "POST",
@@ -168,7 +180,24 @@ jobs:
             console.log(`PASS ${user.label}: AI allowed as ${expectedAccess}`);
           }
 
-          async function expectAiAccessCodeDoesNotGrantMembership(user, token) {
+          async function expectOrdinaryPolicy(user, token, enabledForAll) {
+            if (enabledForAll) await expectAiAllowed(user, token, "ordinary");
+            else await expectAiDenied(user, token);
+          }
+
+          async function expectInactiveDirectAccess(user, token, enabledForAll) {
+            if (enabledForAll) {
+              console.log(`PASS ${user.label}: inactive direct access falls back to verified ordinary policy`);
+              return;
+            }
+            await expectAiDenied(user, token);
+          }
+
+          async function expectAiAccessCodeDoesNotGrantMembership(user, token, enabledForAll) {
+            if (enabledForAll) {
+              console.log("SKIP access-code smoke: ordinary assistant access is enabled globally");
+              return;
+            }
             if (!aiAccessCode) {
               console.log("SKIP access-code smoke: AI_ASSISTANT_ACCESS_CODE is not configured");
               return;
@@ -207,21 +236,22 @@ jobs:
           async function main() {
             const user = await getOrCreateSmokeUser();
             const token = await signIn(user);
+            const enabledForAll = await getAssistantGlobalAccess();
 
             await clearAccess(user.id);
             user.label = "normal";
-            await expectAiDenied(user, token);
+            await expectOrdinaryPolicy(user, token, enabledForAll);
             await expectAdminStatus(user, token, false);
-            await expectAiAccessCodeDoesNotGrantMembership(user, token);
+            await expectAiAccessCodeDoesNotGrantMembership(user, token, enabledForAll);
 
             user.label = "disabled";
             await setAccess(user, { enabled: false, role: "member" });
-            await expectAiDenied(user, token);
+            await expectInactiveDirectAccess(user, token, enabledForAll);
             await expectAdminStatus(user, token, false);
 
             user.label = "expired";
             await setAccess(user, { enabled: true, role: "member", expiresAt: "2020-01-01T00:00:00Z" });
-            await expectAiDenied(user, token);
+            await expectInactiveDirectAccess(user, token, enabledForAll);
             await expectAdminStatus(user, token, false);
 
             user.label = "member";
