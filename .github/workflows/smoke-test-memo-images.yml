@@ -1,0 +1,158 @@
+name: Smoke test memo images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+      PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Verify private memo image flow
+        run: |
+          node <<'NODE'
+          const crypto = require("node:crypto");
+
+          const supabaseUrl = requiredEnv("SUPABASE_URL").replace(/\/$/, "");
+          const publishableKey = requiredEnv("PUBLISHABLE_KEY");
+          const serviceRoleKey = requiredEnv("SERVICE_ROLE_KEY");
+          const runId = process.env.GITHUB_RUN_ID || Date.now().toString();
+          const password = `${crypto.randomUUID()}Aa1!`;
+          const email = `codex-memo-images-${runId}-smoke@example.com`;
+          const memoId = crypto.randomUUID();
+          const deviceId = crypto.randomUUID();
+          const imageId = crypto.randomUUID();
+          const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+          let userId = "";
+          let imagePath = "";
+
+          function requiredEnv(name) {
+            const value = process.env[name]?.trim();
+            if (!value) throw new Error(`Missing required environment: ${name}`);
+            return value;
+          }
+
+          function serviceHeaders(extra = {}) {
+            return { apikey: serviceRoleKey, authorization: `Bearer ${serviceRoleKey}`, ...extra };
+          }
+
+          function userHeaders(token, extra = {}) {
+            return { apikey: publishableKey, authorization: `Bearer ${token}`, ...extra };
+          }
+
+          async function readJson(response) {
+            const text = await response.text();
+            try { return text ? JSON.parse(text) : null; }
+            catch { return { raw: text.slice(0, 200) }; }
+          }
+
+          async function requireOk(response, label) {
+            if (response.ok) return;
+            const payload = await readJson(response);
+            throw new Error(`${label} failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 240)}`);
+          }
+
+          async function cleanup() {
+            if (imagePath) {
+              await fetch(`${supabaseUrl}/storage/v1/object/memo-images`, {
+                method: "DELETE",
+                headers: serviceHeaders({ "content-type": "application/json" }),
+                body: JSON.stringify({ prefixes: [imagePath] })
+              }).catch(() => undefined);
+            }
+            if (memoId) {
+              await fetch(`${supabaseUrl}/rest/v1/memos?id=eq.${encodeURIComponent(memoId)}`, {
+                method: "DELETE",
+                headers: serviceHeaders()
+              }).catch(() => undefined);
+            }
+            if (userId) {
+              await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+                method: "DELETE",
+                headers: serviceHeaders()
+              }).catch(() => undefined);
+            }
+          }
+
+          async function main() {
+            try {
+              const createUser = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+                method: "POST",
+                headers: serviceHeaders({ "content-type": "application/json" }),
+                body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { source: "memo-image-smoke", runId } })
+              });
+              const created = await readJson(createUser);
+              if (!createUser.ok || !created?.id) throw new Error(`create smoke user failed: HTTP ${createUser.status}`);
+              userId = created.id;
+              imagePath = `${userId}/${memoId}/${imageId}.png`;
+
+              const signIn = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+                method: "POST",
+                headers: { apikey: publishableKey, "content-type": "application/json" },
+                body: JSON.stringify({ email, password })
+              });
+              const session = await readJson(signIn);
+              if (!signIn.ok || !session?.access_token) throw new Error(`sign in smoke user failed: HTTP ${signIn.status}`);
+              const token = session.access_token;
+
+              const upload = await fetch(`${supabaseUrl}/storage/v1/object/memo-images/${imagePath}`, {
+                method: "POST",
+                headers: userHeaders(token, { "content-type": "image/png", "cache-control": "3600", "x-upsert": "false" }),
+                body: png
+              });
+              await requireOk(upload, "memo image upload");
+
+              const now = new Date().toISOString();
+              const insertMemo = await fetch(`${supabaseUrl}/rest/v1/memos`, {
+                method: "POST",
+                headers: userHeaders(token, { "content-type": "application/json", prefer: "return=representation" }),
+                body: JSON.stringify({
+                  id: memoId,
+                  user_id: userId,
+                  created_at: now,
+                  updated_at: now,
+                  deleted_at: null,
+                  version: 1,
+                  device_id: deviceId,
+                  folder_id: null,
+                  title: "备忘录图片冒烟测试",
+                  content: "临时记录",
+                  is_pinned: false,
+                  images: [{ id: imageId, name: "smoke.png", path: imagePath, mime_type: "image/png", size: png.length }]
+                })
+              });
+              await requireOk(insertMemo, "memo metadata insert");
+
+              const readMemo = await fetch(`${supabaseUrl}/rest/v1/memos?id=eq.${encodeURIComponent(memoId)}&select=id,images`, {
+                headers: userHeaders(token)
+              });
+              const memos = await readJson(readMemo);
+              if (!readMemo.ok || memos?.[0]?.images?.[0]?.path !== imagePath) throw new Error("memo image metadata did not round-trip");
+
+              const download = await fetch(`${supabaseUrl}/storage/v1/object/authenticated/memo-images/${imagePath}`, {
+                headers: userHeaders(token)
+              });
+              if (!download.ok || (await download.arrayBuffer()).byteLength !== png.length) throw new Error(`authenticated image download failed: HTTP ${download.status}`);
+
+              const anonymousDownload = await fetch(`${supabaseUrl}/storage/v1/object/authenticated/memo-images/${imagePath}`, {
+                headers: { apikey: publishableKey }
+              });
+              if (anonymousDownload.ok) throw new Error("anonymous user unexpectedly read a private memo image");
+
+              console.log("PASS memo images: authenticated upload/read succeeded and anonymous read was denied");
+            } finally {
+              await cleanup();
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          NODE
