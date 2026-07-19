@@ -33,6 +33,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Palette,
+  Type,
   Target,
   Trash2,
   X
@@ -56,6 +57,7 @@ import { DataHealthDialog } from "./components/DataHealthDialog";
 import { DeepSeekAssistantDialog } from "./components/DeepSeekAssistantDialog";
 import { EventDialog } from "./components/EventDialog";
 import { FeedbackDialog } from "./components/FeedbackDialog";
+import { FontSizeDialog } from "./components/FontSizeDialog";
 import { FocusPage } from "./components/FocusPage";
 import { FocusFloatingTimer } from "./components/FocusFloatingTimer";
 import { GlobalSearchDialog, type GlobalSearchResult } from "./components/GlobalSearchDialog";
@@ -97,6 +99,7 @@ import { deleteSemesterCascade } from "./lib/semesters";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
 import { checkDueHealthReminder } from "./lib/health";
 import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
+import { applyAppFontSize, appFontSizeLabel, loadAppFontSize, type AppFontSizeId } from "./lib/fontSizes";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
 import { getAdminStatus } from "./lib/admin";
@@ -183,6 +186,8 @@ export default function App() {
   const [showHeaderToolSettings, setShowHeaderToolSettings] = useState(false);
   const [showThemeSkinSettings, setShowThemeSkinSettings] = useState(false);
   const [themeSkin, setThemeSkin] = useState<ThemeSkinId>(() => loadThemeSkin());
+  const [showFontSizeSettings, setShowFontSizeSettings] = useState(false);
+  const [fontSize, setFontSize] = useState<AppFontSizeId>(() => loadAppFontSize());
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
@@ -212,6 +217,10 @@ export default function App() {
   const pageRef = useRef(page);
   pageRef.current = page;
   const requestSidebarClose = useHistoryLayer(sidebarOpen, () => setSidebarOpen(false), "sidebar");
+
+  useEffect(() => {
+    applyAppFontSize(fontSize);
+  }, [fontSize]);
 
   useEffect(() => {
     initializeAppHistory(pageRef.current);
@@ -1039,6 +1048,9 @@ export default function App() {
                   <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
                     <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
                   </button>
+                  <button className="setting-card" onClick={() => setShowFontSizeSettings(true)}>
+                    <Type /><span><strong>字体大小</strong><small>{appFontSizeLabel(fontSize)} · APK、PWA 和网页独立保存</small></span><ChevronRight />
+                  </button>
                   {!isNativeApp() && (
                     <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
                       <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
@@ -1131,6 +1143,7 @@ export default function App() {
       {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
       {showPeriodSettings && semester && <PeriodSettingsDialog semester={semester} onClose={() => setShowPeriodSettings(false)} />}
       {showThemeSkinSettings && <ThemeSkinDialog value={themeSkin} onChange={setThemeSkin} onClose={() => setShowThemeSkinSettings(false)} />}
+      {showFontSizeSettings && <FontSizeDialog value={fontSize} onChange={setFontSize} onClose={() => setShowFontSizeSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
       {showBatchEvents && <BatchEventsDialog events={events} categories={categories} occurrenceStates={occurrenceStates} onClose={() => setShowBatchEvents(false)} />}
       {showDataHealth && <DataHealthDialog ownerId={ownerId} onClose={() => setShowDataHealth(false)} />}

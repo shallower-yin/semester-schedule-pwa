@@ -14,6 +14,8 @@
   --app-bg: #f5f7fb;
   --accent-soft: #edf2ff;
   --shadow: 0 12px 36px rgb(30 48 88 / 12%);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 .app-shell[data-skin="cake"] {
@@ -6407,6 +6409,78 @@ textarea {
   background: var(--primary);
 }
 
+.font-size-dialog {
+  display: grid;
+  gap: 16px;
+}
+
+.font-size-help {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.font-size-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.font-size-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 124px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 100px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  text-align: left;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.font-size-option.active {
+  border-color: var(--primary);
+  box-shadow: 0 10px 22px rgb(var(--primary-rgb) / 16%);
+}
+
+.font-size-sample {
+  display: grid;
+  min-height: 66px;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--primary);
+  font-weight: 800;
+  background: var(--accent-soft);
+  white-space: nowrap;
+}
+
+.font-size-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.font-size-option-copy small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.font-size-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  color: white;
+  background: var(--primary);
+}
+
 .next-action-panel {
   display: flex;
   align-items: center;
@@ -8505,6 +8579,20 @@ textarea {
 
   .theme-skin-grid {
     grid-template-columns: 1fr;
+  }
+
+  .font-size-options {
+    grid-template-columns: 1fr;
+  }
+
+  .font-size-option {
+    grid-template-columns: 96px minmax(0, 1fr);
+    min-height: 82px;
+    padding: 10px;
+  }
+
+  .font-size-sample {
+    min-height: 58px;
   }
 
   .theme-skin-card {

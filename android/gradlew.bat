@@ -36,7 +36,9 @@ set APP_HOME=%DIRNAME%
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
+@rem Java 18+ defaults to UTF-8, while Windows Java argument files are decoded
+@rem with the active system code page. Keep Chinese workspace paths intact.
+set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m" "-Dfile.encoding=GBK"
 
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
