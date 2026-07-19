@@ -25,7 +25,7 @@ jobs:
           const serviceRoleKey = requiredEnv("SERVICE_ROLE_KEY");
           const aiAccessCode = process.env.AI_ASSISTANT_ACCESS_CODE?.trim() || "";
           const runId = process.env.GITHUB_RUN_ID || Date.now().toString();
-          const smokeEmail = "codex-ai-smoke@example.com";
+          const smokeEmail = `codex-ai-smoke-${runId}-${crypto.randomUUID().slice(0, 8)}@example.com`;
 
           function requiredEnv(name) {
             const value = process.env[name]?.trim();
@@ -57,21 +57,10 @@ jobs:
             }
           }
 
-          async function getOrCreateSmokeUser() {
+          async function createSmokeUser() {
             const password = `${crypto.randomUUID()}Aa1!`;
-            const listResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1000`, {
-              headers: serviceHeaders()
-            });
-            const listPayload = await readJson(listResponse);
-            if (!listResponse.ok) {
-              throw new Error(`list smoke users failed: HTTP ${listResponse.status} ${JSON.stringify(listPayload).slice(0, 300)}`);
-            }
-            const existing = listPayload?.users?.find((user) => user.email?.toLowerCase() === smokeEmail);
-            const endpoint = existing
-              ? `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(existing.id)}`
-              : `${supabaseUrl}/auth/v1/admin/users`;
-            const response = await fetch(endpoint, {
-              method: existing ? "PUT" : "POST",
+            const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+              method: "POST",
               headers: serviceHeaders({ "content-type": "application/json" }),
               body: JSON.stringify({
                 email: smokeEmail,
@@ -88,10 +77,25 @@ jobs:
           }
 
           async function clearAccess(userId) {
-            await fetch(`${supabaseUrl}/rest/v1/ai_assistant_access?user_id=eq.${encodeURIComponent(userId)}`, {
+            const response = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_access?user_id=eq.${encodeURIComponent(userId)}`, {
               method: "DELETE",
               headers: serviceHeaders()
             });
+            const payload = await readJson(response);
+            if (!response.ok) {
+              throw new Error(`clear smoke access failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+            }
+          }
+
+          async function deleteSmokeUser(userId) {
+            const response = await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+              method: "DELETE",
+              headers: serviceHeaders()
+            });
+            const payload = await readJson(response);
+            if (!response.ok) {
+              throw new Error(`delete smoke user failed: HTTP ${response.status} ${JSON.stringify(payload).slice(0, 300)}`);
+            }
           }
 
           async function getAssistantGlobalAccess() {
@@ -234,37 +238,42 @@ jobs:
           }
 
           async function main() {
-            const user = await getOrCreateSmokeUser();
-            const token = await signIn(user);
-            const enabledForAll = await getAssistantGlobalAccess();
+            let user = null;
+            try {
+              user = await createSmokeUser();
+              const token = await signIn(user);
+              const enabledForAll = await getAssistantGlobalAccess();
 
-            await clearAccess(user.id);
-            user.label = "normal";
-            await expectOrdinaryPolicy(user, token, enabledForAll);
-            await expectAdminStatus(user, token, false);
-            await expectAiAccessCodeDoesNotGrantMembership(user, token, enabledForAll);
+              await clearAccess(user.id);
+              user.label = "normal";
+              await expectOrdinaryPolicy(user, token, enabledForAll);
+              await expectAdminStatus(user, token, false);
+              await expectAiAccessCodeDoesNotGrantMembership(user, token, enabledForAll);
 
-            user.label = "disabled";
-            await setAccess(user, { enabled: false, role: "member" });
-            await expectInactiveDirectAccess(user, token, enabledForAll);
-            await expectAdminStatus(user, token, false);
+              user.label = "disabled";
+              await setAccess(user, { enabled: false, role: "member" });
+              await expectInactiveDirectAccess(user, token, enabledForAll);
+              await expectAdminStatus(user, token, false);
 
-            user.label = "expired";
-            await setAccess(user, { enabled: true, role: "member", expiresAt: "2020-01-01T00:00:00Z" });
-            await expectInactiveDirectAccess(user, token, enabledForAll);
-            await expectAdminStatus(user, token, false);
+              user.label = "expired";
+              await setAccess(user, { enabled: true, role: "member", expiresAt: "2020-01-01T00:00:00Z" });
+              await expectInactiveDirectAccess(user, token, enabledForAll);
+              await expectAdminStatus(user, token, false);
 
-            user.label = "member";
-            await setAccess(user, { enabled: true, role: "member" });
-            await expectAiAllowed(user, token, "member");
-            await expectAdminStatus(user, token, false);
+              user.label = "member";
+              await setAccess(user, { enabled: true, role: "member" });
+              await expectAiAllowed(user, token, "member");
+              await expectAdminStatus(user, token, false);
 
-            user.label = "admin";
-            await setAccess(user, { enabled: true, role: "admin" });
-            await expectAiAllowed(user, token, "admin");
-            await expectAdminStatus(user, token, true);
-
-            await setAccess(user, { enabled: false, role: "member" });
+              user.label = "admin";
+              await setAccess(user, { enabled: true, role: "admin" });
+              await expectAiAllowed(user, token, "admin");
+              await expectAdminStatus(user, token, true);
+            } finally {
+              if (user) {
+                await deleteSmokeUser(user.id);
+              }
+            }
           }
 
           main()
