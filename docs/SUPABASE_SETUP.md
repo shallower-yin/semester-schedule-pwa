@@ -64,6 +64,20 @@ AI 助手权限需要执行：
 
 正式 Site URL：`https://shallower-yin.github.io/semester-schedule-pwa/`
 
+### 邮箱验证码登录模板
+
+为了让免密登录会话保留在发起操作的 APK、PWA 或浏览器中，应用使用邮箱验证码，不使用点击后跳转网页的 Magic Link。
+
+托管项目通过 `.github/workflows/deploy-supabase-auth.yml` 自动同步模板。工作流使用 GitHub Secret `SUPABASE_ACCESS_TOKEN` 调用 Supabase Management API，部署后回读并核对主题和正文；令牌和完整认证配置不得输出到日志。
+
+如需在 Supabase Dashboard 人工核对，可打开 `Authentication → Email Templates → Magic Link`，模板内容应与仓库中的下列文件一致：
+
+`supabase/templates/magic-link-otp.html`
+
+模板必须包含 `{{ .Token }}`，禁止使用 `{{ .ConfirmationURL }}` 作为登录入口。修改模板后，用户在原应用中点击“邮箱验证码登录”，再把邮件验证码填写回同一登录弹窗即可。前端登录请求已设置为不自动创建账号；未注册邮箱需要先走“注册账号”。
+
+注册确认和找回密码使用各自独立的邮件模板与回调地址，不受 Magic Link 模板改为验证码影响。每次发布验证码登录功能前，都需要用真实邮箱分别检查普通网页、已安装 PWA 和 Android APK。
+
 ## 首次账号测试
 
 1. 双击 `启动日程.cmd`。

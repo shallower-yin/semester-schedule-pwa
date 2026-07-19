@@ -5,8 +5,9 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export default defineConfig(() => {
-  const base = process.env.VITE_APP_BASE?.trim() || (process.env.GITHUB_ACTIONS ? "/semester-schedule-pwa/" : "/");
+export default defineConfig(({ mode }) => {
+  const isAndroid = mode === "android";
+  const base = isAndroid ? "/" : process.env.VITE_APP_BASE?.trim() || (process.env.GITHUB_ACTIONS ? "/semester-schedule-pwa/" : "/");
   const appStartUrl = process.env.VITE_APP_START_URL?.trim() || base;
   const appUrl = process.env.VITE_APP_URL?.trim() || "";
   const outDir = process.env.VITE_OUT_DIR?.trim() || "dist";
@@ -29,7 +30,8 @@ export default defineConfig(() => {
     base,
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
-      __APP_COMMIT__: JSON.stringify(appCommit)
+      __APP_COMMIT__: JSON.stringify(appCommit),
+      __APP_TARGET__: JSON.stringify(isAndroid ? "android" : "web")
     },
     build: {
       outDir,
@@ -60,6 +62,7 @@ export default defineConfig(() => {
         }
       },
       VitePWA({
+        disable: isAndroid,
         registerType: "prompt",
         includeAssets: ["favicon.svg", "app-icon-192.png", "app-icon-512.png", "push-sw.js"],
         manifest: {

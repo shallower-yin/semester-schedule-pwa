@@ -1618,6 +1618,15 @@ main {
   background: white;
 }
 
+.semester-manager .section-heading > div {
+  min-width: 0;
+}
+
+.semester-manager .section-heading > .button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .semester-list {
   display: flex;
   margin-top: 14px;

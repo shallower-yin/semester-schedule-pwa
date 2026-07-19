@@ -110,6 +110,7 @@ import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
+import { isNativeApp } from "./lib/nativeApp";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -196,7 +197,7 @@ export default function App() {
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(() => getLastBackupAt());
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() => getCapturedInstallPrompt());
-  const [installed, setInstalled] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
+  const [installed, setInstalled] = useState(() => isNativeApp() || window.matchMedia("(display-mode: standalone)").matches);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showSchoolImport, setShowSchoolImport] = useState(false);
@@ -343,6 +344,7 @@ export default function App() {
   } = useRegisterSW();
 
   useEffect(() => {
+    if (isNativeApp()) return;
     let active = true;
     async function checkRelease() {
       const release = await fetchLatestRelease();
@@ -1037,9 +1039,11 @@ export default function App() {
                   <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
                     <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
                   </button>
-                  <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
-                    <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
-                  </button>
+                  {!isNativeApp() && (
+                    <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
+                      <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
+                    </button>
+                  )}
                   <button className="setting-card" onClick={() => setShowFeedback(true)}>
                     <MessageSquareText /><span><strong>意见反馈</strong><small>向管理员提交文字、图片或文档</small></span><ChevronRight />
                   </button>

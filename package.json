@@ -6,12 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:android": "tsc -b && vite build --mode android",
+    "android:sync": "npm run build:android && cap sync android",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "configure:r2": "node scripts/configure-r2.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.4.2",
     "@supabase/supabase-js": "^2.110.0",
     "dexie": "^4.0.11",
     "dexie-react-hooks": "^1.1.7",
@@ -26,6 +31,7 @@
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1089.0",
     "@aws-sdk/s3-request-presigner": "^3.1089.0",
+    "@capacitor/cli": "^8.4.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.10.5",

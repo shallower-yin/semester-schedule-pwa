@@ -11,3 +11,9 @@ output
 vite-dev*.log
 supabase-connectivity-result.txt
 xuexiao_kebiao/
+android/.gradle/
+android/local.properties
+android/app/build/
+*.jks
+*.keystore
+keystore.properties
