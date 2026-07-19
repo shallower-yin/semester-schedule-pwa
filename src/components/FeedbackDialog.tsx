@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   feedbackStatusLabel,
   formatFeedbackFileSize,
+  getRecommendedFeedbackChannel,
   listMyFeedback,
   openFeedbackAttachment,
   submitFeedback,
@@ -25,6 +26,11 @@ export function FeedbackDialog({ userId, userEmail, onRequestLogin, onClose }: F
   const [records, setRecords] = useState<UserFeedback[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [recommendedChannel, setRecommendedChannel] = useState("");
+
+  useEffect(() => {
+    void getRecommendedFeedbackChannel().then(setRecommendedChannel).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -56,6 +62,12 @@ export function FeedbackDialog({ userId, userEmail, onRequestLogin, onClose }: F
 
   return (
     <Modal title="意见反馈" onClose={onClose} wide>
+      {recommendedChannel && (
+        <div className="feedback-recommended-channel" aria-label="推荐反馈渠道">
+          <strong>推荐反馈渠道</strong>
+          <span title={recommendedChannel}>{recommendedChannel}</span>
+        </div>
+      )}
       {!userId ? (
         <div className="feedback-login-state">
           <MessageSquareText size={38} />

@@ -35,6 +35,31 @@ const ALLOWED_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ]);
 
+export async function getRecommendedFeedbackChannel(): Promise<string> {
+  if (!supabase) return "";
+  const { data, error } = await supabase
+    .from("feedback_channel_settings")
+    .select("recommended_channel")
+    .eq("id", "default")
+    .maybeSingle();
+  if (error) throw new Error(error.message || "读取推荐反馈渠道失败。");
+  return typeof data?.recommended_channel === "string" ? data.recommended_channel.trim() : "";
+}
+
+export async function updateRecommendedFeedbackChannel(value: string): Promise<string> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法保存推荐反馈渠道。");
+  const recommendedChannel = value.trim();
+  if (recommendedChannel.length > 300) throw new Error("推荐反馈渠道不能超过 300 个字符。");
+  const { data, error } = await supabase
+    .from("feedback_channel_settings")
+    .update({ recommended_channel: recommendedChannel, updated_at: new Date().toISOString() })
+    .eq("id", "default")
+    .select("recommended_channel")
+    .single();
+  if (error) throw new Error(error.message || "保存推荐反馈渠道失败。");
+  return typeof data?.recommended_channel === "string" ? data.recommended_channel.trim() : recommendedChannel;
+}
+
 export async function submitFeedback(input: { userId: string; userEmail?: string | null; content: string; files: File[] }): Promise<UserFeedback> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法提交反馈。");
   const content = input.content.trim();

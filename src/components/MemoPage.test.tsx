@@ -5,6 +5,22 @@ import { setCurrentUserId, syncFields } from "../lib/identity";
 import type { Memo } from "../types";
 import { MemoPage } from "./MemoPage";
 
+const { getMemoImageUrlsMock, removeMemoImagesMock, uploadMemoImageMock } = vi.hoisted(() => ({
+  getMemoImageUrlsMock: vi.fn(),
+  removeMemoImagesMock: vi.fn(),
+  uploadMemoImageMock: vi.fn()
+}));
+
+vi.mock("../lib/memoImages", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/memoImages")>();
+  return {
+    ...actual,
+    getMemoImageUrls: getMemoImageUrlsMock,
+    removeMemoImages: removeMemoImagesMock,
+    uploadMemoImage: uploadMemoImageMock
+  };
+});
+
 describe("备忘录视图", () => {
   beforeEach(async () => {
     localStorage.clear();
@@ -12,6 +28,15 @@ describe("备忘录视图", () => {
     await db.memoFolders.clear();
     await db.memos.clear();
     await db.syncQueue.clear();
+    getMemoImageUrlsMock.mockReset().mockResolvedValue({});
+    removeMemoImagesMock.mockReset().mockResolvedValue(undefined);
+    uploadMemoImageMock.mockReset().mockResolvedValue({
+      id: "image-1",
+      name: "课堂板书.png",
+      path: "user-1/memo-draft/image-1.png",
+      mime_type: "image/png",
+      size: 3
+    });
   });
 
   afterEach(() => {
@@ -69,6 +94,27 @@ describe("备忘录视图", () => {
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     fireEvent.keyDown(textarea, { key: "Enter" });
     await waitFor(() => expect(textarea).toHaveValue("○ 防晒\n○ "));
+  });
+
+  it("登录用户可以插入图片并把私有路径随备忘录保存", async () => {
+    setCurrentUserId("user-1");
+    const { container } = render(<MemoPage ownerId="user-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "标题" }), { target: { value: "实验记录" } });
+    const file = new File(["png"], "课堂板书.png", { type: "image/png" });
+    const fileInput = container.querySelector('input[aria-label="从电脑选择文件"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => expect(uploadMemoImageMock).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", file })));
+    expect(await screen.findByText("课堂板书.png")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存备忘录" }));
+
+    await waitFor(async () => {
+      const saved = await db.memos.filter((item) => item.title === "实验记录").first();
+      expect(saved?.images).toEqual([expect.objectContaining({ path: "user-1/memo-draft/image-1.png" })]);
+    });
+    expect((await db.syncQueue.toArray()).some((item) => item.table_name === "memos" && item.operation === "upsert")).toBe(true);
   });
 
   it("复制全文会按标题和正文复制完整备忘录", async () => {

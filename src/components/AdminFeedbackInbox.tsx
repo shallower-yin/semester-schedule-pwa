@@ -2,9 +2,11 @@ import { Check, MessageSquareText, Paperclip, RefreshCw, Save } from "lucide-rea
 import { useEffect, useMemo, useState } from "react";
 import {
   feedbackStatusLabel,
+  getRecommendedFeedbackChannel,
   listAdminFeedback,
   openFeedbackAttachment,
   updateAdminFeedback,
+  updateRecommendedFeedbackChannel,
   type FeedbackStatus,
   type UserFeedback
 } from "../lib/feedback";
@@ -14,6 +16,8 @@ export function AdminFeedbackInbox() {
   const [filter, setFilter] = useState<FeedbackStatus | "all">("new");
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState("");
+  const [recommendedChannel, setRecommendedChannel] = useState("");
+  const [savingChannel, setSavingChannel] = useState(false);
   const [message, setMessage] = useState("");
   const visible = useMemo(() => filter === "all" ? records : records.filter((record) => record.status === filter), [filter, records]);
 
@@ -21,7 +25,11 @@ export function AdminFeedbackInbox() {
     setLoading(true);
     setMessage("");
     try {
-      setRecords(await listAdminFeedback());
+      const [recordsResult, channelResult] = await Promise.allSettled([listAdminFeedback(), getRecommendedFeedbackChannel()]);
+      if (recordsResult.status === "rejected") throw recordsResult.reason;
+      setRecords(recordsResult.value);
+      if (channelResult.status === "fulfilled") setRecommendedChannel(channelResult.value);
+      else setMessage(channelResult.reason instanceof Error ? channelResult.reason.message : "读取推荐反馈渠道失败。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取反馈失败。");
     } finally {
@@ -50,11 +58,28 @@ export function AdminFeedbackInbox() {
     }
   }
 
+  async function saveRecommendedChannel() {
+    setSavingChannel(true);
+    setMessage("");
+    try {
+      setRecommendedChannel(await updateRecommendedFeedbackChannel(recommendedChannel));
+      setMessage("推荐反馈渠道已保存。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存推荐反馈渠道失败。");
+    } finally {
+      setSavingChannel(false);
+    }
+  }
+
   return (
     <section className="admin-access-editor admin-feedback-inbox">
       <div className="section-heading">
         <div><h3><MessageSquareText size={18} /> 用户反馈</h3><p>正文记录在数据库，图片和文档保存在私有 Storage。</p></div>
         <button className="button secondary compact" onClick={() => void load()} disabled={loading}><RefreshCw size={15} />刷新</button>
+      </div>
+      <div className="admin-feedback-channel-editor">
+        <label><span>推荐反馈渠道</span><input maxLength={300} value={recommendedChannel} placeholder="例如：QQ邮箱、微信或其他联系方式" onChange={(event) => setRecommendedChannel(event.target.value)} /></label>
+        <button className="button primary compact" disabled={savingChannel} onClick={() => void saveRecommendedChannel()}><Save size={15} />{savingChannel ? "保存中" : "保存"}</button>
       </div>
       <div className="admin-feedback-toolbar">
         {(["new", "reviewed", "resolved", "all"] as const).map((status) => <button key={status} className={filter === status ? "active" : ""} onClick={() => setFilter(status)}>{status === "all" ? `全部 ${records.length}` : `${feedbackStatusLabel(status)} ${records.filter((record) => record.status === status).length}`}</button>)}

@@ -732,6 +732,39 @@ main {
   gap: 14px;
 }
 
+.feedback-recommended-channel {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgb(var(--primary-rgb) / 20%);
+  border-radius: 9px;
+  color: #344158;
+  background: var(--accent-soft);
+  white-space: nowrap;
+}
+
+.feedback-recommended-channel strong {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.feedback-recommended-channel span {
+  min-width: 0;
+  overflow-x: auto;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.feedback-recommended-channel span::-webkit-scrollbar {
+  display: none;
+}
+
 .feedback-composer,
 .feedback-history {
   min-width: 0;
@@ -3116,6 +3149,24 @@ textarea {
   font-weight: 750;
 }
 
+.memo-image-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #7c3aed;
+  background: #f1eafe;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.memo-todo-badge + .memo-image-badge {
+  margin-left: 6px;
+}
+
 .memo-card p {
   display: -webkit-box;
   overflow: hidden;
@@ -3247,6 +3298,61 @@ textarea {
 
 .memo-dialog-form {
   gap: 10px;
+}
+
+.memo-image-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.memo-image-list figure {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.memo-image-list img,
+.memo-image-loading {
+  display: grid;
+  width: 100%;
+  height: 104px;
+  place-items: center;
+  object-fit: cover;
+}
+
+.memo-image-loading {
+  gap: 4px;
+  align-content: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.memo-image-list figcaption {
+  overflow: hidden;
+  padding: 6px 8px;
+  color: #46546b;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo-image-list .icon-button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 30px;
+  height: 30px;
+  color: white;
+  background: rgb(15 23 42 / 70%);
+}
+
+.memo-image-hint {
+  margin: 0;
 }
 
 .memo-pin-control {
@@ -5323,6 +5429,33 @@ textarea {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
+}
+
+.admin-feedback-channel-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.admin-feedback-channel-editor label {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.admin-feedback-channel-editor label > span {
+  color: #394355;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.admin-feedback-channel-editor input {
+  min-width: 0;
 }
 
 .admin-feedback-toolbar button {
@@ -8862,7 +8995,7 @@ textarea {
   }
 
   .memo-editor-toolbar {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 4px;
   }
 
@@ -8873,6 +9006,15 @@ textarea {
   .memo-character-count {
     min-width: 56px;
     font-size: 9px;
+  }
+
+  .memo-image-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memo-image-list img,
+  .memo-image-loading {
+    height: 112px;
   }
 
   .memo-dialog-actions {
@@ -9052,5 +9194,22 @@ textarea {
   .feedback-actions .button {
     width: 100%;
     justify-content: center;
+  }
+
+  .admin-feedback-channel-editor {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+  }
+
+  .admin-feedback-channel-editor label {
+    gap: 5px;
+  }
+
+  .admin-feedback-channel-editor label > span {
+    font-size: 11px;
+  }
+
+  .admin-feedback-channel-editor .button {
+    padding-inline: 8px;
   }
 }

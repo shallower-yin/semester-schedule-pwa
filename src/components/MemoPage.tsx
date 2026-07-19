@@ -1,13 +1,15 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarPlus, Copy, FileText, Folder, Grid3X3, List, ListChecks, ListOrdered, Pin, Plus, Search } from "lucide-react";
+import { CalendarPlus, Copy, FileText, Folder, Grid3X3, Image as ImageIcon, List, ListChecks, ListOrdered, Pin, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
+import { getMemoImageUrls, MEMO_IMAGE_LIMIT, normalizeMemoImages, removeMemoImages, uploadMemoImage, validateMemoImage } from "../lib/memoImages";
 import { showToast } from "../lib/toast";
-import type { EventItem, Memo, MemoFolder } from "../types";
+import type { EventItem, Memo, MemoFolder, MemoImage } from "../types";
+import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
 import { Modal } from "./Modal";
 
 interface MemoPageProps {
@@ -318,6 +320,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
 
       {memoToEdit !== undefined && (
         <MemoDialog
+          ownerId={ownerId}
           folders={folders}
           memo={memoToEdit ?? undefined}
           initialFolderId={filter !== "all" && filter !== "uncheckedTodos" ? filter : null}
@@ -349,6 +352,7 @@ function MemoCard({ memo, mode, onEdit, onCreateEvent }: MemoCardProps) {
       </div>
       <h2>{memo.title}</h2>
       {checklistStats.incomplete > 0 && <span className="memo-todo-badge">未完成待办 {checklistStats.incomplete}</span>}
+      {Boolean(memo.images?.length) && <span className="memo-image-badge"><ImageIcon size={13} />图片 {memo.images!.length} 张</span>}
       <p>{memo.content || "无正文"}</p>
       <div className="memo-card-actions">
         <button
@@ -366,19 +370,49 @@ function MemoCard({ memo, mode, onEdit, onCreateEvent }: MemoCardProps) {
 }
 
 interface MemoDialogProps {
+  ownerId: string;
   folders: MemoFolder[];
   memo?: Memo;
   initialFolderId: string | null;
   onClose: () => void;
 }
 
-function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps) {
+function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDialogProps) {
+  const [draftMemoId] = useState(() => memo?.id ?? crypto.randomUUID());
   const [title, setTitle] = useState(memo?.title ?? "");
   const [content, setContent] = useState(memo?.content ?? "");
   const [folderId, setFolderId] = useState(memo?.folder_id ?? initialFolderId ?? "");
   const [isPinned, setIsPinned] = useState(memo?.is_pinned ?? false);
+  const [images, setImages] = useState<MemoImage[]>(() => normalizeMemoImages(memo?.images));
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [uploadingImages, setUploadingImages] = useState(false);
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mountedRef = useRef(true);
+  const newImagePathsRef = useRef<string[]>([]);
+  const removedExistingPathsRef = useRef<string[]>([]);
+  const savedRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void getMemoImageUrls(images)
+      .then((urls) => {
+        if (active) setImageUrls((current) => ({ ...current, ...urls }));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [images]);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+    const cleanupPaths = [
+      ...newImagePathsRef.current,
+      ...(savedRef.current ? removedExistingPathsRef.current : [])
+    ];
+    if (cleanupPaths.length) void removeMemoImages(cleanupPaths).catch(() => undefined);
+  }, []);
 
   function focusTextareaAt(cursor: number) {
     window.setTimeout(() => {
@@ -396,22 +430,83 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
       return;
     }
     const record: Memo = {
-      ...syncFields(memo),
+      ...syncFields(memo ?? { id: draftMemoId, created_at: new Date().toISOString(), version: 0 }),
       folder_id: folderId || null,
       title: title.trim(),
       content,
-      is_pinned: isPinned
+      is_pinned: isPinned,
+      images
     };
     await db.memos.put(record);
     await queueChange("memos", record.id);
+    savedRef.current = true;
+    const retainedPaths = new Set(images.map((image) => image.path));
+    newImagePathsRef.current = newImagePathsRef.current.filter((path) => !retainedPaths.has(path));
+    const cleanupPaths = [...removedExistingPathsRef.current, ...newImagePathsRef.current];
+    if (cleanupPaths.length) {
+      try {
+        await removeMemoImages(cleanupPaths);
+        removedExistingPathsRef.current = [];
+        newImagePathsRef.current = [];
+      } catch (error) {
+        setMessage(error instanceof Error ? `备忘录已保存，但图片清理失败：${error.message}` : "备忘录已保存，但图片清理失败，请重试保存。");
+        return;
+      }
+    }
     onClose();
   }
 
   async function remove() {
     if (!memo || !window.confirm(`确定删除备忘录“${memo.title}”吗？删除会同步到其他设备且无法恢复。`)) return;
-    await hardDeleteLocalRecord("memos", memo.id);
-    showToast("备忘录已删除。", "success");
-    onClose();
+    try {
+      await removeMemoImages(normalizeMemoImages(memo.images).map((image) => image.path));
+      await hardDeleteLocalRecord("memos", memo.id);
+      showToast("备忘录已删除。", "success");
+      onClose();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除备忘录失败，请重试。");
+    }
+  }
+
+  async function addImages(fileList: FileList | null) {
+    if (!fileList?.length) return;
+    if (ownerId === "local") {
+      setMessage("登录账号后才能插入图片，并同步到其他设备。");
+      return;
+    }
+    const files = Array.from(fileList).slice(0, Math.max(0, MEMO_IMAGE_LIMIT - images.length));
+    if (!files.length) {
+      setMessage(`每条备忘录最多插入 ${MEMO_IMAGE_LIMIT} 张图片。`);
+      return;
+    }
+    setUploadingImages(true);
+    setMessage("");
+    try {
+      for (const file of files) {
+        validateMemoImage(file);
+        const image = await uploadMemoImage({ userId: ownerId, memoId: draftMemoId, file });
+        if (!mountedRef.current) {
+          await removeMemoImages([image.path]).catch(() => undefined);
+          break;
+        }
+        newImagePathsRef.current.push(image.path);
+        setImages((current) => [...current, image]);
+      }
+    } catch (error) {
+      if (mountedRef.current) setMessage(error instanceof Error ? error.message : "插入图片失败，请重试。");
+    } finally {
+      if (mountedRef.current) setUploadingImages(false);
+    }
+  }
+
+  function removeImageFromDraft(image: MemoImage) {
+    setImages((current) => current.filter((item) => item.path !== image.path));
+    setImageUrls((current) => {
+      const next = { ...current };
+      delete next[image.path];
+      return next;
+    });
+    if (!newImagePathsRef.current.includes(image.path)) removedExistingPathsRef.current.push(image.path);
   }
 
   function applyLineFormat(kind: "numbered" | "checklist") {
@@ -479,6 +574,14 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
             <div className="memo-editor-toolbar">
               <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("numbered")}><ListOrdered size={15} />编号</button>
               <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
+              <AttachmentSourcePicker
+                imageAccept="image/jpeg,image/png,image/webp,image/gif"
+                documentAccept="image/jpeg,image/png,image/webp,image/gif"
+                label={uploadingImages ? "上传中" : "插入图片"}
+                ariaLabel="插入备忘录图片"
+                disabled={uploadingImages || images.length >= MEMO_IMAGE_LIMIT}
+                onFiles={addImages}
+              />
               <span className="memo-character-count">{Array.from(content).length} 个字符</span>
             </div>
           </div>
@@ -494,13 +597,27 @@ function MemoDialog({ folders, memo, initialFolderId, onClose }: MemoDialogProps
               onKeyDown={handleContentKeyDown}
             />
           </div>
+          {images.length > 0 && (
+            <div className="memo-image-list" aria-label="已插入图片">
+              {images.map((image) => (
+                <figure key={image.path}>
+                  {imageUrls[image.path]
+                    ? <img src={imageUrls[image.path]} alt={image.name} />
+                    : <span className="memo-image-loading"><ImageIcon size={22} />加载中</span>}
+                  <figcaption title={image.name}>{image.name}</figcaption>
+                  <button type="button" className="icon-button" aria-label={`移除图片 ${image.name}`} onClick={() => removeImageFromDraft(image)}><X size={15} /></button>
+                </figure>
+              ))}
+            </div>
+          )}
+          <p className="form-hint memo-image-hint">最多 {MEMO_IMAGE_LIMIT} 张，单张不超过 8 MB；图片保存到账号私有空间并随备忘录同步。</p>
         </div>
         {message && <p className="auth-message error">{message}</p>}
         <div className="memo-dialog-actions">
           <button type="button" className="button secondary memo-cancel-button" onClick={onClose}>取消</button>
           <button type="button" className="button secondary" onClick={() => void copyFullText()}><Copy size={16} />复制全文</button>
-          <button className="button primary">保存备忘录</button>
-          {memo && <button type="button" className="button danger-button" onClick={() => void remove()}>删除备忘录</button>}
+          <button className="button primary" disabled={uploadingImages}>{uploadingImages ? "图片上传中" : "保存备忘录"}</button>
+          {memo && <button type="button" className="button danger-button" disabled={uploadingImages} onClick={() => void remove()}>删除备忘录</button>}
         </div>
       </form>
     </Modal>

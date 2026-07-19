@@ -111,11 +111,20 @@ export interface MemoFolder extends SyncFields {
   sort_order: number;
 }
 
+export interface MemoImage {
+  id: string;
+  name: string;
+  path: string;
+  mime_type: string;
+  size: number;
+}
+
 export interface Memo extends SyncFields {
   folder_id: string | null;
   title: string;
   content: string;
   is_pinned: boolean;
+  images?: MemoImage[];
 }
 
 export type FocusMode = "stopwatch" | "countdown" | "pomodoro" | "lock";

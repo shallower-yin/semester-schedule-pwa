@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listMyFeedbackMock, submitFeedbackMock } = vi.hoisted(() => ({
+const { getRecommendedFeedbackChannelMock, listMyFeedbackMock, submitFeedbackMock } = vi.hoisted(() => ({
+  getRecommendedFeedbackChannelMock: vi.fn(),
   listMyFeedbackMock: vi.fn(),
   submitFeedbackMock: vi.fn()
 }));
@@ -10,6 +11,7 @@ vi.mock("../lib/feedback", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/feedback")>();
   return {
     ...actual,
+    getRecommendedFeedbackChannel: getRecommendedFeedbackChannelMock,
     listMyFeedback: listMyFeedbackMock,
     submitFeedback: submitFeedbackMock,
     openFeedbackAttachment: vi.fn()
@@ -38,6 +40,7 @@ function setMobileMode(matches: boolean) {
 describe("意见反馈通道", () => {
   beforeEach(() => {
     setMobileMode(false);
+    getRecommendedFeedbackChannelMock.mockReset().mockResolvedValue("QQ邮箱 3301469532@qq.com");
     listMyFeedbackMock.mockReset().mockResolvedValue([]);
     submitFeedbackMock.mockReset().mockResolvedValue({
       id: "feedback-1",
@@ -57,6 +60,15 @@ describe("意见反馈通道", () => {
     render(<FeedbackDialog userId={null} onRequestLogin={onRequestLogin} onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "登录账号" }));
     expect(onRequestLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("把推荐反馈渠道的标题和联系方式放在同一行", async () => {
+    render(<FeedbackDialog userId={null} onRequestLogin={vi.fn()} onClose={vi.fn()} />);
+
+    const row = await screen.findByLabelText("推荐反馈渠道");
+    expect(row).toHaveClass("feedback-recommended-channel");
+    expect(within(row).getByText("推荐反馈渠道")).toBeInTheDocument();
+    expect(within(row).getByText("QQ邮箱 3301469532@qq.com")).toBeInTheDocument();
   });
 
   it("登录用户可以提交正文和图片附件", async () => {

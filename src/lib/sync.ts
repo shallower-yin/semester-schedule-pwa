@@ -3,6 +3,7 @@ import type { EventOccurrenceState, SyncQueueItem, SyncTableName } from "../type
 import { deduplicateCategories } from "./categories";
 import { syncFields } from "./identity";
 import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
+import { normalizeMemoImages } from "./memoImages";
 import { supabase } from "./supabase";
 
 export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: string }> = [
@@ -213,7 +214,8 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
     return {
       ...record,
       folder_id: record.folder_id ?? null,
-      is_pinned: Boolean(record.is_pinned)
+      is_pinned: Boolean(record.is_pinned),
+      images: normalizeMemoImages(record.images)
     };
   }
   if (table === "healthProfiles") {
