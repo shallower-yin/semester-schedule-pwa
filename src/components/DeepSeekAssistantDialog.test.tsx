@@ -3,21 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { db } from "../db";
 
-const { askDeepSeekAssistantMock, getAiAssistantConfigurationMock } = vi.hoisted(() => ({
+const { askDeepSeekAssistantMock, getAiAssistantConfigurationMock, prepareAiAssistantAttachmentMock } = vi.hoisted(() => ({
   askDeepSeekAssistantMock: vi.fn(),
-  getAiAssistantConfigurationMock: vi.fn()
+  getAiAssistantConfigurationMock: vi.fn(),
+  prepareAiAssistantAttachmentMock: vi.fn()
 }));
 
 vi.mock("../lib/assistantAttachments", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/assistantAttachments")>();
   return {
     ...actual,
-    prepareAiAssistantAttachment: vi.fn().mockResolvedValue({
-      name: "安排.txt",
-      mimeType: "text/plain",
-      kind: "document",
-      text: "课程安排：周五提交报告"
-    })
+    prepareAiAssistantAttachment: prepareAiAssistantAttachmentMock
   };
 });
 
@@ -70,6 +66,12 @@ describe("AI 助手消息编辑", () => {
     await db.aiAttachmentContexts.clear();
     askDeepSeekAssistantMock.mockReset();
     getAiAssistantConfigurationMock.mockReset();
+    prepareAiAssistantAttachmentMock.mockReset().mockResolvedValue({
+      name: "安排.txt",
+      mimeType: "text/plain",
+      kind: "document",
+      text: "课程安排：周五提交报告"
+    });
     askDeepSeekAssistantMock.mockResolvedValue({ answer: "修改后的新回答", actions: [] });
     getAiAssistantConfigurationMock.mockResolvedValue({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
     localStorage.setItem("semester-schedule-ai-assistant-history:user-1", JSON.stringify([
@@ -137,6 +139,40 @@ describe("AI 助手消息编辑", () => {
   it("手机底部始终保留删除对话按钮", async () => {
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
     expect(await screen.findByRole("button", { name: "删除对话" })).toBeInTheDocument();
+  });
+
+  it("从剪贴板读取浏览器提供的图片或文档文件", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-paste" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "导入图片或文档" });
+    const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
+    const pastedDocument = new File(["课程安排"], "复制的讲义.txt", { type: "text/plain" });
+
+    const notCanceled = fireEvent.paste(composer, {
+      clipboardData: { items: [], files: [pastedDocument] }
+    });
+
+    expect(notCanceled).toBe(false);
+    await waitFor(() => expect(prepareAiAssistantAttachmentMock).toHaveBeenCalledWith(
+      pastedDocument,
+      expect.objectContaining({ feature: "assistant" })
+    ));
+    expect(await screen.findByText("安排.txt")).toBeInTheDocument();
+    expect(screen.getByText("电脑端可按 Ctrl+V 粘贴截图或文件")).toBeInTheDocument();
+  });
+
+  it("纯文字粘贴保持浏览器默认输入行为", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-text-paste" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "导入图片或文档" });
+
+    const notCanceled = fireEvent.paste(
+      screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业"),
+      { clipboardData: { items: [{ kind: "string", getAsFile: () => null }], files: [] } }
+    );
+
+    expect(notCanceled).toBe(true);
+    expect(prepareAiAssistantAttachmentMock).not.toHaveBeenCalled();
   });
 
   it("发送完成后把消息区滚动到最新一轮", async () => {

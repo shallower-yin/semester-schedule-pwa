@@ -1,7 +1,8 @@
 import { ArrowDown, ArrowUp, Copy, Download, FileAudio, KeyRound, Send, Sparkles, Trash2, X } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { askAboutAudioTranscript, MAX_AUDIO_FILES, transcribeAudioFiles, validateAudioFile, type AudioConversationMessage, type AudioLanguage, type AudioTranscriptionResult } from "../lib/audioTranscription";
+import { extractClipboardFiles } from "../lib/clipboardFiles";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 
@@ -30,7 +31,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
     return () => setAiTaskDialogOpen("audio_transcription", false);
   }, []);
 
-  function addFiles(fileList: FileList | null) {
+  function addFiles(fileList: FileList | readonly File[] | null, source: "picker" | "paste" = "picker") {
     if (!fileList?.length) return;
     try {
       const incoming = Array.from(fileList);
@@ -44,9 +45,21 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
         if (next.length > MAX_AUDIO_FILES) showToast(`一次最多选择 ${MAX_AUDIO_FILES} 个音频文件。`, "error");
         return next.slice(0, MAX_AUDIO_FILES);
       });
+      if (source === "paste") showToast(`已粘贴 ${incoming.length} 个音频文件。`, "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "读取音频失败。", "error");
     }
+  }
+
+  function pasteAudioFiles(event: ReactClipboardEvent<HTMLElement>) {
+    const pastedFiles = extractClipboardFiles(event.clipboardData);
+    if (!pastedFiles.length) return;
+    event.preventDefault();
+    if (loading) {
+      showToast("当前正在处理音频，请稍后再粘贴文件。", "error");
+      return;
+    }
+    addFiles(pastedFiles, "paste");
   }
 
   function moveFile(index: number, direction: -1 | 1) {
@@ -156,12 +169,13 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
         </label>
       )}
     >
-      <div className="audio-transcription-dialog">
+      <div className="audio-transcription-dialog" onPaste={pasteAudioFiles}>
         <section className="audio-transcription-controls">
           <label className="audio-file-field">
             <span>音频文件</span>
             <input type="file" multiple accept=".mp3,.wav,.flac,.m4a,.ogg,audio/mpeg,audio/mp3,audio/wav,audio/flac,audio/mp4,audio/ogg" onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
           </label>
+          <p className="attachment-paste-hint">电脑端可按 Ctrl+V 粘贴浏览器提供的音频文件</p>
           {files.length > 0 && (
             <ol className="audio-file-list" aria-label="待转写音频顺序">
               {files.map((file, index) => (

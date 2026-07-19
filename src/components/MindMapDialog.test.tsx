@@ -136,6 +136,29 @@ describe("AI 思维导图", () => {
     expect(screen.getByText("扫描讲义.pdf")).toBeInTheDocument();
   });
 
+  it("支持粘贴截图或浏览器提供的文档文件并保留选择器", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    render(<MindMapDialog input={emptyInput} ownerId="user-paste" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "选择脑图附件来源" });
+    const pastedImage = new File(["image"], "剪贴板截图.png", { type: "image/png" });
+
+    const notCanceled = fireEvent.paste(screen.getByPlaceholderText(/输入要梳理的主题/), {
+      clipboardData: {
+        items: [{ kind: "file", getAsFile: () => pastedImage }],
+        files: []
+      }
+    });
+
+    expect(notCanceled).toBe(false);
+    await waitFor(() => expect(prepareAiAssistantAttachmentMock).toHaveBeenCalledWith(
+      pastedImage,
+      expect.objectContaining({ feature: "mind_map" })
+    ));
+    expect(await screen.findByText("扫描讲义.pdf")).toBeInTheDocument();
+    expect(screen.getByLabelText("从电脑选择文件")).toBeInTheDocument();
+    expect(screen.getByText("电脑端可按 Ctrl+V 粘贴截图或文件")).toBeInTheDocument();
+  });
+
   it("最终生成失败后重试会复用已经读取的 PDF 文字", async () => {
     getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
     prepareAiAssistantAttachmentMock.mockResolvedValueOnce({

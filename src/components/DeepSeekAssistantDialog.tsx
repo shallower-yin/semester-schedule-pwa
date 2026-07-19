@@ -1,8 +1,9 @@
 import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { db, queueChange } from "../db";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
+import { extractClipboardFiles } from "../lib/clipboardFiles";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
 import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
@@ -151,23 +152,40 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     await sendMessage(text, messages, `u-${Date.now()}`, attachments);
   }
 
-  async function addAttachments(files: FileList | null) {
+  async function addAttachments(files: FileList | readonly File[] | null, source: "picker" | "paste" = "picker") {
     if (!files?.length || !configuration.supportsAttachments) return;
+    const incoming = Array.from(files);
+    const available = Math.max(0, 3 - contextAttachments.length - attachments.length);
+    if (available === 0) {
+      if (source === "paste") showToast("最多保留 3 个附件，请先移除一个。", "error");
+      return;
+    }
     setPreparingAttachment(true);
     try {
-      const available = Math.max(0, 3 - contextAttachments.length - attachments.length);
-      const prepared = await Promise.all(Array.from(files).slice(0, available).map((file) => prepareAiAssistantAttachment(file, {
+      const prepared = await Promise.all(incoming.slice(0, available).map((file) => prepareAiAssistantAttachment(file, {
         accessCode,
         feature: "assistant",
         onProgress: (completed, total) => setAttachmentProgress(`上传 PDF ${completed}/${total} 页`)
       })));
       setAttachments((current) => [...current, ...prepared].slice(0, 3));
+      if (source === "paste" && prepared.length) showToast(`已粘贴 ${prepared.length} 个附件。`, "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "读取附件失败。", "error");
     } finally {
       setPreparingAttachment(false);
       setAttachmentProgress("");
     }
+  }
+
+  function pasteAttachments(event: ReactClipboardEvent<HTMLElement>) {
+    const files = extractClipboardFiles(event.clipboardData);
+    if (!files.length || !configuration.supportsAttachments) return;
+    event.preventDefault();
+    if (loading || preparingAttachment || editingMessageId) {
+      showToast("当前正在处理内容，请稍后再粘贴附件。", "error");
+      return;
+    }
+    void addAttachments(files, "paste");
   }
 
   async function copyMessage(content: string) {
@@ -240,7 +258,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         </label>
       )}
     >
-      <div className="assistant-dialog ai-assistant-dialog">
+      <div className="assistant-dialog ai-assistant-dialog" onPaste={pasteAttachments}>
         <p className="ai-assistant-capability">可查询安排、冲突、未完成、专注和使用方法；可创建事项、习惯、纪念日、生日、节日和备忘录，时间按北京时间处理。</p>
         <div ref={messagesRef} className="assistant-messages" role="log" aria-label="AI 助手对话">
           {messages.map((message) => (
@@ -331,6 +349,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
             placeholder="例如：创建端午节，或明天 9:00 添加交作业"
             onChange={(event) => setQuestion(event.target.value)}
           />
+          {configuration.supportsAttachments && <p className="attachment-paste-hint">电脑端可按 Ctrl+V 粘贴截图或文件</p>}
           <div className="assistant-composer-actions">
             <button type="button" className="button secondary assistant-clear-button" aria-label="删除对话" disabled={loading || Boolean(editingMessageId) || messages.length === 0} onClick={clearHistory}><Trash2 size={15} /><span>删除</span></button>
             {configuration.supportsAttachments && (

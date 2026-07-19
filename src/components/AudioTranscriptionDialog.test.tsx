@@ -41,6 +41,21 @@ describe("AI 音频转写", () => {
     expect(screen.getByText(/单个文件不超过 100 MB/)).toBeInTheDocument();
   });
 
+  it("浏览器提供音频 File 时支持粘贴并保留文件选择器", () => {
+    render(<AudioTranscriptionDialog ownerId="user-paste" onClose={vi.fn()} />);
+    const picker = screen.getByLabelText("音频文件");
+    const pastedAudio = new File(["audio"], "剪贴板录音.mp3", { type: "audio/mpeg" });
+
+    const notCanceled = fireEvent.paste(picker, {
+      clipboardData: { items: [], files: [pastedAudio] }
+    });
+
+    expect(notCanceled).toBe(false);
+    expect(screen.getByText(/1\. 剪贴板录音\.mp3/)).toBeInTheDocument();
+    expect(picker).toHaveAttribute("type", "file");
+    expect(screen.getByText("电脑端可按 Ctrl+V 粘贴浏览器提供的音频文件")).toBeInTheDocument();
+  });
+
   it("已有结果时提供基于转写原文的继续问答入口", () => {
     localStorage.setItem("semester-schedule-audio-transcription:user-2", JSON.stringify({
       transcript: "会议决定周五提交报告。",

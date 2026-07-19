@@ -6633,6 +6633,18 @@ textarea {
   gap: 8px;
 }
 
+.attachment-paste-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.audio-transcription-controls .attachment-paste-hint {
+  text-align: left;
+}
+
 .attachment-source-picker {
   position: relative;
   min-width: 0;
@@ -8248,6 +8260,12 @@ textarea {
 
   .health-body-layout {
     grid-template-columns: minmax(0, 1fr) 110px;
+  }
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .attachment-paste-hint {
+    display: none;
   }
 }
 

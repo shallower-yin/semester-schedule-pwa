@@ -1,7 +1,8 @@
 import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Send, Sparkles, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
+import { extractClipboardFiles } from "../lib/clipboardFiles";
 import { buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration } from "../lib/deepSeekAssistant";
 import { askAiMindMap, askAiMindMapFollowup, buildMindMapLayout, downloadMindMapPng, downloadMindMapSvg, mindMapEdgePath, mindMapNeedsScheduleContext, mindMapToSvg, splitMindMapLabel, type AiMindMapFollowupMessage, type AiMindMapNode, type MindMapDepth } from "../lib/mindMap";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
@@ -58,23 +59,40 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
     };
   }, []);
 
-  async function addAttachments(files: FileList | null) {
+  async function addAttachments(files: FileList | readonly File[] | null, source: "picker" | "paste" = "picker") {
     if (!files?.length || !configuration.supportsAttachments) return;
+    const incoming = Array.from(files);
+    const available = Math.max(0, 3 - attachments.length);
+    if (available === 0) {
+      if (source === "paste") showToast("最多保留 3 个附件，请先移除一个。", "error");
+      return;
+    }
     setPreparingAttachment(true);
     try {
-      const available = Math.max(0, 3 - attachments.length);
-      const prepared = await Promise.all(Array.from(files).slice(0, available).map((file) => prepareAiAssistantAttachment(file, {
+      const prepared = await Promise.all(incoming.slice(0, available).map((file) => prepareAiAssistantAttachment(file, {
         accessCode,
         feature: "mind_map",
         onProgress: (completed, total) => setAttachmentProgress(`上传 PDF ${completed}/${total} 页`)
       })));
       setAttachments((current) => [...current, ...prepared].slice(0, 3));
+      if (source === "paste" && prepared.length) showToast(`已粘贴 ${prepared.length} 个附件。`, "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "读取附件失败。", "error");
     } finally {
       setPreparingAttachment(false);
       setAttachmentProgress("");
     }
+  }
+
+  function pasteAttachments(event: ReactClipboardEvent<HTMLElement>) {
+    const files = extractClipboardFiles(event.clipboardData);
+    if (!files.length || !configuration.supportsAttachments) return;
+    event.preventDefault();
+    if (loading || preparingAttachment) {
+      showToast("当前正在处理内容，请稍后再粘贴附件。", "error");
+      return;
+    }
+    void addAttachments(files, "paste");
   }
 
   async function generate() {
@@ -165,7 +183,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
         </label>
       )}
     >
-      <div className="mind-map-dialog">
+      <div className="mind-map-dialog" onPaste={pasteAttachments}>
         <section className="mind-map-composer">
           <label>主题或内容
             <textarea
@@ -193,6 +211,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
               ))}
             </div>
           )}
+          {configuration.supportsAttachments && <p className="attachment-paste-hint">电脑端可按 Ctrl+V 粘贴截图或文件</p>}
           <div className="mind-map-composer-actions">
             <label className="mind-map-depth-control">思考程度
               <select value={depth} onChange={(event) => setDepth(event.target.value as MindMapDepth)}>
