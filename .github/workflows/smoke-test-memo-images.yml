@@ -59,25 +59,35 @@ jobs:
           }
 
           async function cleanup() {
+            const errors = [];
+            async function cleanupRequest(label, url, options) {
+              try {
+                const response = await fetch(url, options);
+                if (!response.ok) errors.push(`${label}: HTTP ${response.status}`);
+              } catch {
+                errors.push(`${label}: request failed`);
+              }
+            }
             if (imagePath) {
-              await fetch(`${supabaseUrl}/storage/v1/object/memo-images`, {
+              await cleanupRequest("memo image cleanup", `${supabaseUrl}/storage/v1/object/memo-images`, {
                 method: "DELETE",
                 headers: serviceHeaders({ "content-type": "application/json" }),
                 body: JSON.stringify({ prefixes: [imagePath] })
-              }).catch(() => undefined);
+              });
             }
             if (memoId) {
-              await fetch(`${supabaseUrl}/rest/v1/memos?id=eq.${encodeURIComponent(memoId)}`, {
+              await cleanupRequest("memo cleanup", `${supabaseUrl}/rest/v1/memos?id=eq.${encodeURIComponent(memoId)}`, {
                 method: "DELETE",
                 headers: serviceHeaders()
-              }).catch(() => undefined);
+              });
             }
             if (userId) {
-              await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+              await cleanupRequest("smoke user cleanup", `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
                 method: "DELETE",
                 headers: serviceHeaders()
-              }).catch(() => undefined);
+              });
             }
+            if (errors.length) throw new Error(`smoke cleanup failed: ${errors.join(", ")}`);
           }
 
           async function main() {
