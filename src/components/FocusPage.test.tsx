@@ -5,10 +5,10 @@ import { setCurrentUserId } from "../lib/identity";
 import type { FocusSession } from "../types";
 import { FocusPage } from "./FocusPage";
 
-vi.mock("../lib/focusPictureInPicture", () => ({
-  closeFocusPictureInPicture: vi.fn(),
-  focusPictureInPictureSupported: () => false,
-  openFocusPictureInPicture: vi.fn()
+vi.mock("../lib/focusSystemWindow", () => ({
+  closeFocusSystemWindow: vi.fn(),
+  focusSystemWindowSupported: () => false,
+  openFocusSystemWindow: vi.fn()
 }));
 
 vi.mock("./FocusAudioPlayer", () => ({

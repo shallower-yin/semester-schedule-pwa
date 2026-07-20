@@ -9,7 +9,7 @@ import {
   remainingFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
-import { closeFocusPictureInPicture, updateFocusPictureInPicture } from "../lib/focusPictureInPicture";
+import { closeFocusSystemWindow, updateFocusSystemWindow } from "../lib/focusSystemWindow";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
 import type { FocusSession } from "../types";
@@ -43,8 +43,8 @@ export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
   const elapsed = active ? elapsedFocusSeconds(active, now) : 0;
 
   useEffect(() => {
-    updateFocusPictureInPicture(active, now);
-    if (!active) void closeFocusPictureInPicture();
+    updateFocusSystemWindow(active, now);
+    if (!active) void closeFocusSystemWindow();
   }, [active, now]);
 
   useEffect(() => {

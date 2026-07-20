@@ -18,7 +18,7 @@ import {
   totalFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
-import { closeFocusPictureInPicture, focusPictureInPictureSupported, openFocusPictureInPicture } from "../lib/focusPictureInPicture";
+import { closeFocusSystemWindow, focusSystemWindowSupported, openFocusSystemWindow } from "../lib/focusSystemWindow";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
@@ -143,10 +143,10 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     setMessage("");
   }
 
-  async function openSystemTimer(current = active) {
+  async function openSystemTimer(current = active, interactive = false) {
     if (!current) return;
     try {
-      await openFocusPictureInPicture(current);
+      await openFocusSystemWindow(current, new Date(), interactive);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "无法打开系统倒计时小窗。", "error");
     }
@@ -186,7 +186,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     await db.focusSessions.put(record);
     await queueChange("focusSessions", record.id);
     clearActiveFocus(ownerId);
-    void closeFocusPictureInPicture();
+    void closeFocusSystemWindow();
     void exitFocusFullscreen();
     setActive(null);
     setTaskTitle("");
@@ -199,7 +199,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   function discardFocus() {
     if (!active || !window.confirm("放弃当前专注？不会保存本次记录。")) return;
     clearActiveFocus(ownerId);
-    void closeFocusPictureInPicture();
+    void closeFocusSystemWindow();
     void exitFocusFullscreen();
     setActive(null);
     setMessage("已放弃当前专注。");
@@ -295,7 +295,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             <button className="button primary focus-start-button" onClick={startFocus}><Play size={18} />开始专注</button>
           ) : (
             <div className="focus-actions">
-              <button className="button secondary" disabled={!focusPictureInPictureSupported()} onClick={() => void openSystemTimer()} title="在其他应用上方显示倒计时">
+              <button className="button secondary" disabled={!focusSystemWindowSupported()} onClick={() => void openSystemTimer(active, true)} title="在其他应用上方显示倒计时">
                 <PictureInPicture2 size={17} />系统小窗
               </button>
               <button className="button secondary" onClick={pauseOrResume}>{active.pause_started_at ? <Play size={17} /> : <Pause size={17} />}{active.pause_started_at ? "继续" : "暂停"}</button>
