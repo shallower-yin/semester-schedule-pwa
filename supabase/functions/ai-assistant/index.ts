@@ -1227,7 +1227,7 @@ async function extractRemoteDocumentBatch(
   }));
   throwIfAborted(providerConfig.signal);
   const pageLabel = pages.map((page) => page.pageNumber).join("、");
-  const response = await fetch(providerConfig.endpoint, {
+  const { ok, status, text: responseText } = await fetchTextWithTransientRetry(providerConfig.endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -1259,17 +1259,16 @@ async function extractRemoteDocumentBatch(
       ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
       stream: false
     })
-  });
-  const responseText = await response.text();
-  if (!response.ok) {
-    const publicMessage = response.status === 429
+  }, 3, providerConfig.signal);
+  if (!ok) {
+    const publicMessage = status === 429
       ? "扫描 PDF 分批读取过于频繁，请稍后手动重试。"
-      : response.status >= 500
+      : status >= 500
         ? "扫描 PDF 读取服务暂时不可用，请稍后手动重试。"
-        : `扫描 PDF 第 ${pageLabel} 页读取失败（HTTP ${response.status}）。`;
+        : `扫描 PDF 第 ${pageLabel} 页读取失败（HTTP ${status}）。`;
     throw new DiagnosticError(publicMessage, {
       stage: "scanned_pdf_batch",
-      providerStatus: response.status,
+      providerStatus: status,
       providerError: safeProviderError(responseText),
       documentName,
       pages: pageLabel,
@@ -1324,7 +1323,7 @@ async function summarizeDocumentTextBatch(
   }
 ): Promise<{ text: string; usage: AiAssistantUsage }> {
   throwIfAborted(providerConfig.signal);
-  const response = await fetch(providerConfig.endpoint, {
+  const { ok, status, text: responseText } = await fetchTextWithTransientRetry(providerConfig.endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -1353,12 +1352,11 @@ async function summarizeDocumentTextBatch(
       ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
       stream: false
     })
-  });
-  const responseText = await response.text();
-  if (!response.ok) {
+  }, 3, providerConfig.signal);
+  if (!ok) {
     throw new DiagnosticError(`PDF 第 ${batch.startPage}-${batch.endPage} 页整理失败，请稍后重试。`, {
       stage: "document_text_batch",
-      providerStatus: response.status,
+      providerStatus: status,
       providerError: safeProviderError(responseText),
       documentName: batch.name,
       startPage: batch.startPage,
