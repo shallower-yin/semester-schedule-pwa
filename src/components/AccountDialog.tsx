@@ -8,6 +8,7 @@ import { toISODate } from "../lib/date";
 import { syncFields } from "../lib/identity";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import {
+  checkDueLocalReminders,
   diagnoseNotifications,
   disableNotificationsForCurrentDevice,
   enableNotifications,
@@ -16,6 +17,7 @@ import {
   type NotificationDiagnosticStep,
   type NotificationStatus
 } from "../lib/notifications";
+import { isNativeApp } from "../lib/nativeApp";
 import { getSyncHealth, type SyncResult } from "../lib/sync";
 import { getAdminStatus, type AdminAiAccess } from "../lib/admin";
 import { buildSyncStatus } from "../lib/syncStatus";
@@ -80,7 +82,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     try {
       const result = await enableNotifications((stage) => {
         setNotificationMessage({
-          permission: "正在检查浏览器通知权限…",
+          permission: isNativeApp() ? "正在检查系统通知权限…" : "正在检查浏览器通知权限…",
           "service-worker": "正在启动应用后台服务…",
           "push-service": "正在连接手机系统推送服务…",
           cloud: "正在保存云端推送订阅…"
@@ -88,10 +90,10 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       });
       setNotificationStatus(await getNotificationStatus());
       setDiagnosticSteps(await diagnoseNotifications());
-      if (result === "denied") setNotificationMessage("浏览器已阻止通知，请在网站权限中改为允许。");
+      if (result === "denied") setNotificationMessage(isNativeApp() ? "未获得系统通知权限，请在系统设置中允许通知后重试。" : "浏览器已阻止通知，请在网站权限中改为允许。");
       else if (result === "unsupported") setNotificationMessage("当前浏览器不支持系统通知。");
       else if (result === "local-only") setNotificationMessage("只能在应用打开时提醒，请确认已登录并联网。");
-      else setNotificationMessage("当前设备已订阅系统提醒。");
+      else setNotificationMessage(isNativeApp() ? "系统提醒已开启，应用关闭后也会按时提醒。" : "当前设备已订阅系统提醒。");
     } catch (error) {
       setNotificationStatus(await getNotificationStatus());
       setDiagnosticSteps(await diagnoseNotifications());
@@ -109,7 +111,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       setNotificationStatus(await getNotificationStatus());
       setDiagnosticSteps(await diagnoseNotifications());
       if (result === "denied") {
-        setNotificationMessage("浏览器已阻止通知，请在网站权限中改为允许。");
+        setNotificationMessage(isNativeApp() ? "未获得系统通知权限，请在系统设置中允许通知后重试。" : "浏览器已阻止通知，请在网站权限中改为允许。");
         return;
       }
       if (result === "unsupported") {
@@ -133,7 +135,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       setNotificationStatus(await getNotificationStatus());
       setDiagnosticSteps(await diagnoseNotifications());
       if (result === "denied") {
-        setNotificationMessage("浏览器已阻止通知，请先允许通知。");
+        setNotificationMessage(isNativeApp() ? "未获得系统通知权限，请在系统设置中允许通知后重试。" : "浏览器已阻止通知，请先允许通知。");
         return;
       }
       if (result === "unsupported") {
@@ -166,7 +168,12 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       };
       await db.events.put(record);
       await queueChange("events", record.id);
-      setNotificationMessage(`已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台提醒。`);
+      if (isNativeApp()) await checkDueLocalReminders(user.id);
+      setNotificationMessage(
+        isNativeApp()
+          ? `已安排 ${startTime} 的提醒。可以关闭应用，届时系统会按时通知你。`
+          : `已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台提醒。`
+      );
     } catch (error) {
       setNotificationMessage(error instanceof Error ? error.message : "创建测试提醒失败");
     } finally {

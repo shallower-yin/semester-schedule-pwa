@@ -1,5 +1,7 @@
 import { db } from "../db";
 import type { HealthProfile } from "../types";
+import { isNativeApp } from "./nativeApp";
+import { ensureNativeReminderPermission } from "./nativeReminders";
 import { showHealthMovementReminder } from "./notifications";
 
 export const DEFAULT_EXERCISE_ITEMS = ["俯卧撑", "仰卧起坐", "深蹲"];
@@ -17,7 +19,11 @@ export const DEFAULT_HEALTH_PROFILE = {
 const LAST_REMINDER_KEY = "semester-schedule-health-reminder";
 
 export async function checkDueHealthReminder(ownerId: string, now = new Date()): Promise<boolean> {
-  if (!("Notification" in window) || Notification.permission !== "granted") return false;
+  if (isNativeApp()) {
+    if ((await ensureNativeReminderPermission(false)) !== "granted") return false;
+  } else if (!("Notification" in window) || Notification.permission !== "granted") {
+    return false;
+  }
   const profile = await db.healthProfiles
     .filter((item) => item.user_id === ownerId && !item.deleted_at)
     .first();

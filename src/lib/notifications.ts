@@ -5,6 +5,14 @@ import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
 import { reminderIsDue } from "./reminderTime";
 import { supabase } from "./supabase";
 import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
+import { isNativeApp } from "./nativeApp";
+import {
+  cancelAllNativeReminders,
+  ensureNativeReminderPermission,
+  showNativeNotificationNow,
+  syncNativeReminders
+} from "./nativeReminders";
+import { computeScheduledReminders, HEALTH_NOTIFICATION_ID, TEST_NOTIFICATION_ID } from "./reminderSchedule";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 
@@ -49,6 +57,9 @@ export function notificationsSupported(): boolean {
 }
 
 export async function getNotificationStatus(): Promise<NotificationStatus> {
+  if (isNativeApp()) {
+    return (await ensureNativeReminderPermission(false)) === "granted" ? "subscribed" : "not-allowed";
+  }
   if (!notificationsSupported()) return "unsupported";
   if (Notification.permission === "default") return "not-allowed";
   if (Notification.permission === "denied") return "blocked";
@@ -75,6 +86,12 @@ export async function getNotificationStatus(): Promise<NotificationStatus> {
 export async function enableNotifications(
   onStage?: (stage: NotificationSetupStage) => void
 ): Promise<NotificationEnableResult> {
+  if (isNativeApp()) {
+    onStage?.("permission");
+    if ((await ensureNativeReminderPermission(true)) !== "granted") return "denied";
+    await rescheduleNativeReminders(getCurrentUserId());
+    return "enabled";
+  }
   if (!notificationsSupported()) return "unsupported";
   onStage?.("permission");
   const permission = Notification.permission === "default"
@@ -129,6 +146,10 @@ export async function enableNotifications(
 }
 
 export async function disableNotificationsForCurrentDevice(): Promise<void> {
+  if (isNativeApp()) {
+    await cancelAllNativeReminders();
+    return;
+  }
   if (!notificationsSupported() || !("PushManager" in window)) return;
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
@@ -151,6 +172,14 @@ async function showReminder(title: string, body: string, tag: string) {
 }
 
 export async function showHealthMovementReminder(): Promise<void> {
+  if (isNativeApp()) {
+    await showNativeNotificationNow({
+      id: HEALTH_NOTIFICATION_ID,
+      title: "起来活动一下",
+      body: "喝口水，活动肩颈或走动几分钟。完成后可在健康页记录。"
+    });
+    return;
+  }
   if (!notificationsSupported() || Notification.permission !== "granted") return;
   await showReminder(
     "起来活动一下",
@@ -161,6 +190,17 @@ export async function showHealthMovementReminder(): Promise<void> {
 
 export async function diagnoseNotifications(): Promise<NotificationDiagnosticStep[]> {
   const steps: NotificationDiagnosticStep[] = [];
+  if (isNativeApp()) {
+    const granted = (await ensureNativeReminderPermission(false)) === "granted";
+    steps.push({ id: "support", label: "系统通知", status: "ok", detail: "已接入安卓系统通知，应用关闭后也能按时提醒。" });
+    steps.push({
+      id: "permission",
+      label: "通知权限",
+      status: granted ? "ok" : "warning",
+      detail: granted ? "已允许安卓通知权限。" : "尚未允许通知，点击启用提醒后在系统弹窗中选择允许。"
+    });
+    return steps;
+  }
   if (!notificationsSupported()) {
     return [{
       id: "support",
@@ -220,6 +260,15 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
 }
 
 export async function showTestNotification(): Promise<void> {
+  if (isNativeApp()) {
+    const shown = await showNativeNotificationNow({
+      id: TEST_NOTIFICATION_ID,
+      title: "日程计划表测试通知",
+      body: "通知显示正常。应用关闭后仍会按时提醒。"
+    });
+    if (!shown) throw new Error("请先允许系统通知");
+    return;
+  }
   if (!notificationsSupported()) throw new Error("当前浏览器不支持系统通知");
   if (Notification.permission !== "granted") throw new Error("请先允许系统通知");
   await showReminder(
@@ -279,7 +328,20 @@ export async function resetSentRemindersForChangedEvent(
   return states.length;
 }
 
+// Loads the current user's reminder-eligible data and hands the computed schedule to the native OS.
+// Cancels/updates/adds OS notifications so they stay in sync with events and anniversaries.
+async function rescheduleNativeReminders(ownerId: string): Promise<number> {
+  const [events, anniversaries, occurrenceStates] = await Promise.all([
+    db.events.filter((event) => event.user_id === ownerId).toArray(),
+    db.anniversaries.filter((anniversary) => anniversary.user_id === ownerId).toArray(),
+    db.eventOccurrenceStates.filter((state) => state.user_id === ownerId).toArray()
+  ]);
+  const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates });
+  return syncNativeReminders(reminders);
+}
+
 export async function checkDueLocalReminders(ownerId: string): Promise<number> {
+  if (isNativeApp()) return rescheduleNativeReminders(ownerId);
   if (!notificationsSupported() || Notification.permission !== "granted") return 0;
   const now = new Date();
   const events = await db.events

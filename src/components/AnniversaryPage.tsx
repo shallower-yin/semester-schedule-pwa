@@ -21,6 +21,7 @@ import { formatMonthDay, toISODate } from "../lib/date";
 import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { enableNotifications } from "../lib/notifications";
+import { isNativeApp } from "../lib/nativeApp";
 import { showToast } from "../lib/toast";
 import type { Anniversary, AnniversaryKind } from "../types";
 import { Modal } from "./Modal";
@@ -250,7 +251,7 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
     try {
       const result = await enableNotifications((stage) => {
         setMessage({
-          permission: "正在检查浏览器通知权限…",
+          permission: isNativeApp() ? "正在检查系统通知权限…" : "正在检查浏览器通知权限…",
           "service-worker": "正在启动应用后台服务…",
           "push-service": "正在连接手机系统推送服务…",
           cloud: "正在保存云端推送订阅…"
@@ -258,7 +259,7 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
       });
       if (result === "denied") {
         setReminderEnabled(false);
-        setMessage("浏览器未允许通知，请在网站权限中开启后重试。");
+        setMessage(isNativeApp() ? "未获得系统通知权限，请在系统设置中允许通知后重试。" : "浏览器未允许通知，请在网站权限中开启后重试。");
       } else if (result === "unsupported") {
         setReminderEnabled(false);
         setMessage("当前浏览器不支持系统通知。请使用 Android Edge/Chrome 或 Windows Edge/Chrome。");
