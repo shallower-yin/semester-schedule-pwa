@@ -42,19 +42,17 @@ import type { User } from "@supabase/supabase-js";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
-import { AiToolboxDialog } from "./components/AiToolboxDialog";
+import { AssistantDialogs } from "./components/AssistantDialogs";
 const AdminDialog = lazy(() => import("./components/AdminDialog").then((module) => ({ default: module.AdminDialog })));
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
-const AudioTranscriptionDialog = lazy(() => import("./components/AudioTranscriptionDialog").then((module) => ({ default: module.AudioTranscriptionDialog })));
 import { AiTaskCenter } from "./components/AiTaskCenter";
 import { BackupDialog } from "./components/BackupDialog";
 import { BatchEventsDialog } from "./components/BatchEventsDialog";
 import { CourseDialog } from "./components/CourseDialog";
 import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { DataHealthDialog } from "./components/DataHealthDialog";
-const DeepSeekAssistantDialog = lazy(() => import("./components/DeepSeekAssistantDialog").then((module) => ({ default: module.DeepSeekAssistantDialog })));
 import { EventDialog } from "./components/EventDialog";
 import { FeedbackDialog } from "./components/FeedbackDialog";
 import { FontSizeDialog } from "./components/FontSizeDialog";
@@ -67,11 +65,9 @@ import { HeaderToolSettingsDialog } from "./components/HeaderToolSettingsDialog"
 import { HelpPage } from "./components/HelpPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
-const MindMapDialog = lazy(() => import("./components/MindMapDialog").then((module) => ({ default: module.MindMapDialog })));
 import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { QuickEntryDialog } from "./components/QuickEntryDialog";
-const ScheduleAssistantDialog = lazy(() => import("./components/ScheduleAssistantDialog").then((module) => ({ default: module.ScheduleAssistantDialog })));
 import { ScheduleSnapshotDialog } from "./components/ScheduleSnapshotDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
 const SchoolTimetableImportDialog = lazy(() => import("./components/SchoolTimetableImportDialog").then((module) => ({ default: module.SchoolTimetableImportDialog })));
@@ -326,6 +322,10 @@ export default function App() {
         maxItems: 50
       }, overviewNow),
     [categories, cancellations, courses, events, focusSessions, occurrenceStates, overviewNow, periods, schedules, semester]
+  );
+  const assistantInput = useMemo(
+    () => ({ semester, courses, schedules, cancellations, events, categories, occurrenceStates, anniversaries, memos, periods, focusSessions }),
+    [semester, courses, schedules, cancellations, events, categories, occurrenceStates, anniversaries, memos, periods, focusSessions]
   );
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
@@ -1155,76 +1155,21 @@ export default function App() {
           onClose={() => setShowQuickEntry(false)}
         />
       )}
-      {showScheduleAssistant && (
-        <Suspense fallback={null}>
-        <ScheduleAssistantDialog
-          input={{
-            semester,
-            courses,
-            schedules,
-            cancellations,
-            events,
-            categories,
-            occurrenceStates,
-            anniversaries,
-            memos,
-            periods,
-            focusSessions
-          }}
-          onClose={() => setShowScheduleAssistant(false)}
-        />
-        </Suspense>
-      )}
-      {showDeepSeekAssistant && (
-        <Suspense fallback={null}>
-        <DeepSeekAssistantDialog
-          input={{
-            semester,
-            courses,
-            schedules,
-            cancellations,
-            events,
-            categories,
-            occurrenceStates,
-            anniversaries,
-            memos,
-            periods,
-            focusSessions
-          }}
-          ownerId={ownerId}
-          userEmail={user?.email}
-          onClose={() => setShowDeepSeekAssistant(false)}
-        />
-        </Suspense>
-      )}
-      {showMindMap && (
-        <Suspense fallback={null}>
-        <MindMapDialog
-          input={{
-            semester,
-            courses,
-            schedules,
-            cancellations,
-            events,
-            categories,
-            occurrenceStates,
-            anniversaries,
-            memos,
-            periods,
-            focusSessions
-          }}
-          ownerId={ownerId}
-          onClose={() => setShowMindMap(false)}
-        />
-        </Suspense>
-      )}
-      {showAudioTranscription && <Suspense fallback={null}><AudioTranscriptionDialog ownerId={ownerId} onClose={() => setShowAudioTranscription(false)} /></Suspense>}
-      {showAiToolbox && <AiToolboxDialog
-        onOpenAssistant={() => setShowDeepSeekAssistant(true)}
-        onOpenMindMap={() => setShowMindMap(true)}
-        onOpenAudioTranscription={() => setShowAudioTranscription(true)}
-        onClose={() => setShowAiToolbox(false)}
-      />}
+      <AssistantDialogs
+        input={assistantInput}
+        ownerId={ownerId}
+        userEmail={user?.email}
+        showScheduleAssistant={showScheduleAssistant}
+        showDeepSeekAssistant={showDeepSeekAssistant}
+        showMindMap={showMindMap}
+        showAudioTranscription={showAudioTranscription}
+        showAiToolbox={showAiToolbox}
+        setShowScheduleAssistant={setShowScheduleAssistant}
+        setShowDeepSeekAssistant={setShowDeepSeekAssistant}
+        setShowMindMap={setShowMindMap}
+        setShowAudioTranscription={setShowAudioTranscription}
+        setShowAiToolbox={setShowAiToolbox}
+      />
       {showAdmin && <Suspense fallback={null}><AdminDialog onClose={() => setShowAdmin(false)} /></Suspense>}
       {showFeedback && <FeedbackDialog
         userId={user?.id ?? null}
