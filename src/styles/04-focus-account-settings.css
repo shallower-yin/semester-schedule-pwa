@@ -154,8 +154,10 @@
 
 .focus-ring strong {
   margin-top: 10px;
-  font-size: clamp(42px, 8vw, 76px);
-  letter-spacing: -0.06em;
+  font-size: clamp(40px, 7.4vw, 76px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: -0.05em;
 }
 
 .focus-ring span {
@@ -1646,3 +1648,173 @@
   cursor: pointer;
 }
 
+
+/* ===== Immersive fullscreen focus (browser + APK) ===== */
+.focus-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  background-color: #0b1020;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  overflow: hidden;
+}
+
+.focus-fullscreen-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(125% 90% at 50% 22%, rgb(8 12 28 / 18%), rgb(6 10 24 / 55%) 62%, rgb(3 6 16 / 82%)),
+    linear-gradient(180deg, rgb(6 10 26 / 46%), rgb(5 8 20 / 38%));
+}
+
+.focus-fullscreen-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top, 0px) + var(--android-safe-top, 0px) + 14px)
+    calc(env(safe-area-inset-right, 0px) + var(--android-safe-right, 0px) + 16px) 0
+    calc(env(safe-area-inset-left, 0px) + var(--android-safe-left, 0px) + 16px);
+}
+
+.focus-fs-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 50%;
+  color: #fff;
+  background: rgb(255 255 255 / 14%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+
+.focus-fullscreen-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 24px;
+  text-align: center;
+}
+
+.focus-fs-label {
+  padding: 5px 16px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 16%);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.focus-fs-ring {
+  --progress: 0deg;
+  display: grid;
+  width: min(72vw, 52vh, 360px);
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgb(10 14 30 / 26%) 0 60%, transparent 61%),
+    conic-gradient(#fff var(--progress), rgb(255 255 255 / 22%) 0);
+}
+
+.focus-fs-time {
+  font-size: clamp(46px, 14vw, 104px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: -0.04em;
+  text-shadow: 0 2px 20px rgb(0 0 0 / 45%);
+}
+
+.focus-fs-task {
+  max-width: min(86vw, 460px);
+  margin: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 12px rgb(0 0 0 / 42%);
+}
+
+.focus-fs-date {
+  margin: 0;
+  color: rgb(255 255 255 / 84%);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 12px rgb(0 0 0 / 42%);
+}
+
+.focus-fs-quote {
+  max-width: min(84vw, 420px);
+  margin: 4px 0 0;
+  color: rgb(255 255 255 / 76%);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.focus-fullscreen-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px
+    calc(env(safe-area-inset-right, 0px) + var(--android-safe-right, 0px) + 20px)
+    calc(env(safe-area-inset-bottom, 0px) + var(--android-safe-bottom, 0px) + 22px)
+    calc(env(safe-area-inset-left, 0px) + var(--android-safe-left, 0px) + 20px);
+}
+
+.button.ghost-light {
+  border: 1px solid rgb(255 255 255 / 32%);
+  color: #fff;
+  background: rgb(255 255 255 / 15%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.button.ghost-light.danger {
+  border-color: rgb(255 150 150 / 48%);
+  color: #ffdada;
+}
+
+/* Landscape phones are short: shrink the ring, tighten gaps, drop the quote so nothing overflows. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .focus-fullscreen-body {
+    gap: 8px;
+    padding: 6px 24px;
+  }
+
+  .focus-fs-ring {
+    width: min(40vh, 44vw, 210px);
+  }
+
+  .focus-fs-time {
+    font-size: clamp(32px, 8.5vh, 60px);
+  }
+
+  .focus-fs-quote {
+    display: none;
+  }
+
+  .focus-fullscreen-actions {
+    padding-top: 8px;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--android-safe-bottom, 0px) + 12px);
+  }
+}

@@ -97,12 +97,12 @@ export default defineConfig(({ mode }) => {
           ]
         },
         workbox: {
-          globPatterns: ["**/*.{js,css,html,svg,png}"],
+          globPatterns: ["**/*.{js,css,html,svg,png,webp}"],
           navigateFallback: "index.html",
           importScripts: ["push-sw.js"],
           runtimeCaching: [
             {
-              urlPattern: new RegExp(`${escapeRegExp(base)}.*\\.(?:css|ico|js|json|mjs|png|svg|webmanifest)$`),
+              urlPattern: new RegExp(`${escapeRegExp(base)}.*\\.(?:css|ico|js|json|mjs|png|svg|webp|webmanifest)$`),
               handler: "CacheFirst",
               options: {
                 cacheName: "semester-schedule-offline-updates",

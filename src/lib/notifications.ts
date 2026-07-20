@@ -13,6 +13,7 @@ import {
   syncNativeReminders
 } from "./nativeReminders";
 import { computeScheduledReminders, HEALTH_NOTIFICATION_ID, TEST_NOTIFICATION_ID } from "./reminderSchedule";
+import { withTimeout } from "./asyncTimeout";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 
@@ -33,17 +34,7 @@ export interface NotificationDiagnosticStep {
   detail: string;
 }
 
-export async function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer = 0;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-  try {
-    return await Promise.race([Promise.resolve(operation), timeout]);
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
+export { withTimeout };
 
 function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);

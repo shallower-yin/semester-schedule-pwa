@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Pause, PictureInPicture2, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Maximize2, Pause, PictureInPicture2, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
@@ -25,6 +25,7 @@ import { showToast } from "../lib/toast";
 import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
 import { Modal } from "./Modal";
 import { FocusAudioPlayer } from "./FocusAudioPlayer";
+import { FocusFullscreen } from "./FocusFullscreen";
 
 interface FocusPageProps {
   ownerId: string;
@@ -64,6 +65,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [sessionToEdit, setSessionToEdit] = useState<FocusSession | null>(null);
   const [managingRecords, setManagingRecords] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set());
+  const [showFullscreen, setShowFullscreen] = useState(false);
 
   const effectiveSettings = storedSettings ?? settingsDraft;
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
@@ -152,6 +154,13 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     }
   }
 
+  function finishActiveFocus() {
+    if (!active) return;
+    const completed = active.planned_seconds == null || elapsed >= active.planned_seconds;
+    const interrupted = Boolean(active.planned_seconds && elapsed < active.planned_seconds);
+    void finishFocus(completed, interrupted);
+  }
+
   function pauseOrResume() {
     if (!active) return;
     const current = new Date();
@@ -189,6 +198,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     void closeFocusSystemWindow();
     void exitFocusFullscreen();
     setActive(null);
+    setShowFullscreen(false);
     setTaskTitle("");
     setLinkedEventId("");
     setMessage(completed ? `已完成 ${formatFocusDuration(duration)} 专注。` : `已保存 ${formatFocusDuration(duration)} 专注记录。`);
@@ -202,6 +212,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     void closeFocusSystemWindow();
     void exitFocusFullscreen();
     setActive(null);
+    setShowFullscreen(false);
     setMessage("已放弃当前专注。");
     showToast("已放弃当前专注。", "info");
   }
@@ -295,11 +306,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             <button className="button primary focus-start-button" onClick={startFocus}><Play size={18} />开始专注</button>
           ) : (
             <div className="focus-actions">
+              <button className="button secondary" onClick={() => setShowFullscreen(true)} title="进入全屏专注">
+                <Maximize2 size={17} />全屏
+              </button>
               <button className="button secondary" disabled={!focusSystemWindowSupported()} onClick={() => void openSystemTimer(active, true)} title="在其他应用上方显示倒计时">
                 <PictureInPicture2 size={17} />系统小窗
               </button>
               <button className="button secondary" onClick={pauseOrResume}>{active.pause_started_at ? <Play size={17} /> : <Pause size={17} />}{active.pause_started_at ? "继续" : "暂停"}</button>
-              <button className="button primary" onClick={() => void finishFocus(active.planned_seconds == null || elapsed >= active.planned_seconds, Boolean(active.planned_seconds && elapsed < active.planned_seconds))}><CheckCircle2 size={17} />结束并保存</button>
+              <button className="button primary" onClick={finishActiveFocus}><CheckCircle2 size={17} />结束并保存</button>
               <button className="button danger-button" onClick={discardFocus}><Square size={16} />放弃</button>
             </div>
           )}
@@ -375,6 +389,21 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         </div>
       </section>
 
+      {showFullscreen && active && active.mode !== "lock" && (
+        <FocusFullscreen
+          active={active}
+          displaySeconds={displaySeconds}
+          progress={progress}
+          paused={Boolean(active.pause_started_at)}
+          now={now}
+          systemWindowSupported={focusSystemWindowSupported()}
+          onPauseResume={pauseOrResume}
+          onFinish={finishActiveFocus}
+          onDiscard={discardFocus}
+          onExit={() => setShowFullscreen(false)}
+          onOpenSystemWindow={() => void openSystemTimer(active, true)}
+        />
+      )}
       {active?.mode === "lock" && (
         <div className="focus-lock-overlay" role="dialog" aria-modal="true" aria-label="锁机专注">
           <div className="focus-lock-card">
