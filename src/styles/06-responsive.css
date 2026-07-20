@@ -1,0 +1,2245 @@
+@media (max-width: 900px) {
+  .app-header {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    height: calc(62px + var(--safe-top));
+    padding: var(--safe-top) 10px 0;
+  }
+
+  .desktop-nav {
+    display: none;
+  }
+
+  .mobile-menu-button {
+    display: grid;
+    place-items: center;
+  }
+
+  .brand-mark {
+    display: none;
+  }
+
+  .brand > div:last-child {
+    display: none;
+  }
+
+  .header-status {
+    min-width: 0;
+    gap: 6px;
+    overflow-x: auto;
+    justify-content: flex-end;
+    scrollbar-width: none;
+  }
+
+  .desktop-header-tools {
+    display: none;
+  }
+
+  .mobile-header-tools {
+    display: contents;
+  }
+
+  .header-status::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sync-status {
+    width: 38px;
+    height: 38px;
+    justify-content: center;
+    flex: 0 0 38px;
+    padding: 0;
+  }
+
+  .header-search-button {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+  }
+
+  .sync-status span {
+    display: none;
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    z-index: 90;
+    inset: 0;
+    display: block;
+    background: rgb(18 26 41 / 42%);
+  }
+
+  .mobile-sidebar {
+    width: min(82vw, 300px);
+    height: 100%;
+    padding: 15px;
+    background: var(--surface);
+    box-shadow: 20px 0 50px rgb(10 20 42 / 20%);
+  }
+
+  .mobile-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 4px 15px;
+  }
+
+  .mobile-sidebar nav {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .mobile-sidebar nav button {
+    padding: 12px;
+    border-radius: 9px;
+    background: transparent;
+  }
+
+  .mobile-sidebar nav button.active {
+    color: var(--primary);
+    background: var(--accent-soft);
+  }
+
+  .mobile-ai-toolbox-entry {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    gap: 9px;
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    background: #f8fafc;
+    font-weight: 750;
+  }
+
+  .mobile-ai-toolbox-entry svg:last-child {
+    margin-left: auto;
+    color: var(--muted);
+  }
+
+  main {
+    padding: 15px 12px calc(98px + var(--safe-bottom));
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    z-index: 70;
+    right: 10px;
+    bottom: calc(10px + var(--safe-bottom));
+    left: 10px;
+    display: grid;
+    gap: 3px;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: 0 12px 32px rgb(23 35 58 / 16%);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-bottom-nav button {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 2px;
+    border: 0;
+    border-radius: 16px;
+    color: #667085;
+    background: transparent;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .mobile-bottom-nav button svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .mobile-bottom-nav button.active {
+    color: var(--primary);
+    background: var(--accent-soft);
+  }
+
+  .mobile-fab {
+    position: fixed;
+    z-index: 75;
+    right: 18px;
+    bottom: calc(86px + var(--safe-bottom));
+    display: grid;
+    width: 58px;
+    height: 58px;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    color: white;
+    background: var(--primary);
+    box-shadow: 0 14px 30px rgb(var(--primary-rgb) / 32%);
+    cursor: pointer;
+  }
+
+  .toolbar-actions .button.primary {
+    display: none;
+  }
+
+  .calendar-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .toolbar-actions {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .toolbar-actions .button {
+    flex: 0 0 auto;
+  }
+
+  .toolbar-actions .button span {
+    display: none;
+  }
+
+  .schedule-filter-bar {
+    grid-template-columns: 1fr;
+    margin-bottom: 12px;
+  }
+
+  .schedule-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 12px;
+  }
+
+  .overview-stat {
+    min-height: 76px;
+    padding: 12px;
+  }
+
+  .overview-stat strong {
+    font-size: 19px;
+  }
+
+  .overview-list {
+    grid-column: 1 / -1;
+  }
+
+  .overview-trend {
+    grid-column: 1 / -1;
+  }
+
+  .mobile-day-switcher {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+    background: #fafbfe;
+  }
+
+  .mobile-day-switcher button {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    flex-direction: column;
+    gap: 4px;
+    padding: 7px 2px;
+    border: 0;
+    border-radius: 9px;
+    color: #6b7484;
+    background: transparent;
+    font-size: 10px;
+  }
+
+  .mobile-day-switcher strong {
+    font-size: 14px;
+  }
+
+  .mobile-day-switcher button.selected {
+    color: white;
+    background: var(--primary);
+  }
+
+  .mobile-day-switcher button.today:not(.selected) {
+    color: var(--primary);
+    background: #eaf0ff;
+  }
+
+  .calendar-shell {
+    overflow: visible;
+    touch-action: pan-y;
+  }
+
+  .week-grid {
+    grid-template-columns: 92px minmax(220px, 1fr);
+    min-width: 0;
+  }
+
+  .day-column {
+    display: none;
+  }
+
+  .day-column.mobile-selected {
+    display: flex;
+    grid-column: 2 !important;
+  }
+
+  button.day-column.mobile-selected {
+    display: block;
+  }
+
+  .calendar-entry.day-column.mobile-selected {
+    display: grid;
+    min-height: 54px;
+    align-content: start;
+    gap: 2px;
+    margin: 4px 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    box-shadow: 0 5px 14px rgb(30 48 88 / 12%);
+  }
+
+  .course-entry.day-column.mobile-selected {
+    border-color: rgb(255 255 255 / 34%);
+  }
+
+  .event-entry.day-column.mobile-selected {
+    margin-top: 4px;
+    margin-bottom: 4px;
+    border-left-width: 6px;
+    background: white;
+  }
+
+  .calendar-entry.day-column.mobile-selected .entry-title {
+    align-items: flex-start;
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  .event-entry.day-column.mobile-selected .entry-title svg {
+    display: none;
+  }
+
+  .calendar-entry.day-column.mobile-selected .entry-meta,
+  .calendar-entry.day-column.mobile-selected .entry-time,
+  .calendar-entry.day-column.mobile-selected .entry-location,
+  .calendar-entry.day-column.mobile-selected .entry-category,
+  .calendar-entry.day-column.mobile-selected .entry-reminder {
+    margin-top: 1px;
+    font-size: 11px;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  .event-entry.day-column.mobile-selected .entry-category {
+    display: none;
+  }
+
+  .event-entry.day-column.mobile-selected .entry-status,
+  .event-entry.day-column.mobile-selected .entry-reminder,
+  .event-entry.day-column.mobile-selected .entry-icon-button {
+    display: none;
+  }
+
+  .calendar-entry.day-column.mobile-selected .entry-icon-button {
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    background: rgb(255 255 255 / 28%);
+  }
+
+  .event-entry.day-column.mobile-selected .entry-icon-button {
+    background: #eef2f8;
+  }
+
+  .event-entry.day-column.mobile-selected .event-complete-button {
+    display: grid;
+    opacity: 1;
+  }
+
+  .event-entry.day-column.mobile-selected:not(.overlap-three):not(.overlap-many) {
+    padding-right: 42px;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-two {
+    min-height: 48px;
+    padding: 7px 8px;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-two .entry-category,
+  .calendar-entry.day-column.mobile-selected.overlap-two .entry-meta {
+    display: none;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-three,
+  .calendar-entry.day-column.mobile-selected.overlap-many {
+    align-self: start;
+    min-height: 48px;
+    padding: 6px 7px;
+    border-left-width: 4px;
+    border-radius: 9px;
+    box-shadow: 0 3px 10px rgb(30 48 88 / 10%);
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-title,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-title {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.25;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-location,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-category,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-meta,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-reminder,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-status,
+  .calendar-entry.day-column.mobile-selected.overlap-three .entry-icon-button,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-meta,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-location,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-category,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-reminder,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-status,
+  .calendar-entry.day-column.mobile-selected.overlap-many .entry-icon-button {
+    display: none;
+  }
+
+  .event-entry.day-column.mobile-selected.overlap-three .event-complete-button,
+  .event-entry.day-column.mobile-selected.overlap-many .event-complete-button {
+    display: grid;
+    opacity: 1;
+  }
+
+  .calendar-cell.day-column.mobile-selected:active {
+    background: #eef3ff;
+    box-shadow: inset 0 0 0 2px rgb(49 87 213 / 14%);
+  }
+
+  .time-label strong {
+    font-size: 13px;
+  }
+
+  .time-label span {
+    font-size: 10px;
+  }
+
+  .entry-icon-button {
+    opacity: 1;
+  }
+
+  .page-heading {
+    align-items: flex-start;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .settings-sections {
+    gap: 16px;
+  }
+
+  .settings-section {
+    gap: 10px;
+  }
+
+  .settings-section-header h2 {
+    font-size: 15px;
+  }
+
+  .settings-section-header p {
+    font-size: 12px;
+  }
+
+  .setting-card {
+    min-height: 60px;
+    gap: 9px;
+    padding: 9px 11px;
+    border-radius: 10px;
+  }
+
+  .setting-card > svg:first-child {
+    width: 18px;
+    height: 18px;
+    padding: 6px;
+    border-radius: 8px;
+  }
+
+  .setting-card small {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 3px;
+    font-size: 12px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .sync-summary-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sync-summary-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    justify-content: stretch;
+  }
+
+  .memo-page,
+  .anniversary-page,
+  .focus-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-record-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-audio-list {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-audio-upload-queue > div {
+    grid-template-columns: 1fr;
+  }
+
+  .habit-stats,
+  .habit-list,
+  .today-stats,
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .today-stats {
+    display: none;
+  }
+
+  .today-heading {
+    margin-bottom: 10px;
+  }
+
+  .today-list-section {
+    margin-top: 14px;
+  }
+
+  .today-list-section .section-heading p {
+    display: none;
+  }
+
+  .today-empty-note {
+    display: flex;
+    margin-top: 7px;
+    padding: 9px 11px;
+  }
+
+  .today-quick-start {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-quick-start .button {
+    min-width: 0;
+  }
+
+  .today-heading p {
+    display: none;
+  }
+
+  .today-anniversary-reminders {
+    order: 2;
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+    padding-bottom: 2px;
+  }
+
+  .today-anniversary-reminders button {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 136px;
+    max-width: none;
+    padding: 7px 8px;
+    gap: 5px;
+  }
+
+  .today-anniversary-text strong {
+    font-size: 12px;
+  }
+
+  .today-anniversary-text small,
+  .today-anniversary-days small {
+    font-size: 10px;
+  }
+
+  .today-anniversary-days strong {
+    font-size: 16px;
+  }
+
+  .help-section-grid,
+  .help-faq-list {
+    grid-template-columns: 1fr;
+  }
+
+  .today-item {
+    grid-template-columns: 4px minmax(0, 1fr);
+    gap: 7px;
+    padding: 9px;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgb(30 48 88 / 5%);
+  }
+
+  .today-list {
+    gap: 7px;
+  }
+
+  .today-item > i {
+    width: 4px;
+    min-height: 46px;
+  }
+
+  .today-item-main {
+    gap: 2px;
+  }
+
+  .today-item-main strong {
+    font-size: 15px;
+  }
+
+  .today-item-meta {
+    gap: 8px;
+  }
+
+  .today-item-main span,
+  .today-item-main small {
+    font-size: 12px;
+  }
+
+  .today-item-actions {
+    grid-column: 2;
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 4px;
+    overflow-x: auto;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+  }
+
+  .today-item-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .today-item-actions .button {
+    flex: 0 0 auto;
+    min-height: 31px;
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  .memo-sidebar {
+    position: static;
+  }
+
+  .memo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .anniversary-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memo-sidebar-section {
+    margin-top: 12px;
+  }
+
+  .focus-stats {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .focus-breakdown-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-backdrop {
+    align-items: end;
+    justify-items: center;
+    padding: 0;
+    place-items: end center;
+  }
+
+  .modal,
+  .modal-wide {
+    width: 100%;
+    max-width: none;
+    max-height: min(92dvh, calc(100dvh - 14px));
+    border-radius: 20px 20px 0 0;
+  }
+
+  .update-notes-dialog > header,
+  .update-notes-body {
+    padding-inline: 16px;
+  }
+
+  .update-notes-backdrop {
+    align-items: center;
+    justify-items: center;
+    padding: 16px;
+    place-items: center;
+  }
+
+  .update-notes-dialog {
+    width: min(100%, 560px);
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    border-radius: 12px;
+  }
+
+  .update-notes-dialog > footer {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-inline: 16px;
+  }
+
+  .update-notes-dialog > footer .button {
+    width: 100%;
+    justify-content: center;
+    gap: 4px;
+    padding-inline: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .modal-body {
+    padding: 16px;
+    padding-bottom: calc(16px + var(--safe-bottom));
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+  }
+
+  .modal-title-row {
+    gap: 8px;
+  }
+
+  .modal-header-extra {
+    justify-content: flex-end;
+  }
+
+  .ai-assistant-modal .modal-title-row {
+    gap: 6px;
+    max-width: calc(100% - 42px);
+  }
+
+  .ai-header-access-code {
+    width: 118px;
+  }
+
+  .ai-header-access-code input {
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .toast-host {
+    right: 12px;
+    bottom: calc(92px + var(--safe-bottom));
+    width: calc(100vw - 24px);
+  }
+
+  .form-stack {
+    gap: 12px;
+  }
+
+  .form-stack label,
+  .form-grid label,
+  .schedule-row label {
+    gap: 5px;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 38px;
+  }
+
+  .modal .form-actions {
+    position: sticky;
+    z-index: 3;
+    bottom: 0;
+    margin: 10px -16px calc(-16px - var(--safe-bottom));
+    padding: 12px 16px calc(12px + var(--safe-bottom));
+    border-top: 1px solid var(--border);
+    background: rgb(255 255 255 / 96%);
+    backdrop-filter: blur(10px);
+  }
+
+  .install-platform-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .health-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .health-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .health-action-band,
+  .health-settings-panel,
+  .health-recent-list {
+    padding: 12px;
+  }
+
+  .health-exercise-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .health-exercise-button {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .health-reminder-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .health-body-layout {
+    grid-template-columns: minmax(0, 1fr) 110px;
+  }
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .attachment-paste-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 580px) {
+  .health-page {
+    gap: 14px;
+  }
+
+  .health-water-summary {
+    min-height: 124px;
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .health-water-ring {
+    width: 92px;
+    height: 92px;
+  }
+
+  .health-water-ring strong {
+    font-size: 15px;
+  }
+
+  .health-secondary-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .health-secondary-summary article {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    justify-items: stretch;
+    gap: 3px 7px;
+    min-height: 68px;
+    padding: 9px 10px;
+    text-align: left;
+  }
+
+  .health-secondary-summary article > svg {
+    grid-row: 1 / 3;
+    padding: 5px;
+  }
+
+  .health-secondary-summary article:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .health-secondary-summary strong {
+    font-size: 17px;
+    white-space: nowrap;
+  }
+
+  .health-secondary-summary small {
+    grid-column: 2 / 4;
+    overflow: hidden;
+    max-width: 100%;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .health-entry-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .health-entry-controls .health-movement-button {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .health-body-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .health-bmi-result {
+    min-height: 84px;
+  }
+
+  .health-quick-actions .button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .health-page-actions .button {
+    flex: 1 1 0;
+  }
+
+  .brand > div:last-child strong {
+    font-size: 14px;
+  }
+
+  .brand > div:last-child span {
+    max-width: 150px;
+  }
+
+  .calendar-title-actions {
+    align-items: flex-start;
+    justify-content: space-between;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .snapshot-toolbar-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    flex: 0 0 auto;
+  }
+
+  .snapshot-toolbar-actions .button {
+    min-width: 0;
+    padding-inline: 9px;
+  }
+
+  .snapshot-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .school-extractor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .week-title h1,
+  .page-heading h1 {
+    font-size: 21px;
+  }
+
+  .page-heading {
+    flex-direction: column;
+  }
+
+  .page-heading > .button {
+    width: 100%;
+  }
+
+  .modal-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .modal-backdrop.update-notes-backdrop {
+    align-items: center;
+    justify-items: center;
+    padding: 16px;
+    place-items: center;
+  }
+
+  .update-notes-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 32px);
+    border-radius: 12px;
+  }
+
+  .form-grid,
+  .schedule-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .schedule-row label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .week-picker {
+    grid-template-columns: repeat(7, 1fr);
+  }
+
+  .period-table-head,
+  .period-table-row {
+    min-width: 480px;
+  }
+
+  .flexible-period-table .period-table-head,
+  .flexible-period-table .period-table-row {
+    grid-template-columns: 76px 105px 150px 108px 108px 38px;
+    min-width: 650px;
+  }
+
+  .period-table {
+    overflow-x: auto;
+  }
+
+  .period-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .period-toolbar > div {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .install-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .install-overview div {
+    justify-content: flex-start;
+  }
+
+  .form-actions.split {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .anniversary-list {
+    grid-template-columns: 1fr;
+  }
+
+  .event-completion-editor,
+  .reminder-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .import-preview-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .event-completion-editor .button {
+    width: 100%;
+  }
+
+  .form-actions.split > div,
+  .form-actions.split .button {
+    flex: 1;
+  }
+
+  .theme-skin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .font-size-options {
+    grid-template-columns: 1fr;
+  }
+
+  .font-size-option {
+    grid-template-columns: 96px minmax(0, 1fr);
+    min-height: 82px;
+    padding: 10px;
+  }
+
+  .font-size-sample {
+    min-height: 58px;
+  }
+
+  .theme-skin-card {
+    grid-template-columns: 112px minmax(0, 1fr);
+    min-height: 102px;
+  }
+
+  .theme-skin-preview {
+    height: 68px;
+  }
+
+  .course-count {
+    display: none;
+  }
+
+  .add-type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .add-type-grid > button {
+    min-height: 110px;
+  }
+
+  .focus-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .focus-stats span {
+    min-width: 0;
+  }
+
+  .focus-panel {
+    padding: 18px 14px;
+  }
+
+  .focus-section-heading,
+  .focus-record-manage-actions {
+    align-items: stretch;
+  }
+
+  .focus-section-heading {
+    flex-direction: column;
+  }
+
+  .focus-record-manage-actions {
+    justify-content: flex-start;
+  }
+
+  .focus-audio-controls {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .focus-playback-modes,
+  .focus-audio-lower-controls {
+    grid-column: 1 / -1;
+  }
+
+  .focus-playback-modes {
+    justify-self: start;
+  }
+
+  .focus-audio-lower-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .focus-playlist-picker {
+    min-width: 0;
+  }
+
+  .focus-playlist-picker > div {
+    right: auto;
+    left: 0;
+  }
+
+  .admin-audio-upload {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-audio-upload-queue article {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon info remove"
+      "title title title";
+    align-items: center;
+  }
+
+  .admin-audio-list article {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "kind info delete"
+      "category toggle toggle";
+  }
+
+  .admin-audio-list article > .admin-audio-kind {
+    grid-area: kind;
+  }
+
+  .admin-audio-list article > span:nth-child(2) {
+    grid-area: info;
+  }
+
+  .admin-audio-category-select {
+    grid-area: category;
+  }
+
+  .admin-audio-list article > .button {
+    grid-area: toggle;
+    justify-self: end;
+  }
+
+  .admin-audio-list article > .icon-button {
+    grid-area: delete;
+  }
+
+  .admin-direct-access-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-direct-note,
+  .admin-direct-save {
+    grid-column: auto;
+  }
+
+  .focus-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-settings-grid label {
+    grid-template-columns: minmax(72px, 1fr) 58px auto;
+  }
+
+  .focus-actions .button {
+    flex: 1 1 150px;
+  }
+
+  .memo-view-toggle {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memo-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .memo-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+  }
+
+  .memo-heading > div:first-child {
+    display: contents;
+  }
+
+  .memo-heading h1 {
+    grid-column: 1;
+    margin: 0;
+  }
+
+  .memo-heading > .inline-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .memo-heading p {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  .memo-heading-intro {
+    display: none;
+  }
+
+  .memo-grid-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memo-grid-toolbar .inline-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .memo-grid-toolbar .button {
+    width: 100%;
+  }
+
+  .next-action-panel,
+  .conflict-suggestion {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .habit-heatmap {
+    grid-template-columns: repeat(7, 1fr);
+  }
+
+  .assistant-dialog {
+    grid-template-rows: auto minmax(240px, 48vh) auto;
+  }
+
+  .ai-assistant-dialog {
+    height: 100%;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .assistant-input {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .assistant-input > input:not(.visually-hidden) {
+    grid-column: auto;
+  }
+
+  .assistant-composer-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .assistant-composer-actions > .button,
+  .assistant-composer-actions > .attachment-source-picker,
+  .assistant-composer-actions .attachment-source-trigger {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .assistant-input .button {
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .assistant-composer-actions .assistant-send-button {
+    grid-column: 3;
+  }
+
+  .ai-assistant-modal {
+    height: min(94dvh, calc(100dvh - 14px));
+  }
+
+  .mind-map-modal {
+    height: min(96dvh, calc(100dvh - 10px));
+  }
+
+  .mind-map-modal .modal-body {
+    padding: 10px 12px calc(12px + var(--safe-bottom));
+  }
+
+  .mind-map-dialog {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(320px, 1fr);
+  }
+
+  .mind-map-composer {
+    padding: 0 0 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mind-map-composer textarea {
+    min-height: 96px;
+    max-height: 150px;
+  }
+
+  .mind-map-examples {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .mind-map-examples button {
+    flex: 0 0 auto;
+  }
+
+  .mind-map-composer-actions > .attachment-source-picker,
+  .mind-map-composer-actions > .button {
+    flex: 1 1 0;
+  }
+
+  .mind-map-composer-actions {
+    display: grid;
+    grid-template-columns: minmax(104px, 0.9fr) minmax(90px, 1fr) minmax(90px, 1fr);
+  }
+
+  .mind-map-depth-control {
+    grid-template-columns: 1fr;
+    gap: 3px;
+    margin-right: 0;
+  }
+
+  .mind-map-composer-actions .attachment-source-trigger {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .mind-map-result-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mind-map-result-toolbar > div:last-child {
+    justify-content: flex-end;
+  }
+
+  .mind-map-result-toolbar > div:last-child .button {
+    flex: 0 0 auto;
+  }
+
+  .mind-map-followup {
+    padding: 8px;
+  }
+
+  .mind-map-followup-history {
+    max-height: 110px;
+  }
+
+  .ai-assistant-modal .modal-body {
+    padding: 10px 12px calc(12px + var(--safe-bottom));
+  }
+
+  .admin-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .admin-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-toolbar input {
+    width: 100%;
+    max-width: none;
+    min-height: 38px;
+    flex: 0 0 auto;
+  }
+
+  .admin-user-list,
+  .admin-detail-panel {
+    max-height: none;
+  }
+
+  .admin-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-ai-usage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-ai-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-ai-provider-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-ai-provider-row .button {
+    width: 100%;
+  }
+
+  .admin-feature-quota-header {
+    display: none;
+  }
+
+  .admin-feature-quota-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .admin-feature-quota-row > strong {
+    grid-column: 1 / 3;
+    grid-row: 1;
+  }
+
+  .admin-feature-quota-row > label:first-of-type {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .admin-feature-quota-row > label:nth-of-type(2) { grid-column: 1; grid-row: 2; }
+  .admin-feature-quota-row > label:nth-of-type(3) { grid-column: 2; grid-row: 2; }
+  .admin-feature-quota-row > label:nth-of-type(4) { grid-column: 3; grid-row: 2; }
+  .admin-feature-quota-row > label:nth-of-type(5) { grid-column: 4; grid-row: 2; }
+
+  .admin-feature-quota-row > label:not(:first-of-type)::before {
+    content: attr(data-label);
+    display: block;
+    overflow: hidden;
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .admin-feature-quota-row > .admin-unlimited-note {
+    grid-column: 4;
+    grid-row: 1;
+    min-height: 34px;
+    padding: 4px;
+    text-align: center;
+  }
+
+  .audio-transcription-modal {
+    height: min(96dvh, calc(100dvh - 10px));
+  }
+
+  .audio-transcription-dialog {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(260px, 1fr);
+  }
+
+  .audio-transcription-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 110px;
+    padding: 0 0 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .audio-transcription-controls .audio-file-field,
+  .audio-transcription-controls .muted-note {
+    grid-column: 1 / -1;
+  }
+
+  .audio-transcription-controls > .button {
+    margin-top: 0;
+  }
+
+  .audio-file-list,
+  .audio-transcription-controls > .ai-inline-error {
+    grid-column: 1 / -1;
+  }
+
+  .ai-task-center {
+    right: 10px;
+    bottom: calc(78px + var(--safe-bottom));
+  }
+
+  .admin-cleanup-controls {
+    grid-template-columns: minmax(0, 1fr) 120px;
+  }
+
+  .admin-cleanup-controls .button {
+    grid-column: 1 / -1;
+  }
+
+  .admin-unlimited-note,
+  .admin-ai-settings-grid .button {
+    width: 100%;
+  }
+}
+
+@media (min-width: 581px) and (max-width: 900px) {
+  .mind-map-result-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mind-map-result-toolbar > div:last-child {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 580px) {
+  .health-heading > svg {
+    display: none;
+  }
+
+  .ai-toolbox-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-toolbox-grid button {
+    min-height: 84px;
+  }
+
+  .health-entry-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .health-entry-controls label:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .focus-record-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-cleanup-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-cleanup-controls .button {
+    grid-column: auto;
+  }
+
+  .admin-ai-provider-row {
+    grid-template-columns: 1fr;
+  }
+
+  .form-stack .memo-meta-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .memo-editor-heading {
+    align-items: flex-start;
+  }
+
+  .memo-editor-toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .memo-editor-toolbar .button {
+    padding-inline: 7px;
+  }
+
+  .memo-character-count {
+    min-width: 56px;
+    font-size: 9px;
+  }
+
+  .memo-image-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .memo-image-list img,
+  .memo-image-loading {
+    height: 112px;
+  }
+
+  .memo-dialog-actions {
+    grid-template-columns: .52fr .95fr 1.14fr 1.08fr;
+    gap: 5px;
+  }
+
+  .memo-dialog-actions .button {
+    min-width: 0;
+    gap: 3px;
+    padding-inline: 3px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .audio-transcription-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .audio-transcription-result {
+    padding: 8px;
+  }
+
+  .mind-map-preview-backdrop {
+    padding: 6px;
+  }
+
+  .mind-map-preview-dialog {
+    width: 100%;
+    height: 98dvh;
+  }
+
+  .habit-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .habit-stats article {
+    display: grid;
+    min-height: 0;
+    justify-items: center;
+    gap: 3px;
+    padding: 8px 4px;
+    border-radius: 10px;
+    text-align: center;
+  }
+
+  .habit-stats svg {
+    width: 17px;
+    height: 17px;
+    padding: 6px;
+    border-radius: 8px;
+  }
+
+  .habit-stats strong {
+    font-size: 19px;
+    line-height: 1.1;
+  }
+
+  .habit-stats small {
+    margin-top: 1px;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+
+  .memo-sidebar {
+    padding: 11px;
+    border-radius: 11px;
+  }
+
+  .memo-search {
+    min-height: 40px;
+    padding: 0 9px;
+  }
+
+  .memo-sidebar-section {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .anniversary-filter-section,
+  .memo-folder-section {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .anniversary-filter-section > span,
+  .memo-folder-section > .memo-sidebar-title {
+    grid-column: 1 / -1;
+  }
+
+  .anniversary-filter-section > button,
+  .memo-folder-section > button {
+    min-width: 0;
+    padding: 8px 9px;
+  }
+
+  .memo-view-section {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .memo-view-section .memo-view-toggle {
+    min-width: 0;
+  }
+
+  .memo-view-toggle button {
+    padding: 7px 8px;
+  }
+
+  .compact-empty {
+    margin-top: 18px;
+  }
+
+  .backup-options {
+    gap: 10px;
+  }
+
+  .backup-options section {
+    padding: 11px;
+    border-radius: 10px;
+  }
+
+  .backup-method-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 1px;
+  }
+
+  .backup-method-row .inline-actions,
+  .backup-method-row > .button {
+    width: 100%;
+  }
+
+  .backup-method-row .inline-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .backup-method-row .button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .feedback-dialog,
+  .admin-feedback-list {
+    grid-template-columns: 1fr;
+  }
+
+  .feedback-history {
+    max-height: none;
+  }
+
+  .admin-feedback-editor {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 580px) {
+  .school-extractor-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .school-extractor-toolbar span {
+    align-self: flex-end;
+  }
+
+  .feedback-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .feedback-actions > .attachment-source-picker,
+  .feedback-actions .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .admin-feedback-channel-editor {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+  }
+
+  .admin-feedback-channel-editor label {
+    gap: 5px;
+  }
+
+  .admin-feedback-channel-editor label > span {
+    font-size: 11px;
+  }
+
+  .admin-feedback-channel-editor .button {
+    padding-inline: 8px;
+  }
+}
+
+/* Compact health workspace: keep labels and values together across viewports. */
+.health-page {
+  max-width: 1400px;
+  gap: 10px;
+}
+
+.health-summary-grid {
+  gap: 8px;
+}
+
+.health-water-summary {
+  min-height: 96px;
+  gap: 14px;
+  padding: 10px 14px;
+}
+
+.health-water-ring {
+  width: 76px;
+  height: 76px;
+  padding: 7px;
+}
+
+.health-water-ring strong {
+  font-size: 15px;
+}
+
+.health-water-summary-copy {
+  gap: 3px;
+}
+
+.health-water-summary-copy > strong {
+  font-size: 18px;
+}
+
+.health-secondary-summary {
+  gap: 8px;
+}
+
+.health-secondary-summary article {
+  min-height: 96px;
+  padding: 10px 12px;
+}
+
+.health-secondary-summary strong {
+  font-size: 18px;
+}
+
+.health-action-band,
+.health-settings-panel,
+.health-recent-list {
+  padding: 12px 14px;
+}
+
+.health-water-band {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 220px) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.health-water-band .health-progress-copy,
+.health-water-band .health-progress,
+.health-water-band .health-quick-actions {
+  margin-top: 0;
+}
+
+.health-water-band .health-progress-copy {
+  min-width: 0;
+}
+
+.health-water-band .health-quick-actions {
+  flex-wrap: nowrap;
+}
+
+.health-water-band .health-quick-actions .button {
+  min-width: 104px;
+  min-height: 38px;
+  padding: 7px 12px;
+}
+
+.health-training-band .health-band-title {
+  min-height: 32px;
+}
+
+.health-entry-controls {
+  grid-template-columns: minmax(190px, 1fr) minmax(180px, 1.2fr) minmax(190px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 10px;
+}
+
+.health-inline-field {
+  display: grid;
+  grid-template-columns: max-content minmax(64px, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.health-inline-field > span {
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.health-inline-field input,
+.health-inline-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+}
+
+.health-entry-controls .health-inline-field {
+  display: grid;
+}
+
+.health-entry-controls .button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.health-exercise-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.health-exercise-button {
+  min-height: 48px;
+  padding: 8px 12px;
+}
+
+.health-settings-grid {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.health-settings-panel {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.health-settings-panel > .health-band-title {
+  min-width: 0;
+}
+
+.health-settings-panel .health-band-title h2,
+.health-settings-panel .switch-label {
+  white-space: nowrap;
+}
+
+.health-reminder-panel {
+  grid-template-columns: 190px minmax(0, 1fr);
+}
+
+.health-body-layout {
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) minmax(160px, .8fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 0;
+}
+
+.health-bmi-result {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.health-bmi-result strong {
+  font-size: 20px;
+}
+
+.health-bmi-result small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-history-line {
+  grid-column: 2;
+  margin: -2px 0 0;
+}
+
+.health-reminder-form {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 10px;
+}
+
+.health-page-actions {
+  justify-content: flex-end;
+}
+
+.health-timeline {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  padding-left: 0;
+}
+
+.health-timeline::before {
+  display: none;
+}
+
+.health-timeline article {
+  grid-template-columns: 28px minmax(0, 1fr);
+  min-height: 48px;
+  padding: 5px 10px;
+  border-left: 1px solid var(--border);
+}
+
+.health-timeline article:nth-child(5n + 1) {
+  border-left: 0;
+}
+
+.health-timeline-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.health-exercise-editor-list {
+  display: grid;
+  gap: 6px;
+}
+
+.health-exercise-editor-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 5px 8px 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.health-exercise-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.health-exercise-add-row .button {
+  min-width: 92px;
+}
+
+@media (max-width: 900px) {
+  .health-water-band {
+    grid-template-columns: auto minmax(150px, 1fr) auto;
+  }
+
+  .health-water-band .health-progress {
+    grid-column: 1 / -1;
+  }
+
+  .health-entry-controls {
+    grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr);
+  }
+
+  .health-settings-panel {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .health-reminder-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .health-body-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .health-history-line {
+    grid-column: 1;
+  }
+
+  .health-timeline {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .health-timeline article:nth-child(5n + 1) {
+    border-left: 1px solid var(--border);
+  }
+
+  .health-timeline article:nth-child(3n + 1) {
+    border-left: 0;
+  }
+}
+
+@media (max-width: 580px) {
+  .health-page {
+    gap: 8px;
+  }
+
+  .health-heading {
+    margin-bottom: 0;
+  }
+
+  .health-water-summary {
+    min-height: 100px;
+    padding: 10px 12px;
+  }
+
+  .health-secondary-summary article {
+    min-height: 58px;
+    padding: 7px 8px;
+  }
+
+  .health-action-band,
+  .health-settings-panel,
+  .health-recent-list {
+    padding: 10px;
+  }
+
+  .health-water-band {
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .health-water-band .health-progress-copy,
+  .health-water-band .health-progress,
+  .health-water-band .health-quick-actions {
+    grid-column: 1 / -1;
+  }
+
+  .health-water-band .health-quick-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .health-entry-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    margin: 6px 0;
+    padding: 7px;
+  }
+
+  .health-entry-controls .health-movement-button,
+  .health-entry-controls .health-inline-field:last-of-type,
+  .health-entry-controls .health-manage-exercises {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .health-inline-field {
+    grid-template-columns: max-content minmax(54px, 1fr);
+    gap: 5px;
+  }
+
+  .health-entry-controls .health-inline-field {
+    grid-template-columns: 1fr 58px;
+  }
+
+  .health-entry-controls .health-inline-field > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .health-entry-controls .button {
+    min-width: 0;
+    padding-inline: 7px;
+  }
+
+  .health-exercise-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .health-exercise-button {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    justify-items: start;
+    gap: 5px;
+    min-height: 44px;
+    padding: 7px 8px;
+    text-align: left;
+  }
+
+  .health-exercise-button > svg {
+    grid-row: 1 / 3;
+  }
+
+  .health-exercise-button span {
+    grid-column: 2;
+    font-size: 10px;
+  }
+
+  .health-exercise-button strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .health-body-layout,
+  .health-reminder-form {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .health-bmi-result {
+    justify-content: flex-start;
+  }
+
+  .health-timeline {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding-left: 4px;
+  }
+
+  .health-timeline::before {
+    display: block;
+  }
+
+  .health-timeline article,
+  .health-timeline article:nth-child(3n + 1),
+  .health-timeline article:nth-child(5n + 1) {
+    grid-template-columns: 32px minmax(0, 1fr);
+    min-height: 50px;
+    padding: 6px 0;
+    border-left: 0;
+  }
+
+  .health-timeline-icon {
+    width: 32px;
+    height: 32px;
+  }
+}
