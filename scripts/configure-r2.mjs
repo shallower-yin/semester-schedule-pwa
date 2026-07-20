@@ -24,6 +24,11 @@ await configure("CORS", new PutBucketCorsCommand({
       AllowedMethods: ["GET", "HEAD", "PUT"],
       AllowedOrigins: [
         "https://shallower-yin.github.io",
+        // Capacitor Android WebView serves the app from https://localhost; iOS uses capacitor://localhost.
+        // Without these, direct R2 uploads (audio transcription, long PDF) fail in the APK with a CORS
+        // "Failed to fetch" even though they work in the browser PWA.
+        "https://localhost",
+        "capacitor://localhost",
         "http://127.0.0.1:4173",
         "http://127.0.0.1:5173",
         "http://localhost:4173",
@@ -56,7 +61,7 @@ await configure("lifecycle", new PutBucketLifecycleConfigurationCommand({
 
 if (failures.length) throw new Error(`R2 bucket management failed: ${failures.join(", ")}`);
 
-console.log(`R2 bucket "${bucket}" is reachable; browser CORS and one-day temporary AI file cleanup are configured.`);
+console.log(`R2 bucket "${bucket}" is reachable; browser + APK WebView CORS and one-day temporary AI file cleanup are configured.`);
 
 function required(name) {
   const value = process.env[name]?.trim();
