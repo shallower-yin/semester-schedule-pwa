@@ -110,6 +110,7 @@ import { showToast } from "./lib/toast";
 import { AI_TASK_OPEN_EVENT, type AiTaskFeature } from "./lib/aiBackgroundTasks";
 import { appHistoryLayer, appHistoryPage, initializeAppHistory, navigateAppHistory } from "./lib/appHistory";
 import { useHistoryLayer } from "./lib/useHistoryLayer";
+import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
@@ -495,40 +496,22 @@ export default function App() {
     void ensureScheduledLocalBackup().catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) && event.key !== "Escape") return;
-      if (event.key === "/") {
-        event.preventDefault();
-        setShowGlobalSearch(true);
-      } else if (event.key.toLowerCase() === "n") {
-        event.preventDefault();
-        openNewEvent(toISODate(new Date()), "09:00", "10:00");
-      } else if (event.key.toLowerCase() === "q") {
-        event.preventDefault();
-        setShowQuickEntry(true);
-      } else if (event.key.toLowerCase() === "a") {
-        event.preventDefault();
-        setShowScheduleAssistant(true);
-      } else if (event.key.toLowerCase() === "d") {
-        event.preventDefault();
-        setShowDeepSeekAssistant(true);
-      } else if (event.key.toLowerCase() === "m") {
-        event.preventDefault();
-        setShowMindMap(true);
-      } else if (event.key.toLowerCase() === "t") {
-        event.preventDefault();
-        goToday();
-        navigate("today");
-      } else if (event.key === "Escape") {
-        if (appHistoryLayer(window.history.state) || pageRef.current !== "today") window.history.back();
-        else if (sidebarOpen) requestSidebarClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [semester]);
+  useGlobalShortcuts({
+    onSearch: () => setShowGlobalSearch(true),
+    onNewToday: () => openNewEvent(toISODate(new Date()), "09:00", "10:00"),
+    onQuickEntry: () => setShowQuickEntry(true),
+    onScheduleAssistant: () => setShowScheduleAssistant(true),
+    onAssistant: () => setShowDeepSeekAssistant(true),
+    onMindMap: () => setShowMindMap(true),
+    onToday: () => {
+      goToday();
+      navigate("today");
+    },
+    onEscape: () => {
+      if (appHistoryLayer(window.history.state) || pageRef.current !== "today") window.history.back();
+      else if (sidebarOpen) requestSidebarClose();
+    }
+  });
 
   useEffect(() => {
     if (!user || !("Notification" in window) || Notification.permission !== "granted") return;
