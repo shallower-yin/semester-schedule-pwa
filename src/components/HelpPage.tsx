@@ -3,6 +3,7 @@ import {
   Bot,
   Cloud,
   GraduationCap,
+  Keyboard,
   ShieldCheck,
   Smartphone,
   Sparkles,
@@ -56,6 +57,14 @@ const faqSections = [
     items: [
       "日程助手只在本机按固定规则查询日程，不需要 AI 权限，也不消耗 AI 额度；适合查今天、逾期、冲突、完成率和专注统计。",
       "AI 助手使用云端模型理解自由表达，可综合问答并创建事项、纪念日或备忘录；需要登录和 AI 权限，并计入日、周额度。"
+    ]
+  },
+  {
+    title: "有哪些电脑键盘快捷键？",
+    icon: <Keyboard size={18} />,
+    items: [
+      "在电脑上，未聚焦输入框时可按：/ 打开全局搜索，Q 快速录入，N 新增今天事项，T 回到今天页。",
+      "A 打开日程助手，D 打开 AI 助手，M 打开思维导图，Esc 关闭当前弹窗或返回上一层。"
     ]
   },
   {
