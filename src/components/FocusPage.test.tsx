@@ -4,10 +4,11 @@ import { db } from "../db";
 import { setCurrentUserId } from "../lib/identity";
 import type { FocusSession } from "../types";
 import { FocusPage } from "./FocusPage";
+import { openFocusSystemWindow } from "../lib/focusSystemWindow";
 
 vi.mock("../lib/focusSystemWindow", () => ({
   closeFocusSystemWindow: vi.fn(),
-  focusSystemWindowSupported: () => false,
+  focusSystemWindowSupported: () => true,
   openFocusSystemWindow: vi.fn()
 }));
 
@@ -60,5 +61,23 @@ describe("专注记录管理", () => {
     await waitFor(() => expect(screen.getByText("还没有专注记录。")).toBeInTheDocument());
     expect(await db.focusSessions.count()).toBe(0);
     expect(await db.syncQueue.where("table_name").equals("focusSessions").count()).toBe(2);
+  });
+
+  it("开始专注不自动弹出系统小窗，仅点击“系统小窗”后才打开", async () => {
+    vi.mocked(openFocusSystemWindow).mockClear();
+    render(<FocusPage ownerId="local" />);
+    const startButton = await screen.findByRole("button", { name: /开始专注/ });
+    fireEvent.click(startButton);
+    await screen.findByRole("button", { name: /结束并保存/ });
+    // 回归点：开始专注不得自动打开系统小窗（此前会在开始时自动弹出）。
+    expect(openFocusSystemWindow).not.toHaveBeenCalled();
+    // 只有点击“系统小窗”才交互式打开。
+    fireEvent.click(screen.getByRole("button", { name: /系统小窗/ }));
+    await waitFor(() => expect(openFocusSystemWindow).toHaveBeenCalledTimes(1));
+    expect(openFocusSystemWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "pomodoro" }),
+      expect.any(Date),
+      true
+    );
   });
 });
