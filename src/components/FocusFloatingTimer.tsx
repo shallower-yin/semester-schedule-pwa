@@ -44,8 +44,13 @@ export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
 
   useEffect(() => {
     updateFocusSystemWindow(active, now);
-    if (!active) void closeFocusSystemWindow();
   }, [active, now]);
+
+  // Close only when a session actually ends. On native this avoids firing a hide() IPC every
+  // second while idle, which would also tear down an overlay opened from another surface.
+  useEffect(() => {
+    if (!active) void closeFocusSystemWindow();
+  }, [active]);
 
   useEffect(() => {
     if (!active || active.pause_started_at || active.planned_seconds == null || remaining !== 0 || completingRef.current) return;
