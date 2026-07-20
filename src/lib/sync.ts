@@ -108,6 +108,8 @@ export async function getSyncHealth(): Promise<SyncHealth> {
 export interface SyncResult {
   uploaded: number;
   downloaded: number;
+  // 下载时因本地有未上传编辑（待传队列或本地 updated_at 更晚）而被保留、未被云端覆盖的记录数
+  kept_local: number;
   completed_at: string;
 }
 
@@ -458,9 +460,15 @@ async function fetchRemoteTableRows(remote: string, userId: string): Promise<Rem
   return { rows, complete: total != null && rows.length >= total };
 }
 
-async function downloadRemoteTables(userId: string): Promise<number> {
+interface DownloadResult {
+  downloaded: number;
+  kept: number;
+}
+
+async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
   if (!supabase) throw new Error("云端服务尚未配置");
   let downloaded = 0;
+  let kept = 0;
   const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
   const incompleteTables = new Set<SyncTableName>();
 
@@ -477,6 +485,9 @@ async function downloadRemoteTables(userId: string): Promise<number> {
     const deletedIds = idsFor(hardDeleteIds, config.local);
     const activeRecords = recordsFor(recordsByTable, config.local).filter((record) => !record.deleted_at && !deletedIds.has(String(record.id)));
     const activeRemoteIds = new Set(activeRecords.map((record) => String(record.id)));
+    // 保护本地未上传的编辑：待传队列中的记录、以及本地 updated_at 更晚的记录，下载时不被云端覆盖。
+    // 服务端触发器已按 updated_at 做上传侧后写覆盖保护；这里补齐下载/拉取侧，避免纯拉取或同步中途的本地编辑被静默冲掉。
+    const pendingIds = await pendingUpsertIds(config.local);
     if (activeRecords.length) {
       if (config.local === "eventOccurrenceStates") {
         const occurrenceRecords = activeRecords as unknown as EventOccurrenceState[];
@@ -487,6 +498,10 @@ async function downloadRemoteTables(userId: string): Promise<number> {
               .equals([record.event_id, record.occurrence_date])
               .filter((state) => state.user_id === userId)
               .toArray();
+            if (pendingIds.has(String(record.id)) || localMatches.some((state) => pendingIds.has(String(state.id)))) {
+              kept += 1;
+              continue;
+            }
             for (const local of localMatches) {
               if (local.id === record.id) continue;
               const pending = await db.syncQueue
@@ -497,12 +512,23 @@ async function downloadRemoteTables(userId: string): Promise<number> {
               if (!pending) await db.eventOccurrenceStates.delete(local.id);
             }
             await db.eventOccurrenceStates.put(record);
+            downloaded += 1;
           }
         });
       } else {
-        await db.table(config.local).bulkPut(activeRecords);
+        const localRecords = await db.table(config.local).filter((record) => record.user_id === userId).toArray();
+        const localById = new Map(localRecords.map((record) => [String(record.id), record]));
+        const applyRecords = activeRecords.filter((record) => {
+          const id = String(record.id);
+          if (pendingIds.has(id)) return false;
+          const local = localById.get(id);
+          if (local && String(local.updated_at) > String(record.updated_at)) return false;
+          return true;
+        });
+        kept += activeRecords.length - applyRecords.length;
+        if (applyRecords.length) await db.table(config.local).bulkPut(applyRecords);
+        downloaded += applyRecords.length;
       }
-      downloaded += activeRecords.length;
     }
     // 拉取不完整时跳过镜像删除，避免把云端仍存在的记录误删本地
     if (!incompleteTables.has(config.local)) {
@@ -511,7 +537,7 @@ async function downloadRemoteTables(userId: string): Promise<number> {
   }
 
   await deduplicateCategories(userId);
-  return downloaded;
+  return { downloaded, kept };
 }
 
 async function runSync(userId: string): Promise<SyncResult> {
@@ -620,11 +646,17 @@ async function runSync(userId: string): Promise<SyncResult> {
     }
   }
 
-  downloaded = await downloadRemoteTables(userId);
+  const download = await downloadRemoteTables(userId);
+  downloaded = download.downloaded;
 
   const completedAt = new Date().toISOString();
   localStorage.setItem(`semester-schedule-last-sync:${userId}`, completedAt);
-  return { uploaded, downloaded, completed_at: completedAt };
+  return { uploaded, downloaded, kept_local: download.kept, completed_at: completedAt };
+}
+
+async function pendingUpsertIds(tableName: SyncTableName): Promise<Set<string>> {
+  const items = await db.syncQueue.where("table_name").equals(tableName).toArray();
+  return new Set(items.filter((item) => item.operation !== "delete").map((item) => String(item.record_id)));
 }
 
 async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, userId: string, activeRemoteIds: Set<string>) {
@@ -640,10 +672,10 @@ async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, use
 export async function pullRemoteNow(userId: string): Promise<SyncResult> {
   if (!supabase) throw new Error("云端服务尚未配置");
   if (!navigator.onLine) throw new Error("当前处于离线状态");
-  const downloaded = await downloadRemoteTables(userId);
+  const { downloaded, kept } = await downloadRemoteTables(userId);
   const completedAt = new Date().toISOString();
   localStorage.setItem(`semester-schedule-last-sync:${userId}`, completedAt);
-  return { uploaded: 0, downloaded, completed_at: completedAt };
+  return { uploaded: 0, downloaded, kept_local: kept, completed_at: completedAt };
 }
 
 export function syncNow(userId: string): Promise<SyncResult> {

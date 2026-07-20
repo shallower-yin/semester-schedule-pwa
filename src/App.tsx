@@ -530,7 +530,7 @@ export default function App() {
     try {
       const result = await syncNow(user.id);
       setLastSync(result.completed_at);
-      setSyncMessage(`同步完成：上传 ${result.uploaded} 条，下载 ${result.downloaded} 条。`);
+      setSyncMessage(`同步完成：上传 ${result.uploaded} 条，下载 ${result.downloaded} 条${result.kept_local > 0 ? `，保留本机未上传改动 ${result.kept_local} 条` : ""}。`);
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "同步失败";

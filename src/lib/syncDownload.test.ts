@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { db } from "../db";
-import type { HealthLog, SyncFields } from "../types";
+import { db, queueChange } from "../db";
+import type { EventOccurrenceState, HealthLog, SyncFields } from "../types";
 import { pullRemoteNow, SYNC_TABLES } from "./sync";
 
 interface MockQueryResult {
@@ -186,5 +186,73 @@ describe("云端下载分页与镜像删除保护", () => {
 
     expect(await db.healthLogs.count()).toBe(2);
     expect(await db.healthLogs.get(removedLocally.id)).toBeUndefined();
+  });
+});
+
+function occurrenceState(id: string, overrides: Partial<EventOccurrenceState> = {}): EventOccurrenceState {
+  return {
+    ...fields(id),
+    event_id: "event-1",
+    occurrence_date: "2026-07-01",
+    completed: false,
+    reminder_sent_at: null,
+    ...overrides
+  };
+}
+
+describe("下载侧保护本地未上传编辑", () => {
+  beforeEach(async () => {
+    mockRemote.reset();
+    await clearLocalTables();
+  });
+
+  it("本地有待传队列项时，纯拉取不覆盖该记录并计入 kept_local", async () => {
+    const local: HealthLog = { ...healthLog(0), amount: 999 };
+    await db.healthLogs.put(local);
+    await queueChange("healthLogs", local.id);
+    mockRemote.tables.set("health_logs", [toRemoteRow({ ...healthLog(0), amount: 111 })]);
+
+    const result = await pullRemoteNow(USER_ID);
+
+    expect(result.kept_local).toBe(1);
+    expect(result.downloaded).toBe(0);
+    expect((await db.healthLogs.get(local.id))?.amount).toBe(999);
+  });
+
+  it("本地 updated_at 更晚时，下载不覆盖较新的本地编辑", async () => {
+    const local: HealthLog = { ...healthLog(0), amount: 999, updated_at: "2026-07-02T10:00:00.000Z" };
+    await db.healthLogs.put(local);
+    mockRemote.tables.set("health_logs", [toRemoteRow({ ...healthLog(0), amount: 111, updated_at: "2026-07-01T08:00:00.000Z" })]);
+
+    const result = await pullRemoteNow(USER_ID);
+
+    expect(result.kept_local).toBe(1);
+    expect((await db.healthLogs.get(local.id))?.amount).toBe(999);
+  });
+
+  it("本地较旧且无待传项时，正常被云端较新记录覆盖", async () => {
+    const local: HealthLog = { ...healthLog(0), amount: 999, updated_at: "2026-06-01T00:00:00.000Z" };
+    await db.healthLogs.put(local);
+    mockRemote.tables.set("health_logs", [toRemoteRow({ ...healthLog(0), amount: 111, updated_at: "2026-07-01T08:00:00.000Z" })]);
+
+    const result = await pullRemoteNow(USER_ID);
+
+    expect(result.kept_local).toBe(0);
+    expect(result.downloaded).toBe(1);
+    expect((await db.healthLogs.get(local.id))?.amount).toBe(111);
+  });
+
+  it("事项状态：本地有待传项时下载不覆盖打卡结果", async () => {
+    const local = occurrenceState("occ-1", { completed: true, updated_at: "2026-07-01T09:00:00.000Z" });
+    await db.eventOccurrenceStates.put(local);
+    await queueChange("eventOccurrenceStates", local.id);
+    mockRemote.tables.set("event_occurrence_states", [
+      toRemoteRow(occurrenceState("occ-1", { completed: false }) as unknown as HealthLog)
+    ]);
+
+    const result = await pullRemoteNow(USER_ID);
+
+    expect(result.kept_local).toBe(1);
+    expect((await db.eventOccurrenceStates.get("occ-1"))?.completed).toBe(true);
   });
 });
