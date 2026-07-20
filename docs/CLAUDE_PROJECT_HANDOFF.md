@@ -284,3 +284,39 @@ UI 改动还必须：
 - `styles.css`、`vite.config.ts` 等文件为 CRLF/LF 混排（`core.autocrlf=true`）。按 LF 精确匹配的替换工具会失败；可靠做法：Node 读入 → `replace(/
 /g,"
 ")` → `indexOf` 定位并断言唯一 → 写回；提交时 git 归一化为 LF，diff 干净。
+
+## 13. 2026-07-20 续二：专注小窗交互修复 + 转写重试 + R2 直传 + 真机验证
+
+本轮同样本地提交、未推送、未部署。前端全量测试 76 文件 / 276 项通过（较上轮 +1，为新增回归测试），生产构建通过。
+
+### 专注“系统小窗”只在点击时打开 + 全屏切换（`26b9469`，回归测试 `8ca9fc0`）
+
+- 用户反馈：一点“开始专注”就弹出小窗，且希望小窗能点开全屏。
+- Bug 修复：`startFocus()` 原本无条件 `openSystemTimer(next)`，导致会话一开始就弹小窗（APK 弹原生悬浮窗、浏览器尝试画中画）。删除该调用——小窗只在用户点击“系统小窗”时打开（`openSystemTimer(active, true)`，也是唯一交互式申请悬浮窗权限之处）。
+- 全屏功能：原生 `FocusOverlayPlugin.java` 新增全屏模式——轻点悬浮卡片在“紧凑可拖动卡片”与“全屏倒计时”之间切换（全屏为大号等宽计时、居中标签/标题、退出提示）；长按拉起应用（即原轻点行为）；全屏时禁止拖动；紧凑位置跨切换记忆；`show()` 总以紧凑态重开，避免上次残留全屏态卡住。浏览器/PWA 端完全不变（仍走 `<video>` 画中画）。
+- 真机验证（vivo S16，versionName `0.1.0-dev.4`，本轮构建装于 16:21）：开始专注 → `dumpsys window` 无 `Sys2038` 悬浮窗（不再自动弹）；点“系统小窗” → 紧凑卡 `frame=[53,568][713,945]`；轻点 → 全屏 `[0,106][1080,2400]` → 再点 → 回紧凑。截图 `_shots/vivo_focus_fullscreen.png`（也在 API 36 模拟器复现，`_shots/emu_focus_fullscreen.png`）。回归测试断言：开始专注不调用 `openFocusSystemWindow`，仅点“系统小窗”后调用一次（`interactive=true`）。
+
+### 音频转写分段瞬时失败自动重试（`105031d`，须部署后生效）
+
+- 症状：长音频切多段、每段各调一次外部 MiMo ASR（大 MP3 走 HMAC 签名的 `transcribe_audio_range` 服务端自调用 worker）。任一段返回非 OK 即抛错，且 `mapWithConcurrency` 首个 reject 即整单失败——一段瞬时抖动（限流 / 5xx / 冷启动）就毁掉整个多分钟转写（真机曾见 3/8 段 HTTP 500）。
+- 修复：新增 `fetchTextWithTransientRetry`——仅对瞬时失败（网络错误、HTTP 429、HTTP≥500）指数退避重试；确定性 4xx（如 413 分段过大、403 签名错）立即返回，保留其专有处理。用于 ASR 叶子调用 `transcribeAudioChunk`（3 次）与自调用 worker `transcribeRemoteAudioRange`（2 次，每次全新 worker 重取字节段）。退避经 `delayWithAbort`，取消保持灵敏。
+- 验证限制：本机无 Deno，`deno check` 未能跑；已用 TypeScript parser 校验语法通过、括号平衡。**此为 Edge Function 改动，须 `supabase functions deploy ai-assistant` 部署后才生效**（当前未部署，待授权）。
+
+### R2 直传放行 APK WebView 源 + 真机端到端复测（`c18a9f6`；CORS 已由你在 Cloudflare 后台配置）
+
+- APK 内 52MB 音频曾 `Failed to fetch`：R2 桶未放行 Capacitor WebView 源（`https://localhost` / `capacitor://localhost`）。代码侧已修；CORS 策略由你在 Cloudflare 后台 R2 → 桶 → Settings → CORS 添加。
+- 真机端到端复测（vivo，登录态，52MB 真实录音）：`PUT 200 R2` 上传成功（此前正是这步失败），8 段全部转写完成并生成摘要（含主题/要点/结论/待办），**无错误、无重试按钮**。确认 CORS 生效；之前 3/8 段 500 属瞬时（干净重跑通过），与上面的重试改动互为印证。
+
+### 同步下载保护未上传本地改动（`ac249d7`）
+
+- 配合 F1，在镜像删除逻辑前保护“尚未上传到云端的本地编辑”，避免下行同步覆盖离线期间的新改动。
+
+### 仍待你本人处理（本轮更新）
+
+- **部署后端让 ASR 重试生效**：`105031d` 须部署 `ai-assistant` Edge Function 方生效；部署后宜用真实大文件 + 现有音频冒烟工作流复验，勿用小样本。需你明确授权部署。
+- **长扫描 PDF 同类重试**：ASR 已加重试，但 PDF 提取/总结的 provider 调用（`extractRemoteDocumentBatch`、`summarizeAudioTranscript` 等）仍无重试，属同一类瞬时失败隐患。因规范禁止小样本验收、须真实大文件冒烟 + 真实额度 + 有人值守，暂列建议、未改。
+- **一加真机（ColorOS）**：机器不在手边；AOSP 模拟器无法复现 ColorOS 皮肤专属行为。安全区注入与专注原生悬浮窗逻辑与 vivo 同路径（vivo 已全部真机通过），待你在一加上核验顶部安全区与悬浮窗/全屏。
+
+### 签名安装要点（更正上一轮记录）
+
+- 本轮实测：设置了 `ANDROID_USER_HOME=D:\AndroidDev\StudioData\AndroidUser` 时，`gradlew assembleDebug` 直接用 Studio keystore（cert `98e610ed…`）签名，产出的原始 `app-debug.apk` 即与 vivo 一致，**无需再手动重签**（上一轮的重签实为冗余）。仅当 `ANDROID_USER_HOME` 未设、gradle 回退到 `D:\AndroidDev\.android\debug.keystore`（cert `d9ebb927…`）时才会签名不匹配、需重签。install 前用 `apksigner verify --print-certs` 确认证书即可。vivo（OriginOS）每次 USB 安装需在机上点“继续安装”，前台 `adb install` 会在工具超时前卡死，改用后台安装 + 轮询 `lastUpdateTime`/日志 `Success`。
