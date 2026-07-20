@@ -39,22 +39,22 @@ import {
   X
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
 import { AiToolboxDialog } from "./components/AiToolboxDialog";
-import { AdminDialog } from "./components/AdminDialog";
+const AdminDialog = lazy(() => import("./components/AdminDialog").then((module) => ({ default: module.AdminDialog })));
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
-import { AudioTranscriptionDialog } from "./components/AudioTranscriptionDialog";
+const AudioTranscriptionDialog = lazy(() => import("./components/AudioTranscriptionDialog").then((module) => ({ default: module.AudioTranscriptionDialog })));
 import { AiTaskCenter } from "./components/AiTaskCenter";
 import { BackupDialog } from "./components/BackupDialog";
 import { BatchEventsDialog } from "./components/BatchEventsDialog";
 import { CourseDialog } from "./components/CourseDialog";
 import { CourseManagerDialog } from "./components/CourseManagerDialog";
 import { DataHealthDialog } from "./components/DataHealthDialog";
-import { DeepSeekAssistantDialog } from "./components/DeepSeekAssistantDialog";
+const DeepSeekAssistantDialog = lazy(() => import("./components/DeepSeekAssistantDialog").then((module) => ({ default: module.DeepSeekAssistantDialog })));
 import { EventDialog } from "./components/EventDialog";
 import { FeedbackDialog } from "./components/FeedbackDialog";
 import { FontSizeDialog } from "./components/FontSizeDialog";
@@ -67,15 +67,15 @@ import { HeaderToolSettingsDialog } from "./components/HeaderToolSettingsDialog"
 import { HelpPage } from "./components/HelpPage";
 import { InstallDialog } from "./components/InstallDialog";
 import { MemoPage } from "./components/MemoPage";
-import { MindMapDialog } from "./components/MindMapDialog";
+const MindMapDialog = lazy(() => import("./components/MindMapDialog").then((module) => ({ default: module.MindMapDialog })));
 import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { QuickEntryDialog } from "./components/QuickEntryDialog";
-import { ScheduleAssistantDialog } from "./components/ScheduleAssistantDialog";
+const ScheduleAssistantDialog = lazy(() => import("./components/ScheduleAssistantDialog").then((module) => ({ default: module.ScheduleAssistantDialog })));
 import { ScheduleSnapshotDialog } from "./components/ScheduleSnapshotDialog";
 import { SemesterDialog } from "./components/SemesterDialog";
-import { SchoolTimetableImportDialog } from "./components/SchoolTimetableImportDialog";
-import { StatsDialog } from "./components/StatsDialog";
+const SchoolTimetableImportDialog = lazy(() => import("./components/SchoolTimetableImportDialog").then((module) => ({ default: module.SchoolTimetableImportDialog })));
+const StatsDialog = lazy(() => import("./components/StatsDialog").then((module) => ({ default: module.StatsDialog })));
 import { ThemeSkinDialog } from "./components/ThemeSkinDialog";
 import { TodayPage } from "./components/TodayPage";
 import { ToastHost } from "./components/ToastHost";
@@ -1148,6 +1148,7 @@ export default function App() {
       {showBatchEvents && <BatchEventsDialog events={events} categories={categories} occurrenceStates={occurrenceStates} onClose={() => setShowBatchEvents(false)} />}
       {showDataHealth && <DataHealthDialog ownerId={ownerId} onClose={() => setShowDataHealth(false)} />}
       {showStats && semester && (
+        <Suspense fallback={null}>
         <StatsDialog
           semester={semester}
           courses={courses}
@@ -1159,6 +1160,7 @@ export default function App() {
           focusSessions={focusSessions}
           onClose={() => setShowStats(false)}
         />
+        </Suspense>
       )}
       {showQuickEntry && (
         <QuickEntryDialog
@@ -1171,6 +1173,7 @@ export default function App() {
         />
       )}
       {showScheduleAssistant && (
+        <Suspense fallback={null}>
         <ScheduleAssistantDialog
           input={{
             semester,
@@ -1187,8 +1190,10 @@ export default function App() {
           }}
           onClose={() => setShowScheduleAssistant(false)}
         />
+        </Suspense>
       )}
       {showDeepSeekAssistant && (
+        <Suspense fallback={null}>
         <DeepSeekAssistantDialog
           input={{
             semester,
@@ -1207,8 +1212,10 @@ export default function App() {
           userEmail={user?.email}
           onClose={() => setShowDeepSeekAssistant(false)}
         />
+        </Suspense>
       )}
       {showMindMap && (
+        <Suspense fallback={null}>
         <MindMapDialog
           input={{
             semester,
@@ -1226,15 +1233,16 @@ export default function App() {
           ownerId={ownerId}
           onClose={() => setShowMindMap(false)}
         />
+        </Suspense>
       )}
-      {showAudioTranscription && <AudioTranscriptionDialog ownerId={ownerId} onClose={() => setShowAudioTranscription(false)} />}
+      {showAudioTranscription && <Suspense fallback={null}><AudioTranscriptionDialog ownerId={ownerId} onClose={() => setShowAudioTranscription(false)} /></Suspense>}
       {showAiToolbox && <AiToolboxDialog
         onOpenAssistant={() => setShowDeepSeekAssistant(true)}
         onOpenMindMap={() => setShowMindMap(true)}
         onOpenAudioTranscription={() => setShowAudioTranscription(true)}
         onClose={() => setShowAiToolbox(false)}
       />}
-      {showAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
+      {showAdmin && <Suspense fallback={null}><AdminDialog onClose={() => setShowAdmin(false)} /></Suspense>}
       {showFeedback && <FeedbackDialog
         userId={user?.id ?? null}
         userEmail={user?.email}
@@ -1257,7 +1265,7 @@ export default function App() {
           onClose={() => setShowHeaderToolSettings(false)}
         />
       )}
-      {showSchoolImport && <SchoolTimetableImportDialog semester={semester ?? null} onImported={(target) => setAnchorDate(parseLocalDate(target.start_date))} onClose={() => setShowSchoolImport(false)} />}
+      {showSchoolImport && <Suspense fallback={null}><SchoolTimetableImportDialog semester={semester ?? null} onImported={(target) => setAnchorDate(parseLocalDate(target.start_date))} onClose={() => setShowSchoolImport(false)} /></Suspense>}
       {snapshotMode && (
         <ScheduleSnapshotDialog
           mode={snapshotMode}

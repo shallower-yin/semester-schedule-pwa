@@ -35,12 +35,14 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir,
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
           manualChunks: {
             react: ["react", "react-dom"],
             dexie: ["dexie", "dexie-react-hooks"],
-            supabase: ["@supabase/supabase-js"]
+            supabase: ["@supabase/supabase-js"],
+            icons: ["lucide-react"]
           }
         }
       }
