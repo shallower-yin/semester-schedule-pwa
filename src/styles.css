@@ -14,6 +14,8 @@
   --app-bg: #f5f7fb;
   --accent-soft: #edf2ff;
   --shadow: 0 12px 36px rgb(30 48 88 / 12%);
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--android-safe-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--android-safe-bottom, 0px));
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -126,8 +128,8 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: minmax(250px, 1fr) auto minmax(250px, 1fr);
   align-items: center;
-  height: calc(68px + env(safe-area-inset-top, 0px));
-  padding: env(safe-area-inset-top, 0px) 24px 0;
+  height: calc(68px + var(--safe-top));
+  padding: var(--safe-top) 24px 0;
   border-bottom: 1px solid var(--border);
   background: rgb(255 255 255 / 94%);
   backdrop-filter: blur(18px);
@@ -7523,8 +7525,8 @@ textarea {
   .app-header {
     grid-template-columns: auto minmax(0, 1fr);
     gap: 8px;
-    height: calc(62px + env(safe-area-inset-top, 0px));
-    padding: env(safe-area-inset-top, 0px) 10px 0;
+    height: calc(62px + var(--safe-top));
+    padding: var(--safe-top) 10px 0;
   }
 
   .desktop-nav {
@@ -7643,14 +7645,14 @@ textarea {
   }
 
   main {
-    padding: 15px 12px calc(98px + env(safe-area-inset-bottom));
+    padding: 15px 12px calc(98px + var(--safe-bottom));
   }
 
   .mobile-bottom-nav {
     position: fixed;
     z-index: 70;
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: calc(10px + var(--safe-bottom));
     left: 10px;
     display: grid;
     gap: 3px;
@@ -7693,7 +7695,7 @@ textarea {
     position: fixed;
     z-index: 75;
     right: 18px;
-    bottom: calc(86px + env(safe-area-inset-bottom));
+    bottom: calc(86px + var(--safe-bottom));
     display: grid;
     width: 58px;
     height: 58px;
@@ -8247,7 +8249,7 @@ textarea {
 
   .modal-body {
     padding: 16px;
-    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    padding-bottom: calc(16px + var(--safe-bottom));
   }
 
   .modal-header {
@@ -8278,7 +8280,7 @@ textarea {
 
   .toast-host {
     right: 12px;
-    bottom: calc(92px + env(safe-area-inset-bottom));
+    bottom: calc(92px + var(--safe-bottom));
     width: calc(100vw - 24px);
   }
 
@@ -8302,8 +8304,8 @@ textarea {
     position: sticky;
     z-index: 3;
     bottom: 0;
-    margin: 10px -16px calc(-16px - env(safe-area-inset-bottom));
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    margin: 10px -16px calc(-16px - var(--safe-bottom));
+    padding: 12px 16px calc(12px + var(--safe-bottom));
     border-top: 1px solid var(--border);
     background: rgb(255 255 255 / 96%);
     backdrop-filter: blur(10px);
@@ -8840,7 +8842,7 @@ textarea {
   }
 
   .mind-map-modal .modal-body {
-    padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 10px 12px calc(12px + var(--safe-bottom));
   }
 
   .mind-map-dialog {
@@ -8912,7 +8914,7 @@ textarea {
   }
 
   .ai-assistant-modal .modal-body {
-    padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 10px 12px calc(12px + var(--safe-bottom));
   }
 
   .admin-layout {
@@ -9034,7 +9036,7 @@ textarea {
 
   .ai-task-center {
     right: 10px;
-    bottom: calc(78px + env(safe-area-inset-bottom));
+    bottom: calc(78px + var(--safe-bottom));
   }
 
   .admin-cleanup-controls {
