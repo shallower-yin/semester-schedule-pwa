@@ -76,7 +76,7 @@ D:\semester-schedule-pwa
   - `supabase/functions/admin/`
   - `supabase/functions/send-reminders/`
   - `supabase/functions/app-hosting/`
-- 数据库迁移位于 `supabase/migrations/`，必须幂等、向后兼容，并与 RPC 声明类型一致。
+- 数据库迁移位于 `supabase/migrations/`，必须幂等、向后兼容，并与 RPC 声明类型一致。新增迁移建议使用完整时间戳前缀（如 `20260720093000_xxx.sql`）保证字典序，不再依赖 `z_`/`zz_`/`zzz_` 后缀排序；已有旧迁移文件保持原名不变，避免破坏历史执行顺序。
 
 ### AI
 
@@ -89,7 +89,7 @@ D:\semester-schedule-pwa
 
 ## 5. 不可破坏的业务规则
 
-- 所有日期、相对时间、星期、课程周和提醒逻辑按 `Asia/Shanghai` 解释，并用具体日期验证。
+- 时区策略为“跟随设备本地时区”（用户已确认）。用户可见的日期、相对时间、星期、课程周和提醒逻辑跟随设备时区：`src/lib/date.ts` 使用设备本地时间计算，事项/纪念日等表单保存 `Intl.DateTimeFormat().resolvedOptions().timeZone` 解析出的设备时区。出国跨时区时“今天/周数/提醒”会按新设备时区变化，属产品既定取舍，不视为缺陷。以下场景固定按 `Asia/Shanghai`，不随设备漂移（改动时勿误改）：中国法定节日与农历纪念日推算（`aiEventActions.ts`）、发布版本号日期（`vite.config.ts`）、AI 上下文时间戳（`deepSeekAssistant.ts`）。任一改动都用具体日期验证上述两类语义。
 - 数据按用户隔离；RLS、同步查询和管理员接口不得串用户。
 - 本地优先不等于只保存在本地：登录后需通过同步队列与 Supabase 双向同步。
 - 云同步不能替代 JSON 迁移、误删恢复和故障备份；备份入口可以降低视觉优先级，但不能删除。
