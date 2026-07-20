@@ -66,6 +66,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [managingRecords, setManagingRecords] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set());
   const [showFullscreen, setShowFullscreen] = useState(false);
+  const [systemWindowOpen, setSystemWindowOpen] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
 
   const effectiveSettings = storedSettings ?? settingsDraft;
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
@@ -154,6 +156,40 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     }
   }
 
+  function toggleSystemWindow() {
+    if (!active) return;
+    if (systemWindowOpen) {
+      void closeFocusSystemWindow();
+      setSystemWindowOpen(false);
+    } else {
+      void openSystemTimer(active, true).then(() => setSystemWindowOpen(true)).catch(() => {});
+    }
+  }
+
+  function toggleLandscape() {
+    const next = !isLandscape;
+    setIsLandscape(next);
+    try {
+      void (screen.orientation as unknown as { lock(m: string): Promise<void> }).lock(next ? "landscape" : "portrait").catch(() => {});
+    } catch {
+      // Screen Orientation API not available or not in fullscreen.
+    }
+  }
+
+  function enterFullscreen() {
+    setShowFullscreen(true);
+    setIsLandscape(false);
+    void enterFocusFullscreen();
+    try { void (screen.orientation as unknown as { lock(m: string): Promise<void> }).lock("portrait"); } catch {}
+  }
+
+  function exitFullscreen() {
+    setShowFullscreen(false);
+    setIsLandscape(false);
+    void exitFocusFullscreen();
+    try { (screen.orientation as unknown as { unlock(): void }).unlock(); } catch {}
+  }
+
   function finishActiveFocus() {
     if (!active) return;
     const completed = active.planned_seconds == null || elapsed >= active.planned_seconds;
@@ -199,6 +235,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     void exitFocusFullscreen();
     setActive(null);
     setShowFullscreen(false);
+    setSystemWindowOpen(false);
     setTaskTitle("");
     setLinkedEventId("");
     setMessage(completed ? `已完成 ${formatFocusDuration(duration)} 专注。` : `已保存 ${formatFocusDuration(duration)} 专注记录。`);
@@ -213,6 +250,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     void exitFocusFullscreen();
     setActive(null);
     setShowFullscreen(false);
+    setSystemWindowOpen(false);
     setMessage("已放弃当前专注。");
     showToast("已放弃当前专注。", "info");
   }
@@ -306,7 +344,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             <button className="button primary focus-start-button" onClick={startFocus}><Play size={18} />开始专注</button>
           ) : (
             <div className="focus-actions">
-              <button className="button secondary" onClick={() => setShowFullscreen(true)} title="进入全屏专注">
+              <button className="button secondary" onClick={enterFullscreen} title="进入全屏专注">
                 <Maximize2 size={17} />全屏
               </button>
               <button className="button secondary" disabled={!focusSystemWindowSupported()} onClick={() => void openSystemTimer(active, true)} title="在其他应用上方显示倒计时">
@@ -400,8 +438,11 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           onPauseResume={pauseOrResume}
           onFinish={finishActiveFocus}
           onDiscard={discardFocus}
-          onExit={() => setShowFullscreen(false)}
-          onOpenSystemWindow={() => void openSystemTimer(active, true)}
+          onExit={exitFullscreen}
+          onToggleSystemWindow={toggleSystemWindow}
+          onToggleLandscape={toggleLandscape}
+          systemWindowOpen={systemWindowOpen}
+          isLandscape={isLandscape}
         />
       )}
       {active?.mode === "lock" && (

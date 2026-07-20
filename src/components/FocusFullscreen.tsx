@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { CheckCircle2, Images, Pause, PictureInPicture2, Play, Shrink, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Images, Pause, PictureInPicture2, Play, RotateCw, Shrink, Square } from "lucide-react";
 import { focusModeLabel, formatFocusDuration, type ActiveFocusState } from "../lib/focus";
 
 // Bundled night-scene backgrounds (public/focus). WebP so they stay small and are precached offline.
@@ -30,12 +30,15 @@ interface FocusFullscreenProps {
   progress: number;
   paused: boolean;
   now: Date;
+  systemWindowOpen: boolean;
   systemWindowSupported: boolean;
   onPauseResume: () => void;
   onFinish: () => void;
   onDiscard: () => void;
   onExit: () => void;
-  onOpenSystemWindow: () => void;
+  onToggleSystemWindow: () => void;
+  onToggleLandscape: () => void;
+  isLandscape: boolean;
 }
 
 export function FocusFullscreen({
@@ -44,12 +47,15 @@ export function FocusFullscreen({
   progress,
   paused,
   now,
+  systemWindowOpen,
   systemWindowSupported,
   onPauseResume,
   onFinish,
   onDiscard,
   onExit,
-  onOpenSystemWindow
+  onToggleSystemWindow,
+  onToggleLandscape,
+  isLandscape
 }: FocusFullscreenProps) {
   const [bgIndex, setBgIndex] = useState(() => Math.floor(Math.random() * FOCUS_BACKGROUNDS.length));
   const quote = useMemo(() => FOCUS_QUOTES[Math.floor(Math.random() * FOCUS_QUOTES.length)], []);
@@ -90,9 +96,12 @@ export function FocusFullscreen({
       </div>
 
       <div className="focus-fullscreen-actions">
+        <button type="button" className="button ghost-light" onClick={onToggleLandscape} title={isLandscape ? "切换为竖屏" : "切换为横屏"}>
+          <RotateCw size={17} />{isLandscape ? "竖屏" : "横屏"}
+        </button>
         {systemWindowSupported && (
-          <button type="button" className="button ghost-light" onClick={onOpenSystemWindow} title="在其他应用上方显示倒计时">
-            <PictureInPicture2 size={17} />系统小窗
+          <button type="button" className="button ghost-light" onClick={onToggleSystemWindow} title="在其他应用上方显示倒计时">
+            <PictureInPicture2 size={17} />{systemWindowOpen ? "关闭小窗" : "系统小窗"}
           </button>
         )}
         <button type="button" className="button ghost-light" onClick={onPauseResume}>

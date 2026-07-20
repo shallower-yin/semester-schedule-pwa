@@ -22,7 +22,8 @@ function renderFullscreen(props: Record<string, unknown> = {}) {
     onFinish: vi.fn(),
     onDiscard: vi.fn(),
     onExit: vi.fn(),
-    onOpenSystemWindow: vi.fn()
+    onToggleSystemWindow: vi.fn(),
+    onToggleLandscape: vi.fn()
   };
   render(
     <FocusFullscreen
@@ -31,7 +32,9 @@ function renderFullscreen(props: Record<string, unknown> = {}) {
       progress={0.1}
       paused={false}
       now={new Date(2026, 6, 20, 10, 0, 0)}
+      systemWindowOpen={false}
       systemWindowSupported
+      isLandscape={false}
       {...handlers}
       {...props}
     />
@@ -55,9 +58,11 @@ describe("全屏专注", () => {
     fireEvent.click(screen.getByRole("button", { name: /结束并保存/ }));
     fireEvent.click(screen.getByRole("button", { name: "退出全屏" }));
     fireEvent.click(screen.getByRole("button", { name: /系统小窗/ }));
+    fireEvent.click(screen.getByRole("button", { name: /横屏/ }));
     expect(handlers.onFinish).toHaveBeenCalledTimes(1);
     expect(handlers.onExit).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenSystemWindow).toHaveBeenCalledTimes(1);
+    expect(handlers.onToggleSystemWindow).toHaveBeenCalledTimes(1);
+    expect(handlers.onToggleLandscape).toHaveBeenCalledTimes(1);
   });
 
   it("暂停时显示已暂停并可继续", () => {
@@ -70,6 +75,16 @@ describe("全屏专注", () => {
   it("不支持系统小窗时隐藏该按钮", () => {
     renderFullscreen({ systemWindowSupported: false });
     expect(screen.queryByRole("button", { name: /系统小窗/ })).not.toBeInTheDocument();
+  });
+
+  it("系统小窗已开启时显示关闭小窗", () => {
+    renderFullscreen({ systemWindowOpen: true });
+    expect(screen.getByRole("button", { name: /关闭小窗/ })).toBeInTheDocument();
+  });
+
+  it("横屏模式下按钮显示竖屏", () => {
+    renderFullscreen({ isLandscape: true });
+    expect(screen.getByRole("button", { name: /竖屏/ })).toBeInTheDocument();
   });
 
   it("切换背景按钮更换背景图", () => {
