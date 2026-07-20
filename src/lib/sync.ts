@@ -584,63 +584,73 @@ async function runSync(userId: string): Promise<SyncResult> {
 
   for (const config of TABLES) {
     const items = queueByTable.get(config.local) ?? [];
-    for (const item of items.filter((queuedItem) => queuedItem.operation !== "delete")) {
+    const pending = items.filter((queuedItem) => queuedItem.operation !== "delete");
+
+    // Collect local records, discarding any that no longer exist or belong to another user.
+    const validItems: { item: SyncQueueItem; record: Record<string, unknown> }[] = [];
+    for (const item of pending) {
       const localRecord = await db.table(config.local).get(item.record_id);
       if (!localRecord || localRecord.user_id !== userId) {
         await db.syncQueue.delete(item.id);
         continue;
       }
-      const { server_updated_at: _serverUpdatedAt, ...payload } = localRecord;
-      let savedRecord: Record<string, unknown> | null = null;
-      let error;
-      if (config.local === "eventOccurrenceStates") {
-        const { data: existing, error: lookupError } = await supabase
-          .from(config.remote)
-          .select("id")
-          .eq("user_id", userId)
-          .eq("event_id", localRecord.event_id)
-          .eq("occurrence_date", localRecord.occurrence_date)
-          .maybeSingle();
-        if (lookupError) error = lookupError;
-        else {
-          const canonicalPayload = {
-            ...payload,
-            id: existing?.id ?? localRecord.id
-          };
-          const result = await supabase
-            .from(config.remote)
-            .upsert(canonicalPayload, { onConflict: "id" })
-            .select("*")
-            .single();
-          error = result.error;
-          savedRecord = result.data;
-        }
-      } else {
-        const result = await supabase.from(config.remote).upsert(payload, { onConflict: "id" });
-        error = result.error;
+      validItems.push({ item, record: localRecord });
+    }
+    if (!validItems.length) continue;
+
+    // eventOccurrenceStates needs a per-record lookup to resolve ID conflicts — process them
+    // individually but in a batch-friendly way: fetch all existing IDs in one query first.
+    if (config.local === "eventOccurrenceStates") {
+      const pairs = validItems.map(({ record }) => ({ event_id: record.event_id, occurrence_date: record.occurrence_date }));
+      const { data: existingRows } = await supabase
+        .from(config.remote)
+        .select("id, event_id, occurrence_date")
+        .eq("user_id", userId)
+        .or(pairs.map((p) => `event_id.eq.${p.event_id},occurrence_date.eq.${p.occurrence_date}`).join(","));
+      const existingMap = new Map<string, string>();
+      for (const row of existingRows ?? []) {
+        existingMap.set(`${row.event_id}::${row.occurrence_date}`, row.id);
       }
+
+      const batchPayload: Record<string, unknown>[] = [];
+      for (const { item, record } of validItems) {
+        const { server_updated_at: _serverUpdatedAt, ...payload } = record;
+        const compositeKey = `${record.event_id}::${record.occurrence_date}`;
+        batchPayload.push({ ...payload, id: existingMap.get(compositeKey) ?? record.id });
+      }
+      const { error } = await supabase.from(config.remote).upsert(batchPayload, { onConflict: "id" });
       if (error) {
-        await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: error.message });
+        for (const { item } of validItems) {
+          await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: error.message });
+        }
         if (error.code === "PGRST205" || error.message.includes("schema cache")) {
           throw new Error("云端数据表尚未初始化，请联系管理员处理");
         }
         throw new Error(`${config.remote} 上传失败：${error.message}`);
       }
-      if (config.local === "eventOccurrenceStates" && savedRecord) {
-        const normalized = normalizeRemoteRecord(config.local, savedRecord) as unknown as EventOccurrenceState;
-        await db.transaction("rw", db.eventOccurrenceStates, db.syncQueue, async () => {
-          if (savedRecord.id !== localRecord.id) {
-            await db.eventOccurrenceStates.delete(localRecord.id);
-            const duplicateQueueItems = await db.syncQueue
-              .where("table_name")
-              .equals("eventOccurrenceStates")
-              .and((queuedItem) => queuedItem.record_id === localRecord.id)
-              .toArray();
-            await db.syncQueue.bulkDelete(duplicateQueueItems.map((queuedItem) => queuedItem.id));
-          }
-          await db.eventOccurrenceStates.put(normalized);
-        });
+      for (const { item } of validItems) {
+        await db.syncQueue.delete(item.id);
+        uploaded += 1;
       }
+      continue;
+    }
+
+    // All other tables: batch upsert in a single request (Supabase supports arrays natively).
+    const payloads = validItems.map(({ record }) => {
+      const { server_updated_at: _serverUpdatedAt, ...payload } = record;
+      return payload;
+    });
+    const { error } = await supabase.from(config.remote).upsert(payloads, { onConflict: "id" });
+    if (error) {
+      for (const { item } of validItems) {
+        await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: error.message });
+      }
+      if (error.code === "PGRST205" || error.message.includes("schema cache")) {
+        throw new Error("云端数据表尚未初始化，请联系管理员处理");
+      }
+      throw new Error(`${config.remote} 上传失败：${error.message}`);
+    }
+    for (const { item } of validItems) {
       await db.syncQueue.delete(item.id);
       uploaded += 1;
     }
