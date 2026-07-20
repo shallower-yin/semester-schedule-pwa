@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FocusFullscreen, formatFocusDate } from "./FocusFullscreen";
 import type { ActiveFocusState } from "../lib/focus";
 
+vi.mock("../lib/nativeApp", () => ({ isNativeApp: () => true }));
+vi.mock("../lib/focusOverlayPlugin", () => ({
+  FocusOverlay: { setImmersive: vi.fn(), setOrientation: vi.fn() }
+}));
+
 function activeState(overrides: Partial<ActiveFocusState> = {}): ActiveFocusState {
   return {
     mode: "pomodoro",
@@ -22,8 +27,7 @@ function renderFullscreen(props: Record<string, unknown> = {}) {
     onFinish: vi.fn(),
     onDiscard: vi.fn(),
     onExit: vi.fn(),
-    onToggleSystemWindow: vi.fn(),
-    onToggleLandscape: vi.fn()
+    onToggleSystemWindow: vi.fn()
   };
   render(
     <FocusFullscreen
@@ -34,7 +38,6 @@ function renderFullscreen(props: Record<string, unknown> = {}) {
       now={new Date(2026, 6, 20, 10, 0, 0)}
       systemWindowOpen={false}
       systemWindowSupported
-      isLandscape={false}
       {...handlers}
       {...props}
     />
@@ -58,11 +61,9 @@ describe("全屏专注", () => {
     fireEvent.click(screen.getByRole("button", { name: /结束并保存/ }));
     fireEvent.click(screen.getByRole("button", { name: "退出全屏" }));
     fireEvent.click(screen.getByRole("button", { name: /系统小窗/ }));
-    fireEvent.click(screen.getByRole("button", { name: /横屏/ }));
     expect(handlers.onFinish).toHaveBeenCalledTimes(1);
     expect(handlers.onExit).toHaveBeenCalledTimes(1);
     expect(handlers.onToggleSystemWindow).toHaveBeenCalledTimes(1);
-    expect(handlers.onToggleLandscape).toHaveBeenCalledTimes(1);
   });
 
   it("暂停时显示已暂停并可继续", () => {
@@ -82,9 +83,9 @@ describe("全屏专注", () => {
     expect(screen.getByRole("button", { name: /关闭小窗/ })).toBeInTheDocument();
   });
 
-  it("横屏模式下按钮显示竖屏", () => {
-    renderFullscreen({ isLandscape: true });
-    expect(screen.getByRole("button", { name: /竖屏/ })).toBeInTheDocument();
+  it("安卓端显示横屏切换按钮", () => {
+    renderFullscreen();
+    expect(screen.getByRole("button", { name: /横屏/ })).toBeInTheDocument();
   });
 
   it("切换背景按钮更换背景图", () => {

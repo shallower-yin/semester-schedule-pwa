@@ -100,8 +100,7 @@ describe("账号与同步布局", () => {
     expect(screen.getByRole("button", { name: "立即同步" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
 
-    const notificationRow = screen.getByText("浏览器能力").closest("article");
-    expect(notificationRow).toHaveTextContent("支持系统通知和应用后台服务。");
+    expect(screen.getByText("通知权限")).toBeInTheDocument();
   });
 
   it("点击用户名后原地编辑并保存", async () => {

@@ -336,7 +336,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       <div className="notification-status-card">
         <BellRing size={20} />
         <div>
-          <span>系统提醒</span>
+          <span>通知权限</span>
           <strong>{notificationStatus ? notificationLabel : "正在检查…"}</strong>
         </div>
         <button
@@ -347,16 +347,6 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
           {enablingNotifications ? "检查中…" : notificationStatus === "subscribed" ? "重新检查" : "启用提醒"}
         </button>
       </div>
-      {diagnosticSteps.length > 0 && (
-        <div className="notification-diagnostic-list">
-          {diagnosticSteps.map((step) => (
-            <article key={step.id} className={step.status}>
-              <strong>{step.label}</strong>
-              <span>{step.detail}</span>
-            </article>
-          ))}
-        </div>
-      )}
       {notificationMessage && <p className="auth-message">{notificationMessage}</p>}
       <div className="account-test-actions">
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void testNotification()}>

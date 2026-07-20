@@ -16,6 +16,7 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.content.pm.ActivityInfo;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -56,6 +57,7 @@ public class FocusOverlayPlugin extends Plugin {
     private String modeLabel = "专注";
     private String taskTitle = "";
     private boolean showing = false;
+    private boolean immersive = false;
     private int cardX = 0;
     private int cardY = 0;
 
@@ -147,6 +149,59 @@ public class FocusOverlayPlugin extends Plugin {
     protected void handleOnDestroy() {
         removeOverlay();
         super.handleOnDestroy();
+    }
+
+    @PluginMethod
+    public void setImmersive(PluginCall call) {
+        final Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("no-activity");
+            return;
+        }
+        final boolean enable = "true".equals(call.getString("enabled", "false"));
+        immersive = enable;
+        activity.runOnUiThread(() -> {
+            int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
+            if (enable) {
+                flags |= View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                    flags |= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                }
+            } else {
+                flags &= ~(View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            }
+            activity.getWindow().getDecorView().setSystemUiVisibility(flags);
+        });
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setOrientation(PluginCall call) {
+        final Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("no-activity");
+            return;
+        }
+        String mode = call.getString("mode", "auto");
+        int orientation;
+        if ("landscape".equals(mode)) {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+        } else if ("portrait".equals(mode)) {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+        } else {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        }
+        activity.runOnUiThread(() -> activity.setRequestedOrientation(orientation));
+        call.resolve();
     }
 
     private boolean canDraw() {

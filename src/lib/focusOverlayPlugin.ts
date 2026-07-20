@@ -19,6 +19,10 @@ export interface FocusOverlayPlugin {
   show(options: FocusOverlayPayload): Promise<void>;
   update(options: FocusOverlayPayload): Promise<void>;
   hide(): Promise<void>;
+  /** Enter or exit Android immersive mode (hides status bar + nav bar). */
+  setImmersive(options: { enabled: string }): Promise<void>;
+  /** Lock screen orientation: "landscape" | "portrait" | "auto". */
+  setOrientation(options: { mode: string }): Promise<void>;
 }
 
 export const FocusOverlay = registerPlugin<FocusOverlayPlugin>("FocusOverlay");

@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, Images, Pause, PictureInPicture2, Play, RotateCw, Shrink, Square } from "lucide-react";
+import { FocusOverlay } from "../lib/focusOverlayPlugin";
 import { focusModeLabel, formatFocusDuration, type ActiveFocusState } from "../lib/focus";
+import { isNativeApp } from "../lib/nativeApp";
 
 // Bundled night-scene backgrounds (public/focus). WebP so they stay small and are precached offline.
 const FOCUS_BACKGROUNDS = [
@@ -24,6 +26,30 @@ export function formatFocusDate(now: Date): string {
   return `${now.getMonth() + 1}月${now.getDate()}日 ${WEEKDAYS[now.getDay()]}`;
 }
 
+// Cross-platform immersive fullscreen: browser uses Fullscreen API, APK uses native Android flags.
+export async function enterImmersiveFullscreen(): Promise<void> {
+  if (isNativeApp()) {
+    await FocusOverlay.setImmersive({ enabled: "true" });
+  } else if (document.documentElement.requestFullscreen) {
+    try { await document.documentElement.requestFullscreen(); } catch { /* ignored */ }
+  }
+}
+
+export async function exitImmersiveFullscreen(): Promise<void> {
+  if (isNativeApp()) {
+    await FocusOverlay.setImmersive({ enabled: "false" });
+  } else if (document.fullscreenElement) {
+    try { await document.exitFullscreen(); } catch { /* ignored */ }
+  }
+}
+
+// Orientation lock: Android uses Activity.setRequestedOrientation, browser does not support it.
+export async function lockOrientation(mode: "landscape" | "portrait" | "auto"): Promise<void> {
+  if (isNativeApp()) {
+    await FocusOverlay.setOrientation({ mode });
+  }
+}
+
 interface FocusFullscreenProps {
   active: ActiveFocusState;
   displaySeconds: number;
@@ -37,8 +63,6 @@ interface FocusFullscreenProps {
   onDiscard: () => void;
   onExit: () => void;
   onToggleSystemWindow: () => void;
-  onToggleLandscape: () => void;
-  isLandscape: boolean;
 }
 
 export function FocusFullscreen({
@@ -53,13 +77,18 @@ export function FocusFullscreen({
   onFinish,
   onDiscard,
   onExit,
-  onToggleSystemWindow,
-  onToggleLandscape,
-  isLandscape
+  onToggleSystemWindow
 }: FocusFullscreenProps) {
   const [bgIndex, setBgIndex] = useState(() => Math.floor(Math.random() * FOCUS_BACKGROUNDS.length));
+  const [isLandscape, setIsLandscape] = useState(false);
   const quote = useMemo(() => FOCUS_QUOTES[Math.floor(Math.random() * FOCUS_QUOTES.length)], []);
   const dateText = formatFocusDate(now);
+
+  function toggleLandscape() {
+    const next = !isLandscape;
+    setIsLandscape(next);
+    void lockOrientation(next ? "landscape" : "portrait");
+  }
 
   return (
     <div
@@ -96,9 +125,11 @@ export function FocusFullscreen({
       </div>
 
       <div className="focus-fullscreen-actions">
-        <button type="button" className="button ghost-light" onClick={onToggleLandscape} title={isLandscape ? "切换为竖屏" : "切换为横屏"}>
-          <RotateCw size={17} />{isLandscape ? "竖屏" : "横屏"}
-        </button>
+        {isNativeApp() && (
+          <button type="button" className="button ghost-light" onClick={toggleLandscape} title={isLandscape ? "切换为竖屏" : "切换为横屏"}>
+            <RotateCw size={17} />{isLandscape ? "竖屏" : "横屏"}
+          </button>
+        )}
         {systemWindowSupported && (
           <button type="button" className="button ghost-light" onClick={onToggleSystemWindow} title="在其他应用上方显示倒计时">
             <PictureInPicture2 size={17} />{systemWindowOpen ? "关闭小窗" : "系统小窗"}

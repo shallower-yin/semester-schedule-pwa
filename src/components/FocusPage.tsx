@@ -25,7 +25,7 @@ import { showToast } from "../lib/toast";
 import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
 import { Modal } from "./Modal";
 import { FocusAudioPlayer } from "./FocusAudioPlayer";
-import { FocusFullscreen } from "./FocusFullscreen";
+import { FocusFullscreen, enterImmersiveFullscreen, exitImmersiveFullscreen } from "./FocusFullscreen";
 
 interface FocusPageProps {
   ownerId: string;
@@ -67,7 +67,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set());
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [systemWindowOpen, setSystemWindowOpen] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(false);
 
   const effectiveSettings = storedSettings ?? settingsDraft;
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
@@ -143,7 +142,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     saveActiveFocus(ownerId, next);
     // 系统小窗（原生悬浮窗 / 画中画）只在用户点击“系统小窗”时打开，开始专注不再自动弹出。
     if (effectiveSettings.sound_enabled) requestFocusNotificationPermission();
-    if (mode === "lock") void enterFocusFullscreen();
+    if (mode === "lock") void enterImmersiveFullscreen();
     setMessage("");
   }
 
@@ -166,28 +165,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     }
   }
 
-  function toggleLandscape() {
-    const next = !isLandscape;
-    setIsLandscape(next);
-    try {
-      void (screen.orientation as unknown as { lock(m: string): Promise<void> }).lock(next ? "landscape" : "portrait").catch(() => {});
-    } catch {
-      // Screen Orientation API not available or not in fullscreen.
-    }
-  }
-
   function enterFullscreen() {
     setShowFullscreen(true);
-    setIsLandscape(false);
-    void enterFocusFullscreen();
-    try { void (screen.orientation as unknown as { lock(m: string): Promise<void> }).lock("portrait"); } catch {}
+    void enterImmersiveFullscreen();
   }
 
   function exitFullscreen() {
     setShowFullscreen(false);
-    setIsLandscape(false);
-    void exitFocusFullscreen();
-    try { (screen.orientation as unknown as { unlock(): void }).unlock(); } catch {}
+    void exitImmersiveFullscreen();
   }
 
   function finishActiveFocus() {
@@ -232,7 +217,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     await queueChange("focusSessions", record.id);
     clearActiveFocus(ownerId);
     void closeFocusSystemWindow();
-    void exitFocusFullscreen();
+    void exitImmersiveFullscreen();
     setActive(null);
     setShowFullscreen(false);
     setSystemWindowOpen(false);
@@ -247,7 +232,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     if (!active || !window.confirm("放弃当前专注？不会保存本次记录。")) return;
     clearActiveFocus(ownerId);
     void closeFocusSystemWindow();
-    void exitFocusFullscreen();
+    void exitImmersiveFullscreen();
     setActive(null);
     setShowFullscreen(false);
     setSystemWindowOpen(false);
@@ -347,8 +332,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
               <button className="button secondary" onClick={enterFullscreen} title="进入全屏专注">
                 <Maximize2 size={17} />全屏
               </button>
-              <button className="button secondary" disabled={!focusSystemWindowSupported()} onClick={() => void openSystemTimer(active, true)} title="在其他应用上方显示倒计时">
-                <PictureInPicture2 size={17} />系统小窗
+              <button className="button secondary" disabled={!focusSystemWindowSupported()} onClick={toggleSystemWindow} title={systemWindowOpen ? "关闭悬浮小窗" : "在其他应用上方显示倒计时"}>
+                <PictureInPicture2 size={17} />{systemWindowOpen ? "关闭小窗" : "系统小窗"}
               </button>
               <button className="button secondary" onClick={pauseOrResume}>{active.pause_started_at ? <Play size={17} /> : <Pause size={17} />}{active.pause_started_at ? "继续" : "暂停"}</button>
               <button className="button primary" onClick={finishActiveFocus}><CheckCircle2 size={17} />结束并保存</button>
@@ -440,9 +425,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           onDiscard={discardFocus}
           onExit={exitFullscreen}
           onToggleSystemWindow={toggleSystemWindow}
-          onToggleLandscape={toggleLandscape}
           systemWindowOpen={systemWindowOpen}
-          isLandscape={isLandscape}
         />
       )}
       {active?.mode === "lock" && (
@@ -590,18 +573,4 @@ function FocusSessionDialog({ session, events, onClose, onSaved }: FocusSessionD
   );
 }
 
-async function enterFocusFullscreen() {
-  try {
-    if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
-  } catch {
-    // 部分手机浏览器不支持全屏 API，保留应用内遮罩即可。
-  }
-}
 
-async function exitFocusFullscreen() {
-  try {
-    if (document.fullscreenElement) await document.exitFullscreen();
-  } catch {
-    // 忽略浏览器全屏退出限制。
-  }
-}
