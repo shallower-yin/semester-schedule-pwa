@@ -43,6 +43,7 @@ public class FocusOverlayPlugin extends Plugin {
     private TextView labelView;
     private TextView timeView;
     private TextView titleView;
+    private TextView hintView;
     private WindowManager.LayoutParams layoutParams;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable ticker;
@@ -54,6 +55,9 @@ public class FocusOverlayPlugin extends Plugin {
     private String modeLabel = "专注";
     private String taskTitle = "";
     private boolean showing = false;
+    private boolean expanded = false;
+    private int compactX = 0;
+    private int compactY = 0;
 
     @PluginMethod
     public void hasPermission(PluginCall call) {
@@ -100,6 +104,9 @@ public class FocusOverlayPlugin extends Plugin {
         }
         activity.runOnUiThread(() -> {
             ensureOverlay(activity);
+            // A previous session may have left the overlay expanded; always reopen compact.
+            expanded = false;
+            applyMode(activity);
             if (!showing && overlayView != null && windowManager != null) {
                 try {
                     windowManager.addView(overlayView, layoutParams);
@@ -199,6 +206,18 @@ public class FocusOverlayPlugin extends Plugin {
         titleView.setLayoutParams(titleParams);
         root.addView(titleView);
 
+        hintView = new TextView(context);
+        hintView.setTextColor(Color.parseColor("#8FA6D9"));
+        hintView.setTextSize(13);
+        hintView.setGravity(Gravity.CENTER);
+        hintView.setText("轻点退出全屏 · 长按打开应用");
+        hintView.setVisibility(View.GONE);
+        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hintParams.topMargin = dp(context, 12);
+        hintView.setLayoutParams(hintParams);
+        root.addView(hintView);
+
         overlayView = root;
 
         int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -212,8 +231,10 @@ public class FocusOverlayPlugin extends Plugin {
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT);
         layoutParams.gravity = Gravity.TOP | Gravity.START;
-        layoutParams.x = dp(context, 16);
-        layoutParams.y = dp(context, 140);
+        compactX = dp(context, 16);
+        compactY = dp(context, 140);
+        layoutParams.x = compactX;
+        layoutParams.y = compactY;
 
         attachDragAndTap(context);
     }
@@ -224,6 +245,7 @@ public class FocusOverlayPlugin extends Plugin {
             private float downY;
             private int startX;
             private int startY;
+            private long downTime;
             private boolean dragged;
 
             @Override
@@ -234,9 +256,14 @@ public class FocusOverlayPlugin extends Plugin {
                         downY = event.getRawY();
                         startX = layoutParams.x;
                         startY = layoutParams.y;
+                        downTime = event.getEventTime();
                         dragged = false;
                         return true;
                     case MotionEvent.ACTION_MOVE:
+                        // Only the compact card can be dragged; fullscreen fills the screen.
+                        if (expanded) {
+                            return true;
+                        }
                         int dx = (int) (event.getRawX() - downX);
                         int dy = (int) (event.getRawY() - downY);
                         if (Math.abs(dx) > dp(context, 4) || Math.abs(dy) > dp(context, 4)) {
@@ -249,8 +276,21 @@ public class FocusOverlayPlugin extends Plugin {
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
-                        if (!dragged) {
+                        if (dragged) {
+                            // Remember where the user parked the compact card.
+                            compactX = layoutParams.x;
+                            compactY = layoutParams.y;
+                            return true;
+                        }
+                        boolean longPress = event.getEventTime() - downTime >= 500;
+                        if (longPress) {
+                            if (expanded) {
+                                toggleExpanded(context);
+                            }
                             bringAppToFront(context);
+                        } else {
+                            // A plain tap toggles between the compact card and fullscreen.
+                            toggleExpanded(context);
                         }
                         return true;
                     default:
@@ -258,6 +298,86 @@ public class FocusOverlayPlugin extends Plugin {
                 }
             }
         });
+    }
+
+    private void toggleExpanded(Context context) {
+        expanded = !expanded;
+        applyMode(context);
+    }
+
+    private void applyMode(Context context) {
+        if (!(overlayView instanceof LinearLayout) || layoutParams == null) {
+            return;
+        }
+        LinearLayout root = (LinearLayout) overlayView;
+        GradientDrawable background = new GradientDrawable();
+        if (expanded) {
+            layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT;
+            layoutParams.height = WindowManager.LayoutParams.MATCH_PARENT;
+            layoutParams.gravity = Gravity.CENTER;
+            layoutParams.x = 0;
+            layoutParams.y = 0;
+            int pad = dp(context, 32);
+            root.setPadding(pad, pad, pad, pad);
+            root.setGravity(Gravity.CENTER);
+            background.setColor(Color.parseColor("#F5060B16"));
+            background.setCornerRadius(0);
+            root.setBackground(background);
+            if (labelView != null) {
+                labelView.setTextSize(18);
+                labelView.setGravity(Gravity.CENTER);
+            }
+            if (timeView != null) {
+                timeView.setTextSize(72);
+                timeView.setGravity(Gravity.CENTER);
+            }
+            if (titleView != null) {
+                titleView.setTextSize(16);
+                titleView.setGravity(Gravity.CENTER);
+                LinearLayout.LayoutParams tp = (LinearLayout.LayoutParams) titleView.getLayoutParams();
+                tp.width = LinearLayout.LayoutParams.WRAP_CONTENT;
+                titleView.setLayoutParams(tp);
+            }
+            if (hintView != null) {
+                hintView.setVisibility(View.VISIBLE);
+            }
+        } else {
+            layoutParams.width = WindowManager.LayoutParams.WRAP_CONTENT;
+            layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            layoutParams.gravity = Gravity.TOP | Gravity.START;
+            layoutParams.x = compactX;
+            layoutParams.y = compactY;
+            root.setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12));
+            root.setGravity(Gravity.START);
+            background.setColor(Color.parseColor("#F2101827"));
+            background.setCornerRadius(dp(context, 18));
+            root.setBackground(background);
+            if (labelView != null) {
+                labelView.setTextSize(12);
+                labelView.setGravity(Gravity.START);
+            }
+            if (timeView != null) {
+                timeView.setTextSize(30);
+                timeView.setGravity(Gravity.START);
+            }
+            if (titleView != null) {
+                titleView.setTextSize(12);
+                titleView.setGravity(Gravity.START);
+                LinearLayout.LayoutParams tp = (LinearLayout.LayoutParams) titleView.getLayoutParams();
+                tp.width = dp(context, 168);
+                titleView.setLayoutParams(tp);
+            }
+            if (hintView != null) {
+                hintView.setVisibility(View.GONE);
+            }
+        }
+        if (windowManager != null && showing) {
+            try {
+                windowManager.updateViewLayout(overlayView, layoutParams);
+            } catch (Exception ignored) {
+                // Overlay may be mid-teardown.
+            }
+        }
     }
 
     private void bringAppToFront(Context context) {

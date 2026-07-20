@@ -137,7 +137,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     };
     setActive(next);
     saveActiveFocus(ownerId, next);
-    void openSystemTimer(next);
+    // 系统小窗（原生悬浮窗 / 画中画）只在用户点击“系统小窗”时打开，开始专注不再自动弹出。
     if (effectiveSettings.sound_enabled) requestFocusNotificationPermission();
     if (mode === "lock") void enterFocusFullscreen();
     setMessage("");
