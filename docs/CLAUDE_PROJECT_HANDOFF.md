@@ -230,3 +230,39 @@ UI 改动还必须：
 7. 生产包存在大 chunk 警告，性能优化应优先采用懒加载，而不是改变核心数据结构。
 
 交接原则：先建立基线、再小步修改、每步测试、最后再决定是否发布。
+
+## 12. 2026-07-20 优化落地记录（Claude 第二/三阶段）
+
+本轮全部在本地提交、未推送、未部署；每步均跑受影响测试 + 全量测试（当前 74 文件 / 262 项）+ 生产构建。
+
+### 第二阶段（低风险，已完成）
+
+- F1 云端下载分页 + 镜像删除保险丝（`sync.ts`；新增 `syncDownload.test.ts`）。
+- F2 重量弹窗 `React.lazy` 懒加载 + 抽出 `lucide-react` 独立 chunk，首屏 chunk 由约 500KB 降至约 323KB，构建告警消除；`mammoth`/`pdf` 保持按需加载，`chunkSizeWarningLimit` 调为 600。
+- F3 `main.tsx` 启动兜底：`initializeDatabase` 失败时渲染带重试和错误详情的降级页（含 `env(safe-area-inset-top)`），不再白屏。
+- F5 文档漂移：帮助页补键盘快捷键 FAQ；README 删除已不存在的备忘录“回收站”条目、补 `M`（思维导图）快捷键。经核实备忘录删除确为彻底删除，帮助页“彻底删除”文案正确、未改。
+- F4 时区策略：确认核心 `date.ts` 与表单记录均跟随设备时区；`Asia/Shanghai` 仅保留在中国节日/农历、发布版本号、AI 上下文时间戳等本就应锁北京时间处。仅文档说明，未改逻辑。
+- F8 迁移命名：新迁移改用完整时间戳前缀，不再新增 `z_`/`zz_` 后缀；旧文件不动。
+
+### 安卓边到边安全区（一加顶部撞状态栏，已修）
+
+- 根因：`targetSdk 36` 下 Android 15 强制 edge-to-edge，部分机型（如一加 ColorOS）WebView 画到状态栏之下，而 WebView 对 `env(safe-area-inset-top)` 不可靠。
+- 方案：`MainActivity.java` 显式开启 edge-to-edge，并把真实 `systemBars()+displayCutout()` insets 作为 `--android-safe-top/right/bottom/left` 注入 WebView；`styles.css` 用 `--safe-top/--safe-bottom = max(env(...), var(--android-...))` 驱动头部与底部导航。浏览器/非边到边机型解析为 0，不受影响。已在 API 36 模拟器用 CDP 验证注入链路。
+
+### 专注“系统小窗”跨端（APK 原生悬浮窗，已实现并验证）
+
+- 浏览器/PWA：保留原有 `<video>` 画中画（`focusPictureInPicture.ts`）。
+- APK：新增原生 Capacitor 插件 `FocusOverlayPlugin.java`（`SYSTEM_ALERT_WINDOW`，`TYPE_APPLICATION_OVERLAY`，可拖动、点按拉起应用、自走秒），在 `MainActivity` 用 `registerPlugin` 注册。
+- 适配层 `src/lib/focusSystemWindow.ts`：由 `isNativeApp()` 路由，浏览器走画中画、APK 走原生悬浮窗；同一 `ActiveFocusState` 驱动，`FocusPage`/`FocusFloatingTimer` 不感知平台。权限仅在用户点按“系统小窗”时申请（interactive），后台自动打开未授权则静默跳过。新增 `focusSystemWindow.test.ts`。
+- 修复：`FocusFloatingTimer` 空闲时每秒调用 close，浏览器无害但原生会每秒发 `hide()` IPC 并误关悬浮窗；改为仅在会话结束时关闭。
+- 验证：API 36 模拟器 + CDP 直接调用插件 + `dumpsys window` 确认：插件已注册、权限桥 `granted`、`show()` 生成归属本应用的 `ty=APPLICATION_OVERLAY` 窗口（`mHasSurface=true`、frame 约 525x260px）、持续存在无 hide 抖动、`hide()` 干净移除。
+
+### 本机安卓验证环境
+
+- `D:AndroidDev`：Android Studio/JBR、SDK（platform-tools/emulator/build-tools/platform-36）、Gradle 用户目录；SDK/AVD/用户目录均落 D 盘。
+- 已建 AVD `sched_api36`（API 36 google_apis x86_64，已装 emulator 与系统镜像）。
+- WebView 调试：`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`，Node 全局 `WebSocket` 走 CDP `Runtime.evaluate`。
+
+### 待办（第三阶段，用户已授权，宜有人值守分视口回归）
+
+- F6 拆分 `App.tsx` 状态与弹窗编排；F7 拆分 `styles.css`（须 327/390/平板/1440 四视口回归，可用本机 Chrome + CDP 截图对比）。
