@@ -1897,7 +1897,10 @@ async function transcribeRemoteAudioRange(
     fetchEnd: task.fetchEnd
   };
   const signature = await hmacAudioRange(userId, audioRange);
-  const response = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
+  // The leaf ASR call already retries transient provider errors; this second, smaller retry covers
+  // transient failures of the self-invocation itself (cold start, transport), each attempt getting a
+  // fresh worker instance and re-fetching the byte range.
+  const { ok, status, text } = await fetchTextWithTransientRetry(`${supabaseUrl}/functions/v1/ai-assistant`, {
     method: "POST",
     headers: {
       authorization,
@@ -1907,12 +1910,11 @@ async function transcribeRemoteAudioRange(
     },
     body: JSON.stringify({ action: "transcribe_audio_range", audioRange }),
     signal
-  });
-  const text = await response.text();
-  if (!response.ok) {
+  }, 2, signal);
+  if (!ok) {
     throw new DiagnosticError(`音频“${task.audio.name}”第 ${task.chunkIndex + 1}/${task.chunkCount} 段转写失败，请稍后重试。`, {
       stage: "audio_range_worker",
-      workerStatus: response.status,
+      workerStatus: status,
       workerError: safeProviderError(text),
       fileName: task.audio.name,
       chunk: task.chunkIndex + 1,
@@ -1943,7 +1945,7 @@ async function transcribeAudioChunk(
   signal?: AbortSignal
 ): Promise<{ transcript: string; usage: AiAssistantUsage }> {
   const dataUrl = `data:${chunk.mimeType};base64,${bytesToBase64(chunk.bytes)}`;
-  const response = await fetch(credentials.endpoint, {
+  const { ok, status, text } = await fetchTextWithTransientRetry(credentials.endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -1957,15 +1959,14 @@ async function transcribeAudioChunk(
       asr_options: { language: language === "zh" || language === "en" ? language : "auto" },
       stream: false
     })
-  });
-  const text = await response.text();
-  if (!response.ok) {
+  }, 3, signal);
+  if (!ok) {
     const providerError = safeProviderError(text);
     throw new DiagnosticError(
-      response.status === 413
+      status === 413
         ? "当前音频分段仍超过模型请求限制，请联系管理员并提供诊断编号。"
-        : `音频转写失败（HTTP ${response.status}），请稍后重试。`,
-      { stage: "mimo_asr", providerStatus: response.status, providerError, fileName, chunk: chunkIndex + 1, chunkCount, chunkBytes: chunk.bytes.length, chunkDurationMs: chunk.durationMs ?? null }
+        : `音频转写失败（HTTP ${status}），请稍后重试。`,
+      { stage: "mimo_asr", providerStatus: status, providerError, fileName, chunk: chunkIndex + 1, chunkCount, chunkBytes: chunk.bytes.length, chunkDurationMs: chunk.durationMs ?? null }
     );
   }
   let data: {
@@ -2004,6 +2005,55 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
   throw signal.reason instanceof Error ? signal.reason : new DOMException("操作已取消。", "AbortError");
+}
+
+// Sleeps for the given delay but rejects immediately if the request is cancelled, so retries stay
+// responsive to the user's cancel button.
+async function delayWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal!.reason instanceof Error ? signal!.reason : new DOMException("操作已取消。", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+// Fetches and reads the body, retrying only transient failures (network error, HTTP 429, HTTP >= 500)
+// with exponential backoff. Deterministic client errors (4xx other than 429, e.g. 413 too-large or
+// 403 bad signature) return immediately so their specific handling is preserved. Audio transcription
+// splits a long file into many chunks and hits an external ASR provider once per chunk; without this,
+// a single transient blip on any one chunk fails the entire job.
+async function fetchTextWithTransientRetry(
+  input: string,
+  init: RequestInit,
+  attempts: number,
+  signal?: AbortSignal
+): Promise<{ ok: boolean; status: number; text: string }> {
+  let last: { ok: boolean; status: number; text: string } | null = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    throwIfAborted(signal);
+    try {
+      const response = await fetch(input, init);
+      const text = await response.text();
+      const result = { ok: response.ok, status: response.status, text };
+      if (response.ok || (response.status !== 429 && response.status < 500)) return result;
+      last = result;
+      lastError = null;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      lastError = error;
+    }
+    if (attempt < attempts - 1) await delayWithAbort(Math.min(4000, 600 * 2 ** attempt), signal);
+  }
+  if (last) return last;
+  throw lastError instanceof Error ? lastError : new Error("网络请求失败");
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
