@@ -263,6 +263,24 @@ UI 改动还必须：
 - 已建 AVD `sched_api36`（API 36 google_apis x86_64，已装 emulator 与系统镜像）。
 - WebView 调试：`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`，Node 全局 `WebSocket` 走 CDP `Runtime.evaluate`。
 
-### 待办（第三阶段，用户已授权，宜有人值守分视口回归）
+### 第三阶段进展与判断（2026-07-20 续）
 
-- F6 拆分 `App.tsx` 状态与弹窗编排；F7 拆分 `styles.css`（须 327/390/平板/1440 四视口回归，可用本机 Chrome + CDP 截图对比）。
+- F6（起步，已提交 `4dc07ae`）：全局键盘快捷键从 `App.tsx` 抽到 `src/lib/useGlobalShortcuts.ts`（用 ref 保存 handler，监听注册一次、始终调用最新闭包），并首次为快捷键补单测（键位映射、输入框内抑制且 Esc 仍生效、卸载清理）。行为不变。
+- F6 剩余（把尾部弹窗编排抽成 `AppDialogs`）：约 230 行、约 40 个 props，TypeScript 只能挡类型不匹配，挡不住同为 `() => void` 的 onClose 误接，且无 App 级集成测试；宜有人值守用运行态逐个弹窗核验，本轮未做。
+- F7（评估后暂缓）：`styles.css` 全文 9768 行几乎无分节注释、无 `url()`/`@import`。连续切分无逻辑边界、收益近零；按页面前缀切分需把规则移出共享 `@media` 块，可能改动同优先级级联，且无法在无人值守下对全部页面 × 6 皮肤 × 弹窗 × 断点证明无回归。按交接红线（重构不得引发跨端回归）暂缓，待有人值守用 Chrome+CDP 四视口逐页截图对比再做。
+
+### APK 构建校验（本轮已完成）
+
+- 本轮新增原生 `FocusOverlayPlugin.java`、`MainActivity` insets、清单 `SYSTEM_ALERT_WINDOW` 后，跑 `npm run android:sync` + `gradlew testDebugUnitTest assembleDebug --no-daemon --console=plain` → `BUILD SUCCESSFUL`，产出 `app-debug.apk`（约 6.0MB），安卓单测通过。构建产物（`dist/`、`android/**/build/`）均已 gitignore，工作区保持干净。
+
+### 仍需你本人确认/提供资源的事项
+
+- 一加真机（ColorOS）验安全区修复与专注原生悬浮窗：模拟器是 AOSP，证不了 ColorOS 皮肤专属行为；请在你的一加上装最新调试包，核验顶部不再撞状态栏、专注“系统小窗”能弹出并可拖动、点按能拉起应用。
+- 长音频/长扫描 PDF 强化：交接明确禁止用小样本验收，需真实大文件（历史目录 `E:...录音`）与真实额度，宜有人值守。
+- 同步冲突/离线恢复优化属数据安全能力，改动需你在场评估。
+
+### 仓库编辑注意（CRLF 混排）
+
+- `styles.css`、`vite.config.ts` 等文件为 CRLF/LF 混排（`core.autocrlf=true`）。按 LF 精确匹配的替换工具会失败；可靠做法：Node 读入 → `replace(/
+/g,"
+")` → `indexOf` 定位并断言唯一 → 写回；提交时 git 归一化为 LF，diff 干净。
