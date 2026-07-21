@@ -258,7 +258,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             </div>
           )}
           {task.status === "error" && <div className="ai-inline-error" role="alert"><span>{task.message}</span><button type="button" className="button secondary compact" onClick={() => retryAiTask("audio_transcription")}>重试</button></div>}
-          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 MP3、WAV、M4A 会自动分段转写；FLAC/OGG 大文件请先转为 MP3 或 M4A。音频完成或失败后会从临时存储删除。</p>
+          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 M4A/OGG/FLAC 会在浏览器内转成「单声道低采样率 WAV」（比原先整段立体声 WAV 小得多，无需安装 Python/ffmpeg）；大体积 MP3/WAV 自动分段转写。音频完成或失败后会从临时存储删除。</p>
           <p className="muted-note" style={{ color: "#b45309" }}>⚠ 音频转写对网络稳定性要求较高，大文件上传可能需要几分钟。建议在 Wi-Fi 或信号良好的环境下使用，上传期间请勿切换网络。</p>
         </section>
 

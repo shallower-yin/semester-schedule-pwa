@@ -83,7 +83,7 @@ export async function transcribeAudioFiles(input: {
   // When the server finalize/single path owns cleanup, skip client-side deletes.
   let serverOwnsCleanup = false;
   try {
-    // M4A/OGG/FLAC over the ASR chunk limit often fail as raw container bytes; convert to WAV first.
+    // M4A/OGG/FLAC over the ASR chunk limit often fail as raw container bytes; convert to compact mono speech WAV first.
     const preparedFiles = await prepareFilesForAsr(input.files, input.onProgress);
     for (let index = 0; index < preparedFiles.length; index += 1) {
       const file = preparedFiles[index];
@@ -161,7 +161,12 @@ async function invokeSingleTranscription(
   return data;
 }
 
-/** Convert container formats that ASR rejects after naive splitting into WAV for reliable long-file support. */
+/**
+ * Convert container formats that ASR rejects after naive splitting.
+ * Old path: full-quality multi-channel WAV (often 10× larger → over 100MB).
+ * New path: browser Web Audio only (no Python/ffmpeg) → mono speech WAV at
+ * 16/12/8 kHz so a ~64MB M4A stays under the upload ceiling.
+ */
 async function prepareFilesForAsr(
   files: File[],
   onProgress?: (completed: number, total: number, step: string) => void
@@ -174,18 +179,23 @@ async function prepareFilesForAsr(
       prepared.push(file);
       continue;
     }
-    onProgress?.(0, 1, `正在转换 ${file.name} 为可转写格式…`);
+    onProgress?.(0, 1, `正在将 ${file.name} 转为语音 WAV（单声道、压缩体积）…`);
     try {
-      prepared.push(await convertAudioFileToWav(file));
+      const converted = await convertAudioFileToSpeechWav(file);
+      if (converted.size > MAX_AUDIO_BYTES) {
+        throw new Error(`转换后仍超过 100 MB（约 ${formatMegabytes(converted.size)}），请先剪辑或拆分录音`);
+      }
+      prepared.push(converted);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "转换失败";
-      throw new Error(`“${file.name}”无法自动转换为可转写格式（${reason}）。请先导出为标准 MP3 或 WAV 后重试。`);
+      throw new Error(`“${file.name}”无法自动转换为可转写格式（${reason}）。请先导出为标准 MP3 后重试。`);
     }
   }
   return prepared;
 }
 
-async function convertAudioFileToWav(file: File): Promise<File> {
+/** Browser-only: AudioContext decode + mono low-rate WAV. No native ffmpeg/Python. */
+export async function convertAudioFileToSpeechWav(file: File): Promise<File> {
   if (typeof AudioContext === "undefined" && typeof (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext === "undefined") {
     throw new Error("当前环境不支持音频解码");
   }
@@ -194,23 +204,80 @@ async function convertAudioFileToWav(file: File): Promise<File> {
   try {
     const bytes = await file.arrayBuffer();
     const decoded = await context.decodeAudioData(bytes.slice(0));
-    const wavBytes = encodeWav(decoded);
-    const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
-    return new File([wavBytes], `${baseName}.wav`, { type: "audio/wav" });
+    const duration = Math.max(0.01, decoded.duration);
+    // Prefer speech-friendly 16 kHz; step down so estimated PCM stays under the 100MB cap.
+    const rates = [16_000, 12_000, 8_000] as const;
+    let lastSize = 0;
+    for (const rate of rates) {
+      const estimated = Math.ceil(duration * rate) * 2 + 44;
+      if (estimated > MAX_AUDIO_BYTES) continue;
+      const mono = await downsampleToMono(decoded, rate, context);
+      const wav = encodeMonoWav(mono.getChannelData(0), rate);
+      lastSize = wav.size;
+      if (wav.size <= MAX_AUDIO_BYTES) {
+        const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
+        return new File([wav], `${baseName}.wav`, { type: "audio/wav" });
+      }
+    }
+    throw new Error(
+      lastSize > 0
+        ? `转换后仍超过 100 MB（约 ${formatMegabytes(lastSize)}）`
+        : `录音过长（约 ${Math.round(duration / 60)} 分钟），请拆成多段后重试`
+    );
   } finally {
     await context.close().catch(() => undefined);
   }
 }
 
-function encodeWav(buffer: AudioBuffer): Blob {
-  const channelCount = Math.min(2, buffer.numberOfChannels || 1);
-  const sampleRate = buffer.sampleRate;
-  const frameCount = buffer.length;
-  const bytesPerSample = 2;
-  const blockAlign = channelCount * bytesPerSample;
-  const dataSize = frameCount * blockAlign;
-  const headerSize = 44;
-  const bytes = new ArrayBuffer(headerSize + dataSize);
+/** Mix channels and resample for speech ASR (browser offline graph, no ffmpeg). */
+export async function downsampleToMono(
+  buffer: AudioBuffer,
+  targetRate: number,
+  liveContext?: AudioContext
+): Promise<AudioBuffer> {
+  const OfflineCtor = window.OfflineAudioContext
+    || (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+  if (!OfflineCtor) throw new Error("当前环境不支持音频重采样");
+  const monoSource = mixChannelsToMonoBuffer(buffer, liveContext);
+  const frameCount = Math.max(1, Math.ceil(monoSource.duration * targetRate));
+  const offline = new OfflineCtor(1, frameCount, targetRate);
+  const source = offline.createBufferSource();
+  source.buffer = monoSource;
+  source.connect(offline.destination);
+  source.start(0);
+  return offline.startRendering();
+}
+
+export function mixChannelsToMonoBuffer(buffer: AudioBuffer, liveContext?: AudioContext): AudioBuffer {
+  const length = buffer.length;
+  const channels = Math.max(1, buffer.numberOfChannels);
+  const mono = createMonoBuffer(length, buffer.sampleRate, liveContext);
+  const output = mono.getChannelData(0);
+  if (channels === 1) {
+    output.set(buffer.getChannelData(0));
+    return mono;
+  }
+  const inputs = Array.from({ length: channels }, (_, index) => buffer.getChannelData(index));
+  for (let frame = 0; frame < length; frame += 1) {
+    let sum = 0;
+    for (let channel = 0; channel < channels; channel += 1) sum += inputs[channel][frame] ?? 0;
+    output[frame] = sum / channels;
+  }
+  return mono;
+}
+
+function createMonoBuffer(length: number, sampleRate: number, liveContext?: AudioContext): AudioBuffer {
+  if (liveContext) return liveContext.createBuffer(1, length, sampleRate);
+  if (typeof AudioBuffer !== "undefined") {
+    return new AudioBuffer({ length, numberOfChannels: 1, sampleRate });
+  }
+  throw new Error("当前环境不支持创建音频缓冲");
+}
+
+/** 16-bit little-endian mono PCM WAV. */
+export function encodeMonoWav(samples: Float32Array, sampleRate: number): Blob {
+  const dataSize = samples.length * 2;
+  const bytes = new ArrayBuffer(44 + dataSize);
   const view = new DataView(bytes);
   const writeString = (offset: number, value: string) => {
     for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
@@ -221,23 +288,24 @@ function encodeWav(buffer: AudioBuffer): Blob {
   writeString(12, "fmt ");
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
-  view.setUint16(22, channelCount, true);
+  view.setUint16(22, 1, true);
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * blockAlign, true);
-  view.setUint16(32, blockAlign, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
   writeString(36, "data");
   view.setUint32(40, dataSize, true);
-  const channels = Array.from({ length: channelCount }, (_, index) => buffer.getChannelData(index));
   let offset = 44;
-  for (let frame = 0; frame < frameCount; frame += 1) {
-    for (let channel = 0; channel < channelCount; channel += 1) {
-      const sample = Math.max(-1, Math.min(1, channels[channel][frame] ?? 0));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += 2;
   }
   return new Blob([bytes], { type: "audio/wav" });
+}
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function planAudioTranscription(

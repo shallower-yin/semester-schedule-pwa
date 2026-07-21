@@ -72,7 +72,9 @@
   .mobile-sidebar {
     width: min(82vw, 300px);
     height: 100%;
-    padding: 15px;
+    box-sizing: border-box;
+    padding: calc(12px + var(--safe-top)) 15px calc(15px + var(--safe-bottom));
+    overflow: auto;
     background: var(--surface);
     box-shadow: 20px 0 50px rgb(10 20 42 / 20%);
   }
@@ -81,7 +83,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 4px 15px;
+    padding: 0 4px 12px;
   }
 
   .mobile-sidebar nav {
@@ -1547,7 +1549,13 @@
 
   .audio-transcription-dialog {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(260px, 1fr);
+    grid-template-rows: auto auto;
+    min-height: 0;
+    height: auto;
+  }
+
+  .audio-transcription-result {
+    min-height: 0;
   }
 
   .audio-transcription-controls {

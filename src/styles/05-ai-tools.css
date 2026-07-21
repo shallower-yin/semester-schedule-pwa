@@ -766,14 +766,16 @@
 .audio-transcription-modal .modal-body {
   min-height: 0;
   flex: 1 1 auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .audio-transcription-dialog {
   display: grid;
-  height: 100%;
-  min-height: 0;
+  min-height: min(100%, 620px);
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 12px;
+  align-content: start;
 }
 
 .audio-transcription-controls {
@@ -843,10 +845,10 @@
 .audio-transcription-result {
   display: flex;
   min-width: 0;
-  min-height: 0;
   flex-direction: column;
   gap: 10px;
-  overflow: auto;
+  /* Scroll with the whole modal body instead of a nested sticky pane. */
+  overflow: visible;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
