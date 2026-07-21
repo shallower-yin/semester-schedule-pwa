@@ -16,7 +16,7 @@ describe("R2 音频转写上传", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
   });
 
-  it("多段音频直传 R2 后只提交一次转写任务", async () => {
+  it("多段音频直传 R2 后按文件逐段转写（避免单次任务过大超时）", async () => {
     let uploadIndex = 0;
     invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
       if (options.body.action === "create_audio_upload") {
@@ -32,6 +32,9 @@ describe("R2 音频转写上传", () => {
       }
       if (options.body.action === "plan_audio_transcription") {
         return { data: { strategy: "single", totalChunks: 2, tasks: [] }, error: null };
+      }
+      if (options.body.action === "delete_audio_upload") {
+        return { data: { ok: true }, error: null };
       }
       return {
         data: { transcript: "转写完成", summary: null, model: "mimo-v2.5-audio-url" },
@@ -49,8 +52,9 @@ describe("R2 音频转写上传", () => {
     });
 
     const transcriptionCalls = invokeMock.mock.calls.filter(([, options]) => options.body.mode === "audio_transcription");
-    expect(transcriptionCalls).toHaveLength(1);
-    expect(transcriptionCalls[0][1].body.audios).toHaveLength(2);
+    expect(transcriptionCalls).toHaveLength(2);
+    expect(transcriptionCalls[0][1].body.audios).toHaveLength(1);
+    expect(transcriptionCalls[1][1].body.audios).toHaveLength(1);
     expect(JSON.stringify(transcriptionCalls[0][1].body)).not.toContain("base64");
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(result.files).toEqual(["上半场.mp3", "下半场.mp3"]);
