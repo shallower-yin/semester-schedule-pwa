@@ -2187,9 +2187,13 @@ async function transcribeAudioChunk(
   }, 5, signal);
   if (!ok) {
     const providerError = safeProviderError(text);
-    const formatHint = chunk.mimeType.includes("aac") || chunk.mimeType.includes("mp4")
+    const isAac = chunk.mimeType.includes("aac") || chunk.mimeType.includes("mp4");
+    const isWav = chunk.mimeType.includes("wav");
+    const formatHint = isAac
       ? "当前分段为 AAC/M4A 编码，语音引擎可能无法识别；请将录音导出为标准 MP3 或 WAV 后重试。"
-      : "请确认文件未损坏，或转换为标准 MP3/WAV 后重试。";
+      : isWav
+        ? "当前分段为 WAV。若刚由 App 自动转换，请稍后重试；仍失败可拆成更短录音。"
+        : "请确认文件未损坏，或转换为标准 MP3/WAV 后重试。";
     throw new DiagnosticError(
       status === 413
         ? "当前音频分段仍超过模型请求限制，请联系管理员并提供诊断编号。"

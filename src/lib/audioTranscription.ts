@@ -58,8 +58,12 @@ interface AudioPlanResult {
 
 export const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 export const MAX_AUDIO_FILES = 6;
-/** After long M4A is split into speech-WAV parts for upload. */
-export const MAX_PREPARED_AUDIO_FILES = 24;
+/**
+ * After long M4A is split into speech-WAV parts for upload.
+ * Parts are sized under the ASR 7MB request budget so the Edge Function does not
+ * re-download 40MB blobs and time out with a useless generic M4A error.
+ */
+export const MAX_PREPARED_AUDIO_FILES = 80;
 
 /**
  * Progress stages:
@@ -95,6 +99,22 @@ export async function transcribeAudioFiles(input: {
       input.onProgress?.(index, preparedFiles.length, file.name);
       uploaded.push(await uploadAudioFile(file, input.accessCode, input.signal, input.onUploadProgress));
       input.onProgress?.(index + 1, preparedFiles.length, file.name);
+    }
+
+    // Many small converted WAV parts: orchestrate per-file ASR on the client so one Edge
+    // invocation does not download/process dozens of megabytes and time out with a vague error.
+    if (preparedFiles.length > 1) {
+      const sequential = await transcribeUploadedSequentially({
+        uploaded,
+        language: input.language,
+        summarize: input.summarize,
+        accessCode: input.accessCode,
+        signal: input.signal,
+        onProgress: input.onProgress,
+        fileNames: preparedFiles.map((file) => file.name)
+      });
+      serverOwnsCleanup = true;
+      return sequential;
     }
 
     const plan = await planAudioTranscription(uploaded, input.language, input.accessCode, input.signal);
@@ -166,6 +186,83 @@ async function invokeSingleTranscription(
   return data;
 }
 
+/** One Edge job per prepared part, then optional finalize for summary + R2 cleanup. */
+async function transcribeUploadedSequentially(input: {
+  uploaded: UploadedAudio[];
+  language: AudioLanguage;
+  summarize: boolean;
+  accessCode?: string;
+  signal?: AbortSignal;
+  onProgress?: (completed: number, total: number, step: string) => void;
+  fileNames: string[];
+}): Promise<AudioTranscriptionResult> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
+  const total = Math.max(1, input.uploaded.length);
+  const segments: string[] = [];
+  let lastModel = "mimo-v2.5-asr-chunked";
+
+  for (let index = 0; index < input.uploaded.length; index += 1) {
+    if (input.signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
+    input.onProgress?.(index + 1, total, "转写中");
+    const one = await invokeSingleTranscription(
+      [input.uploaded[index]],
+      input.language,
+      false,
+      input.accessCode,
+      input.signal
+    );
+    segments.push(one.transcript.trim());
+    lastModel = one.model || lastModel;
+  }
+
+  if (!segments.some(Boolean)) throw new Error("没有识别到有效语音内容。");
+
+  if (!input.summarize) {
+    // Cleanup remaining R2 objects (each single invoke only deletes its own file).
+    await Promise.allSettled(input.uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
+    return {
+      transcript: joinSequentialTranscripts(input.fileNames, segments),
+      summary: null,
+      model: lastModel,
+      files: input.fileNames,
+      conversation: []
+    };
+  }
+
+  input.onProgress?.(total, total, "整理结果");
+  const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+    signal: input.signal,
+    body: {
+      action: "finalize_audio_transcription",
+      audios: input.uploaded,
+      audioSegmentResults: input.uploaded.map((audio, index) => ({
+        name: audio.name,
+        objectKey: audio.objectKey,
+        segments: [segments[index] || ""]
+      })),
+      summarizeAudio: true,
+      accessCode: input.accessCode?.trim() || undefined
+    }
+  });
+  if (error) throw new Error(await audioFunctionError(error));
+  return {
+    transcript: data?.transcript?.trim() || joinSequentialTranscripts(input.fileNames, segments),
+    summary: data?.summary ?? null,
+    warning: data?.warning ?? null,
+    model: data?.model || lastModel,
+    files: input.fileNames,
+    conversation: []
+  };
+}
+
+function joinSequentialTranscripts(fileNames: string[], segments: string[]): string {
+  if (segments.length === 1) return segments[0] || "";
+  return segments.map((text, index) => {
+    const name = fileNames[index] || `分段 ${index + 1}`;
+    return `【${name}】\n${text}`;
+  }).join("\n\n");
+}
+
 /**
  * Convert container formats that ASR rejects after naive splitting.
  * Prefer 16 kHz mono (speech-ASR standard) and split long audio into multiple
@@ -197,8 +294,11 @@ async function prepareFilesForAsr(
 
 /** 16 kHz mono speech is the usual ASR operating point for clear speech. */
 export const SPEECH_ASR_SAMPLE_RATE = 16_000;
-/** Each converted part stays well under the server 100MB create-upload gate. */
-export const SPEECH_WAV_PART_TARGET_BYTES = 40 * 1024 * 1024;
+/**
+ * Keep each converted WAV under MiMo ASR's ~7MB raw-chunk budget (base64 ~9.3MB).
+ * Larger parts upload OK (100MB gate) but the server then re-splits/downloads and often fails.
+ */
+export const SPEECH_WAV_PART_TARGET_BYTES = 6 * 1024 * 1024;
 
 /** Browser-only: decode → mono 16 kHz → split into upload-safe WAV parts. No Python/ffmpeg. */
 export async function convertAudioFileToSpeechParts(
@@ -628,7 +728,9 @@ async function audioFunctionError(error: unknown): Promise<string> {
     return "无法连接到音频处理服务，请检查网络后重试。若文件很大，可稍后再试。";
   }
   if (fallback.includes("non-2xx")) {
-    return "音频处理服务返回了错误，请稍后重试。若为 M4A 录音，请先转为标准 MP3/WAV。";
+    // Supabase often only returns "non-2xx" when the body was not parsed; avoid blaming M4A
+    // after the client already converted to WAV segments.
+    return "音频处理服务返回了错误，请稍后重试。若刚完成格式转换，请保持网络稳定后再试一次。";
   }
   return fallback;
 }

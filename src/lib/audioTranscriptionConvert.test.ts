@@ -18,11 +18,11 @@ describe("音频格式转换（浏览器内）", () => {
     expect(wav.size).toBe(44 + samples.length * 2);
   });
 
-  it("16 kHz 语音分段目标保证单段远低于 100MB", () => {
+  it("16 kHz 语音分段目标保证单段低于 ASR 7MB 预算", () => {
     const seconds = maxSpeechWavPartSeconds(SPEECH_ASR_SAMPLE_RATE, SPEECH_WAV_PART_TARGET_BYTES);
     const bytes = seconds * SPEECH_ASR_SAMPLE_RATE * 2 + 44;
-    expect(seconds).toBeGreaterThan(10 * 60);
+    expect(seconds).toBeGreaterThan(60);
     expect(bytes).toBeLessThanOrEqual(SPEECH_WAV_PART_TARGET_BYTES + SPEECH_ASR_SAMPLE_RATE * 2);
-    expect(bytes).toBeLessThan(100 * 1024 * 1024);
+    expect(bytes).toBeLessThan(7 * 1024 * 1024);
   });
 });
