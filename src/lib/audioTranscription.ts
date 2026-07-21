@@ -91,20 +91,21 @@ export async function transcribeAudioFiles(input: {
   let retainUploadedObjects = false;
   try {
     // M4A/OGG/FLAC over the ASR chunk limit often fail as raw container bytes; convert to compact mono speech WAV first.
-    const preparedFiles = await prepareFilesForAsr(input.files, input.onProgress);
-    if (preparedFiles.length > MAX_PREPARED_AUDIO_FILES) {
-      throw new Error(`转换后分段过多（${preparedFiles.length} 段），请先把录音拆成更短的文件再试。`);
+    // prepared[] is strictly chronological: source-file order, then time order within each converted file.
+    const prepared = await prepareFilesForAsr(input.files, input.onProgress);
+    if (prepared.length > MAX_PREPARED_AUDIO_FILES) {
+      throw new Error(`转换后分段过多（${prepared.length} 段），请先把录音拆成更短的文件再试。`);
     }
-    for (let index = 0; index < preparedFiles.length; index += 1) {
-      const file = preparedFiles[index];
-      input.onProgress?.(index, preparedFiles.length, file.name);
-      uploaded.push(await uploadAudioFile(file, input.accessCode, input.signal, input.onUploadProgress));
-      input.onProgress?.(index + 1, preparedFiles.length, file.name);
+    for (let index = 0; index < prepared.length; index += 1) {
+      const part = prepared[index];
+      input.onProgress?.(index, prepared.length, part.file.name);
+      uploaded.push(await uploadAudioFile(part.file, input.accessCode, input.signal, input.onUploadProgress));
+      input.onProgress?.(index + 1, prepared.length, part.file.name);
     }
 
     // Many small converted WAV parts: orchestrate per-file ASR on the client so one Edge
     // invocation does not download/process dozens of megabytes and time out with a vague error.
-    if (preparedFiles.length > 1) {
+    if (prepared.length > 1) {
       const sequential = await transcribeUploadedSequentially({
         uploaded,
         language: input.language,
@@ -112,7 +113,8 @@ export async function transcribeAudioFiles(input: {
         accessCode: input.accessCode,
         signal: input.signal,
         onProgress: input.onProgress,
-        fileNames: preparedFiles.map((file) => file.name)
+        orderLabels: prepared.map((part) => part.orderLabel),
+        fileNames: prepared.map((part) => part.file.name)
       });
       retainUploadedObjects = true;
       return sequential;
@@ -129,7 +131,7 @@ export async function transcribeAudioFiles(input: {
           accessCode: input.accessCode,
           signal: input.signal,
           onProgress: input.onProgress,
-          fileNames: preparedFiles.map((file) => file.name)
+          fileNames: prepared.map((part) => part.file.name)
         });
         retainUploadedObjects = true;
         return progressive;
@@ -142,7 +144,7 @@ export async function transcribeAudioFiles(input: {
         input.onProgress?.(1, 1, "整理结果");
         return {
           ...fallback,
-          files: preparedFiles.map((file) => file.name),
+          files: prepared.map((part) => part.file.name),
           conversation: []
         };
       }
@@ -154,7 +156,7 @@ export async function transcribeAudioFiles(input: {
     input.onProgress?.(1, 1, "整理结果");
     return {
       ...data,
-      files: preparedFiles.map((file) => file.name),
+      files: prepared.map((part) => part.file.name),
       conversation: []
     };
   } finally {
@@ -188,10 +190,9 @@ async function invokeSingleTranscription(
 }
 
 /**
- * One Edge job per prepared part.
- * R2 objects are retained until the bucket lifecycle expires ai-audio/ (7 days),
- * so finalize never races with per-part deletes.
- * Transcripts are always returned; summary is best-effort only.
+ * One Edge job per prepared part, strictly in chronological prepared[] order.
+ * R2 objects are retained until the bucket lifecycle expires ai-audio/ (7 days).
+ * Network flukes retry; a failed middle part no longer aborts later parts.
  */
 async function transcribeUploadedSequentially(input: {
   uploaded: UploadedAudio[];
@@ -200,55 +201,66 @@ async function transcribeUploadedSequentially(input: {
   accessCode?: string;
   signal?: AbortSignal;
   onProgress?: (completed: number, total: number, step: string) => void;
+  orderLabels: string[];
   fileNames: string[];
 }): Promise<AudioTranscriptionResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const total = Math.max(1, input.uploaded.length);
-  const segments: string[] = [];
+  // Fixed-length array keeps segment i aligned with prepared part i (chronological).
+  const segments: Array<string | null> = Array.from({ length: total }, () => null);
+  const failedParts: string[] = [];
   let lastModel = "mimo-v2.5-asr-chunked";
-  let partialError: string | null = null;
+  let cancelled = false;
 
   for (let index = 0; index < input.uploaded.length; index += 1) {
     if (input.signal?.aborted) {
-      if (segments.some(Boolean)) break;
-      throw new DOMException("操作已取消。", "AbortError");
+      cancelled = true;
+      break;
     }
     input.onProgress?.(index + 1, total, "转写中");
     try {
-      const one = await invokeSingleTranscription(
+      const one = await invokeSingleTranscriptionWithRetry(
         [input.uploaded[index]],
         input.language,
         false,
         input.accessCode,
         input.signal
       );
-      segments.push(one.transcript.trim());
+      segments[index] = one.transcript.trim();
       lastModel = one.model || lastModel;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "分段转写失败";
-      // Keep whatever finished so the user does not lose a long run.
-      if (segments.some(Boolean)) {
-        partialError = `第 ${index + 1}/${total} 段失败：${message}`;
+      if (input.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        cancelled = true;
         break;
       }
-      throw error instanceof Error ? error : new Error(message);
+      const message = error instanceof Error ? error.message : "分段转写失败";
+      failedParts.push(`第 ${index + 1}/${total} 段：${message}`);
+      segments[index] = null;
     }
   }
 
-  if (!segments.some(Boolean)) throw new Error("没有识别到有效语音内容。");
+  const successCount = segments.filter((text) => Boolean(text?.trim())).length;
+  if (!successCount) {
+    if (cancelled) throw new DOMException("操作已取消。", "AbortError");
+    throw new Error(failedParts[0] || "没有识别到有效语音内容。");
+  }
 
-  const transcript = joinSequentialTranscripts(
-    input.fileNames.slice(0, segments.length),
-    segments
-  );
+  // Always join in prepared order (0..total-1), including failure placeholders, so later
+  // successful parts never appear "before" an earlier failed gap.
+  const transcript = joinSequentialTranscripts(input.orderLabels, segments);
+  const partialError = failedParts.length || cancelled
+    ? [
+        `转写已部分完成（${successCount}/${total} 段）`,
+        cancelled ? "后续分段因取消未继续。" : null,
+        failedParts.length ? failedParts.slice(0, 3).join("；") + (failedParts.length > 3 ? ` 等共 ${failedParts.length} 段失败。` : "") : null
+      ].filter(Boolean).join("。")
+    : null;
   const base: AudioTranscriptionResult = {
     transcript,
     summary: null,
-    warning: partialError
-      ? `转写已部分完成（${segments.length}/${total} 段）。${partialError}`
-      : null,
+    warning: partialError,
     model: lastModel,
-    files: input.fileNames.slice(0, segments.length),
+    files: input.fileNames,
     conversation: []
   };
 
@@ -258,21 +270,24 @@ async function transcribeUploadedSequentially(input: {
 
   input.onProgress?.(total, total, "整理结果");
   try {
-    // Summary-only finalize: segments are the source of truth; R2 blobs stay for lifecycle cleanup.
+    // Summary only over successful segments; order labels remain chronological.
+    const successAudios = input.uploaded
+      .map((audio, index) => ({ audio, text: segments[index], index }))
+      .filter((item) => Boolean(item.text?.trim()));
     const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
       signal: input.signal,
       body: {
         action: "finalize_audio_transcription",
-        audios: input.uploaded.slice(0, segments.length).map((audio, index) => ({
+        audios: successAudios.map(({ audio }) => ({
           name: audio.name,
           mimeType: audio.mimeType,
           size: Math.max(1, audio.size),
           objectKey: audio.objectKey
         })),
-        audioSegmentResults: input.uploaded.slice(0, segments.length).map((audio, index) => ({
+        audioSegmentResults: successAudios.map(({ audio, text }) => ({
           name: audio.name,
           objectKey: audio.objectKey,
-          segments: [segments[index] || ""]
+          segments: [text || ""]
         })),
         summarizeAudio: true,
         skipAudioObjectCleanup: true,
@@ -287,7 +302,7 @@ async function transcribeUploadedSequentially(input: {
     }
     return {
       ...base,
-      transcript: data?.transcript?.trim() || transcript,
+      // Keep client chronological transcript; only adopt server summary/warning/model.
       summary: data?.summary ?? null,
       warning: data?.warning ?? null,
       model: data?.model || lastModel
@@ -301,35 +316,102 @@ async function transcribeUploadedSequentially(input: {
   }
 }
 
-function joinSequentialTranscripts(fileNames: string[], segments: string[]): string {
-  if (segments.length === 1) return segments[0] || "";
-  return segments.map((text, index) => {
-    const name = fileNames[index] || `分段 ${index + 1}`;
-    return `【${name}】\n${text}`;
-  }).join("\n\n");
+const SEQUENTIAL_ASR_ATTEMPTS = 3;
+
+async function invokeSingleTranscriptionWithRetry(
+  uploaded: UploadedAudio[],
+  language: AudioLanguage,
+  summarize: boolean,
+  accessCode: string | undefined,
+  signal?: AbortSignal
+): Promise<SingleAudioTranscriptionResult> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < SEQUENTIAL_ASR_ATTEMPTS; attempt += 1) {
+    if (signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
+    try {
+      return await invokeSingleTranscription(uploaded, language, summarize, accessCode, signal);
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+      lastError = error instanceof Error ? error : new Error(String(error || "分段转写失败"));
+      if (attempt + 1 < SEQUENTIAL_ASR_ATTEMPTS) {
+        await delay(600 + attempt * 700);
+      }
+    }
+  }
+  throw lastError ?? new Error("分段转写失败");
+}
+
+/**
+ * Join segments in array order (chronological). null = failed placeholder.
+ * Labels should already encode time order (e.g. 第 3/22 段 · 约 6:32–9:48).
+ */
+export function joinSequentialTranscripts(
+  orderLabels: string[],
+  segments: Array<string | null>
+): string {
+  const count = Math.max(orderLabels.length, segments.length);
+  if (count === 0) return "";
+  if (count === 1 && segments[0]?.trim()) return segments[0]!.trim();
+  const parts: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const label = orderLabels[index] || `第 ${index + 1} 段`;
+    const text = segments[index]?.trim() ?? "";
+    parts.push(text ? `【${label}】\n${text}` : `【${label}】\n（本段转写失败，已跳过）`);
+  }
+  return parts.join("\n\n");
+}
+
+export function formatAudioClock(totalSeconds: number): string {
+  const sec = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = sec % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+export interface PreparedAudioPart {
+  file: File;
+  /** Human-readable chronological label used when joining transcripts. */
+  orderLabel: string;
 }
 
 /**
  * Convert container formats that ASR rejects after naive splitting.
  * Prefer 16 kHz mono (speech-ASR standard) and split long audio into multiple
  * upload-safe WAV parts instead of lowering quality or sending one huge file.
+ * Output order is always: input file order, then time order within each file.
  */
 async function prepareFilesForAsr(
   files: File[],
   onProgress?: (completed: number, total: number, step: string) => void
-): Promise<File[]> {
-  const prepared: File[] = [];
-  for (const file of files) {
+): Promise<PreparedAudioPart[]> {
+  const prepared: PreparedAudioPart[] = [];
+  const multiSource = files.length > 1;
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+    const file = files[fileIndex];
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
     const needsConversion = file.size > 7_000_000 && ["m4a", "ogg", "flac"].includes(extension);
     if (!needsConversion) {
-      prepared.push(file);
+      const prefix = multiSource ? `文件${fileIndex + 1}/${files.length} · ` : "";
+      prepared.push({
+        file,
+        orderLabel: `${prefix}${file.name}`
+      });
       continue;
     }
     onProgress?.(0, 1, `正在将 ${file.name} 转为 16kHz 语音 WAV 并分段…`);
     try {
       const parts = await convertAudioFileToSpeechParts(file, onProgress);
-      prepared.push(...parts);
+      const sourcePrefix = multiSource ? `文件${fileIndex + 1}/${files.length} · ` : "";
+      for (const part of parts) {
+        prepared.push({
+          file: part.file,
+          orderLabel: `${sourcePrefix}${part.orderLabel}`
+        });
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : "转换失败";
       throw new Error(`“${file.name}”无法自动转换为可转写格式（${reason}）。请先导出为标准 MP3 后重试。`);
@@ -346,11 +428,20 @@ export const SPEECH_ASR_SAMPLE_RATE = 16_000;
  */
 export const SPEECH_WAV_PART_TARGET_BYTES = 6 * 1024 * 1024;
 
+export interface ConvertedSpeechPart {
+  file: File;
+  orderLabel: string;
+  startSec: number;
+  endSec: number;
+  partIndex: number;
+  partCount: number;
+}
+
 /** Browser-only: decode → mono 16 kHz → split into upload-safe WAV parts. No Python/ffmpeg. */
 export async function convertAudioFileToSpeechParts(
   file: File,
   onProgress?: (completed: number, total: number, step: string) => void
-): Promise<File[]> {
+): Promise<ConvertedSpeechPart[]> {
   if (typeof AudioContext === "undefined" && typeof (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext === "undefined") {
     throw new Error("当前环境不支持音频解码");
   }
@@ -363,20 +454,32 @@ export async function convertAudioFileToSpeechParts(
     const partSeconds = maxSpeechWavPartSeconds(SPEECH_ASR_SAMPLE_RATE, SPEECH_WAV_PART_TARGET_BYTES);
     const partCount = Math.max(1, Math.ceil(duration / partSeconds));
     const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
-    const parts: File[] = [];
+    const indexWidth = String(partCount).length;
+    const parts: ConvertedSpeechPart[] = [];
 
     for (let index = 0; index < partCount; index += 1) {
       const startSec = index * partSeconds;
       const lengthSec = Math.min(partSeconds, duration - startSec);
       if (lengthSec <= 0.01) break;
+      const endSec = startSec + lengthSec;
       onProgress?.(index, partCount, `转换分段 ${index + 1}/${partCount}…`);
       const mono = await renderMonoSpeechSegment(decoded, startSec, lengthSec, SPEECH_ASR_SAMPLE_RATE, context);
       const wav = encodeMonoWav(mono.getChannelData(0), SPEECH_ASR_SAMPLE_RATE);
       if (wav.size > MAX_AUDIO_BYTES) {
         throw new Error(`第 ${index + 1} 段转换后仍超过 100 MB（约 ${formatMegabytes(wav.size)}）`);
       }
-      const suffix = partCount > 1 ? `-${String(index + 1).padStart(2, "0")}` : "";
-      parts.push(new File([wav], `${baseName}${suffix}.wav`, { type: "audio/wav" }));
+      const suffix = partCount > 1 ? `-${String(index + 1).padStart(indexWidth, "0")}` : "";
+      const orderLabel = partCount > 1
+        ? `第 ${index + 1}/${partCount} 段 · 约 ${formatAudioClock(startSec)}–${formatAudioClock(endSec)}`
+        : file.name;
+      parts.push({
+        file: new File([wav], `${baseName}${suffix}.wav`, { type: "audio/wav" }),
+        orderLabel,
+        startSec,
+        endSec,
+        partIndex: index,
+        partCount
+      });
       onProgress?.(index + 1, partCount, `转换分段 ${index + 1}/${partCount}…`);
     }
     if (!parts.length) throw new Error("转换结果为空");
@@ -391,6 +494,10 @@ export function maxSpeechWavPartSeconds(sampleRate: number, targetBytes: number)
   return Math.max(30, Math.floor(payload / (sampleRate * 2)));
 }
 
+/**
+ * Slice PCM by source frame indices first, then resample.
+ * Avoids WebView OfflineAudioContext start(offset) quirks that can scramble segment content.
+ */
 export async function renderMonoSpeechSegment(
   buffer: AudioBuffer,
   startSec: number,
@@ -402,12 +509,20 @@ export async function renderMonoSpeechSegment(
     || (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
   if (!OfflineCtor) throw new Error("当前环境不支持音频重采样");
   const monoSource = mixChannelsToMonoBuffer(buffer, liveContext);
-  const frameCount = Math.max(1, Math.ceil(durationSec * targetRate));
+  const srcRate = monoSource.sampleRate;
+  const startFrame = Math.max(0, Math.min(monoSource.length - 1, Math.floor(startSec * srcRate)));
+  const endFrame = Math.max(startFrame + 1, Math.min(monoSource.length, Math.ceil((startSec + durationSec) * srcRate)));
+  const sliceLength = endFrame - startFrame;
+  const slice = createMonoBuffer(sliceLength, srcRate, liveContext);
+  slice.getChannelData(0).set(monoSource.getChannelData(0).subarray(startFrame, endFrame));
+
+  const frameCount = Math.max(1, Math.ceil((sliceLength / srcRate) * targetRate));
   const offline = new OfflineCtor(1, frameCount, targetRate);
   const source = offline.createBufferSource();
-  source.buffer = monoSource;
+  source.buffer = slice;
   source.connect(offline.destination);
-  source.start(0, Math.max(0, startSec), Math.max(0.01, durationSec));
+  // Play the already-sliced buffer from the start — do not pass time offsets into start().
+  source.start(0);
   return offline.startRendering();
 }
 
@@ -611,7 +726,7 @@ async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSig
 }
 
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function transcribeAudio(input: {

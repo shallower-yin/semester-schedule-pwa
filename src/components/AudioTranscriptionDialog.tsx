@@ -264,7 +264,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             </div>
           )}
           {task.status === "error" && <div className="ai-inline-error" role="alert"><span>{task.message}</span><button type="button" className="button secondary compact" onClick={() => retryAiTask("audio_transcription")}>重试</button></div>}
-          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个源文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 M4A/OGG/FLAC 会在浏览器（含安卓 App 内置页面）转成 16kHz 单声道语音 WAV，并按约 6MB 自动切段上传，直接适配语音引擎限制；无需安装 Python/ffmpeg。大体积 MP3/WAV 也会自动分段转写。上传的临时音频约 7 天后自动清理。</p>
+          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个源文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 M4A/OGG/FLAC 会在浏览器（含安卓 App 内置页面）转成 16kHz 单声道语音 WAV，并按录音时间顺序自动切段上传。多个文件按列表从上到下的顺序拼接（可用上下箭头调整）。中间某段网络失败会跳过并继续后面的段，结果里会标注失败段。上传的临时音频约 7 天后自动清理。转写结果仅保存在本机，不会在账号间云同步。</p>
           <p className="muted-note" style={{ color: "#b45309" }}>⚠ 音频转写对网络稳定性要求较高，大文件上传可能需要几分钟。建议在 Wi-Fi 或信号良好的环境下使用，上传期间请勿切换网络。</p>
         </section>
 

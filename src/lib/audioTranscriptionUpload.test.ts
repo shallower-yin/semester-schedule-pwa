@@ -36,8 +36,11 @@ describe("R2 音频转写上传", () => {
       if (options.body.action === "delete_audio_upload") {
         return { data: { ok: true }, error: null };
       }
+      const audios = options.body.audios as Array<{ name?: string }> | undefined;
+      const name = audios?.[0]?.name ?? "";
+      const transcript = name.includes("上半场") ? "第一段内容" : name.includes("下半场") ? "第二段内容" : "转写完成";
       return {
-        data: { transcript: "转写完成", summary: null, model: "mimo-v2.5-audio-url" },
+        data: { transcript, summary: null, model: "mimo-v2.5-audio-url" },
         error: null
       };
     });
@@ -58,6 +61,55 @@ describe("R2 音频转写上传", () => {
     expect(JSON.stringify(transcriptionCalls[0][1].body)).not.toContain("base64");
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(result.files).toEqual(["上半场.mp3", "下半场.mp3"]);
+    // Chronological join: first selected file text appears before second.
+    expect(result.transcript.indexOf("第一段内容")).toBeLessThan(result.transcript.indexOf("第二段内容"));
+  });
+
+  it("中间段失败后继续转写后续段，并保持时间顺序", async () => {
+    let uploadIndex = 0;
+    let asrCalls = 0;
+    invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
+      if (options.body.action === "create_audio_upload") {
+        uploadIndex += 1;
+        return {
+          data: {
+            objectKey: `ai-audio/user-1/audio-${uploadIndex}.wav`,
+            uploadUrl: `https://upload.example/audio-${uploadIndex}`,
+            expiresAt: new Date().toISOString()
+          },
+          error: null
+        };
+      }
+      if (options.body.mode === "audio_transcription") {
+        asrCalls += 1;
+        const audios = options.body.audios as Array<{ name?: string }> | undefined;
+        const name = audios?.[0]?.name ?? "";
+        if (name.includes("02")) {
+          return { data: null, error: new Error("Failed to fetch") };
+        }
+        return {
+          data: { transcript: `内容${name}`, summary: null, model: "mimo-v2.5-asr-chunked" },
+          error: null
+        };
+      }
+      return { data: { ok: true }, error: null };
+    });
+
+    const result = await transcribeAudioFiles({
+      files: [
+        new File(["a"], "seg-01.mp3", { type: "audio/mpeg" }),
+        new File(["b"], "seg-02.mp3", { type: "audio/mpeg" }),
+        new File(["c"], "seg-03.mp3", { type: "audio/mpeg" })
+      ],
+      language: "zh",
+      summarize: false
+    });
+
+    // First attempt + retries for the failed middle part, then the third part still runs.
+    expect(asrCalls).toBeGreaterThanOrEqual(3 + 1 + 1);
+    expect(result.transcript.indexOf("内容seg-01.mp3")).toBeLessThan(result.transcript.indexOf("本段转写失败"));
+    expect(result.transcript.indexOf("本段转写失败")).toBeLessThan(result.transcript.indexOf("内容seg-03.mp3"));
+    expect(result.warning).toMatch(/部分完成/);
   });
 
   it("大 MP3 走分段计划并上报 1/N 进度", async () => {

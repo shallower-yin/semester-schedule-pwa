@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   encodeMonoWav,
+  formatAudioClock,
+  joinSequentialTranscripts,
   maxSpeechWavPartSeconds,
   SPEECH_ASR_SAMPLE_RATE,
   SPEECH_WAV_PART_TARGET_BYTES
@@ -24,5 +26,16 @@ describe("音频格式转换（浏览器内）", () => {
     expect(seconds).toBeGreaterThan(60);
     expect(bytes).toBeLessThanOrEqual(SPEECH_WAV_PART_TARGET_BYTES + SPEECH_ASR_SAMPLE_RATE * 2);
     expect(bytes).toBeLessThan(7 * 1024 * 1024);
+  });
+
+  it("拼接转写严格按数组顺序，失败段保留占位", () => {
+    const text = joinSequentialTranscripts(
+      ["第 1/3 段 · 约 0:00–3:00", "第 2/3 段 · 约 3:00–6:00", "第 3/3 段 · 约 6:00–9:00"],
+      ["开场", null, "结尾"]
+    );
+    expect(text.indexOf("开场")).toBeLessThan(text.indexOf("本段转写失败"));
+    expect(text.indexOf("本段转写失败")).toBeLessThan(text.indexOf("结尾"));
+    expect(formatAudioClock(3945)).toBe("1:05:45");
+    expect(formatAudioClock(125)).toBe("2:05");
   });
 });
