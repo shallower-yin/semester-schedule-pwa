@@ -73,8 +73,10 @@ for (const absolutePath of files) {
     cacheControl,
     contentType: contentType(objectPath)
   });
-  if (error) throw new Error(`Upload ${objectPath} failed: ${error.message}`);
-  console.log(`Uploaded ${objectPath}`);
+  if (error) {
+    throw new Error(`Upload ${objectPath} failed (${content.length} bytes): ${error.message}`);
+  }
+  console.log(`Uploaded ${objectPath} (${content.length} bytes)`);
 }
 
 // Preserve APK packages when a web-only mirror deploy runs. Deleting android/*.apk
