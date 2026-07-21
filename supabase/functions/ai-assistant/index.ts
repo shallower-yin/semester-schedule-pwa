@@ -4,7 +4,9 @@ import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYT
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "plan_audio_transcription" | "finalize_audio_transcription" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "plan_audio_transcription" | "finalize_audio_transcription" | "summarize_audio_transcript" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
+  /** Plain transcript text for summarize_audio_transcript (no R2). */
+  audioTranscript?: string;
   /** When true, finalize only merges segments / optional summary and does not touch R2 objects. */
   skipAudioObjectCleanup?: boolean;
   mode?: "assistant" | "mind_map" | "mind_map_followup" | "audio_transcription" | "audio_followup";
@@ -21,7 +23,6 @@ interface AiAssistantRequest {
   attachments?: AiAssistantAttachment[];
   audio?: { name?: string; mimeType?: string; size?: number; dataUrl?: string; objectKey?: string };
   audios?: Array<{ name?: string; mimeType?: string; size?: number; objectKey?: string }>;
-  audioTranscript?: string;
   audioLanguage?: "auto" | "zh" | "en";
   summarizeAudio?: boolean;
   mindMapDepth?: MindMapDepth;
@@ -515,6 +516,37 @@ Deno.serve(async (request) => {
         access: accessMethod,
         quota: quotaStatus
       });
+    }
+    if (body.action === "summarize_audio_transcript") {
+      // Text-only summary after client already assembled the full transcript.
+      // No R2 download — avoids a second long network path that can fail after ASR succeeded.
+      featureKey = "audio_transcription";
+      const summaryAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!summaryAccess.allowed) return jsonResponse({ error: summaryAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = summaryAccess.method ?? "";
+      const transcript = String(body.audioTranscript ?? "").trim();
+      if (!transcript) return jsonResponse({ error: "没有可摘要的转写正文。" }, 400);
+      questionChars = transcript.length;
+      try {
+        const summaryResponse = await summarizeAudioTranscript(transcript, settings, request.signal);
+        return jsonResponse({
+          transcript,
+          summary: summaryResponse.summary,
+          warning: null,
+          model: `transcript-summary + ${summaryResponse.model}`,
+          access: accessMethod
+        });
+      } catch (error) {
+        if (request.signal?.aborted) throw error;
+        console.error(error);
+        return jsonResponse({
+          transcript,
+          summary: null,
+          warning: "转写正文已保留，摘要生成失败。",
+          model: "transcript-summary",
+          access: accessMethod
+        });
+      }
     }
     const mode = body.mode === "mind_map"
       ? "mind_map"

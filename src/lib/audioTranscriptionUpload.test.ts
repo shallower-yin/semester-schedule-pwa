@@ -170,11 +170,14 @@ describe("R2 音频转写上传", () => {
         const chunkIndex = Number((options.body.audioRange as { chunkIndex?: number })?.chunkIndex ?? 0);
         return { data: { transcript: `段${chunkIndex + 1}` }, error: null };
       }
-      if (options.body.action === "finalize_audio_transcription") {
+      if (options.body.action === "summarize_audio_transcript") {
         return {
-          data: { transcript: "should-not-replace-client-order", summary: "摘要", model: "mimo-v2.5-asr-chunked" },
+          data: { transcript: String(options.body.audioTranscript ?? ""), summary: "摘要", model: "transcript-summary" },
           error: null
         };
+      }
+      if (options.body.action === "finalize_audio_transcription") {
+        return { data: null, error: new Error("should-use-text-only-summary") };
       }
       // Monolithic single-job mode must not be used for large MP3.
       if (options.body.mode === "audio_transcription") {
@@ -195,13 +198,13 @@ describe("R2 音频转写上传", () => {
     expect(result.transcript).toContain("段1");
     expect(result.transcript).toContain("段2");
     expect(result.summary).toBe("摘要");
-    expect(progress).toHaveBeenCalledWith(1, 2, "转写中");
-    expect(progress).toHaveBeenCalledWith(2, 2, "转写中");
-    expect(progress).toHaveBeenCalledWith(2, 2, "整理结果");
+    expect(progress.mock.calls.some((call) => String(call[2]).includes("已成功"))).toBe(true);
     const rangeCalls = invokeMock.mock.calls.filter(([, options]) => options.body.action === "transcribe_audio_range");
     expect(rangeCalls).toHaveLength(2);
     const singleJobs = invokeMock.mock.calls.filter(([, options]) => options.body.mode === "audio_transcription");
     expect(singleJobs).toHaveLength(0);
+    const summaryCalls = invokeMock.mock.calls.filter(([, options]) => options.body.action === "summarize_audio_transcript");
+    expect(summaryCalls).toHaveLength(1);
   });
 
   it("大 MP3 若云端未返回分段计划则直接失败，禁止 1/1 整包", async () => {

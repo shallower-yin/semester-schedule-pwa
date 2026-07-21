@@ -92,6 +92,8 @@ export async function transcribeAudioFiles(input: {
   signal?: AbortSignal;
   onProgress?: (completed: number, total: number, step: string) => void;
   onUploadProgress?: (percent: number, fileName: string) => void;
+  /** Fired after each successful progressive segment so the UI can checkpoint to disk. */
+  onPartialResult?: (partial: AudioTranscriptionResult) => void;
 }): Promise<AudioTranscriptionResult> {
   if (!input.files.length) throw new Error("请选择要转写的音频文件。");
   if (input.files.length > MAX_AUDIO_FILES) throw new Error(`一次最多选择 ${MAX_AUDIO_FILES} 个音频文件。`);
@@ -146,6 +148,7 @@ export async function transcribeAudioFiles(input: {
         accessCode: input.accessCode,
         signal: input.signal,
         onProgress: input.onProgress,
+        onPartialResult: input.onPartialResult,
         fileNames: prepared.map((part) => part.file.name)
       });
       retainUploadedObjects = true;
@@ -684,12 +687,12 @@ async function runProgressiveTranscription(input: {
   accessCode?: string;
   signal?: AbortSignal;
   onProgress?: (completed: number, total: number, step: string) => void;
+  onPartialResult?: (partial: AudioTranscriptionResult) => void;
   fileNames: string[];
 }): Promise<AudioTranscriptionResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const total = Math.max(1, input.plan.totalChunks || input.plan.tasks.length);
   const segmentsByFile: Array<Array<string | null>> = input.uploaded.map(() => []);
-  const failedParts: string[] = [];
   let cancelled = false;
 
   // Sort by file then chunk so UI counts 1..N in natural order (e.g. 1/8 … 8/8 for ~50MB MP3).
@@ -697,162 +700,201 @@ async function runProgressiveTranscription(input: {
     left.fileIndex === right.fileIndex ? left.chunkIndex - right.chunkIndex : left.fileIndex - right.fileIndex
   );
 
-  for (let index = 0; index < tasks.length; index += 1) {
+  const orderLabels = tasks.map((task) => (
+    tasks.length > 1
+      ? `第 ${task.chunkIndex + 1}/${task.chunkCount} 段`
+      : input.fileNames[task.fileIndex] || task.fileName
+  ));
+
+  const emitProgress = (current: number, succeeded: number, phase: string) => {
+    // Put the human string in `step` so the dialog never confuses "attempted" with "succeeded".
+    input.onProgress?.(
+      current,
+      total,
+      `${phase} ${current}/${total}（已成功 ${succeeded}/${total}）`
+    );
+  };
+
+  const buildPartial = (extraWarning?: string | null): AudioTranscriptionResult => {
+    const ordered = tasks.map((task) => segmentsByFile[task.fileIndex]?.[task.chunkIndex] ?? null);
+    const successCount = ordered.filter((text) => Boolean(text?.trim())).length;
+    const missing = ordered
+      .map((text, index) => (text?.trim() ? null : index + 1))
+      .filter((value): value is number => value !== null);
+    const warningParts = [
+      successCount < total ? `转写已完成 ${successCount}/${total} 段` : null,
+      missing.length ? `未成功：第 ${missing.slice(0, 8).join("、")}${missing.length > 8 ? "…" : ""} 段` : null,
+      extraWarning || null
+    ].filter(Boolean);
+    return {
+      transcript: joinSequentialTranscripts(orderLabels, ordered),
+      summary: null,
+      warning: warningParts.length ? warningParts.join("。") + "。" : null,
+      model: "mimo-v2.5-asr-chunked",
+      files: input.fileNames,
+      conversation: []
+    };
+  };
+
+  const runOneTask = async (task: AudioPlanTask, index: number): Promise<void> => {
     if (input.signal?.aborted) {
       cancelled = true;
-      break;
+      return;
     }
-    const task = tasks[index];
-    // 1-based current chunk for UI: 1/8 … 8/8
-    input.onProgress?.(index + 1, total, "转写中");
+    const succeededBefore = tasks.filter((item, taskIndex) =>
+      taskIndex < index && Boolean(segmentsByFile[item.fileIndex]?.[item.chunkIndex]?.trim())
+    ).length;
+    emitProgress(index + 1, succeededBefore, "正在转写");
     try {
       const segment = await transcribeSignedAudioRange(task, input.signal);
       if (!segmentsByFile[task.fileIndex]) segmentsByFile[task.fileIndex] = [];
       segmentsByFile[task.fileIndex][task.chunkIndex] = segment;
+      const succeeded = tasks.filter((item) =>
+        Boolean(segmentsByFile[item.fileIndex]?.[item.chunkIndex]?.trim())
+      ).length;
+      emitProgress(index + 1, succeeded, "正在转写");
+      // Checkpoint after every success so a later network blip never wipes finished text.
+      input.onPartialResult?.(buildPartial(null));
     } catch (error) {
       if (input.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
         cancelled = true;
-        break;
+        return;
       }
-      const message = error instanceof Error ? error.message : "分段转写失败";
-      failedParts.push(`第 ${index + 1}/${total} 段：${message}`);
       if (!segmentsByFile[task.fileIndex]) segmentsByFile[task.fileIndex] = [];
       segmentsByFile[task.fileIndex][task.chunkIndex] = null;
+      const succeeded = tasks.filter((item) =>
+        Boolean(segmentsByFile[item.fileIndex]?.[item.chunkIndex]?.trim())
+      ).length;
+      emitProgress(index + 1, succeeded, "正在转写");
     }
-    input.onProgress?.(index + 1, total, "转写中");
+  };
+
+  // Pass 1: sequential ASR for every range.
+  for (let index = 0; index < tasks.length; index += 1) {
+    if (cancelled || input.signal?.aborted) {
+      cancelled = true;
+      break;
+    }
+    await runOneTask(tasks[index], index);
   }
 
-  // Flatten in chronological task order for a stable transcript (not sparse-array holes).
-  const orderLabels: string[] = [];
-  const orderedSegments: Array<string | null> = [];
-  for (const task of tasks) {
-    orderLabels.push(
-      tasks.length > 1
-        ? `第 ${task.chunkIndex + 1}/${task.chunkCount} 段 · 字节 ${task.nominalStart}–${task.nominalEnd}`
-        : input.fileNames[task.fileIndex] || task.fileName
-    );
-    orderedSegments.push(segmentsByFile[task.fileIndex]?.[task.chunkIndex] ?? null);
+  // Pass 2: only retry holes (cost OK — user asked for completion over thrift).
+  if (!cancelled && !input.signal?.aborted) {
+    const missingIndexes = tasks
+      .map((task, index) => ({ task, index }))
+      .filter(({ task }) => !segmentsByFile[task.fileIndex]?.[task.chunkIndex]?.trim());
+    for (const { task, index } of missingIndexes) {
+      if (input.signal?.aborted) {
+        cancelled = true;
+        break;
+      }
+      emitProgress(index + 1, tasks.filter((item) =>
+        Boolean(segmentsByFile[item.fileIndex]?.[item.chunkIndex]?.trim())
+      ).length, "补救转写");
+      await runOneTask(task, index);
+    }
   }
 
+  const orderedSegments = tasks.map((task) => segmentsByFile[task.fileIndex]?.[task.chunkIndex] ?? null);
   const successCount = orderedSegments.filter((text) => Boolean(text?.trim())).length;
   if (!successCount) {
     if (cancelled) throw new DOMException("操作已取消。", "AbortError");
-    throw new Error(failedParts[0] || "没有识别到有效语音内容。");
+    throw new Error("全部分段均未识别成功。请检查网络后重试；已产生的模型调用费用不会自动退回。");
   }
 
-  const transcript = joinSequentialTranscripts(orderLabels, orderedSegments);
-  const partialError = failedParts.length || cancelled
-    ? [
-        `转写已部分完成（${successCount}/${total} 段）`,
-        cancelled ? "后续分段因取消未继续。" : null,
-        failedParts.length
-          ? failedParts.slice(0, 3).join("；") + (failedParts.length > 3 ? ` 等共 ${failedParts.length} 段失败。` : "")
-          : null
-      ].filter(Boolean).join("。")
-    : null;
+  // Transcript is assembled ONLY on the client — never depends on a final network call.
+  const base = buildPartial(
+    cancelled ? "后续分段因取消未继续" : successCount < total ? null : null
+  );
+  input.onPartialResult?.(base);
 
-  const base: AudioTranscriptionResult = {
-    transcript,
-    summary: null,
-    warning: partialError,
-    model: "mimo-v2.5-asr-chunked",
-    files: input.fileNames,
-    conversation: []
-  };
-
-  if (!input.summarize || partialError) {
+  if (!input.summarize) {
     return base;
   }
 
-  input.onProgress?.(total, total, "整理结果");
+  // Summary is strictly optional. Connection loss here must NOT fail the whole job.
+  emitProgress(total, successCount, "整理摘要");
   try {
-    // Only finalize successful segments; keep client chronological transcript as source of truth.
-    const successPayload = tasks
-      .map((task) => ({
-        task,
-        text: segmentsByFile[task.fileIndex]?.[task.chunkIndex]
-      }))
-      .filter((item) => Boolean(item.text?.trim()));
-
-    // Group by file for server finalize shape.
-    const byFile = input.uploaded.map((audio, fileIndex) => {
-      const segs = successPayload
-        .filter((item) => item.task.fileIndex === fileIndex)
-        .sort((a, b) => a.task.chunkIndex - b.task.chunkIndex)
-        .map((item) => item.text || "");
-      return { audio, segments: segs };
-    }).filter((item) => item.segments.length);
-
-    const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
-      signal: input.signal,
-      body: {
-        action: "finalize_audio_transcription",
-        audios: byFile.map(({ audio }) => ({
-          name: audio.name,
-          mimeType: audio.mimeType,
-          size: Math.max(1, audio.size),
-          objectKey: audio.objectKey
-        })),
-        audioSegmentResults: byFile.map(({ audio, segments }) => ({
-          name: audio.name,
-          objectKey: audio.objectKey,
-          segments
-        })),
-        summarizeAudio: true,
-        skipAudioObjectCleanup: true,
-        accessCode: input.accessCode?.trim() || undefined
-      }
-    });
-    if (error) {
-      return {
+    const summary = await summarizeJoinedTranscript(base.transcript, input.accessCode, input.signal);
+    if (summary) {
+      const withSummary = {
         ...base,
-        warning: `转写已完成，但摘要生成失败：${await audioFunctionError(error)}`
+        summary,
+        model: `mimo-v2.5-asr-chunked + summary`,
+        warning: successCount < total ? base.warning : null
       };
+      input.onPartialResult?.(withSummary);
+      return withSummary;
     }
     return {
       ...base,
-      summary: data?.summary ?? null,
-      warning: data?.warning ?? null,
-      model: data?.model || base.model
+      warning: [base.warning, "正文已保留，摘要生成未完成（可稍后对正文继续提问）。"].filter(Boolean).join("")
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "摘要生成失败";
+  } catch {
     return {
       ...base,
-      warning: `转写已完成，但摘要生成失败：${message}`
+      warning: [base.warning, "正文已保留，摘要生成未完成（可稍后对正文继续提问）。"].filter(Boolean).join("")
     };
   }
 }
 
+/** Text-only summary via dedicated action — no R2, cannot kill an already-finished transcript. */
+async function summarizeJoinedTranscript(
+  transcript: string,
+  accessCode: string | undefined,
+  signal?: AbortSignal
+): Promise<string | null> {
+  if (!supabase || !transcript.trim()) return null;
+  const { data, error } = await invokeAudioFunctionWithTransientRetry(
+    () => supabase!.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+      signal,
+      body: {
+        action: "summarize_audio_transcript",
+        audioTranscript: transcript,
+        accessCode: accessCode?.trim() || undefined
+      }
+    }),
+    signal,
+    3
+  );
+  if (error || !data?.summary?.trim()) return null;
+  return data.summary.trim();
+}
+
 async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSignal): Promise<string> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
-  // Retry a few times on the client for flaky networks while still showing chunk progress.
+  // Aggressive retries: cost is acceptable; finishing the transcript is the priority.
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maxAttempts = 6;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
     try {
-      const { data, error } = await supabase.functions.invoke<{ transcript?: string }>("ai-assistant", {
-        signal,
-        headers: {
-          "x-audio-range-signature": task.signature
-        },
-        body: {
-          action: "transcribe_audio_range",
-          // Body fallback if custom headers are dropped by WebView / proxies.
-          audioRangeSignature: task.signature,
-          audioRange: {
-            objectKey: task.objectKey,
-            fileName: task.fileName,
-            language: task.language,
-            chunkIndex: task.chunkIndex,
-            chunkCount: task.chunkCount,
-            nominalStart: task.nominalStart,
-            nominalEnd: task.nominalEnd,
-            fetchStart: task.fetchStart,
-            fetchEnd: task.fetchEnd
+      const { data, error } = await invokeAudioFunctionWithTransientRetry(
+        () => supabase!.functions.invoke<{ transcript?: string }>("ai-assistant", {
+          signal,
+          headers: {
+            "x-audio-range-signature": task.signature
+          },
+          body: {
+            action: "transcribe_audio_range",
+            // Body fallback if custom headers are dropped by WebView / proxies.
+            audioRangeSignature: task.signature,
+            audioRange: {
+              objectKey: task.objectKey,
+              fileName: task.fileName,
+              language: task.language,
+              chunkIndex: task.chunkIndex,
+              chunkCount: task.chunkCount,
+              nominalStart: task.nominalStart,
+              nominalEnd: task.nominalEnd,
+              fetchStart: task.fetchStart,
+              fetchEnd: task.fetchEnd
+            }
           }
-        }
-      });
+        }),
+        signal,
+        3
+      );
       if (error) throw new Error(await audioFunctionError(error));
       const transcript = data?.transcript?.trim();
       if (!transcript) throw new Error(`音频“${task.fileName}”第 ${task.chunkIndex + 1}/${task.chunkCount} 段没有识别到语音。`);
@@ -861,8 +903,11 @@ async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSig
       lastError = error instanceof Error ? error : new Error(String(error || "分段转写失败"));
       if (signal?.aborted) throw lastError;
       // Don't retry hard client errors
-      if (/权限|口令|额度|格式|签名|Invalid/.test(lastError.message)) throw lastError;
-      if (attempt < 2) await delay(700 * 2 ** attempt);
+      if (/权限|口令|额度|格式|签名|Invalid|未开放|不能超过/.test(lastError.message)) throw lastError;
+      if (attempt + 1 < maxAttempts) {
+        // Up to ~20s backoff for flaky mobile networks.
+        await delay(Math.min(12_000, 900 * 2 ** attempt) + Math.floor(Math.random() * 500));
+      }
     }
   }
   throw lastError ?? new Error(`音频“${task.fileName}”第 ${task.chunkIndex + 1}/${task.chunkCount} 段转写失败。`);

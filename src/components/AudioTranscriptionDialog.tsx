@@ -97,15 +97,19 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
           accessCode,
           signal,
           onProgress: (completed, total, step) => {
-            if (step === "转写中") {
+            if (step.includes("已成功") || step.includes("正在转写") || step.includes("补救") || step.includes("整理摘要")) {
+              const safeTotal = Math.max(1, total);
+              const percent = Math.round((Math.min(safeTotal, Math.max(0, completed)) / safeTotal) * 100);
+              // Prefer the detailed step string from progressive ASR (includes 已成功 n/N).
+              reportProgress(step.startsWith("正在") || step.startsWith("补救") || step.startsWith("整理")
+                ? step
+                : `正在转写 ${completed}/${safeTotal} 段`, percent);
+            } else if (step === "转写中") {
               const safeTotal = Math.max(1, total);
               const display = Math.min(safeTotal, Math.max(1, completed));
               const percent = Math.round((display / safeTotal) * 100);
-              // Large MP3 must show 1/N. If total is 1, say so clearly (small file only).
               reportProgress(
-                safeTotal > 1
-                  ? `正在转写 ${display}/${safeTotal} 段`
-                  : `正在转写（单段文件）`,
+                safeTotal > 1 ? `正在转写 ${display}/${safeTotal} 段` : "正在转写（单段文件）",
                 percent
               );
             } else if (step === "整理结果") {
@@ -113,13 +117,17 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             } else if (step.includes("转换分段") || step.includes("转为")) {
               reportProgress(step, typeof completed === "number" && total > 0 ? Math.round((completed / total) * 100) : 0);
             } else {
-              // Upload phase: completed is finished count (0..total), show next file as completed+1.
               const currentFile = Math.min(total, Math.max(1, completed + 1));
               reportProgress(`正在上传 ${currentFile}/${total}：${step}`, 0);
             }
           },
           onUploadProgress: (percent, fileName) => {
             reportProgress(`正在上传：${fileName}（${percent}%）`, percent);
+          },
+          onPartialResult: (partial) => {
+            // Checkpoint every finished segment so a later network drop never wipes paid work.
+            saveLatestResult(ownerId, partial);
+            setResult(partial);
           }
         });
       },
@@ -130,12 +138,25 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
         setUploadPercent(0);
         if (next.access === "access-code") setAccessCode("");
         if (next.warning) showToast(next.warning, "info", 8000);
+        else showToast("转写完成，正文已保存。", "success");
       },
-      onError: () => {
+      onError: (error) => {
         setProgress("");
         setUploadPercent(0);
-        // If a previous partial success was saved mid-run, keep showing it.
-        setResult(loadLatestResult(ownerId));
+        // Prefer checkpointed partial transcript over a blank error screen.
+        const partial = loadLatestResult(ownerId);
+        if (partial?.transcript?.trim()) {
+          setResult({
+            ...partial,
+            warning: [
+              partial.warning,
+              error instanceof Error ? `任务中断：${error.message}` : "任务中断，已尽量保留已完成正文。"
+            ].filter(Boolean).join(" ")
+          });
+          showToast("连接中断，已尽量保留已完成的转写正文。", "info", 8000);
+          return;
+        }
+        setResult(partial);
       }
     });
     if (!started) {
