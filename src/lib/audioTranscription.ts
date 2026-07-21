@@ -437,7 +437,7 @@ export interface ConvertedSpeechPart {
   partCount: number;
 }
 
-/** Browser-only: decode → mono 16 kHz → split into upload-safe WAV parts. No Python/ffmpeg. */
+/** Browser-only: decode → mono PCM → pure JS time-slice → 16 kHz WAV parts. No OfflineAudioContext. */
 export async function convertAudioFileToSpeechParts(
   file: File,
   onProgress?: (completed: number, total: number, step: string) => void
@@ -450,11 +450,14 @@ export async function convertAudioFileToSpeechParts(
   try {
     const bytes = await file.arrayBuffer();
     const decoded = await context.decodeAudioData(bytes.slice(0));
-    const duration = Math.max(0.01, decoded.duration);
+    // Mix once so every part shares the same chronological mono timeline.
+    const mono = mixToMonoSamples(decoded);
+    // Prefer sample-accurate duration from PCM length; decodeAudioData.duration can be wrong on some WebViews for M4A.
+    const duration = Math.max(0.01, mono.samples.length / mono.sampleRate, decoded.duration || 0);
     const partSeconds = maxSpeechWavPartSeconds(SPEECH_ASR_SAMPLE_RATE, SPEECH_WAV_PART_TARGET_BYTES);
     const partCount = Math.max(1, Math.ceil(duration / partSeconds));
     const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
-    const indexWidth = String(partCount).length;
+    const indexWidth = Math.max(2, String(partCount).length);
     const parts: ConvertedSpeechPart[] = [];
 
     for (let index = 0; index < partCount; index += 1) {
@@ -463,17 +466,27 @@ export async function convertAudioFileToSpeechParts(
       if (lengthSec <= 0.01) break;
       const endSec = startSec + lengthSec;
       onProgress?.(index, partCount, `转换分段 ${index + 1}/${partCount}…`);
-      const mono = await renderMonoSpeechSegment(decoded, startSec, lengthSec, SPEECH_ASR_SAMPLE_RATE, context);
-      const wav = encodeMonoWav(mono.getChannelData(0), SPEECH_ASR_SAMPLE_RATE);
+      // Deterministic frame slice + linear resample. Do NOT use OfflineAudioContext start(offset):
+      // Android WebView / some Chromium builds mis-map offset across sample-rate conversion and can
+      // feed ASR the wrong time region while still producing fluent (but misplaced) text.
+      const resampled = sliceAndResampleMono(
+        mono.samples,
+        mono.sampleRate,
+        startSec,
+        lengthSec,
+        SPEECH_ASR_SAMPLE_RATE
+      );
+      const wav = encodeMonoWav(resampled, SPEECH_ASR_SAMPLE_RATE);
       if (wav.size > MAX_AUDIO_BYTES) {
         throw new Error(`第 ${index + 1} 段转换后仍超过 100 MB（约 ${formatMegabytes(wav.size)}）`);
       }
-      const suffix = partCount > 1 ? `-${String(index + 1).padStart(indexWidth, "0")}` : "";
+      // p000/p001 prefix keeps chronological order even if anything later sorts by file name.
+      const orderPrefix = `p${String(index).padStart(indexWidth, "0")}`;
       const orderLabel = partCount > 1
         ? `第 ${index + 1}/${partCount} 段 · 约 ${formatAudioClock(startSec)}–${formatAudioClock(endSec)}`
         : file.name;
       parts.push({
-        file: new File([wav], `${baseName}${suffix}.wav`, { type: "audio/wav" }),
+        file: new File([wav], `${orderPrefix}_${baseName}.wav`, { type: "audio/wav" }),
         orderLabel,
         startSec,
         endSec,
@@ -494,60 +507,92 @@ export function maxSpeechWavPartSeconds(sampleRate: number, targetBytes: number)
   return Math.max(30, Math.floor(payload / (sampleRate * 2)));
 }
 
+/** Mix multi-channel AudioBuffer to a single chronological Float32Array. */
+export function mixToMonoSamples(buffer: AudioBuffer): { samples: Float32Array; sampleRate: number } {
+  const length = buffer.length;
+  const channels = Math.max(1, buffer.numberOfChannels);
+  const samples = new Float32Array(length);
+  if (channels === 1) {
+    samples.set(buffer.getChannelData(0));
+  } else {
+    const inputs = Array.from({ length: channels }, (_, index) => buffer.getChannelData(index));
+    for (let frame = 0; frame < length; frame += 1) {
+      let sum = 0;
+      for (let channel = 0; channel < channels; channel += 1) sum += inputs[channel][frame] ?? 0;
+      samples[frame] = sum / channels;
+    }
+  }
+  return { samples, sampleRate: buffer.sampleRate };
+}
+
 /**
- * Slice PCM by source frame indices first, then resample.
- * Avoids WebView OfflineAudioContext start(offset) quirks that can scramble segment content.
+ * Time-slice mono PCM by source frames, then linear-resample to targetRate.
+ * Pure math — no Web Audio OfflineAudioContext (avoids offset/sample-rate bugs on WebView).
  */
+export function sliceAndResampleMono(
+  samples: Float32Array,
+  srcRate: number,
+  startSec: number,
+  durationSec: number,
+  targetRate: number
+): Float32Array {
+  if (!Number.isFinite(srcRate) || srcRate <= 0) throw new Error("无效的源采样率");
+  if (!Number.isFinite(targetRate) || targetRate <= 0) throw new Error("无效的目标采样率");
+  const startFrame = Math.max(0, Math.min(samples.length, Math.floor(startSec * srcRate)));
+  const endFrame = Math.max(startFrame + 1, Math.min(samples.length, Math.ceil((startSec + durationSec) * srcRate)));
+  const span = endFrame - startFrame;
+  const outLen = Math.max(1, Math.round((span / srcRate) * targetRate));
+  const out = new Float32Array(outLen);
+  if (Math.abs(srcRate - targetRate) < 1e-6) {
+    out.set(samples.subarray(startFrame, Math.min(endFrame, startFrame + outLen)));
+    return out;
+  }
+  const ratio = srcRate / targetRate;
+  for (let index = 0; index < outLen; index += 1) {
+    const srcPos = startFrame + index * ratio;
+    if (srcPos >= endFrame - 1) {
+      out[index] = samples[endFrame - 1] ?? 0;
+      continue;
+    }
+    const left = Math.floor(srcPos);
+    const right = left + 1;
+    const frac = srcPos - left;
+    const a = samples[left] ?? 0;
+    const b = samples[right] ?? a;
+    out[index] = a + (b - a) * frac;
+  }
+  return out;
+}
+
+/** @deprecated Prefer mixToMonoSamples + sliceAndResampleMono; kept for tests/compat. */
 export async function renderMonoSpeechSegment(
   buffer: AudioBuffer,
   startSec: number,
   durationSec: number,
   targetRate: number,
-  liveContext?: AudioContext
+  _liveContext?: AudioContext
 ): Promise<AudioBuffer> {
-  const OfflineCtor = window.OfflineAudioContext
-    || (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
-  if (!OfflineCtor) throw new Error("当前环境不支持音频重采样");
-  const monoSource = mixChannelsToMonoBuffer(buffer, liveContext);
-  const srcRate = monoSource.sampleRate;
-  const startFrame = Math.max(0, Math.min(monoSource.length - 1, Math.floor(startSec * srcRate)));
-  const endFrame = Math.max(startFrame + 1, Math.min(monoSource.length, Math.ceil((startSec + durationSec) * srcRate)));
-  const sliceLength = endFrame - startFrame;
-  const slice = createMonoBuffer(sliceLength, srcRate, liveContext);
-  slice.getChannelData(0).set(monoSource.getChannelData(0).subarray(startFrame, endFrame));
-
-  const frameCount = Math.max(1, Math.ceil((sliceLength / srcRate) * targetRate));
-  const offline = new OfflineCtor(1, frameCount, targetRate);
-  const source = offline.createBufferSource();
-  source.buffer = slice;
-  source.connect(offline.destination);
-  // Play the already-sliced buffer from the start — do not pass time offsets into start().
-  source.start(0);
-  return offline.startRendering();
+  const mono = mixToMonoSamples(buffer);
+  const resampled = sliceAndResampleMono(mono.samples, mono.sampleRate, startSec, durationSec, targetRate);
+  if (typeof AudioBuffer !== "undefined") {
+    const out = new AudioBuffer({ length: resampled.length, numberOfChannels: 1, sampleRate: targetRate });
+    out.copyToChannel(resampled, 0);
+    return out;
+  }
+  throw new Error("当前环境不支持创建音频缓冲");
 }
 
 export function mixChannelsToMonoBuffer(buffer: AudioBuffer, liveContext?: AudioContext): AudioBuffer {
-  const length = buffer.length;
-  const channels = Math.max(1, buffer.numberOfChannels);
-  const mono = createMonoBuffer(length, buffer.sampleRate, liveContext);
-  const output = mono.getChannelData(0);
-  if (channels === 1) {
-    output.set(buffer.getChannelData(0));
-    return mono;
+  const mono = mixToMonoSamples(buffer);
+  if (liveContext) {
+    const out = liveContext.createBuffer(1, mono.samples.length, mono.sampleRate);
+    out.getChannelData(0).set(mono.samples);
+    return out;
   }
-  const inputs = Array.from({ length: channels }, (_, index) => buffer.getChannelData(index));
-  for (let frame = 0; frame < length; frame += 1) {
-    let sum = 0;
-    for (let channel = 0; channel < channels; channel += 1) sum += inputs[channel][frame] ?? 0;
-    output[frame] = sum / channels;
-  }
-  return mono;
-}
-
-function createMonoBuffer(length: number, sampleRate: number, liveContext?: AudioContext): AudioBuffer {
-  if (liveContext) return liveContext.createBuffer(1, length, sampleRate);
   if (typeof AudioBuffer !== "undefined") {
-    return new AudioBuffer({ length, numberOfChannels: 1, sampleRate });
+    const out = new AudioBuffer({ length: mono.samples.length, numberOfChannels: 1, sampleRate: mono.sampleRate });
+    out.getChannelData(0).set(mono.samples);
+    return out;
   }
   throw new Error("当前环境不支持创建音频缓冲");
 }

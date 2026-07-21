@@ -4,6 +4,7 @@ import {
   formatAudioClock,
   joinSequentialTranscripts,
   maxSpeechWavPartSeconds,
+  sliceAndResampleMono,
   SPEECH_ASR_SAMPLE_RATE,
   SPEECH_WAV_PART_TARGET_BYTES
 } from "./audioTranscription";
@@ -37,5 +38,25 @@ describe("音频格式转换（浏览器内）", () => {
     expect(text.indexOf("本段转写失败")).toBeLessThan(text.indexOf("结尾"));
     expect(formatAudioClock(3945)).toBe("1:05:45");
     expect(formatAudioClock(125)).toBe("2:05");
+  });
+
+  it("按源采样帧时间切片，第 N 段只包含对应时间段的信号", () => {
+    // 3 秒 @ 48 kHz：0–1s 填 0.25，1–2s 填 0.75，2–3s 填 -0.5
+    const srcRate = 48_000;
+    const samples = new Float32Array(srcRate * 3);
+    samples.fill(0.25, 0, srcRate);
+    samples.fill(0.75, srcRate, srcRate * 2);
+    samples.fill(-0.5, srcRate * 2, srcRate * 3);
+
+    const part0 = sliceAndResampleMono(samples, srcRate, 0, 1, 16_000);
+    const part1 = sliceAndResampleMono(samples, srcRate, 1, 1, 16_000);
+    const part2 = sliceAndResampleMono(samples, srcRate, 2, 1, 16_000);
+
+    const mean = (data: Float32Array) => data.reduce((sum, value) => sum + value, 0) / data.length;
+    expect(mean(part0)).toBeCloseTo(0.25, 2);
+    expect(mean(part1)).toBeCloseTo(0.75, 2);
+    expect(mean(part2)).toBeCloseTo(-0.5, 2);
+    // 绝不能把第 1 秒的电平放到第 0 段（历史上 OfflineAudioContext offset 错切会出现）
+    expect(Math.abs(mean(part0) - 0.75)).toBeGreaterThan(0.3);
   });
 });
