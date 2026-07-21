@@ -67,7 +67,11 @@ for (const absolutePath of files) {
   console.log(`Uploaded ${objectPath}`);
 }
 
-const stalePaths = (await listStoredFiles("")).filter((path) => !deployedPaths.has(path));
+// Preserve APK packages when a web-only mirror deploy runs. Deleting android/*.apk
+// previously broke in-app phone updates after every GitHub Pages deploy.
+const stalePaths = (await listStoredFiles(""))
+  .filter((path) => !deployedPaths.has(path))
+  .filter((path) => !/\.apk$/i.test(path) && !path.startsWith("android/"));
 for (let index = 0; index < stalePaths.length; index += 100) {
   const batch = stalePaths.slice(index, index + 100);
   const { error } = await client.storage.from(bucket).remove(batch);

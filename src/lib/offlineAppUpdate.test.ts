@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRelease } from "./appRelease";
-import { installOfflineAppUpdate, rewriteRootAbsolutePaths } from "./offlineAppUpdate";
+import { assertIndexMatchesAppBase, installOfflineAppUpdate, rewriteRootAbsolutePaths } from "./offlineAppUpdate";
 
 class MemoryCache {
   private entries = new Map<string, Response>();
@@ -100,6 +100,17 @@ describe("免代理应用更新", () => {
     expect(rewritten).not.toContain('src="/assets/');
     // Already-prefixed paths stay intact.
     expect(rewriteRootAbsolutePaths(rewritten, "/semester-schedule-pwa/")).toBe(rewritten);
+  });
+
+  it("拒绝安装会白屏的入口页（根路径资源对着子路径站点）", () => {
+    expect(() => assertIndexMatchesAppBase(
+      '<script src="/assets/index.js"></script>',
+      "/semester-schedule-pwa/"
+    )).toThrow(/不匹配|白屏/);
+    expect(() => assertIndexMatchesAppBase(
+      '<script src="/semester-schedule-pwa/assets/index.js"></script>',
+      "/semester-schedule-pwa/"
+    )).not.toThrow();
   });
 });
 

@@ -23,6 +23,7 @@ export interface OfflineUpdateProgress {
  * Install mirror assets into the current origin's Cache Storage.
  * Rewrites root-absolute paths (mirror built with base "/") so GitHub Pages
  * under /semester-schedule-pwa/ does not white-screen after update.
+ * Never commits index.html to production caches unless path validation passes.
  */
 export async function installOfflineAppUpdate(
   release: AppRelease,
@@ -55,6 +56,13 @@ export async function installOfflineAppUpdate(
       onProgress?.({ completed, total: files.length, file });
     });
 
+    const indexUrl = new URL("index.html", document.baseURI).href;
+    const indexResponse = await tempCache.match(indexUrl);
+    if (!indexResponse) throw new Error("更新包入口文件读取失败。");
+    const indexHtml = await indexResponse.clone().text();
+    assertIndexMatchesAppBase(indexHtml, appBase);
+
+    // Only touch production caches after the entry page is proven safe.
     const runtimeCache = await caches.open(RUNTIME_CACHE);
     for (const request of await runtimeCache.keys()) await runtimeCache.delete(request);
 
@@ -65,9 +73,6 @@ export async function installOfflineAppUpdate(
       if (response) await runtimeCache.put(request, response);
     }
 
-    const indexUrl = new URL("index.html", document.baseURI).href;
-    const indexResponse = await tempCache.match(indexUrl);
-    if (!indexResponse) throw new Error("更新包入口文件读取失败。");
     const replaced = await replacePrecachedIndex(indexUrl, indexResponse);
     if (!replaced) throw new Error("未找到当前应用入口缓存，请联网刷新一次后重试。");
     return files.length;
@@ -165,6 +170,33 @@ export function rewriteRootAbsolutePaths(content: string, appBase: string): stri
     "g"
   );
   return content.replace(pattern, `$1${base}`);
+}
+
+/**
+ * Refuse to install an entry page whose absolute asset paths would miss the app base
+ * (the historical white-screen failure mode on GitHub Pages).
+ */
+export function assertIndexMatchesAppBase(html: string, appBase: string): void {
+  const base = (!appBase || appBase === "/") ? "/" : (appBase.endsWith("/") ? appBase : `${appBase}/`);
+  const refs = Array.from(html.matchAll(/\b(?:src|href)=["']([^"']+)["']/gi)).map((match) => match[1]);
+  const localAssets = refs.filter((ref) => {
+    if (!ref || ref.startsWith("data:") || ref.startsWith("blob:")) return false;
+    if (/^https?:\/\//i.test(ref) || ref.startsWith("//")) return false;
+    return /\.(?:js|mjs|css|webmanifest)(?:\?|#|$)/i.test(ref) || ref.includes("/assets/");
+  });
+  if (!localAssets.length) {
+    throw new Error("更新入口未包含可用脚本或样式，已中止以免白屏。");
+  }
+  if (base === "/") {
+    // Root-hosted apps accept root-absolute and relative paths.
+    return;
+  }
+  const basePrefix = base.replace(/\/$/, "");
+  for (const ref of localAssets) {
+    if (!ref.startsWith("/")) continue; // relative paths resolve via document.baseURI
+    if (ref === basePrefix || ref.startsWith(`${basePrefix}/`)) continue;
+    throw new Error(`更新入口资源路径与当前站点不匹配（${ref}），已中止以免白屏。请使用强制重新加载后重试。`);
+  }
 }
 
 function shouldRewriteTextAsset(file: string): boolean {
