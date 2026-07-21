@@ -1921,65 +1921,53 @@ async function finalizeProgressiveAudioTranscription(
   model: string;
   usage: AiAssistantUsage;
 }> {
+  // R2 ai-audio is retained until bucket lifecycle expiry (7 days). Do not delete
+  // here — immediate post-ASR deletes raced multi-part finalize ("key does not exist").
   const audios = sanitizeUploadedAudios(body.audios, userId);
   const segmentFiles = Array.isArray(body.audioSegmentResults) ? body.audioSegmentResults : [];
   if (!audios.length) throw new Error("请选择要转写的音频文件。");
   if (segmentFiles.length !== audios.length) throw new Error("分段转写结果不完整，请重试。");
 
+  const parts: string[] = [];
+  for (let index = 0; index < audios.length; index += 1) {
+    const audio = audios[index];
+    const segments = (segmentFiles[index]?.segments ?? [])
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+    if (!segments.length) {
+      throw new DiagnosticError(`音频“${audio.name}”没有有效的分段转写结果。`, {
+        stage: "finalize_empty_segments",
+        fileName: audio.name
+      });
+    }
+    const fileTranscript = segments.length === 1
+      ? segments[0]
+      : segments.map((text, chunkIndex) => `【${audio.name} · 分段 ${chunkIndex + 1}/${segments.length}】\n${text}`).join("\n\n");
+    parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
+  }
+  const transcript = parts.join("\n\n");
+  if (!body.summarizeAudio) {
+    return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: emptyUsage() };
+  }
   try {
-    const parts: string[] = [];
-    for (let index = 0; index < audios.length; index += 1) {
-      const audio = audios[index];
-      const segments = (segmentFiles[index]?.segments ?? [])
-        .map((item) => String(item ?? "").trim())
-        .filter(Boolean);
-      if (!segments.length) {
-        throw new DiagnosticError(`音频“${audio.name}”没有有效的分段转写结果。`, {
-          stage: "finalize_empty_segments",
-          fileName: audio.name
-        });
-      }
-      const fileTranscript = segments.length === 1
-        ? segments[0]
-        : segments.map((text, chunkIndex) => `【${audio.name} · 分段 ${chunkIndex + 1}/${segments.length}】\n${text}`).join("\n\n");
-      parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
-    }
-    const transcript = parts.join("\n\n");
-    if (!body.summarizeAudio) {
-      return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: emptyUsage() };
-    }
-    try {
-      const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
-      return {
-        transcript,
-        summary: summaryResponse.summary,
-        warning: null,
-        model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
-        usage: summaryResponse.usage
-      };
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      console.error(error);
-      return {
-        transcript,
-        summary: null,
-        warning: "转写已完成，但摘要生成失败。",
-        model: "mimo-v2.5-asr-chunked",
-        usage: emptyUsage()
-      };
-    }
-  } finally {
-    if (body.skipAudioObjectCleanup) {
-      // Client already removed per-part temp objects after sequential ASR.
-    } else {
-      await Promise.all(audios.map(async (audio) => {
-        try {
-          await deleteR2AudioObjectByKey(audio.objectKey);
-        } catch (error) {
-          console.error("Failed to delete temporary R2 audio", { objectKey: audio.objectKey, error: String(error) });
-        }
-      }));
-    }
+    const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
+    return {
+      transcript,
+      summary: summaryResponse.summary,
+      warning: null,
+      model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
+      usage: summaryResponse.usage
+    };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    console.error(error);
+    return {
+      transcript,
+      summary: null,
+      warning: "转写已完成，但摘要生成失败。",
+      model: "mimo-v2.5-asr-chunked",
+      usage: emptyUsage()
+    };
   }
 }
 
@@ -1997,114 +1985,105 @@ async function transcribeUploadedAudios(
   model: string;
   usage: AiAssistantUsage;
 }> {
+  // Keep objects until R2 lifecycle expires ai-audio/ (7 days). No immediate delete.
   const credentials = configuredMimoAudioCredentials(settings);
   if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
   const parts: string[] = [];
   let transcriptionUsage = emptyUsage();
-  try {
-    const resultsByFile: Array<Array<{ transcript: string; usage: AiAssistantUsage }>> = audios.map(() => []);
-    const rangeTasks: Array<{
-      audio: UploadedAudioInput;
-      fileIndex: number;
-      chunkIndex: number;
-      chunkCount: number;
-      nominalStart: number;
-      nominalEnd: number;
-      fetchStart: number;
-      fetchEnd: number;
-    }> = [];
-    const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
+  const resultsByFile: Array<Array<{ transcript: string; usage: AiAssistantUsage }>> = audios.map(() => []);
+  const rangeTasks: Array<{
+    audio: UploadedAudioInput;
+    fileIndex: number;
+    chunkIndex: number;
+    chunkCount: number;
+    nominalStart: number;
+    nominalEnd: number;
+    fetchStart: number;
+    fetchEnd: number;
+  }> = [];
+  const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
 
-    for (let fileIndex = 0; fileIndex < audios.length; fileIndex += 1) {
-      throwIfAborted(signal);
-      const audio = audios[fileIndex];
-      const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
-      if (isLargeMp3) {
-        // Prefer client-orchestrated progressive path for long MP3 (plan + per-chunk + finalize).
-        // Keep server-side range tasks as fallback when the client still uses a single invoke.
-        const objectSize = await headR2AudioObject(audio.objectKey);
-        const chunkCount = Math.ceil(objectSize / nominalChunkBytes);
-        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-          const nominalStart = chunkIndex * nominalChunkBytes;
-          const nominalEnd = Math.min(objectSize - 1, nominalStart + nominalChunkBytes - 1);
-          rangeTasks.push({
-            audio,
-            fileIndex,
-            chunkIndex,
-            chunkCount,
-            nominalStart,
-            nominalEnd,
-            fetchStart: Math.max(0, nominalStart - MP3_RANGE_OVERLAP_BYTES),
-            fetchEnd: Math.min(objectSize - 1, nominalEnd + MP3_RANGE_OVERLAP_BYTES)
-          });
-        }
-        continue;
-      }
-
-      const chunks = splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType);
-      // Long jobs use lower concurrency to reduce MiMo 429/5xx bursts; short jobs stay at 2.
-      const concurrency = chunks.length > 6 ? 1 : 2;
-      resultsByFile[fileIndex] = await mapWithRetryIsolation(chunks, concurrency, (chunk, chunkIndex) =>
-        transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length, signal), signal
-      );
-    }
-
-    const rangeConcurrency = rangeTasks.length > 6 ? 1 : 2;
-    const rangeResults = await mapWithRetryIsolation(rangeTasks, rangeConcurrency, (task) =>
-      transcribeRemoteAudioRange(task, body.audioLanguage, userId, authorization, signal), signal
-    );
-    rangeTasks.forEach((task, index) => {
-      resultsByFile[task.fileIndex][task.chunkIndex] = rangeResults[index];
-    });
-
-    for (let index = 0; index < audios.length; index += 1) {
-      const audio = audios[index];
-      const results = resultsByFile[index];
-      if (!results?.length) {
-        throw new DiagnosticError(`音频“${audio.name}”转写结果为空。`, {
-          stage: "audio_empty_result",
-          fileName: audio.name
+  for (let fileIndex = 0; fileIndex < audios.length; fileIndex += 1) {
+    throwIfAborted(signal);
+    const audio = audios[fileIndex];
+    const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
+    if (isLargeMp3) {
+      // Prefer client-orchestrated progressive path for long MP3 (plan + per-chunk + finalize).
+      // Keep server-side range tasks as fallback when the client still uses a single invoke.
+      const objectSize = await headR2AudioObject(audio.objectKey);
+      const chunkCount = Math.ceil(objectSize / nominalChunkBytes);
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        const nominalStart = chunkIndex * nominalChunkBytes;
+        const nominalEnd = Math.min(objectSize - 1, nominalStart + nominalChunkBytes - 1);
+        rangeTasks.push({
+          audio,
+          fileIndex,
+          chunkIndex,
+          chunkCount,
+          nominalStart,
+          nominalEnd,
+          fetchStart: Math.max(0, nominalStart - MP3_RANGE_OVERLAP_BYTES),
+          fetchEnd: Math.min(objectSize - 1, nominalEnd + MP3_RANGE_OVERLAP_BYTES)
         });
       }
-      const fileTranscript = results.map((result, chunkIndex) => results.length === 1
-        ? result.transcript
-        : `【${audio.name} · 分段 ${chunkIndex + 1}/${results.length}】\n${result.transcript}`
-      ).join("\n\n");
-      parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
-      transcriptionUsage = results.reduce((usage, result) => combineUsage(usage, result.usage), transcriptionUsage);
+      continue;
     }
-    const transcript = parts.join("\n\n");
-    if (!body.summarizeAudio) {
-      return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: transcriptionUsage };
+
+    const chunks = splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType);
+    // Long jobs use lower concurrency to reduce MiMo 429/5xx bursts; short jobs stay at 2.
+    const concurrency = chunks.length > 6 ? 1 : 2;
+    resultsByFile[fileIndex] = await mapWithRetryIsolation(chunks, concurrency, (chunk, chunkIndex) =>
+      transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length, signal), signal
+    );
+  }
+
+  const rangeConcurrency = rangeTasks.length > 6 ? 1 : 2;
+  const rangeResults = await mapWithRetryIsolation(rangeTasks, rangeConcurrency, (task) =>
+    transcribeRemoteAudioRange(task, body.audioLanguage, userId, authorization, signal), signal
+  );
+  rangeTasks.forEach((task, index) => {
+    resultsByFile[task.fileIndex][task.chunkIndex] = rangeResults[index];
+  });
+
+  for (let index = 0; index < audios.length; index += 1) {
+    const audio = audios[index];
+    const results = resultsByFile[index];
+    if (!results?.length) {
+      throw new DiagnosticError(`音频“${audio.name}”转写结果为空。`, {
+        stage: "audio_empty_result",
+        fileName: audio.name
+      });
     }
-    try {
-      const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
-      return {
-        transcript,
-        summary: summaryResponse.summary,
-        warning: null,
-        model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
-        usage: combineUsage(transcriptionUsage, summaryResponse.usage)
-      };
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      console.error(error);
-      return {
-        transcript,
-        summary: null,
-        warning: "转写已完成，但摘要生成失败。",
-        model: "mimo-v2.5-asr-chunked",
-        usage: transcriptionUsage
-      };
-    }
-  } finally {
-    await Promise.all(audios.map(async (audio) => {
-      try {
-        await deleteR2AudioObjectByKey(audio.objectKey);
-      } catch (error) {
-        console.error("Failed to delete temporary R2 audio", { objectKey: audio.objectKey, error: String(error) });
-      }
-    }));
+    const fileTranscript = results.map((result, chunkIndex) => results.length === 1
+      ? result.transcript
+      : `【${audio.name} · 分段 ${chunkIndex + 1}/${results.length}】\n${result.transcript}`
+    ).join("\n\n");
+    parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
+    transcriptionUsage = results.reduce((usage, result) => combineUsage(usage, result.usage), transcriptionUsage);
+  }
+  const transcript = parts.join("\n\n");
+  if (!body.summarizeAudio) {
+    return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: transcriptionUsage };
+  }
+  try {
+    const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
+    return {
+      transcript,
+      summary: summaryResponse.summary,
+      warning: null,
+      model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
+      usage: combineUsage(transcriptionUsage, summaryResponse.usage)
+    };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    console.error(error);
+    return {
+      transcript,
+      summary: null,
+      warning: "转写已完成，但摘要生成失败。",
+      model: "mimo-v2.5-asr-chunked",
+      usage: transcriptionUsage
+    };
   }
 }
 

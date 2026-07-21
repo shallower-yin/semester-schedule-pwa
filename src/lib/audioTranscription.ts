@@ -86,8 +86,9 @@ export async function transcribeAudioFiles(input: {
 
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const uploaded: UploadedAudio[] = [];
-  // When the server finalize/single path owns cleanup, skip client-side deletes.
-  let serverOwnsCleanup = false;
+  // After transcription starts successfully we keep R2 objects for 7-day lifecycle.
+  // Only clean up early when upload/prep fails before a successful ASR handoff.
+  let retainUploadedObjects = false;
   try {
     // M4A/OGG/FLAC over the ASR chunk limit often fail as raw container bytes; convert to compact mono speech WAV first.
     const preparedFiles = await prepareFilesForAsr(input.files, input.onProgress);
@@ -113,7 +114,7 @@ export async function transcribeAudioFiles(input: {
         onProgress: input.onProgress,
         fileNames: preparedFiles.map((file) => file.name)
       });
-      serverOwnsCleanup = true;
+      retainUploadedObjects = true;
       return sequential;
     }
 
@@ -130,14 +131,14 @@ export async function transcribeAudioFiles(input: {
           onProgress: input.onProgress,
           fileNames: preparedFiles.map((file) => file.name)
         });
-        serverOwnsCleanup = true;
+        retainUploadedObjects = true;
         return progressive;
       } catch (progressiveError) {
         // Fall back to the proven single server job so web 100MB MP3 still works if progressive fails.
         if (input.signal?.aborted) throw progressiveError;
         input.onProgress?.(0, 1, "转写中");
         const fallback = await invokeSingleTranscription(uploaded, input.language, input.summarize, input.accessCode, input.signal);
-        serverOwnsCleanup = true;
+        retainUploadedObjects = true;
         input.onProgress?.(1, 1, "整理结果");
         return {
           ...fallback,
@@ -149,7 +150,7 @@ export async function transcribeAudioFiles(input: {
 
     input.onProgress?.(0, 1, "转写中");
     const data = await invokeSingleTranscription(uploaded, input.language, input.summarize, input.accessCode, input.signal);
-    serverOwnsCleanup = true;
+    retainUploadedObjects = true;
     input.onProgress?.(1, 1, "整理结果");
     return {
       ...data,
@@ -157,7 +158,7 @@ export async function transcribeAudioFiles(input: {
       conversation: []
     };
   } finally {
-    if (!serverOwnsCleanup && uploaded.length) {
+    if (!retainUploadedObjects && uploaded.length) {
       await Promise.allSettled(uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
     }
   }
@@ -188,8 +189,8 @@ async function invokeSingleTranscription(
 
 /**
  * One Edge job per prepared part.
- * Each single-file job already deletes its R2 object, so we must NOT call finalize
- * (it used to re-touch deleted keys → "The specified key does not exist" after ASR succeeded).
+ * R2 objects are retained until the bucket lifecycle expires ai-audio/ (7 days),
+ * so finalize never races with per-part deletes.
  * Transcripts are always returned; summary is best-effort only.
  */
 async function transcribeUploadedSequentially(input: {
@@ -251,16 +252,13 @@ async function transcribeUploadedSequentially(input: {
     conversation: []
   };
 
-  // Each single-job already removed its R2 object; only clean leftovers best-effort.
-  await Promise.allSettled(input.uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
-
   if (!input.summarize || partialError) {
     return base;
   }
 
   input.onProgress?.(total, total, "整理结果");
   try {
-    // Summary-only finalize: pass segments as the source of truth. Server must not require R2 blobs.
+    // Summary-only finalize: segments are the source of truth; R2 blobs stay for lifecycle cleanup.
     const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
       signal: input.signal,
       body: {
@@ -277,7 +275,6 @@ async function transcribeUploadedSequentially(input: {
           segments: [segments[index] || ""]
         })),
         summarizeAudio: true,
-        // Skip re-download/delete of temporary objects that single-jobs already removed.
         skipAudioObjectCleanup: true,
         accessCode: input.accessCode?.trim() || undefined
       }

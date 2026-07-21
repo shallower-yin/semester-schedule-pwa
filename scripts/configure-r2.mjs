@@ -44,10 +44,12 @@ await configure("lifecycle", new PutBucketLifecycleConfigurationCommand({
   LifecycleConfiguration: {
     Rules: [
       {
+        // Audio objects are kept after ASR so multi-part finalize never races deletes.
+        // 7 days is enough headroom for retries/debug; 10GB free tier is not a constraint.
         ID: "delete-abandoned-ai-audio",
         Status: "Enabled",
         Filter: { Prefix: "ai-audio/" },
-        Expiration: { Days: 1 }
+        Expiration: { Days: 7 }
       },
       {
         ID: "delete-abandoned-ai-documents",
@@ -61,7 +63,7 @@ await configure("lifecycle", new PutBucketLifecycleConfigurationCommand({
 
 if (failures.length) throw new Error(`R2 bucket management failed: ${failures.join(", ")}`);
 
-console.log(`R2 bucket "${bucket}" is reachable; browser + APK WebView CORS and one-day temporary AI file cleanup are configured.`);
+console.log(`R2 bucket "${bucket}" is reachable; browser + APK WebView CORS, 7-day ai-audio and 1-day ai-documents lifecycle cleanup are configured.`);
 
 function required(name) {
   const value = process.env[name]?.trim();
