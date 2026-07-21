@@ -5,6 +5,8 @@ import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
   action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "plan_audio_transcription" | "finalize_audio_transcription" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
+  /** When true, finalize only merges segments / optional summary and does not touch R2 objects. */
+  skipAudioObjectCleanup?: boolean;
   mode?: "assistant" | "mind_map" | "mind_map_followup" | "audio_transcription" | "audio_followup";
   /** Per-file segment transcripts from client-orchestrated progressive ASR. */
   audioSegmentResults?: Array<{
@@ -1683,24 +1685,36 @@ async function deleteR2DocumentPageObjects(userId: string, value: unknown): Prom
 
 async function downloadR2AudioObject(objectKey: string): Promise<Uint8Array> {
   const { client, bucket } = r2Configuration();
-  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
-  if (!response.Body) throw new Error("临时音频文件读取失败，请重新上传后重试。");
-  return await response.Body.transformToByteArray();
+  try {
+    const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+    if (!response.Body) throw new Error("临时音频文件读取失败，请重新上传后重试。");
+    return await response.Body.transformToByteArray();
+  } catch (error) {
+    throw new Error(friendlyR2ObjectError(error, "临时音频文件不存在或已清理，请重新上传后重试。"));
+  }
 }
 
 async function headR2AudioObject(objectKey: string): Promise<number> {
   const { client, bucket } = r2Configuration();
-  const response = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
-  const size = Number(response.ContentLength ?? 0);
-  if (!Number.isFinite(size) || size <= 0) throw new Error("临时音频文件大小无效，请重新上传后重试。");
-  return size;
+  try {
+    const response = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
+    const size = Number(response.ContentLength ?? 0);
+    if (!Number.isFinite(size) || size <= 0) throw new Error("临时音频文件大小无效，请重新上传后重试。");
+    return size;
+  } catch (error) {
+    throw new Error(friendlyR2ObjectError(error, "临时音频文件不存在或已清理，请重新上传后重试。"));
+  }
 }
 
 async function downloadR2AudioRange(objectKey: string, start: number, end: number): Promise<Uint8Array> {
   const { client, bucket } = r2Configuration();
-  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey, Range: `bytes=${start}-${end}` }));
-  if (!response.Body) throw new Error("临时音频分段读取失败，请重新上传后重试。");
-  return await response.Body.transformToByteArray();
+  try {
+    const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey, Range: `bytes=${start}-${end}` }));
+    if (!response.Body) throw new Error("临时音频分段读取失败，请重新上传后重试。");
+    return await response.Body.transformToByteArray();
+  } catch (error) {
+    throw new Error(friendlyR2ObjectError(error, "临时音频分段不存在或已清理，请重新上传后重试。"));
+  }
 }
 
 async function deleteR2AudioObject(userId: string, value: unknown): Promise<void> {
@@ -1709,12 +1723,29 @@ async function deleteR2AudioObject(userId: string, value: unknown): Promise<void
 
 async function deleteR2AudioObjectByKey(objectKey: string): Promise<void> {
   const { client, bucket } = r2Configuration();
-  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+  try {
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+  } catch (error) {
+    // Deleting an already-removed temp object is fine (sequential ASR cleans each part).
+    if (isMissingR2ObjectError(error)) return;
+    throw error;
+  }
+}
+
+function isMissingR2ObjectError(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error ?? "");
+  return /NoSuchKey|NotFound|specified key does not exist|StatusCode:\s*404|statusCode:\s*404/i.test(text);
+}
+
+function friendlyR2ObjectError(error: unknown, fallback: string): string {
+  if (isMissingR2ObjectError(error)) return fallback;
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function sanitizeUploadedAudios(value: unknown, userId: string): UploadedAudioInput[] {
   if (!Array.isArray(value) || value.length === 0) return [];
-  if (value.length > 6) throw new Error("一次最多选择 6 个音频文件。");
+  // Allow many client-split speech-WAV parts from one long M4A (user still picks ≤6 source files).
+  if (value.length > 80) throw new Error("一次音频分段过多，请将录音拆成更短文件后重试。");
   return value.map((item) => {
     if (!item || typeof item !== "object") throw new Error("临时音频信息无效。");
     const record = item as AiAssistantRequest["audio"];
@@ -1938,13 +1969,17 @@ async function finalizeProgressiveAudioTranscription(
       };
     }
   } finally {
-    await Promise.all(audios.map(async (audio) => {
-      try {
-        await deleteR2AudioObjectByKey(audio.objectKey);
-      } catch (error) {
-        console.error("Failed to delete temporary R2 audio", { objectKey: audio.objectKey, error: String(error) });
-      }
-    }));
+    if (body.skipAudioObjectCleanup) {
+      // Client already removed per-part temp objects after sequential ASR.
+    } else {
+      await Promise.all(audios.map(async (audio) => {
+        try {
+          await deleteR2AudioObjectByKey(audio.objectKey);
+        } catch (error) {
+          console.error("Failed to delete temporary R2 audio", { objectKey: audio.objectKey, error: String(error) });
+        }
+      }));
+    }
   }
 }
 

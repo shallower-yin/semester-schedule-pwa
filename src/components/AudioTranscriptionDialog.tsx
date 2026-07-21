@@ -121,8 +121,14 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
         setProgress("");
         setUploadPercent(0);
         if (next.access === "access-code") setAccessCode("");
+        if (next.warning) showToast(next.warning, "info", 8000);
       },
-      onError: () => { setProgress(""); setUploadPercent(0); }
+      onError: () => {
+        setProgress("");
+        setUploadPercent(0);
+        // If a previous partial success was saved mid-run, keep showing it.
+        setResult(loadLatestResult(ownerId));
+      }
     });
     if (!started) {
       setProgress("");

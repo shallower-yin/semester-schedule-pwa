@@ -186,7 +186,12 @@ async function invokeSingleTranscription(
   return data;
 }
 
-/** One Edge job per prepared part, then optional finalize for summary + R2 cleanup. */
+/**
+ * One Edge job per prepared part.
+ * Each single-file job already deletes its R2 object, so we must NOT call finalize
+ * (it used to re-touch deleted keys → "The specified key does not exist" after ASR succeeded).
+ * Transcripts are always returned; summary is best-effort only.
+ */
 async function transcribeUploadedSequentially(input: {
   uploaded: UploadedAudio[];
   language: AudioLanguage;
@@ -200,59 +205,103 @@ async function transcribeUploadedSequentially(input: {
   const total = Math.max(1, input.uploaded.length);
   const segments: string[] = [];
   let lastModel = "mimo-v2.5-asr-chunked";
+  let partialError: string | null = null;
 
   for (let index = 0; index < input.uploaded.length; index += 1) {
-    if (input.signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
+    if (input.signal?.aborted) {
+      if (segments.some(Boolean)) break;
+      throw new DOMException("操作已取消。", "AbortError");
+    }
     input.onProgress?.(index + 1, total, "转写中");
-    const one = await invokeSingleTranscription(
-      [input.uploaded[index]],
-      input.language,
-      false,
-      input.accessCode,
-      input.signal
-    );
-    segments.push(one.transcript.trim());
-    lastModel = one.model || lastModel;
+    try {
+      const one = await invokeSingleTranscription(
+        [input.uploaded[index]],
+        input.language,
+        false,
+        input.accessCode,
+        input.signal
+      );
+      segments.push(one.transcript.trim());
+      lastModel = one.model || lastModel;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "分段转写失败";
+      // Keep whatever finished so the user does not lose a long run.
+      if (segments.some(Boolean)) {
+        partialError = `第 ${index + 1}/${total} 段失败：${message}`;
+        break;
+      }
+      throw error instanceof Error ? error : new Error(message);
+    }
   }
 
   if (!segments.some(Boolean)) throw new Error("没有识别到有效语音内容。");
 
-  if (!input.summarize) {
-    // Cleanup remaining R2 objects (each single invoke only deletes its own file).
-    await Promise.allSettled(input.uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
-    return {
-      transcript: joinSequentialTranscripts(input.fileNames, segments),
-      summary: null,
-      model: lastModel,
-      files: input.fileNames,
-      conversation: []
-    };
+  const transcript = joinSequentialTranscripts(
+    input.fileNames.slice(0, segments.length),
+    segments
+  );
+  const base: AudioTranscriptionResult = {
+    transcript,
+    summary: null,
+    warning: partialError
+      ? `转写已部分完成（${segments.length}/${total} 段）。${partialError}`
+      : null,
+    model: lastModel,
+    files: input.fileNames.slice(0, segments.length),
+    conversation: []
+  };
+
+  // Each single-job already removed its R2 object; only clean leftovers best-effort.
+  await Promise.allSettled(input.uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
+
+  if (!input.summarize || partialError) {
+    return base;
   }
 
   input.onProgress?.(total, total, "整理结果");
-  const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
-    signal: input.signal,
-    body: {
-      action: "finalize_audio_transcription",
-      audios: input.uploaded,
-      audioSegmentResults: input.uploaded.map((audio, index) => ({
-        name: audio.name,
-        objectKey: audio.objectKey,
-        segments: [segments[index] || ""]
-      })),
-      summarizeAudio: true,
-      accessCode: input.accessCode?.trim() || undefined
+  try {
+    // Summary-only finalize: pass segments as the source of truth. Server must not require R2 blobs.
+    const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+      signal: input.signal,
+      body: {
+        action: "finalize_audio_transcription",
+        audios: input.uploaded.slice(0, segments.length).map((audio, index) => ({
+          name: audio.name,
+          mimeType: audio.mimeType,
+          size: Math.max(1, audio.size),
+          objectKey: audio.objectKey
+        })),
+        audioSegmentResults: input.uploaded.slice(0, segments.length).map((audio, index) => ({
+          name: audio.name,
+          objectKey: audio.objectKey,
+          segments: [segments[index] || ""]
+        })),
+        summarizeAudio: true,
+        // Skip re-download/delete of temporary objects that single-jobs already removed.
+        skipAudioObjectCleanup: true,
+        accessCode: input.accessCode?.trim() || undefined
+      }
+    });
+    if (error) {
+      return {
+        ...base,
+        warning: `转写已完成，但摘要生成失败：${await audioFunctionError(error)}`
+      };
     }
-  });
-  if (error) throw new Error(await audioFunctionError(error));
-  return {
-    transcript: data?.transcript?.trim() || joinSequentialTranscripts(input.fileNames, segments),
-    summary: data?.summary ?? null,
-    warning: data?.warning ?? null,
-    model: data?.model || lastModel,
-    files: input.fileNames,
-    conversation: []
-  };
+    return {
+      ...base,
+      transcript: data?.transcript?.trim() || transcript,
+      summary: data?.summary ?? null,
+      warning: data?.warning ?? null,
+      model: data?.model || lastModel
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "摘要生成失败";
+    return {
+      ...base,
+      warning: `转写已完成，但摘要生成失败：${message}`
+    };
+  }
 }
 
 function joinSequentialTranscripts(fileNames: string[], segments: string[]): string {
