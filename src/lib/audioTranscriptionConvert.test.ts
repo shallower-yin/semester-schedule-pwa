@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { encodeMonoWav } from "./audioTranscription";
+import {
+  encodeMonoWav,
+  maxSpeechWavPartSeconds,
+  SPEECH_ASR_SAMPLE_RATE,
+  SPEECH_WAV_PART_TARGET_BYTES
+} from "./audioTranscription";
 
 describe("音频格式转换（浏览器内）", () => {
   it("单声道 PCM 编码为 WAV 且体积约为采样数×2 字节", () => {
@@ -10,14 +15,14 @@ describe("音频格式转换（浏览器内）", () => {
     }
     const wav = encodeMonoWav(samples, sampleRate);
     expect(wav.type).toBe("audio/wav");
-    // 44-byte header + 2 bytes per sample
     expect(wav.size).toBe(44 + samples.length * 2);
   });
 
-  it("16 kHz 单声道一小时约 115MB，远小于 44.1k 立体声满采样 WAV", () => {
-    const hourMono16k = 3_600 * 16_000 * 2 + 44;
-    const hourStereo44k = 3_600 * 44_100 * 2 * 2 + 44;
-    expect(hourMono16k).toBeLessThan(120 * 1024 * 1024);
-    expect(hourMono16k).toBeLessThan(hourStereo44k / 5);
+  it("16 kHz 语音分段目标保证单段远低于 100MB", () => {
+    const seconds = maxSpeechWavPartSeconds(SPEECH_ASR_SAMPLE_RATE, SPEECH_WAV_PART_TARGET_BYTES);
+    const bytes = seconds * SPEECH_ASR_SAMPLE_RATE * 2 + 44;
+    expect(seconds).toBeGreaterThan(10 * 60);
+    expect(bytes).toBeLessThanOrEqual(SPEECH_WAV_PART_TARGET_BYTES + SPEECH_ASR_SAMPLE_RATE * 2);
+    expect(bytes).toBeLessThan(100 * 1024 * 1024);
   });
 });

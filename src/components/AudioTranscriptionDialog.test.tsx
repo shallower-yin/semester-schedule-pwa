@@ -38,7 +38,7 @@ describe("AI 音频转写", () => {
 
     expect(screen.getByText(/1\. 长录音\.mp3/)).toBeInTheDocument();
     expect(screen.getByText("8.0 MB")).toBeInTheDocument();
-    expect(screen.getByText(/单个文件不超过 100 MB/)).toBeInTheDocument();
+    expect(screen.getByText(/单个源文件不超过 100 MB|单个文件不超过 100 MB/)).toBeInTheDocument();
   });
 
   it("浏览器提供音频 File 时支持粘贴并保留文件选择器", () => {

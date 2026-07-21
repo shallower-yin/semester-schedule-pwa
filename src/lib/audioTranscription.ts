@@ -58,6 +58,8 @@ interface AudioPlanResult {
 
 export const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 export const MAX_AUDIO_FILES = 6;
+/** After long M4A is split into speech-WAV parts for upload. */
+export const MAX_PREPARED_AUDIO_FILES = 24;
 
 /**
  * Progress stages:
@@ -85,6 +87,9 @@ export async function transcribeAudioFiles(input: {
   try {
     // M4A/OGG/FLAC over the ASR chunk limit often fail as raw container bytes; convert to compact mono speech WAV first.
     const preparedFiles = await prepareFilesForAsr(input.files, input.onProgress);
+    if (preparedFiles.length > MAX_PREPARED_AUDIO_FILES) {
+      throw new Error(`转换后分段过多（${preparedFiles.length} 段），请先把录音拆成更短的文件再试。`);
+    }
     for (let index = 0; index < preparedFiles.length; index += 1) {
       const file = preparedFiles[index];
       input.onProgress?.(index, preparedFiles.length, file.name);
@@ -163,9 +168,8 @@ async function invokeSingleTranscription(
 
 /**
  * Convert container formats that ASR rejects after naive splitting.
- * Old path: full-quality multi-channel WAV (often 10× larger → over 100MB).
- * New path: browser Web Audio only (no Python/ffmpeg) → mono speech WAV at
- * 16/12/8 kHz so a ~64MB M4A stays under the upload ceiling.
+ * Prefer 16 kHz mono (speech-ASR standard) and split long audio into multiple
+ * upload-safe WAV parts instead of lowering quality or sending one huge file.
  */
 async function prepareFilesForAsr(
   files: File[],
@@ -179,13 +183,10 @@ async function prepareFilesForAsr(
       prepared.push(file);
       continue;
     }
-    onProgress?.(0, 1, `正在将 ${file.name} 转为语音 WAV（单声道、压缩体积）…`);
+    onProgress?.(0, 1, `正在将 ${file.name} 转为 16kHz 语音 WAV 并分段…`);
     try {
-      const converted = await convertAudioFileToSpeechWav(file);
-      if (converted.size > MAX_AUDIO_BYTES) {
-        throw new Error(`转换后仍超过 100 MB（约 ${formatMegabytes(converted.size)}），请先剪辑或拆分录音`);
-      }
-      prepared.push(converted);
+      const parts = await convertAudioFileToSpeechParts(file, onProgress);
+      prepared.push(...parts);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "转换失败";
       throw new Error(`“${file.name}”无法自动转换为可转写格式（${reason}）。请先导出为标准 MP3 后重试。`);
@@ -194,8 +195,16 @@ async function prepareFilesForAsr(
   return prepared;
 }
 
-/** Browser-only: AudioContext decode + mono low-rate WAV. No native ffmpeg/Python. */
-export async function convertAudioFileToSpeechWav(file: File): Promise<File> {
+/** 16 kHz mono speech is the usual ASR operating point for clear speech. */
+export const SPEECH_ASR_SAMPLE_RATE = 16_000;
+/** Each converted part stays well under the server 100MB create-upload gate. */
+export const SPEECH_WAV_PART_TARGET_BYTES = 40 * 1024 * 1024;
+
+/** Browser-only: decode → mono 16 kHz → split into upload-safe WAV parts. No Python/ffmpeg. */
+export async function convertAudioFileToSpeechParts(
+  file: File,
+  onProgress?: (completed: number, total: number, step: string) => void
+): Promise<File[]> {
   if (typeof AudioContext === "undefined" && typeof (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext === "undefined") {
     throw new Error("当前环境不支持音频解码");
   }
@@ -205,33 +214,41 @@ export async function convertAudioFileToSpeechWav(file: File): Promise<File> {
     const bytes = await file.arrayBuffer();
     const decoded = await context.decodeAudioData(bytes.slice(0));
     const duration = Math.max(0.01, decoded.duration);
-    // Prefer speech-friendly 16 kHz; step down so estimated PCM stays under the 100MB cap.
-    const rates = [16_000, 12_000, 8_000] as const;
-    let lastSize = 0;
-    for (const rate of rates) {
-      const estimated = Math.ceil(duration * rate) * 2 + 44;
-      if (estimated > MAX_AUDIO_BYTES) continue;
-      const mono = await downsampleToMono(decoded, rate, context);
-      const wav = encodeMonoWav(mono.getChannelData(0), rate);
-      lastSize = wav.size;
-      if (wav.size <= MAX_AUDIO_BYTES) {
-        const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
-        return new File([wav], `${baseName}.wav`, { type: "audio/wav" });
+    const partSeconds = maxSpeechWavPartSeconds(SPEECH_ASR_SAMPLE_RATE, SPEECH_WAV_PART_TARGET_BYTES);
+    const partCount = Math.max(1, Math.ceil(duration / partSeconds));
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
+    const parts: File[] = [];
+
+    for (let index = 0; index < partCount; index += 1) {
+      const startSec = index * partSeconds;
+      const lengthSec = Math.min(partSeconds, duration - startSec);
+      if (lengthSec <= 0.01) break;
+      onProgress?.(index, partCount, `转换分段 ${index + 1}/${partCount}…`);
+      const mono = await renderMonoSpeechSegment(decoded, startSec, lengthSec, SPEECH_ASR_SAMPLE_RATE, context);
+      const wav = encodeMonoWav(mono.getChannelData(0), SPEECH_ASR_SAMPLE_RATE);
+      if (wav.size > MAX_AUDIO_BYTES) {
+        throw new Error(`第 ${index + 1} 段转换后仍超过 100 MB（约 ${formatMegabytes(wav.size)}）`);
       }
+      const suffix = partCount > 1 ? `-${String(index + 1).padStart(2, "0")}` : "";
+      parts.push(new File([wav], `${baseName}${suffix}.wav`, { type: "audio/wav" }));
+      onProgress?.(index + 1, partCount, `转换分段 ${index + 1}/${partCount}…`);
     }
-    throw new Error(
-      lastSize > 0
-        ? `转换后仍超过 100 MB（约 ${formatMegabytes(lastSize)}）`
-        : `录音过长（约 ${Math.round(duration / 60)} 分钟），请拆成多段后重试`
-    );
+    if (!parts.length) throw new Error("转换结果为空");
+    return parts;
   } finally {
     await context.close().catch(() => undefined);
   }
 }
 
-/** Mix channels and resample for speech ASR (browser offline graph, no ffmpeg). */
-export async function downsampleToMono(
+export function maxSpeechWavPartSeconds(sampleRate: number, targetBytes: number): number {
+  const payload = Math.max(sampleRate * 2, targetBytes - 44);
+  return Math.max(30, Math.floor(payload / (sampleRate * 2)));
+}
+
+export async function renderMonoSpeechSegment(
   buffer: AudioBuffer,
+  startSec: number,
+  durationSec: number,
   targetRate: number,
   liveContext?: AudioContext
 ): Promise<AudioBuffer> {
@@ -239,12 +256,12 @@ export async function downsampleToMono(
     || (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
   if (!OfflineCtor) throw new Error("当前环境不支持音频重采样");
   const monoSource = mixChannelsToMonoBuffer(buffer, liveContext);
-  const frameCount = Math.max(1, Math.ceil(monoSource.duration * targetRate));
+  const frameCount = Math.max(1, Math.ceil(durationSec * targetRate));
   const offline = new OfflineCtor(1, frameCount, targetRate);
   const source = offline.createBufferSource();
   source.buffer = monoSource;
   source.connect(offline.destination);
-  source.start(0);
+  source.start(0, Math.max(0, startSec), Math.max(0.01, durationSec));
   return offline.startRendering();
 }
 
