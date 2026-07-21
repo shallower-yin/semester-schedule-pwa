@@ -2003,50 +2003,22 @@ async function transcribeUploadedAudios(
   const parts: string[] = [];
   let transcriptionUsage = emptyUsage();
   const resultsByFile: Array<Array<{ transcript: string; usage: AiAssistantUsage }>> = audios.map(() => []);
-  const rangeTasks: Array<{
-    audio: UploadedAudioInput;
-    fileIndex: number;
-    chunkIndex: number;
-    chunkCount: number;
-    nominalStart: number;
-    nominalEnd: number;
-    fetchStart: number;
-    fetchEnd: number;
-  }> = [];
-  const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
 
   for (let fileIndex = 0; fileIndex < audios.length; fileIndex += 1) {
     throwIfAborted(signal);
     const audio = audios[fileIndex];
     const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
     if (isLargeMp3) {
-      // Prefer client-orchestrated progressive path for long MP3 (plan + per-chunk + finalize).
-      // Keep server-side range tasks as fallback when the client still uses a single invoke.
-      let objectSize: number;
-      try {
-        objectSize = await headR2AudioObject(audio.objectKey);
-      } catch (error) {
-        throw new DiagnosticError(
-          error instanceof Error ? error.message : "临时音频文件读取失败，请重新上传后重试。",
-          { stage: "r2_head", fileName: audio.name, objectKey: audio.objectKey }
-        );
-      }
-      const chunkCount = Math.ceil(objectSize / nominalChunkBytes);
-      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-        const nominalStart = chunkIndex * nominalChunkBytes;
-        const nominalEnd = Math.min(objectSize - 1, nominalStart + nominalChunkBytes - 1);
-        rangeTasks.push({
-          audio,
-          fileIndex,
-          chunkIndex,
-          chunkCount,
-          nominalStart,
-          nominalEnd,
-          fetchStart: Math.max(0, nominalStart - MP3_RANGE_OVERLAP_BYTES),
-          fetchEnd: Math.min(objectSize - 1, nominalEnd + MP3_RANGE_OVERLAP_BYTES)
-        });
-      }
-      continue;
+      // Do NOT process a 50MB+ MP3 inside one Edge invocation (many MiMo calls + long wall time).
+      // Client must use plan_audio_transcription + transcribe_audio_range (progress 1/N).
+      throw new DiagnosticError(
+        `音频「${audio.name}」体积较大，不能整包一次转写（易超时且可能重复计费）。请更新应用后重试，界面应显示「正在转写 1/多 段」。`,
+        {
+          stage: "require_client_progressive",
+          fileName: audio.name,
+          size: audio.size
+        }
+      );
     }
 
     let rawBytes: Uint8Array;
@@ -2071,14 +2043,6 @@ async function transcribeUploadedAudios(
       transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length, signal), signal
     );
   }
-
-  const rangeConcurrency = rangeTasks.length > 6 ? 1 : 2;
-  const rangeResults = await mapWithRetryIsolation(rangeTasks, rangeConcurrency, (task) =>
-    transcribeRemoteAudioRange(task, body.audioLanguage, userId, authorization, signal), signal
-  );
-  rangeTasks.forEach((task, index) => {
-    resultsByFile[task.fileIndex][task.chunkIndex] = rangeResults[index];
-  });
 
   for (let index = 0; index < audios.length; index += 1) {
     const audio = audios[index];

@@ -64,6 +64,19 @@ export const MAX_AUDIO_FILES = 6;
  * re-download 40MB blobs and time out with a useless generic M4A error.
  */
 export const MAX_PREPARED_AUDIO_FILES = 80;
+/** Align with server MAX_ASR_AUDIO_CHUNK_BYTES — larger MP3 must use progressive ranges. */
+export const LARGE_MP3_BYTES = 7_000_000;
+const MP3_RANGE_OVERLAP_BYTES = 4_096;
+
+export function isLargeMp3Upload(file: { name: string; size: number }): boolean {
+  return file.name.toLowerCase().endsWith(".mp3") && file.size > LARGE_MP3_BYTES;
+}
+
+/** How many progressive ASR ranges a large MP3 will need (UI + diagnostics). */
+export function estimateLargeMp3ChunkCount(sizeBytes: number): number {
+  const nominal = Math.max(1, LARGE_MP3_BYTES - MP3_RANGE_OVERLAP_BYTES * 2);
+  return Math.max(1, Math.ceil(Math.max(1, sizeBytes) / nominal));
+}
 
 /**
  * Progress stages:
@@ -122,35 +135,33 @@ export async function transcribeAudioFiles(input: {
 
     const plan = await planAudioTranscription(uploaded, input.language, input.accessCode, input.signal);
     if (plan.strategy === "progressive" && plan.tasks.length) {
-      try {
-        const progressive = await runProgressiveTranscription({
-          uploaded,
-          plan,
-          language: input.language,
-          summarize: input.summarize,
-          accessCode: input.accessCode,
-          signal: input.signal,
-          onProgress: input.onProgress,
-          fileNames: prepared.map((part) => part.file.name)
-        });
-        retainUploadedObjects = true;
-        return progressive;
-      } catch (progressiveError) {
-        // Fall back to the proven single server job so web 100MB MP3 still works if progressive fails.
-        if (input.signal?.aborted) throw progressiveError;
-        input.onProgress?.(0, 1, "转写中");
-        const fallback = await invokeSingleTranscription(uploaded, input.language, input.summarize, input.accessCode, input.signal);
-        retainUploadedObjects = true;
-        input.onProgress?.(1, 1, "整理结果");
-        return {
-          ...fallback,
-          files: prepared.map((part) => part.file.name),
-          conversation: []
-        };
-      }
+      // CRITICAL: never fall back to one Edge job for the whole large MP3.
+      // That shows "1/1", runs many MiMo calls server-side (billing), then the long HTTP
+      // often dies on the phone → false "尚未调用语音模型" after money was spent.
+      const progressive = await runProgressiveTranscription({
+        uploaded,
+        plan,
+        language: input.language,
+        summarize: input.summarize,
+        accessCode: input.accessCode,
+        signal: input.signal,
+        onProgress: input.onProgress,
+        fileNames: prepared.map((part) => part.file.name)
+      });
+      retainUploadedObjects = true;
+      return progressive;
     }
 
-    input.onProgress?.(0, 1, "转写中");
+    const largeMp3 = uploaded.find((audio) => isLargeMp3Upload(audio));
+    if (largeMp3) {
+      const expected = estimateLargeMp3ChunkCount(largeMp3.size);
+      throw new Error(
+        `「${largeMp3.name}」约 ${formatMegabytes(largeMp3.size)}，应按约 ${expected} 段分段转写，但云端未返回分段计划。请稍后重试；不要反复整文件硬转，以免重复计费。`
+      );
+    }
+
+    // Small single-file job only (progress 1/1 is correct here).
+    input.onProgress?.(1, 1, "转写中");
     const data = await invokeSingleTranscription(uploaded, input.language, input.summarize, input.accessCode, input.signal);
     retainUploadedObjects = true;
     input.onProgress?.(1, 1, "整理结果");
@@ -677,60 +688,140 @@ async function runProgressiveTranscription(input: {
 }): Promise<AudioTranscriptionResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const total = Math.max(1, input.plan.totalChunks || input.plan.tasks.length);
-  const segmentsByFile: string[][] = input.uploaded.map(() => []);
+  const segmentsByFile: Array<Array<string | null>> = input.uploaded.map(() => []);
+  const failedParts: string[] = [];
+  let cancelled = false;
 
-  // Sort by file then chunk so UI counts 1..N in natural order.
+  // Sort by file then chunk so UI counts 1..N in natural order (e.g. 1/8 … 8/8 for ~50MB MP3).
   const tasks = [...input.plan.tasks].sort((left, right) =>
     left.fileIndex === right.fileIndex ? left.chunkIndex - right.chunkIndex : left.fileIndex - right.fileIndex
   );
 
   for (let index = 0; index < tasks.length; index += 1) {
-    if (input.signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
+    if (input.signal?.aborted) {
+      cancelled = true;
+      break;
+    }
     const task = tasks[index];
-    // 1-based current chunk for UI: 1/14 … 14/14
+    // 1-based current chunk for UI: 1/8 … 8/8
     input.onProgress?.(index + 1, total, "转写中");
-    const segment = await transcribeSignedAudioRange(task, input.signal);
-    if (!segmentsByFile[task.fileIndex]) segmentsByFile[task.fileIndex] = [];
-    segmentsByFile[task.fileIndex][task.chunkIndex] = segment;
+    try {
+      const segment = await transcribeSignedAudioRange(task, input.signal);
+      if (!segmentsByFile[task.fileIndex]) segmentsByFile[task.fileIndex] = [];
+      segmentsByFile[task.fileIndex][task.chunkIndex] = segment;
+    } catch (error) {
+      if (input.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        cancelled = true;
+        break;
+      }
+      const message = error instanceof Error ? error.message : "分段转写失败";
+      failedParts.push(`第 ${index + 1}/${total} 段：${message}`);
+      if (!segmentsByFile[task.fileIndex]) segmentsByFile[task.fileIndex] = [];
+      segmentsByFile[task.fileIndex][task.chunkIndex] = null;
+    }
     input.onProgress?.(index + 1, total, "转写中");
   }
 
-  // Fill any holes with empty checks
-  for (let fileIndex = 0; fileIndex < input.uploaded.length; fileIndex += 1) {
-    const segments = (segmentsByFile[fileIndex] ?? []).map((item) => String(item ?? "").trim());
-    if (!segments.length || segments.some((item) => !item)) {
-      const missing = segments.findIndex((item) => !item);
-      throw new Error(
-        missing >= 0
-          ? `音频“${input.uploaded[fileIndex].name}”第 ${missing + 1} 段转写结果缺失，请重试。`
-          : `音频“${input.uploaded[fileIndex].name}”转写结果为空，请重试。`
-      );
-    }
-    segmentsByFile[fileIndex] = segments;
+  // Flatten in chronological task order for a stable transcript (not sparse-array holes).
+  const orderLabels: string[] = [];
+  const orderedSegments: Array<string | null> = [];
+  for (const task of tasks) {
+    orderLabels.push(
+      tasks.length > 1
+        ? `第 ${task.chunkIndex + 1}/${task.chunkCount} 段 · 字节 ${task.nominalStart}–${task.nominalEnd}`
+        : input.fileNames[task.fileIndex] || task.fileName
+    );
+    orderedSegments.push(segmentsByFile[task.fileIndex]?.[task.chunkIndex] ?? null);
   }
 
-  input.onProgress?.(total, total, "整理结果");
-  const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
-    signal: input.signal,
-    body: {
-      action: "finalize_audio_transcription",
-      audios: input.uploaded,
-      audioSegmentResults: input.uploaded.map((audio, fileIndex) => ({
-        name: audio.name,
-        objectKey: audio.objectKey,
-        segments: segmentsByFile[fileIndex]
-      })),
-      summarizeAudio: input.summarize,
-      accessCode: input.accessCode?.trim() || undefined
-    }
-  });
-  if (error) throw new Error(await audioFunctionError(error));
-  if (!data?.transcript?.trim()) throw new Error("没有识别到有效语音内容。");
-  return {
-    ...data,
+  const successCount = orderedSegments.filter((text) => Boolean(text?.trim())).length;
+  if (!successCount) {
+    if (cancelled) throw new DOMException("操作已取消。", "AbortError");
+    throw new Error(failedParts[0] || "没有识别到有效语音内容。");
+  }
+
+  const transcript = joinSequentialTranscripts(orderLabels, orderedSegments);
+  const partialError = failedParts.length || cancelled
+    ? [
+        `转写已部分完成（${successCount}/${total} 段）`,
+        cancelled ? "后续分段因取消未继续。" : null,
+        failedParts.length
+          ? failedParts.slice(0, 3).join("；") + (failedParts.length > 3 ? ` 等共 ${failedParts.length} 段失败。` : "")
+          : null
+      ].filter(Boolean).join("。")
+    : null;
+
+  const base: AudioTranscriptionResult = {
+    transcript,
+    summary: null,
+    warning: partialError,
+    model: "mimo-v2.5-asr-chunked",
     files: input.fileNames,
     conversation: []
   };
+
+  if (!input.summarize || partialError) {
+    return base;
+  }
+
+  input.onProgress?.(total, total, "整理结果");
+  try {
+    // Only finalize successful segments; keep client chronological transcript as source of truth.
+    const successPayload = tasks
+      .map((task) => ({
+        task,
+        text: segmentsByFile[task.fileIndex]?.[task.chunkIndex]
+      }))
+      .filter((item) => Boolean(item.text?.trim()));
+
+    // Group by file for server finalize shape.
+    const byFile = input.uploaded.map((audio, fileIndex) => {
+      const segs = successPayload
+        .filter((item) => item.task.fileIndex === fileIndex)
+        .sort((a, b) => a.task.chunkIndex - b.task.chunkIndex)
+        .map((item) => item.text || "");
+      return { audio, segments: segs };
+    }).filter((item) => item.segments.length);
+
+    const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+      signal: input.signal,
+      body: {
+        action: "finalize_audio_transcription",
+        audios: byFile.map(({ audio }) => ({
+          name: audio.name,
+          mimeType: audio.mimeType,
+          size: Math.max(1, audio.size),
+          objectKey: audio.objectKey
+        })),
+        audioSegmentResults: byFile.map(({ audio, segments }) => ({
+          name: audio.name,
+          objectKey: audio.objectKey,
+          segments
+        })),
+        summarizeAudio: true,
+        skipAudioObjectCleanup: true,
+        accessCode: input.accessCode?.trim() || undefined
+      }
+    });
+    if (error) {
+      return {
+        ...base,
+        warning: `转写已完成，但摘要生成失败：${await audioFunctionError(error)}`
+      };
+    }
+    return {
+      ...base,
+      summary: data?.summary ?? null,
+      warning: data?.warning ?? null,
+      model: data?.model || base.model
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "摘要生成失败";
+    return {
+      ...base,
+      warning: `转写已完成，但摘要生成失败：${message}`
+    };
+  }
 }
 
 async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSignal): Promise<string> {
@@ -921,9 +1012,8 @@ async function deleteUploadedAudio(objectKey: string): Promise<void> {
 /**
  * Map Supabase Functions errors to user-facing Chinese.
  *
- * Important: "无法连接…" means the browser never finished talking to **our** Edge Function
- * (haifsnaupqhlvgfoyvlc.supabase.co). In that case MiMo is never called — the official
- * MiMo console will correctly show zero ASR requests. That is NOT the same as MiMo rejecting audio.
+ * Do NOT claim "语音模型尚未调用". A long Edge job can call MiMo many times (billing),
+ * then the phone drops the HTTP response — console shows spend + client shows fetch error.
  */
 async function audioFunctionError(error: unknown): Promise<string> {
   const fallback = error instanceof Error && error.message ? error.message : "音频处理失败。";
@@ -952,28 +1042,25 @@ async function audioFunctionError(error: unknown): Promise<string> {
         // Use the public fallback below.
       }
     }
-    // Had an HTTP response but empty body — still reached our gateway, not a pure offline failure.
     if (context.status === 504 || context.status === 408) {
-      return `音频处理超时（HTTP ${context.status}）。请求可能在到达语音模型前被网关中断，请在 Wi‑Fi 下重试该分段。`;
+      return `云端处理超时（HTTP ${context.status}）。大文件请确认进度为「N/多段」；超时前可能已产生模型费用，请只重试失败分段。`;
     }
     if (context.status >= 500) {
-      return `音频处理服务暂时不可用（HTTP ${context.status}），请稍后重试。`;
+      return `云端转写服务暂时不可用（HTTP ${context.status}），请稍后重试。`;
     }
   }
 
-  // FunctionsFetchError / browser network: request never completed to Edge → MiMo never runs.
   if (
     name === "FunctionsFetchError"
     || /Failed to (send|fetch)|NetworkError|fetch failed|Load failed|ERR_NETWORK|ECONNRESET/i.test(fallback)
   ) {
-    return "无法连接到云端转写服务（尚未调用语音模型）。请检查网络后重试；若在手机上，建议切换稳定 Wi‑Fi，并保持应用在前台。";
+    return "与云端的连接中断。若已转写一段时间，语音模型可能已处理部分分段并产生费用；请用稳定 Wi‑Fi、保持应用在前台后重试（进度应为 1/多 段，不要只看到 1/1）。";
   }
   if (/超时|timeout|timed out/i.test(fallback)) {
-    return "等待云端转写超时（可能尚未到达语音模型）。请稍后重试该分段，或换更稳定网络。";
+    return "等待云端响应超时。大文件整包转写极易超时且可能已计费；请更新后按多段进度重试。";
   }
   if (fallback.includes("non-2xx")) {
-    // Supabase often only returns "non-2xx" when the body was not parsed.
-    return "云端转写服务返回了错误，请稍后重试。若刚完成格式转换，请保持网络稳定后再试一次。";
+    return "云端转写服务返回了错误，请稍后重试。";
   }
   return fallback;
 }

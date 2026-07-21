@@ -116,7 +116,7 @@ describe("R2 音频转写上传", () => {
     expect(result.warning).toMatch(/部分完成/);
   });
 
-  it("大 MP3 走分段计划并上报 1/N 进度", async () => {
+  it("大 MP3 走分段计划并上报 1/N 进度，且不会回退成 1/1 整包", async () => {
     const progress = vi.fn();
     invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown>; headers?: Record<string, string> }) => {
       if (options.body.action === "create_audio_upload") {
@@ -172,9 +172,13 @@ describe("R2 音频转写上传", () => {
       }
       if (options.body.action === "finalize_audio_transcription") {
         return {
-          data: { transcript: "段1\n\n段2", summary: "摘要", model: "mimo-v2.5-asr-chunked" },
+          data: { transcript: "should-not-replace-client-order", summary: "摘要", model: "mimo-v2.5-asr-chunked" },
           error: null
         };
+      }
+      // Monolithic single-job mode must not be used for large MP3.
+      if (options.body.mode === "audio_transcription") {
+        return { data: null, error: new Error("should-not-fallback-to-single") };
       }
       return { data: null, error: new Error("unexpected") };
     });
@@ -189,11 +193,41 @@ describe("R2 音频转写上传", () => {
     });
 
     expect(result.transcript).toContain("段1");
+    expect(result.transcript).toContain("段2");
+    expect(result.summary).toBe("摘要");
     expect(progress).toHaveBeenCalledWith(1, 2, "转写中");
     expect(progress).toHaveBeenCalledWith(2, 2, "转写中");
     expect(progress).toHaveBeenCalledWith(2, 2, "整理结果");
     const rangeCalls = invokeMock.mock.calls.filter(([, options]) => options.body.action === "transcribe_audio_range");
     expect(rangeCalls).toHaveLength(2);
+    const singleJobs = invokeMock.mock.calls.filter(([, options]) => options.body.mode === "audio_transcription");
+    expect(singleJobs).toHaveLength(0);
+  });
+
+  it("大 MP3 若云端未返回分段计划则直接失败，禁止 1/1 整包", async () => {
+    invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
+      if (options.body.action === "create_audio_upload") {
+        return {
+          data: {
+            objectKey: "ai-audio/user-1/long.mp3",
+            uploadUrl: "https://upload.example/long",
+            expiresAt: new Date().toISOString()
+          },
+          error: null
+        };
+      }
+      if (options.body.action === "plan_audio_transcription") {
+        return { data: { strategy: "single", totalChunks: 1, tasks: [] }, error: null };
+      }
+      return { data: null, error: new Error("unexpected single job") };
+    });
+    const large = new File([new Uint8Array(8)], "1. 张宏伟1.mp3", { type: "audio/mpeg" });
+    Object.defineProperty(large, "size", { value: 49.7 * 1024 * 1024 });
+    await expect(transcribeAudioFiles({
+      files: [large],
+      language: "auto",
+      summarize: true
+    })).rejects.toThrow(/分段计划|多段/);
   });
 
   it("后续文件上传失败时清理已经上传的临时对象", async () => {

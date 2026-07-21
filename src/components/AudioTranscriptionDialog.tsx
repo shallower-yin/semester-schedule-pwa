@@ -101,9 +101,17 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
               const safeTotal = Math.max(1, total);
               const display = Math.min(safeTotal, Math.max(1, completed));
               const percent = Math.round((display / safeTotal) * 100);
-              reportProgress(`正在转写 ${display}/${safeTotal} 段`, percent);
+              // Large MP3 must show 1/N. If total is 1, say so clearly (small file only).
+              reportProgress(
+                safeTotal > 1
+                  ? `正在转写 ${display}/${safeTotal} 段`
+                  : `正在转写（单段文件）`,
+                percent
+              );
             } else if (step === "整理结果") {
               reportProgress(total > 1 ? `分段转写完成（${total}/${total}），正在整理结果…` : "正在整理结果…", 100);
+            } else if (step.includes("转换分段") || step.includes("转为")) {
+              reportProgress(step, typeof completed === "number" && total > 0 ? Math.round((completed / total) * 100) : 0);
             } else {
               // Upload phase: completed is finished count (0..total), show next file as completed+1.
               const currentFile = Math.min(total, Math.max(1, completed + 1));
