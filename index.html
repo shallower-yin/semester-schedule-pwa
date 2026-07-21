@@ -19,13 +19,37 @@
       });
       // Recover from broken offline updates (white screen after mixed cache / wrong base path).
       (function () {
-        var KEY = "semester-schedule-boot-recover";
-        if (/[?&]recovered=/.test(location.search)) return;
-        function recover() {
-          if (sessionStorage.getItem(KEY)) return;
-          sessionStorage.setItem(KEY, "1");
+        var KEY = "semester-schedule-boot-recover-count";
+        var attempts = Number(sessionStorage.getItem(KEY) || "0");
+        function showBanner(text) {
+          try {
+            var existing = document.getElementById("boot-recover-banner");
+            if (existing) {
+              existing.textContent = text;
+              return;
+            }
+            var banner = document.createElement("div");
+            banner.id = "boot-recover-banner";
+            banner.setAttribute("role", "status");
+            banner.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;background:#f7f8fc;color:#172033;font:600 15px/1.5 system-ui,sans-serif;text-align:center;";
+            banner.textContent = text;
+            document.body.appendChild(banner);
+          } catch (_) {}
+        }
+        function recover(force) {
+          if (!force && attempts >= 2) {
+            showBanner("应用加载失败。请关闭后重新打开，或清除本站数据后再试。");
+            return;
+          }
+          if (!force && attempts >= 1 && /[?&](recovered|reload)=/.test(location.search)) {
+            // Already tried once this session; wait for second empty-root pass.
+          }
+          attempts += 1;
+          sessionStorage.setItem(KEY, String(attempts));
+          showBanner("检测到页面异常，正在清理缓存并重新加载…");
           var done = function () {
-            location.replace(location.pathname + "?recovered=" + Date.now() + location.hash);
+            var url = location.pathname + "?recovered=" + Date.now() + location.hash;
+            location.replace(url);
           };
           var clearCaches = function () {
             if (!("caches" in window)) return Promise.resolve();
@@ -43,15 +67,28 @@
         }
         window.addEventListener("error", function (event) {
           var target = event && event.target;
-          if (target && (target.tagName === "SCRIPT" || target.tagName === "LINK")) recover();
+          if (target && (target.tagName === "SCRIPT" || target.tagName === "LINK")) recover(false);
         }, true);
-        window.addEventListener("unhandledrejection", function () {
-          // Ignore ordinary app promise failures; only empty-root timeout recovers.
-        });
+        // Faster first check — offline-update white screens should not wait 10s.
         window.setTimeout(function () {
           var root = document.getElementById("root");
-          if (root && !root.childElementCount) recover();
-        }, 10000);
+          if (root && !root.childElementCount) recover(false);
+        }, 3500);
+        window.setTimeout(function () {
+          var root = document.getElementById("root");
+          if (root && !root.childElementCount) recover(true);
+        }, 12000);
+        // Successful boot: reset counter so future updates can recover again.
+        window.addEventListener("load", function () {
+          window.setTimeout(function () {
+            var root = document.getElementById("root");
+            if (root && root.childElementCount) {
+              try { sessionStorage.removeItem(KEY); } catch (_) {}
+              var banner = document.getElementById("boot-recover-banner");
+              if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+            }
+          }, 800);
+        });
       })();
     </script>
   </head>

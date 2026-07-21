@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRelease } from "./appRelease";
-import { assertIndexMatchesAppBase, installOfflineAppUpdate, rewriteRootAbsolutePaths } from "./offlineAppUpdate";
+import {
+  assertIndexMatchesAppBase,
+  installOfflineAppUpdate,
+  needsBaseRewrite,
+  rewriteRootAbsolutePaths
+} from "./offlineAppUpdate";
 
 class MemoryCache {
   private entries = new Map<string, Response>();
@@ -111,6 +116,12 @@ describe("免代理应用更新", () => {
       '<script src="/semester-schedule-pwa/assets/index.js"></script>',
       "/semester-schedule-pwa/"
     )).not.toThrow();
+  });
+
+  it("已带正确 base 的镜像包不再二次改写路径", () => {
+    const html = '<script src="/semester-schedule-pwa/assets/index-abc.js"></script>';
+    expect(needsBaseRewrite(html, "/semester-schedule-pwa/")).toBe(false);
+    expect(needsBaseRewrite('<script src="/assets/index-abc.js"></script>', "/semester-schedule-pwa/")).toBe(true);
   });
 });
 

@@ -21,9 +21,8 @@ export interface OfflineUpdateProgress {
 
 /**
  * Install mirror assets into the current origin's Cache Storage.
- * Rewrites root-absolute paths (mirror built with base "/") so GitHub Pages
- * under /semester-schedule-pwa/ does not white-screen after update.
- * Never commits index.html to production caches unless path validation passes.
+ * Puts every file into both workbox precache and the runtime offline cache so
+ * a soft reload cannot mix old precached chunks with a new index (white screen).
  */
 export async function installOfflineAppUpdate(
   release: AppRelease,
@@ -42,6 +41,7 @@ export async function installOfflineAppUpdate(
   const tempCacheName = `${TEMP_CACHE_PREFIX}${release.version}`;
   await caches.delete(tempCacheName);
   const tempCache = await caches.open(tempCacheName);
+  const installed = new Map<string, Response>();
 
   try {
     let completed = 0;
@@ -51,30 +51,30 @@ export async function installOfflineAppUpdate(
       });
       if (!response.ok) throw new Error(`下载 ${file} 失败（${response.status}）。`);
       const targetUrl = new URL(file, document.baseURI).href;
-      await tempCache.put(targetUrl, await cleanResponse(response, file, appBase));
+      const cleaned = await cleanResponse(response, file, appBase);
+      await tempCache.put(targetUrl, cleaned.clone());
+      installed.set(targetUrl, cleaned);
       completed += 1;
       onProgress?.({ completed, total: files.length, file });
     });
 
     const indexUrl = new URL("index.html", document.baseURI).href;
-    const indexResponse = await tempCache.match(indexUrl);
+    const indexResponse = installed.get(indexUrl) ?? await tempCache.match(indexUrl);
     if (!indexResponse) throw new Error("更新包入口文件读取失败。");
     const indexHtml = await indexResponse.clone().text();
     assertIndexMatchesAppBase(indexHtml, appBase);
 
-    // Only touch production caches after the entry page is proven safe.
+    // Refresh runtime cache with the full package.
     const runtimeCache = await caches.open(RUNTIME_CACHE);
     for (const request of await runtimeCache.keys()) await runtimeCache.delete(request);
-
-    for (const request of await tempCache.keys()) {
-      const pathname = new URL(request.url).pathname;
-      if (pathname.endsWith("/index.html")) continue;
-      const response = await tempCache.match(request);
-      if (response) await runtimeCache.put(request, response);
+    for (const [url, response] of installed) {
+      if (url === indexUrl || new URL(url).pathname.endsWith("/index.html")) continue;
+      await runtimeCache.put(url, response.clone());
     }
 
-    const replaced = await replacePrecachedIndex(indexUrl, indexResponse);
-    if (!replaced) throw new Error("未找到当前应用入口缓存，请联网刷新一次后重试。");
+    // Also rewrite workbox precache so navigation + modules share one consistent generation.
+    const precacheReady = await replacePrecachePackage(installed, indexUrl);
+    if (!precacheReady) throw new Error("未找到当前应用入口缓存，请联网刷新一次后重试。");
     return files.length;
   } finally {
     await caches.delete(tempCacheName);
@@ -90,8 +90,6 @@ async function fetchAssetManifest(expectedVersion: string): Promise<AppAssetMani
   if (!Array.isArray(value.files) || !value.files.length) {
     throw new Error("更新文件清单无效，请稍后重试。");
   }
-  // Prefer exact version match. Soft-accept the published list when versions diverge so publishing
-  // APK metadata alone cannot hard-break web offline updates.
   const version = typeof value.version === "string" && value.version.trim()
     ? value.version.trim()
     : expectedVersion;
@@ -102,16 +100,37 @@ async function fetchAssetManifest(expectedVersion: string): Promise<AppAssetMani
   };
 }
 
-async function replacePrecachedIndex(indexUrl: string, response: Response): Promise<boolean> {
+async function replacePrecachePackage(installed: Map<string, Response>, indexUrl: string): Promise<boolean> {
   const indexPath = new URL(indexUrl).pathname;
   let replaced = false;
   for (const cacheName of await caches.keys()) {
     if (!cacheName.includes("workbox-precache")) continue;
     const cache = await caches.open(cacheName);
+    // Drop stale hashed modules from previous generations.
     for (const request of await cache.keys()) {
-      if (new URL(request.url).pathname !== indexPath) continue;
-      await cache.put(request, response.clone());
-      replaced = true;
+      const pathname = new URL(request.url).pathname;
+      if (/\.(?:js|mjs|css|html|webmanifest)$/i.test(pathname) || pathname.endsWith("/")) {
+        await cache.delete(request);
+      }
+    }
+    for (const [url, response] of installed) {
+      await cache.put(url, response.clone());
+      if (new URL(url).pathname === indexPath || url === indexUrl) replaced = true;
+    }
+    // Ensure navigation fallback can resolve the current entry path variants.
+    const indexResponse = installed.get(indexUrl);
+    if (indexResponse) {
+      for (const request of await cache.keys()) {
+        if (new URL(request.url).pathname === indexPath) {
+          await cache.put(request, indexResponse.clone());
+          replaced = true;
+        }
+      }
+      // If workbox used a revisioned index key that was deleted, re-seed a plain entry.
+      if (!(await cache.match(indexUrl))) {
+        await cache.put(indexUrl, indexResponse.clone());
+        replaced = true;
+      }
     }
   }
   return replaced;
@@ -120,7 +139,11 @@ async function replacePrecachedIndex(indexUrl: string, response: Response): Prom
 async function cleanResponse(response: Response, file: string, appBase: string): Promise<Response> {
   const type = contentType(file);
   if (shouldRewriteTextAsset(file)) {
-    const text = rewriteRootAbsolutePaths(await response.text(), appBase);
+    let text = await response.text();
+    // Mirror already ships GitHub Pages base — only rewrite root-absolute packages.
+    if (needsBaseRewrite(text, appBase)) {
+      text = rewriteRootAbsolutePaths(text, appBase);
+    }
     return new Response(text, {
       status: 200,
       headers: {
@@ -154,6 +177,14 @@ export function resolveAppBasePath(): string {
   }
 }
 
+export function needsBaseRewrite(content: string, appBase: string): boolean {
+  if (!appBase || appBase === "/") return false;
+  const basePrefix = appBase.endsWith("/") ? appBase.slice(0, -1) : appBase;
+  // Already correctly based HTML/JS — leave alone (avoids double-prefix corruption).
+  if (content.includes(`${basePrefix}/assets/`)) return false;
+  return /(?:src|href)=["']\/(?!\/)/i.test(content) || /["'`]\/assets\//.test(content);
+}
+
 /**
  * Mirror builds often use base "/". When the live app lives under a subpath
  * (GitHub Pages), rewrite root-absolute asset URLs so scripts/CSS resolve.
@@ -164,7 +195,6 @@ export function rewriteRootAbsolutePaths(content: string, appBase: string): stri
   const baseWithoutSlash = base.slice(0, -1);
   const baseBody = baseWithoutSlash.replace(/^\//, "");
   if (!baseBody) return content;
-  // href="/x", src='/x', url(/x), "/assets/...", import(`/assets/...`) — skip // and already-prefixed paths.
   const pattern = new RegExp(
     `([("'=\`\\(])\\/(?!\\/|${escapeRegExp(baseBody)}(?:\\/|"|'|\`|\\)|$))`,
     "g"
@@ -172,10 +202,6 @@ export function rewriteRootAbsolutePaths(content: string, appBase: string): stri
   return content.replace(pattern, `$1${base}`);
 }
 
-/**
- * Refuse to install an entry page whose absolute asset paths would miss the app base
- * (the historical white-screen failure mode on GitHub Pages).
- */
 export function assertIndexMatchesAppBase(html: string, appBase: string): void {
   const base = (!appBase || appBase === "/") ? "/" : (appBase.endsWith("/") ? appBase : `${appBase}/`);
   const refs = Array.from(html.matchAll(/\b(?:src|href)=["']([^"']+)["']/gi)).map((match) => match[1]);
@@ -187,13 +213,10 @@ export function assertIndexMatchesAppBase(html: string, appBase: string): void {
   if (!localAssets.length) {
     throw new Error("更新入口未包含可用脚本或样式，已中止以免白屏。");
   }
-  if (base === "/") {
-    // Root-hosted apps accept root-absolute and relative paths.
-    return;
-  }
+  if (base === "/") return;
   const basePrefix = base.replace(/\/$/, "");
   for (const ref of localAssets) {
-    if (!ref.startsWith("/")) continue; // relative paths resolve via document.baseURI
+    if (!ref.startsWith("/")) continue;
     if (ref === basePrefix || ref.startsWith(`${basePrefix}/`)) continue;
     throw new Error(`更新入口资源路径与当前站点不匹配（${ref}），已中止以免白屏。请使用强制重新加载后重试。`);
   }
@@ -203,7 +226,6 @@ function shouldRewriteTextAsset(file: string): boolean {
   return /\.(html|js|mjs|css|json|webmanifest|svg)$/i.test(file) || file === "manifest.webmanifest";
 }
 
-/** Skip APK packages and service-worker scripts — they break or bloat the web offline path. */
 function isInstallableWebAsset(file: string): boolean {
   if (/\.apk$/i.test(file)) return false;
   if (file === "sw.js" || /^workbox-.*\.js$/i.test(file)) return false;

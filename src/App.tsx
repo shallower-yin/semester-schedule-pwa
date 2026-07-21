@@ -111,6 +111,7 @@ import { appMirrorApkUrl } from "./lib/appHosting";
 import { fetchLatestRelease, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
+import { clearAppCachesAndReload } from "./lib/appBootRecovery";
 import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
 import { isNativeApp } from "./lib/nativeApp";
 import {
@@ -669,7 +670,8 @@ export default function App() {
           setUpdateMessage(`正在下载更新文件 ${completed}/${total}…`);
         });
         setUpdateMessage(`已安装 ${fileCount} 个更新文件，正在重新打开…`);
-        window.location.reload();
+        // Bust the URL so the browser does not reuse a half-rendered document shell.
+        window.location.replace(`${window.location.pathname}?updated=${Date.now()}${window.location.hash}`);
         return;
       } catch (error) {
         mirrorError = error instanceof Error ? error.message : "免代理更新失败。";
@@ -727,18 +729,7 @@ export default function App() {
   async function hardReloadApp() {
     setUpdatingApp(true);
     setUpdateMessage("正在清理缓存并重新加载…");
-    try {
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((key) => caches.delete(key)));
-      }
-    } finally {
-      window.location.replace(`${window.location.pathname}?reload=${Date.now()}${window.location.hash}`);
-    }
+    await clearAppCachesAndReload("reload");
   }
 
   function navigate(nextPage: Page) {
