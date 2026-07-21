@@ -174,16 +174,21 @@ async function invokeSingleTranscription(
   signal?: AbortSignal
 ): Promise<SingleAudioTranscriptionResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
-  const { data, error } = await supabase.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+  // Retry only when the browser never got a response from our Edge Function (not when MiMo already ran).
+  const { data, error } = await invokeAudioFunctionWithTransientRetry(
+    () => supabase!.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+      signal,
+      body: {
+        mode: "audio_transcription",
+        audios: uploaded,
+        audioLanguage: language,
+        summarizeAudio: summarize,
+        accessCode: accessCode?.trim() || undefined
+      }
+    }),
     signal,
-    body: {
-      mode: "audio_transcription",
-      audios: uploaded,
-      audioLanguage: language,
-      summarizeAudio: summarize,
-      accessCode: accessCode?.trim() || undefined
-    }
-  });
+    4
+  );
   if (error) throw new Error(await audioFunctionError(error));
   if (!data?.transcript?.trim()) throw new Error("没有识别到有效语音内容。");
   return data;
@@ -333,9 +338,11 @@ async function invokeSingleTranscriptionWithRetry(
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
       lastError = error instanceof Error ? error : new Error(String(error || "分段转写失败"));
-      if (attempt + 1 < SEQUENTIAL_ASR_ATTEMPTS) {
-        await delay(600 + attempt * 700);
-      }
+      // Only re-attempt when the message still looks like a client↔Edge connectivity problem.
+      // Business errors (quota, format, 4xx body text) should fail the segment once.
+      const retryable = /无法连接|尚未调用|超时|网络|Failed to|fetch|timeout/i.test(lastError.message);
+      if (!retryable || attempt + 1 >= SEQUENTIAL_ASR_ATTEMPTS) break;
+      await delay(600 + attempt * 700);
     }
   }
   throw lastError ?? new Error("分段转写失败");
@@ -844,14 +851,18 @@ async function uploadAudioFile(
 ): Promise<UploadedAudio> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法上传音频。");
   const mimeType = normalizedAudioMimeType(file);
-  const { data, error } = await supabase.functions.invoke<AudioUploadTicket>("ai-assistant", {
+  const { data, error } = await invokeAudioFunctionWithTransientRetry(
+    () => supabase!.functions.invoke<AudioUploadTicket>("ai-assistant", {
+      signal,
+      body: {
+        action: "create_audio_upload",
+        audio: { name: file.name, mimeType, size: file.size },
+        accessCode: accessCode?.trim() || undefined
+      }
+    }),
     signal,
-    body: {
-      action: "create_audio_upload",
-      audio: { name: file.name, mimeType, size: file.size },
-      accessCode: accessCode?.trim() || undefined
-    }
-  });
+    3
+  );
   if (error) throw new Error(await audioFunctionError(error));
   if (!data?.uploadUrl || !data.objectKey) throw new Error("没有获取到有效的音频上传地址。");
 
@@ -907,9 +918,22 @@ async function deleteUploadedAudio(objectKey: string): Promise<void> {
   });
 }
 
+/**
+ * Map Supabase Functions errors to user-facing Chinese.
+ *
+ * Important: "无法连接…" means the browser never finished talking to **our** Edge Function
+ * (haifsnaupqhlvgfoyvlc.supabase.co). In that case MiMo is never called — the official
+ * MiMo console will correctly show zero ASR requests. That is NOT the same as MiMo rejecting audio.
+ */
 async function audioFunctionError(error: unknown): Promise<string> {
   const fallback = error instanceof Error && error.message ? error.message : "音频处理失败。";
+  const name = String((error as { name?: unknown })?.name ?? "");
   const context = (error as { context?: unknown })?.context;
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "操作已取消。";
+  }
+
   if (context instanceof Response) {
     try {
       const payload = await context.clone().json() as { error?: unknown; diagnosticId?: unknown; code?: unknown };
@@ -928,15 +952,64 @@ async function audioFunctionError(error: unknown): Promise<string> {
         // Use the public fallback below.
       }
     }
+    // Had an HTTP response but empty body — still reached our gateway, not a pure offline failure.
+    if (context.status === 504 || context.status === 408) {
+      return `音频处理超时（HTTP ${context.status}）。请求可能在到达语音模型前被网关中断，请在 Wi‑Fi 下重试该分段。`;
+    }
+    if (context.status >= 500) {
+      return `音频处理服务暂时不可用（HTTP ${context.status}），请稍后重试。`;
+    }
   }
-  // Only blame the network when the client truly could not reach the function.
-  if (/Failed to (send|fetch)|NetworkError|fetch failed|Load failed|超时|timeout/i.test(fallback)) {
-    return "无法连接到音频处理服务，请检查网络后重试。若文件很大，可稍后再试。";
+
+  // FunctionsFetchError / browser network: request never completed to Edge → MiMo never runs.
+  if (
+    name === "FunctionsFetchError"
+    || /Failed to (send|fetch)|NetworkError|fetch failed|Load failed|ERR_NETWORK|ECONNRESET/i.test(fallback)
+  ) {
+    return "无法连接到云端转写服务（尚未调用语音模型）。请检查网络后重试；若在手机上，建议切换稳定 Wi‑Fi，并保持应用在前台。";
+  }
+  if (/超时|timeout|timed out/i.test(fallback)) {
+    return "等待云端转写超时（可能尚未到达语音模型）。请稍后重试该分段，或换更稳定网络。";
   }
   if (fallback.includes("non-2xx")) {
-    // Supabase often only returns "non-2xx" when the body was not parsed; avoid blaming M4A
-    // after the client already converted to WAV segments.
-    return "音频处理服务返回了错误，请稍后重试。若刚完成格式转换，请保持网络稳定后再试一次。";
+    // Supabase often only returns "non-2xx" when the body was not parsed.
+    return "云端转写服务返回了错误，请稍后重试。若刚完成格式转换，请保持网络稳定后再试一次。";
   }
   return fallback;
+}
+
+/** Retry only when the browser never got a Response from Supabase Functions (MiMo not reached). */
+async function invokeAudioFunctionWithTransientRetry<T>(
+  request: () => Promise<{ data: T | null; error: unknown }>,
+  signal: AbortSignal | undefined,
+  maxAttempts: number
+): Promise<{ data: T | null; error: unknown }> {
+  let result = await request();
+  for (let attempt = 1; attempt < maxAttempts && result.error && isTransientAudioFunctionError(result.error); attempt += 1) {
+    if (signal?.aborted) return result;
+    // Longer backoff: mobile networks often need a few seconds after a dropped socket.
+    await delay(800 * attempt + Math.floor(Math.random() * 400));
+    if (signal?.aborted) return result;
+    result = await request();
+  }
+  return result;
+}
+
+function isTransientAudioFunctionError(error: unknown): boolean {
+  // If we have an HTTP Response body, the Edge Function (or gateway) answered — do not blind-retry
+  // non-idempotent work unless status is clearly gateway/transient.
+  const context = (error as { context?: unknown })?.context;
+  if (context instanceof Response) {
+    return context.status === 408 || context.status === 429 || context.status === 502 || context.status === 503 || context.status === 504;
+  }
+  const name = String((error as { name?: unknown })?.name ?? "").toLowerCase();
+  const message = String((error as { message?: unknown })?.message ?? error).toLowerCase();
+  return name.includes("fetch")
+    || message.includes("failed to send a request")
+    || message.includes("failed to fetch")
+    || message.includes("networkerror")
+    || message.includes("load failed")
+    || message.includes("err_network")
+    || message.includes("timeout")
+    || message.includes("超时");
 }

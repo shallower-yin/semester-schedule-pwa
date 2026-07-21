@@ -1987,7 +1987,19 @@ async function transcribeUploadedAudios(
 }> {
   // Keep objects until R2 lifecycle expires ai-audio/ (7 days). No immediate delete.
   const credentials = configuredMimoAudioCredentials(settings);
-  if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
+  if (!credentials.apiKey) {
+    throw new DiagnosticError("音频转写服务暂未配置，请联系管理员。", {
+      stage: "mimo_credentials_missing"
+    });
+  }
+  console.log("audio_transcription start", {
+    fileCount: audios.length,
+    endpointHost: (() => {
+      try { return new URL(credentials.endpoint).host; } catch { return "invalid"; }
+    })(),
+    // Do not log the key; only whether payg secret is present on this function instance.
+    hasPaygKey: Boolean(credentials.apiKey)
+  });
   const parts: string[] = [];
   let transcriptionUsage = emptyUsage();
   const resultsByFile: Array<Array<{ transcript: string; usage: AiAssistantUsage }>> = audios.map(() => []);
@@ -2010,7 +2022,15 @@ async function transcribeUploadedAudios(
     if (isLargeMp3) {
       // Prefer client-orchestrated progressive path for long MP3 (plan + per-chunk + finalize).
       // Keep server-side range tasks as fallback when the client still uses a single invoke.
-      const objectSize = await headR2AudioObject(audio.objectKey);
+      let objectSize: number;
+      try {
+        objectSize = await headR2AudioObject(audio.objectKey);
+      } catch (error) {
+        throw new DiagnosticError(
+          error instanceof Error ? error.message : "临时音频文件读取失败，请重新上传后重试。",
+          { stage: "r2_head", fileName: audio.name, objectKey: audio.objectKey }
+        );
+      }
       const chunkCount = Math.ceil(objectSize / nominalChunkBytes);
       for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
         const nominalStart = chunkIndex * nominalChunkBytes;
@@ -2029,7 +2049,22 @@ async function transcribeUploadedAudios(
       continue;
     }
 
-    const chunks = splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType);
+    let rawBytes: Uint8Array;
+    try {
+      rawBytes = await downloadR2AudioObject(audio.objectKey);
+    } catch (error) {
+      throw new DiagnosticError(
+        error instanceof Error ? error.message : "临时音频文件读取失败，请重新上传后重试。",
+        { stage: "r2_download", fileName: audio.name, objectKey: audio.objectKey }
+      );
+    }
+    console.log("audio_transcription r2_ready", {
+      fileName: audio.name,
+      bytes: rawBytes.length,
+      // Next step is the first MiMo ASR HTTP call for this file.
+      next: "mimo_asr"
+    });
+    const chunks = splitAudioForAsr(rawBytes, audio.name, audio.mimeType);
     // Long jobs use lower concurrency to reduce MiMo 429/5xx bursts; short jobs stay at 2.
     const concurrency = chunks.length > 6 ? 1 : 2;
     resultsByFile[fileIndex] = await mapWithRetryIsolation(chunks, concurrency, (chunk, chunkIndex) =>
@@ -2184,6 +2219,16 @@ async function transcribeAudioChunk(
   signal?: AbortSignal
 ): Promise<{ transcript: string; usage: AiAssistantUsage }> {
   const dataUrl = `data:${chunk.mimeType};base64,${bytesToBase64(chunk.bytes)}`;
+  console.log("mimo_asr_request", {
+    fileName,
+    chunk: chunkIndex + 1,
+    chunkCount,
+    chunkBytes: chunk.bytes.length,
+    // Host only — confirms we are about to call MiMo (payg), not still stuck on R2/client.
+    endpointHost: (() => {
+      try { return new URL(credentials.endpoint).host; } catch { return "invalid"; }
+    })()
+  });
   const { ok, status, text } = await fetchTextWithTransientRetry(credentials.endpoint, {
     method: "POST",
     headers: {

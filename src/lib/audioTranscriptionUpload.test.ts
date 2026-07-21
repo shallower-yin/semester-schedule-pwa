@@ -85,7 +85,11 @@ describe("R2 音频转写上传", () => {
         const audios = options.body.audios as Array<{ name?: string }> | undefined;
         const name = audios?.[0]?.name ?? "";
         if (name.includes("02")) {
-          return { data: null, error: new Error("Failed to fetch") };
+          // Non-transient 4xx so the test does not wait on gateway/fetch retries.
+          return { data: null, error: Object.assign(new Error("Edge Function returned a non-2xx status code"), {
+            name: "FunctionsHttpError",
+            context: new Response(JSON.stringify({ error: "本段模拟失败" }), { status: 400 })
+          }) };
         }
         return {
           data: { transcript: `内容${name}`, summary: null, model: "mimo-v2.5-asr-chunked" },
@@ -105,8 +109,8 @@ describe("R2 音频转写上传", () => {
       summarize: false
     });
 
-    // First attempt + retries for the failed middle part, then the third part still runs.
-    expect(asrCalls).toBeGreaterThanOrEqual(3 + 1 + 1);
+    // One attempt per part (middle fails once with non-transient error); later parts still run.
+    expect(asrCalls).toBe(3);
     expect(result.transcript.indexOf("内容seg-01.mp3")).toBeLessThan(result.transcript.indexOf("本段转写失败"));
     expect(result.transcript.indexOf("本段转写失败")).toBeLessThan(result.transcript.indexOf("内容seg-03.mp3"));
     expect(result.warning).toMatch(/部分完成/);
