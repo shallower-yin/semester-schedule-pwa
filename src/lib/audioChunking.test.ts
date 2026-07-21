@@ -56,10 +56,40 @@ describe("audio chunking", () => {
     }
   });
 
+  it("keeps small M4A intact without requiring conversion", () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const chunks = splitAudioForAsr(bytes, "note.m4a", "audio/mp4", 10);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].bytes).toBe(bytes);
+  });
+
+  it("splits raw ADTS AAC / M4A streams on frame boundaries", () => {
+    const frame = createAdtsFrame(200);
+    const bytes = new Uint8Array(frame.length * 6);
+    for (let index = 0; index < 6; index += 1) bytes.set(frame, index * frame.length);
+    const chunks = splitAudioForAsr(bytes, "lecture.m4a", "audio/mp4", frame.length * 2 + 20);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.mimeType === "audio/aac")).toBe(true);
+    expect(chunks.every((chunk) => chunk.bytes[0] === 0xff && (chunk.bytes[1] & 0xf0) === 0xf0)).toBe(true);
+  });
+
   it("rejects large formats that cannot be safely split", () => {
-    expect(() => splitAudioForAsr(new Uint8Array(20), "meeting.m4a", "audio/mp4", 10)).toThrow("仅支持 MP3、WAV 自动分段");
+    expect(() => splitAudioForAsr(new Uint8Array(20), "meeting.flac", "audio/flac", 10)).toThrow(/MP3、WAV、M4A|FLAC/);
   });
 });
+
+function createAdtsFrame(aacPayloadSize: number): Uint8Array {
+  const frameLength = 7 + aacPayloadSize;
+  const bytes = new Uint8Array(frameLength);
+  bytes[0] = 0xff;
+  bytes[1] = 0xf1;
+  bytes[2] = 0x50; // AAC LC, 44.1kHz-ish
+  bytes[3] = 0x80 | ((frameLength >> 11) & 0x03);
+  bytes[4] = (frameLength >> 3) & 0xff;
+  bytes[5] = ((frameLength & 0x07) << 5) | 0x1f;
+  bytes[6] = 0xfc;
+  return bytes;
+}
 
 function createWav(payloadSize: number): Uint8Array {
   const bytes = new Uint8Array(44 + payloadSize);

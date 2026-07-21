@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelAiTask, dismissAiTask, getAiTaskSnapshot, startAiTask } from "./aiBackgroundTasks";
+import { cancelAiTask, dismissAiTask, getAiTaskSnapshot, startAiTask, updateAiTaskProgress } from "./aiBackgroundTasks";
 
 describe("AI 后台任务", () => {
   beforeEach(() => {
@@ -48,6 +48,20 @@ describe("AI 后台任务", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("运行中可以更新进度文案", async () => {
+    startAiTask({
+      feature: "audio_transcription",
+      label: "转写中",
+      run: () => new Promise(() => undefined)
+    });
+    expect(getAiTaskSnapshot("audio_transcription").status).toBe("running");
+    updateAiTaskProgress("audio_transcription", "正在上传 1/2：会议.mp3");
+    expect(getAiTaskSnapshot("audio_transcription").message).toBe("正在上传 1/2：会议.mp3");
+    updateAiTaskProgress("audio_transcription", "上传完成，正在转写…");
+    expect(getAiTaskSnapshot("audio_transcription").message).toBe("上传完成，正在转写…");
+    cancelAiTask("audio_transcription");
   });
 
   it("取消任务会中止请求且不再写入失败状态", async () => {

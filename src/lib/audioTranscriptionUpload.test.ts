@@ -30,6 +30,9 @@ describe("R2 音频转写上传", () => {
           error: null
         };
       }
+      if (options.body.action === "plan_audio_transcription") {
+        return { data: { strategy: "single", totalChunks: 2, tasks: [] }, error: null };
+      }
       return {
         data: { transcript: "转写完成", summary: null, model: "mimo-v2.5-audio-url" },
         error: null
@@ -51,6 +54,86 @@ describe("R2 音频转写上传", () => {
     expect(JSON.stringify(transcriptionCalls[0][1].body)).not.toContain("base64");
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(result.files).toEqual(["上半场.mp3", "下半场.mp3"]);
+  });
+
+  it("大 MP3 走分段计划并上报 1/N 进度", async () => {
+    const progress = vi.fn();
+    invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown>; headers?: Record<string, string> }) => {
+      if (options.body.action === "create_audio_upload") {
+        return {
+          data: {
+            objectKey: "ai-audio/user-1/long.mp3",
+            uploadUrl: "https://upload.example/long",
+            expiresAt: new Date().toISOString()
+          },
+          error: null
+        };
+      }
+      if (options.body.action === "plan_audio_transcription") {
+        return {
+          data: {
+            strategy: "progressive",
+            totalChunks: 2,
+            tasks: [
+              {
+                fileIndex: 0,
+                fileName: "long.mp3",
+                objectKey: "ai-audio/user-1/long.mp3",
+                chunkIndex: 0,
+                chunkCount: 2,
+                language: "zh",
+                nominalStart: 0,
+                nominalEnd: 100,
+                fetchStart: 0,
+                fetchEnd: 100,
+                signature: "sig-1"
+              },
+              {
+                fileIndex: 0,
+                fileName: "long.mp3",
+                objectKey: "ai-audio/user-1/long.mp3",
+                chunkIndex: 1,
+                chunkCount: 2,
+                language: "zh",
+                nominalStart: 101,
+                nominalEnd: 200,
+                fetchStart: 90,
+                fetchEnd: 200,
+                signature: "sig-2"
+              }
+            ]
+          },
+          error: null
+        };
+      }
+      if (options.body.action === "transcribe_audio_range") {
+        const chunkIndex = Number((options.body.audioRange as { chunkIndex?: number })?.chunkIndex ?? 0);
+        return { data: { transcript: `段${chunkIndex + 1}` }, error: null };
+      }
+      if (options.body.action === "finalize_audio_transcription") {
+        return {
+          data: { transcript: "段1\n\n段2", summary: "摘要", model: "mimo-v2.5-asr-chunked" },
+          error: null
+        };
+      }
+      return { data: null, error: new Error("unexpected") };
+    });
+
+    const large = new File([new Uint8Array(8)], "long.mp3", { type: "audio/mpeg" });
+    Object.defineProperty(large, "size", { value: 8 * 1024 * 1024 });
+    const result = await transcribeAudioFiles({
+      files: [large],
+      language: "zh",
+      summarize: true,
+      onProgress: progress
+    });
+
+    expect(result.transcript).toContain("段1");
+    expect(progress).toHaveBeenCalledWith(1, 2, "转写中");
+    expect(progress).toHaveBeenCalledWith(2, 2, "转写中");
+    expect(progress).toHaveBeenCalledWith(2, 2, "整理结果");
+    const rangeCalls = invokeMock.mock.calls.filter(([, options]) => options.body.action === "transcribe_audio_range");
+    expect(rangeCalls).toHaveLength(2);
   });
 
   it("后续文件上传失败时清理已经上传的临时对象", async () => {

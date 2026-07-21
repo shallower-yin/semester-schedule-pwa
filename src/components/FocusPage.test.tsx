@@ -9,7 +9,8 @@ import { openFocusSystemWindow } from "../lib/focusSystemWindow";
 vi.mock("../lib/focusSystemWindow", () => ({
   closeFocusSystemWindow: vi.fn(),
   focusSystemWindowSupported: () => true,
-  openFocusSystemWindow: vi.fn()
+  openFocusSystemWindow: vi.fn(),
+  updateFocusSystemWindow: vi.fn()
 }));
 
 vi.mock("./FocusAudioPlayer", () => ({

@@ -103,4 +103,35 @@ describe("AI 音频转写", () => {
     expect(signal?.aborted).toBe(true);
     expect(screen.getByRole("button", { name: "开始转写" })).toBeInTheDocument();
   });
+
+  it("转写过程中显示当前步骤进度", async () => {
+    let onProgress: ((completed: number, total: number, step: string) => void) | undefined;
+    let onUploadProgress: ((percent: number, fileName: string) => void) | undefined;
+    transcribeAudioFilesMock.mockImplementationOnce((input: {
+      onProgress?: (completed: number, total: number, step: string) => void;
+      onUploadProgress?: (percent: number, fileName: string) => void;
+    }) => {
+      onProgress = input.onProgress;
+      onUploadProgress = input.onUploadProgress;
+      return new Promise(() => undefined);
+    });
+    render(<AudioTranscriptionDialog ownerId="user-progress" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("音频文件"), {
+      target: { files: [new File(["audio"], "会议.mp3", { type: "audio/mpeg" })] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始转写" }));
+    await screen.findByRole("status");
+    expect(screen.getByText("准备上传音频…")).toBeInTheDocument();
+
+    onUploadProgress?.(36, "会议.mp3");
+    expect(await screen.findByText("正在上传：会议.mp3（36%）")).toBeInTheDocument();
+    expect(screen.getByText("当前文件 36%")).toBeInTheDocument();
+
+    onProgress?.(1, 8, "转写中");
+    expect(await screen.findByText("正在转写 1/8 段")).toBeInTheDocument();
+    onProgress?.(3, 8, "转写中");
+    expect(await screen.findByText("正在转写 3/8 段")).toBeInTheDocument();
+    onProgress?.(8, 8, "整理结果");
+    expect(await screen.findByText("分段转写完成（8/8），正在整理结果…")).toBeInTheDocument();
+  });
 });

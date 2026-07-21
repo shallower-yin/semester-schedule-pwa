@@ -1772,11 +1772,14 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
-  padding: 16px 20px 22px;
+  gap: 8px;
+  padding: 12px 16px 16px;
 }
 
 .button.ghost-light {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 13px;
   border: 1px solid rgb(255 255 255 / 32%);
   color: #fff;
   background: rgb(255 255 255 / 15%);
@@ -1787,6 +1790,12 @@
 .button.ghost-light.danger {
   border-color: rgb(255 150 150 / 48%);
   color: #ffdada;
+}
+
+.focus-fullscreen-actions .button.primary {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 13px;
 }
 
 /* Landscape phones are short: shrink the ring, tighten gaps, drop the quote so nothing overflows. */

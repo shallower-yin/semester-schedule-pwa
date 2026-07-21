@@ -101,7 +101,7 @@ export function FocusFullscreen({
       <div className="focus-fullscreen-scrim" />
       <div className="focus-fullscreen-top">
         <button type="button" className="focus-fs-icon" onClick={onExit} aria-label="退出全屏" title="退出全屏">
-          <Shrink size={20} />
+          <Shrink size={14} />
         </button>
         <button
           type="button"
@@ -110,7 +110,7 @@ export function FocusFullscreen({
           aria-label="切换背景"
           title="切换背景"
         >
-          <Images size={20} />
+          <Images size={14} />
         </button>
       </div>
 
@@ -127,22 +127,22 @@ export function FocusFullscreen({
       <div className="focus-fullscreen-actions">
         {isNativeApp() && (
           <button type="button" className="button ghost-light" onClick={toggleLandscape} title={isLandscape ? "切换为竖屏" : "切换为横屏"}>
-            <RotateCw size={17} />{isLandscape ? "竖屏" : "横屏"}
+            <RotateCw size={14} />{isLandscape ? "竖屏" : "横屏"}
           </button>
         )}
         {systemWindowSupported && (
           <button type="button" className="button ghost-light" onClick={onToggleSystemWindow} title="在其他应用上方显示倒计时">
-            <PictureInPicture2 size={17} />{systemWindowOpen ? "关闭小窗" : "系统小窗"}
+            <PictureInPicture2 size={14} />{systemWindowOpen ? "关闭小窗" : "系统小窗"}
           </button>
         )}
         <button type="button" className="button ghost-light" onClick={onPauseResume}>
-          {paused ? <Play size={17} /> : <Pause size={17} />}{paused ? "继续" : "暂停"}
+          {paused ? <Play size={14} /> : <Pause size={14} />}{paused ? "继续" : "暂停"}
         </button>
         <button type="button" className="button primary" onClick={onFinish}>
-          <CheckCircle2 size={17} />结束并保存
+          <CheckCircle2 size={14} />结束并保存
         </button>
         <button type="button" className="button ghost-light danger" onClick={onDiscard}>
-          <Square size={16} />放弃
+          <Square size={13} />放弃
         </button>
       </div>
     </div>

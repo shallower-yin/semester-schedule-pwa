@@ -84,7 +84,7 @@ function resolveObjectPath(pathname: string): string | null {
 }
 
 function cacheControl(path: string): string {
-  if (/^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(path)) {
+  if (/^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(path) || path.endsWith(".apk")) {
     return "no-store, max-age=0";
   }
   return "public, max-age=31536000, immutable";
@@ -98,6 +98,7 @@ function contentType(path: string): string {
     mjs: "application/javascript; charset=utf-8",
     css: "text/css; charset=utf-8",
     json: "application/json; charset=utf-8",
+    apk: "application/vnd.android.package-archive",
     webmanifest: "application/manifest+json; charset=utf-8",
     svg: "image/svg+xml",
     png: "image/png",

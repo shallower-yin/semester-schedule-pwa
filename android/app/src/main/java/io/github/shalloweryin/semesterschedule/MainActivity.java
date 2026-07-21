@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(FocusOverlayPlugin.class);
+        registerPlugin(AppUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Android 15+ enforces edge-to-edge for apps targeting SDK 35+. OEM skins (e.g. ColorOS)

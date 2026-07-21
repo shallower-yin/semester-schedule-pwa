@@ -5,9 +5,24 @@ export const appInstallUrl = import.meta.env.VITE_APP_URL?.trim() || DEFAULT_APP
 export const appAssetMirrorUrl = import.meta.env.VITE_APP_ASSET_MIRROR_URL?.trim() || DEFAULT_ASSET_MIRROR_URL;
 export const appMirrorReleaseUrl = new URL("release.json", appAssetMirrorUrl).href;
 export const appMirrorAssetManifestUrl = new URL("asset-manifest.json", appAssetMirrorUrl).href;
+/** Conventional path on the same app-hosting mirror used by the web offline updater. */
+export const appMirrorApkPath = "android/semester-schedule.apk";
+export const appMirrorApkUrl = new URL(appMirrorApkPath, appAssetMirrorUrl).href;
 
 export function appMirrorAssetUrl(path: string): string {
   return new URL(path.replace(/^\/+/, ""), appAssetMirrorUrl).href;
+}
+
+/** Resolve release.apkUrl: absolute https stays; relative paths resolve against the asset mirror. */
+export function resolveReleaseApkUrl(apkUrl?: string | null): string | undefined {
+  const value = apkUrl?.trim();
+  if (!value) return undefined;
+  try {
+    if (/^https?:\/\//i.test(value)) return value;
+    return appMirrorAssetUrl(value);
+  } catch {
+    return undefined;
+  }
 }
 
 export function isCurrentAppUrl(url: string): boolean {

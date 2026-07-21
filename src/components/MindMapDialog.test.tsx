@@ -234,4 +234,20 @@ describe("AI 思维导图", () => {
     })));
     expect(await screen.findByText(/敏感元件/)).toBeInTheDocument();
   });
+
+  it("关闭后再打开仍保留追问上下文", async () => {
+    const { unmount } = render(<MindMapDialog input={emptyInput} ownerId="user-persist" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "整理振动测试" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await screen.findByRole("img", { name: "项目计划 思维导图" });
+    fireEvent.change(screen.getByRole("textbox", { name: "追问思维导图" }), { target: { value: "传感器如何完成测量？" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送追问" }));
+    expect(await screen.findByText(/敏感元件/)).toBeInTheDocument();
+    unmount();
+
+    render(<MindMapDialog input={emptyInput} ownerId="user-persist" onClose={vi.fn()} />);
+    expect(screen.getByRole("img", { name: "项目计划 思维导图" })).toBeInTheDocument();
+    expect(screen.getByText(/敏感元件/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/输入要梳理的主题/)).toHaveValue("整理振动测试");
+  });
 });

@@ -4,8 +4,14 @@ import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYT
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "plan_audio_transcription" | "finalize_audio_transcription" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
   mode?: "assistant" | "mind_map" | "mind_map_followup" | "audio_transcription" | "audio_followup";
+  /** Per-file segment transcripts from client-orchestrated progressive ASR. */
+  audioSegmentResults?: Array<{
+    name?: string;
+    objectKey?: string;
+    segments?: string[];
+  }>;
   question?: string;
   scheduleContext?: unknown;
   accessCode?: string;
@@ -40,6 +46,8 @@ interface AiAssistantRequest {
     fetchStart?: number;
     fetchEnd?: number;
   };
+  /** Optional body fallback when custom headers are stripped by the client runtime. */
+  audioRangeSignature?: string;
 }
 
 interface AiAssistantAttachment {
@@ -362,8 +370,13 @@ Deno.serve(async (request) => {
     if (body.action === "transcribe_audio_range") {
       const range = sanitizeInternalAudioRange(body.audioRange, user.id);
       const expectedSignature = await hmacAudioRange(user.id, range);
-      const suppliedSignature = request.headers.get("x-audio-range-signature") ?? "";
-      if (!constantTimeEqual(suppliedSignature, expectedSignature)) return jsonResponse({ error: "Invalid audio range signature" }, 403);
+      // Prefer header; body field is a fallback for runtimes that drop custom invoke headers.
+      const suppliedSignature = (request.headers.get("x-audio-range-signature")
+        ?? (typeof body.audioRangeSignature === "string" ? body.audioRangeSignature : "")
+        ?? "").trim();
+      if (!constantTimeEqual(suppliedSignature, expectedSignature)) {
+        return jsonResponse({ error: "音频分段签名无效，请重新开始转写。", code: "AUDIO_RANGE_SIGNATURE" }, 403);
+      }
       const credentials = configuredMimoAudioCredentials(settings);
       if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
       const bytes = await downloadR2AudioRange(range.objectKey!, range.fetchStart!, range.fetchEnd!);
@@ -449,6 +462,57 @@ Deno.serve(async (request) => {
     if (body.action === "delete_audio_upload") {
       await deleteR2AudioObject(user.id, body.audio?.objectKey);
       return jsonResponse({ ok: true });
+    }
+    if (body.action === "plan_audio_transcription") {
+      featureKey = "audio_transcription";
+      const planAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!planAccess.allowed) return jsonResponse({ error: planAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = planAccess.method ?? "";
+      return jsonResponse(await planAudioTranscription(body, user.id, body.audioLanguage));
+    }
+    if (body.action === "finalize_audio_transcription") {
+      featureKey = "audio_transcription";
+      const finalizeAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!finalizeAccess.allowed) return jsonResponse({ error: finalizeAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = finalizeAccess.method ?? "";
+      const finalizeQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
+      if (!finalizeQuota.allowed) {
+        return jsonResponse({ error: finalizeQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
+      }
+      const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, finalizeQuota);
+      questionChars = body.audioSegmentResults?.reduce((sum, file) => sum + (file.segments?.join("").length ?? 0), 0) ?? 0;
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "running",
+        accessMethod,
+        featureKey,
+        model: configuredModel(settings),
+        usage: emptyUsage(),
+        latencyMs: Date.now() - startedAt,
+        questionChars,
+        diagnosticId,
+        diagnosticDetails: { stage: "finalize_started" }
+      });
+      const finalized = await finalizeProgressiveAudioTranscription(body, settings, user.id, request.signal);
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod,
+        featureKey,
+        model: finalized.model,
+        usage: finalized.usage,
+        latencyMs: Date.now() - startedAt,
+        questionChars,
+        diagnosticId
+      });
+      return jsonResponse({
+        transcript: finalized.transcript,
+        summary: finalized.summary,
+        warning: finalized.warning,
+        model: finalized.model,
+        access: accessMethod,
+        quota: quotaStatus
+      });
     }
     const mode = body.mode === "mind_map"
       ? "mind_map"
@@ -1732,6 +1796,158 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
   }
 }
 
+async function planAudioTranscription(
+  body: AiAssistantRequest,
+  userId: string,
+  language: AiAssistantRequest["audioLanguage"]
+): Promise<{
+  strategy: "progressive" | "single";
+  totalChunks: number;
+  tasks: Array<{
+    fileIndex: number;
+    fileName: string;
+    objectKey: string;
+    chunkIndex: number;
+    chunkCount: number;
+    language: "auto" | "zh" | "en";
+    nominalStart: number;
+    nominalEnd: number;
+    fetchStart: number;
+    fetchEnd: number;
+    signature: string;
+  }>;
+}> {
+  const audios = sanitizeUploadedAudios(body.audios, userId);
+  if (!audios.length) throw new Error("请选择要转写的音频文件。");
+  const resolvedLanguage = language === "zh" || language === "en" ? language : "auto";
+  const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
+  const tasks: Array<{
+    fileIndex: number;
+    fileName: string;
+    objectKey: string;
+    chunkIndex: number;
+    chunkCount: number;
+    language: "auto" | "zh" | "en";
+    nominalStart: number;
+    nominalEnd: number;
+    fetchStart: number;
+    fetchEnd: number;
+    signature: string;
+  }> = [];
+
+  for (let fileIndex = 0; fileIndex < audios.length; fileIndex += 1) {
+    const audio = audios[fileIndex];
+    const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
+    if (!isLargeMp3) continue;
+    const objectSize = await headR2AudioObject(audio.objectKey);
+    const chunkCount = Math.max(1, Math.ceil(objectSize / nominalChunkBytes));
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+      const nominalStart = chunkIndex * nominalChunkBytes;
+      const nominalEnd = Math.min(objectSize - 1, nominalStart + nominalChunkBytes - 1);
+      const range = {
+        objectKey: audio.objectKey,
+        fileName: audio.name,
+        language: resolvedLanguage,
+        chunkIndex,
+        chunkCount,
+        nominalStart,
+        nominalEnd,
+        fetchStart: Math.max(0, nominalStart - MP3_RANGE_OVERLAP_BYTES),
+        fetchEnd: Math.min(objectSize - 1, nominalEnd + MP3_RANGE_OVERLAP_BYTES)
+      };
+      const signature = await hmacAudioRange(userId, range);
+      tasks.push({
+        fileIndex,
+        fileName: audio.name,
+        objectKey: audio.objectKey,
+        chunkIndex,
+        chunkCount,
+        language: resolvedLanguage,
+        nominalStart,
+        nominalEnd,
+        fetchStart: range.fetchStart,
+        fetchEnd: range.fetchEnd,
+        signature
+      });
+    }
+  }
+
+  if (!tasks.length) {
+    return { strategy: "single", totalChunks: audios.length, tasks: [] };
+  }
+  return { strategy: "progressive", totalChunks: tasks.length, tasks };
+}
+
+async function finalizeProgressiveAudioTranscription(
+  body: AiAssistantRequest,
+  settings: AiSettingsRow | null,
+  userId: string,
+  signal?: AbortSignal
+): Promise<{
+  transcript: string;
+  summary: string | null;
+  warning: string | null;
+  model: string;
+  usage: AiAssistantUsage;
+}> {
+  const audios = sanitizeUploadedAudios(body.audios, userId);
+  const segmentFiles = Array.isArray(body.audioSegmentResults) ? body.audioSegmentResults : [];
+  if (!audios.length) throw new Error("请选择要转写的音频文件。");
+  if (segmentFiles.length !== audios.length) throw new Error("分段转写结果不完整，请重试。");
+
+  try {
+    const parts: string[] = [];
+    for (let index = 0; index < audios.length; index += 1) {
+      const audio = audios[index];
+      const segments = (segmentFiles[index]?.segments ?? [])
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean);
+      if (!segments.length) {
+        throw new DiagnosticError(`音频“${audio.name}”没有有效的分段转写结果。`, {
+          stage: "finalize_empty_segments",
+          fileName: audio.name
+        });
+      }
+      const fileTranscript = segments.length === 1
+        ? segments[0]
+        : segments.map((text, chunkIndex) => `【${audio.name} · 分段 ${chunkIndex + 1}/${segments.length}】\n${text}`).join("\n\n");
+      parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
+    }
+    const transcript = parts.join("\n\n");
+    if (!body.summarizeAudio) {
+      return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: emptyUsage() };
+    }
+    try {
+      const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
+      return {
+        transcript,
+        summary: summaryResponse.summary,
+        warning: null,
+        model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
+        usage: summaryResponse.usage
+      };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      console.error(error);
+      return {
+        transcript,
+        summary: null,
+        warning: "转写已完成，但摘要生成失败。",
+        model: "mimo-v2.5-asr-chunked",
+        usage: emptyUsage()
+      };
+    }
+  } finally {
+    await Promise.all(audios.map(async (audio) => {
+      try {
+        await deleteR2AudioObjectByKey(audio.objectKey);
+      } catch (error) {
+        console.error("Failed to delete temporary R2 audio", { objectKey: audio.objectKey, error: String(error) });
+      }
+    }));
+  }
+}
+
 async function transcribeUploadedAudios(
   audios: UploadedAudioInput[],
   body: AiAssistantRequest,
@@ -1769,6 +1985,8 @@ async function transcribeUploadedAudios(
       const audio = audios[fileIndex];
       const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
       if (isLargeMp3) {
+        // Prefer client-orchestrated progressive path for long MP3 (plan + per-chunk + finalize).
+        // Keep server-side range tasks as fallback when the client still uses a single invoke.
         const objectSize = await headR2AudioObject(audio.objectKey);
         const chunkCount = Math.ceil(objectSize / nominalChunkBytes);
         for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
@@ -1789,12 +2007,15 @@ async function transcribeUploadedAudios(
       }
 
       const chunks = splitAudioForAsr(await downloadR2AudioObject(audio.objectKey), audio.name, audio.mimeType);
-      resultsByFile[fileIndex] = await mapWithConcurrency(chunks, 2, (chunk, chunkIndex) =>
+      // Long jobs use lower concurrency to reduce MiMo 429/5xx bursts; short jobs stay at 2.
+      const concurrency = chunks.length > 6 ? 1 : 2;
+      resultsByFile[fileIndex] = await mapWithRetryIsolation(chunks, concurrency, (chunk, chunkIndex) =>
         transcribeAudioChunk(chunk, body.audioLanguage, credentials, audio.name, chunkIndex, chunks.length, signal), signal
       );
     }
 
-    const rangeResults = await mapWithConcurrency(rangeTasks, 2, (task) =>
+    const rangeConcurrency = rangeTasks.length > 6 ? 1 : 2;
+    const rangeResults = await mapWithRetryIsolation(rangeTasks, rangeConcurrency, (task) =>
       transcribeRemoteAudioRange(task, body.audioLanguage, userId, authorization, signal), signal
     );
     rangeTasks.forEach((task, index) => {
@@ -1804,6 +2025,12 @@ async function transcribeUploadedAudios(
     for (let index = 0; index < audios.length; index += 1) {
       const audio = audios[index];
       const results = resultsByFile[index];
+      if (!results?.length) {
+        throw new DiagnosticError(`音频“${audio.name}”转写结果为空。`, {
+          stage: "audio_empty_result",
+          fileName: audio.name
+        });
+      }
       const fileTranscript = results.map((result, chunkIndex) => results.length === 1
         ? result.transcript
         : `【${audio.name} · 分段 ${chunkIndex + 1}/${results.length}】\n${result.transcript}`
@@ -1908,7 +2135,7 @@ async function transcribeRemoteAudioRange(
     },
     body: JSON.stringify({ action: "transcribe_audio_range", audioRange }),
     signal
-  }, 2, signal);
+  }, 4, signal);
   if (!ok) {
     throw new DiagnosticError(`音频“${task.audio.name}”第 ${task.chunkIndex + 1}/${task.chunkCount} 段转写失败，请稍后重试。`, {
       stage: "audio_range_worker",
@@ -1957,14 +2184,19 @@ async function transcribeAudioChunk(
       asr_options: { language: language === "zh" || language === "en" ? language : "auto" },
       stream: false
     })
-  }, 3, signal);
+  }, 5, signal);
   if (!ok) {
     const providerError = safeProviderError(text);
+    const formatHint = chunk.mimeType.includes("aac") || chunk.mimeType.includes("mp4")
+      ? "当前分段为 AAC/M4A 编码，语音引擎可能无法识别；请将录音导出为标准 MP3 或 WAV 后重试。"
+      : "请确认文件未损坏，或转换为标准 MP3/WAV 后重试。";
     throw new DiagnosticError(
       status === 413
         ? "当前音频分段仍超过模型请求限制，请联系管理员并提供诊断编号。"
-        : `音频转写失败（HTTP ${status}），请稍后重试。`,
-      { stage: "mimo_asr", providerStatus: status, providerError, fileName, chunk: chunkIndex + 1, chunkCount, chunkBytes: chunk.bytes.length, chunkDurationMs: chunk.durationMs ?? null }
+        : status === 400
+          ? `音频“${fileName}”第 ${chunkIndex + 1}/${chunkCount} 段无法被识别引擎接受（HTTP 400）。${formatHint}`
+          : `音频“${fileName}”第 ${chunkIndex + 1}/${chunkCount} 段转写失败（HTTP ${status}），请稍后重试。`,
+      { stage: "mimo_asr", providerStatus: status, providerError, fileName, chunk: chunkIndex + 1, chunkCount, chunkBytes: chunk.bytes.length, chunkDurationMs: chunk.durationMs ?? null, mimeType: chunk.mimeType }
     );
   }
   let data: {
@@ -2000,6 +2232,65 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
   return result;
 }
 
+/**
+ * Like mapWithConcurrency, but does not abort siblings when one item fails.
+ * Failed indexes get one extra isolated pass (mapper already has its own transient retries).
+ * This keeps a single flaky ASR segment from cancelling the other 10+ in-flight segments.
+ */
+async function mapWithRetryIsolation<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal
+): Promise<R[]> {
+  if (!items.length) return [];
+  const result = new Array<R | undefined>(items.length);
+  const failed: number[] = [];
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      throwIfAborted(signal);
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        result[index] = await mapper(items[index], index);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        failed.push(index);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+
+  const stillFailed: Array<{ index: number; error: Error }> = [];
+  for (const index of failed) {
+    throwIfAborted(signal);
+    try {
+      // Brief pause before the isolation pass so rate-limited providers can recover.
+      await delayWithAbort(800 + Math.floor(Math.random() * 700), signal);
+      result[index] = await mapper(items[index], index);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      stillFailed.push({
+        index,
+        error: error instanceof Error ? error : new Error(String(error || "分段转写失败"))
+      });
+    }
+  }
+
+  if (stillFailed.length) {
+    const labels = stillFailed.map((item) => item.index + 1).join("、");
+    const first = stillFailed[0].error;
+    throw first instanceof DiagnosticError
+      ? first
+      : new DiagnosticError(
+        `音频有 ${stillFailed.length} 个分段转写失败（第 ${labels} 段），请稍后重试。`,
+        { stage: "audio_chunk_batch", failedChunks: stillFailed.map((item) => item.index + 1), failureCount: stillFailed.length }
+      );
+  }
+  return result as R[];
+}
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
   throw signal.reason instanceof Error ? signal.reason : new DOMException("操作已取消。", "AbortError");
@@ -2022,8 +2313,8 @@ async function delayWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-// Fetches and reads the body, retrying only transient failures (network error, HTTP 429, HTTP >= 500)
-// with exponential backoff. Deterministic client errors (4xx other than 429, e.g. 413 too-large or
+// Fetches and reads the body, retrying only transient failures (network error, HTTP 408/429, HTTP >= 500)
+// with exponential backoff + jitter. Deterministic client errors (other 4xx, e.g. 413 too-large or
 // 403 bad signature) return immediately so their specific handling is preserved. Audio transcription
 // splits a long file into many chunks and hits an external ASR provider once per chunk; without this,
 // a single transient blip on any one chunk fails the entire job.
@@ -2041,14 +2332,19 @@ async function fetchTextWithTransientRetry(
       const response = await fetch(input, init);
       const text = await response.text();
       const result = { ok: response.ok, status: response.status, text };
-      if (response.ok || (response.status !== 429 && response.status < 500)) return result;
+      const transient = response.status === 408 || response.status === 429 || response.status >= 500;
+      if (response.ok || !transient) return result;
       last = result;
       lastError = null;
     } catch (error) {
       if (signal?.aborted) throw error;
       lastError = error;
     }
-    if (attempt < attempts - 1) await delayWithAbort(Math.min(4000, 600 * 2 ** attempt), signal);
+    if (attempt < attempts - 1) {
+      const base = Math.min(8000, 700 * 2 ** attempt);
+      const jitter = Math.floor(Math.random() * 400);
+      await delayWithAbort(base + jitter, signal);
+    }
   }
   if (last) return last;
   throw lastError instanceof Error ? lastError : new Error("网络请求失败");
@@ -2208,8 +2504,9 @@ async function answerMindMapFollowup(
   const questionText = [
     `当前思维导图：\n${JSON.stringify(mindMap)}`,
     documentText ? `附件提取内容：\n${documentText}` : "",
-    `最近追问：\n${historyText}`,
-    `当前问题：${question}`
+    `最近对话：\n${historyText}`,
+    `当前用户消息：${question}`,
+    "说明：用户在当前消息和最近对话中主动补充的事实、背景、假设，与脑图/附件同等重要，必须采纳并用于回答。"
   ].filter(Boolean).join("\n\n");
   const userContent: string | Array<Record<string, unknown>> = visualAttachments.length
     ? [
@@ -2231,16 +2528,19 @@ async function answerMindMapFollowup(
         {
           role: "system",
           content: [
-            "你是思维导图内容问答助手。",
-            "只能根据当前思维导图、附件提取内容和当前对话回答，不得加入日程或其他外部资料。",
-            "资料没有覆盖的问题要直接说明，不要猜测；回答要具体、易读，可以使用简短列表。",
-            "不要提及系统、模型、后台或附件处理过程。"
+            "你是思维导图与材料分析助手，帮助用户理解脑图、附件，并基于材料做有帮助的分析与判断。",
+            "信息优先级：1) 思维导图与附件提取内容；2) 用户在本轮及历史追问中主动补充的事实、背景、假设；3) 必要的常识与公开一般性知识。",
+            "用户补充的信息视为有效输入：不要因为脑图里没写就拒绝使用用户刚说的内容。",
+            "可以做有依据的推断和建议（例如结合成绩、排名、用户描述的科研竞赛与常识，讨论升学竞争力），并明确区分：材料中的事实 / 用户补充 / 你的判断。",
+            "不要编造材料中不存在的具体官方分数线、录取名额或虚假文件条款；信息仍不足时，先给倾向性结论与分析框架，再说明还缺什么。",
+            "禁止反复用「无法判断」「资料不足」敷衍；至少给出基于现有信息的实质分析。",
+            "回答具体、易读，可用简短列表；不要提及系统、模型、后台或附件处理过程。"
           ].join("\n")
         },
         { role: "user", content: userContent }
       ],
       thinking: { type: "disabled" },
-      temperature: 0.2,
+      temperature: 0.45,
       ...(provider === "mimo" ? { max_completion_tokens: 1800 } : { max_tokens: 1800 }),
       stream: false
     })

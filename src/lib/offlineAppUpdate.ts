@@ -19,15 +19,25 @@ export interface OfflineUpdateProgress {
   file: string;
 }
 
+/**
+ * Install mirror assets into the current origin's Cache Storage.
+ * Rewrites root-absolute paths (mirror built with base "/") so GitHub Pages
+ * under /semester-schedule-pwa/ does not white-screen after update.
+ */
 export async function installOfflineAppUpdate(
   release: AppRelease,
   onProgress?: (progress: OfflineUpdateProgress) => void
 ): Promise<number> {
   if (!("caches" in window)) throw new Error("当前浏览器不支持离线更新缓存。");
   const manifest = await fetchAssetManifest(release.version);
-  const files = Array.from(new Set(manifest.files.map(normalizeFilePath).filter(Boolean)));
+  const files = Array.from(new Set(
+    manifest.files
+      .map(normalizeFilePath)
+      .filter((file): file is string => Boolean(file) && isInstallableWebAsset(file))
+  ));
   if (!files.includes("index.html")) throw new Error("更新包缺少入口文件。");
 
+  const appBase = resolveAppBasePath();
   const tempCacheName = `${TEMP_CACHE_PREFIX}${release.version}`;
   await caches.delete(tempCacheName);
   const tempCache = await caches.open(tempCacheName);
@@ -40,7 +50,7 @@ export async function installOfflineAppUpdate(
       });
       if (!response.ok) throw new Error(`下载 ${file} 失败（${response.status}）。`);
       const targetUrl = new URL(file, document.baseURI).href;
-      await tempCache.put(targetUrl, await cleanResponse(response, file));
+      await tempCache.put(targetUrl, await cleanResponse(response, file, appBase));
       completed += 1;
       onProgress?.({ completed, total: files.length, file });
     });
@@ -72,11 +82,16 @@ async function fetchAssetManifest(expectedVersion: string): Promise<AppAssetMani
   });
   if (!response.ok) throw new Error(`获取更新文件清单失败（${response.status}）。`);
   const value = await response.json() as Partial<AppAssetManifest>;
-  if (value.version !== expectedVersion || !Array.isArray(value.files)) {
-    throw new Error("更新文件清单与版本不匹配，请稍后重试。");
+  if (!Array.isArray(value.files) || !value.files.length) {
+    throw new Error("更新文件清单无效，请稍后重试。");
   }
+  // Prefer exact version match. Soft-accept the published list when versions diverge so publishing
+  // APK metadata alone cannot hard-break web offline updates.
+  const version = typeof value.version === "string" && value.version.trim()
+    ? value.version.trim()
+    : expectedVersion;
   return {
-    version: value.version,
+    version,
     commit: String(value.commit || ""),
     files: value.files.map(String)
   };
@@ -97,14 +112,71 @@ async function replacePrecachedIndex(indexUrl: string, response: Response): Prom
   return replaced;
 }
 
-async function cleanResponse(response: Response, file: string): Promise<Response> {
+async function cleanResponse(response: Response, file: string, appBase: string): Promise<Response> {
+  const type = contentType(file);
+  if (shouldRewriteTextAsset(file)) {
+    const text = rewriteRootAbsolutePaths(await response.text(), appBase);
+    return new Response(text, {
+      status: 200,
+      headers: {
+        "content-type": type,
+        "cache-control": file === "index.html" ? "no-cache" : "public, max-age=31536000, immutable"
+      }
+    });
+  }
   return new Response(await response.arrayBuffer(), {
     status: 200,
     headers: {
-      "content-type": contentType(file),
+      "content-type": type,
       "cache-control": file === "index.html" ? "no-cache" : "public, max-age=31536000, immutable"
     }
   });
+}
+
+/** App pathname base, e.g. "/semester-schedule-pwa/" on GitHub Pages or "/" for root hosts. */
+export function resolveAppBasePath(): string {
+  const fromEnv = typeof import.meta !== "undefined" && import.meta.env?.BASE_URL
+    ? String(import.meta.env.BASE_URL)
+    : "";
+  if (fromEnv && fromEnv !== "./") {
+    return fromEnv.endsWith("/") ? fromEnv : `${fromEnv}/`;
+  }
+  try {
+    const path = new URL(".", document.baseURI).pathname;
+    return path.endsWith("/") ? path : `${path}/`;
+  } catch {
+    return "/";
+  }
+}
+
+/**
+ * Mirror builds often use base "/". When the live app lives under a subpath
+ * (GitHub Pages), rewrite root-absolute asset URLs so scripts/CSS resolve.
+ */
+export function rewriteRootAbsolutePaths(content: string, appBase: string): string {
+  if (!appBase || appBase === "/") return content;
+  const base = appBase.endsWith("/") ? appBase : `${appBase}/`;
+  const baseWithoutSlash = base.slice(0, -1);
+  const baseBody = baseWithoutSlash.replace(/^\//, "");
+  if (!baseBody) return content;
+  // href="/x", src='/x', url(/x), "/assets/...", import(`/assets/...`) — skip // and already-prefixed paths.
+  const pattern = new RegExp(
+    `([("'=\`\\(])\\/(?!\\/|${escapeRegExp(baseBody)}(?:\\/|"|'|\`|\\)|$))`,
+    "g"
+  );
+  return content.replace(pattern, `$1${base}`);
+}
+
+function shouldRewriteTextAsset(file: string): boolean {
+  return /\.(html|js|mjs|css|json|webmanifest|svg)$/i.test(file) || file === "manifest.webmanifest";
+}
+
+/** Skip APK packages and service-worker scripts — they break or bloat the web offline path. */
+function isInstallableWebAsset(file: string): boolean {
+  if (/\.apk$/i.test(file)) return false;
+  if (file === "sw.js" || /^workbox-.*\.js$/i.test(file)) return false;
+  if (file.startsWith("android/")) return false;
+  return true;
 }
 
 function contentType(file: string): string {
@@ -126,6 +198,10 @@ function normalizeFilePath(file: string): string {
   const normalized = file.trim().replace(/^\/+/, "");
   if (!normalized || normalized.includes("\0") || normalized.split("/").some((segment) => segment === "..")) return "";
   return normalized;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function mapWithConcurrency<T>(

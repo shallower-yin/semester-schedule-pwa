@@ -22,3 +22,5 @@ android/app/build/
 keystore.properties
 # Local emulator/verification screenshots (not part of the product)
 _shots/
+
+supabase/.temp/

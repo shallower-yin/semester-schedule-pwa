@@ -17,6 +17,42 @@
       window.addEventListener("appinstalled", function () {
         window.__pwaInstallPrompt = null;
       });
+      // Recover from broken offline updates (white screen after mixed cache / wrong base path).
+      (function () {
+        var KEY = "semester-schedule-boot-recover";
+        if (/[?&]recovered=/.test(location.search)) return;
+        function recover() {
+          if (sessionStorage.getItem(KEY)) return;
+          sessionStorage.setItem(KEY, "1");
+          var done = function () {
+            location.replace(location.pathname + "?recovered=" + Date.now() + location.hash);
+          };
+          var clearCaches = function () {
+            if (!("caches" in window)) return Promise.resolve();
+            return caches.keys().then(function (keys) {
+              return Promise.all(keys.map(function (key) { return caches.delete(key); }));
+            });
+          };
+          var clearWorkers = function () {
+            if (!("serviceWorker" in navigator)) return Promise.resolve();
+            return navigator.serviceWorker.getRegistrations().then(function (regs) {
+              return Promise.all(regs.map(function (reg) { return reg.unregister(); }));
+            });
+          };
+          Promise.resolve().then(clearWorkers).then(clearCaches).then(done, done);
+        }
+        window.addEventListener("error", function (event) {
+          var target = event && event.target;
+          if (target && (target.tagName === "SCRIPT" || target.tagName === "LINK")) recover();
+        }, true);
+        window.addEventListener("unhandledrejection", function () {
+          // Ignore ordinary app promise failures; only empty-root timeout recovers.
+        });
+        window.setTimeout(function () {
+          var root = document.getElementById("root");
+          if (root && !root.childElementCount) recover();
+        }, 10000);
+      })();
     </script>
   </head>
   <body>

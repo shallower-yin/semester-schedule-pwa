@@ -1,4 +1,4 @@
-import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Minus, Network, Plus, Send, Sparkles, X } from "lucide-react";
+import { Download, Eye, FileText, Image as ImageIcon, KeyRound, Maximize2, Minimize2, Minus, Network, Plus, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
@@ -24,18 +24,27 @@ interface MindMapFollowupTurn {
 }
 
 export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
-  const [prompt, setPrompt] = useState("");
+  const initialSession = useMemo(() => loadMindMapSession(ownerId), [ownerId]);
+  const [prompt, setPrompt] = useState(() => initialSession.prompt);
   const [accessCode, setAccessCode] = useState("");
-  const [mindMap, setMindMap] = useState<AiMindMapNode | null>(() => loadMindMap(ownerId));
-  const [attachments, setAttachments] = useState<AiAssistantAttachment[]>([]);
+  const [mindMap, setMindMap] = useState<AiMindMapNode | null>(() => initialSession.mindMap);
+  const [attachments, setAttachments] = useState<AiAssistantAttachment[]>(() => initialSession.attachments);
   const [configuration, setConfiguration] = useState<AiAssistantConfiguration>({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const [attachmentProgress, setAttachmentProgress] = useState("");
   const [zoom, setZoom] = useState(1);
-  const [depth, setDepth] = useState<MindMapDepth>("standard");
+  const [depth, setDepth] = useState<MindMapDepth>(() => initialSession.depth);
   const [previewing, setPreviewing] = useState(false);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const previewImgRef = useRef<HTMLDivElement>(null);
+  const previewZoomRef = useRef(1);
+  const previewPanRef = useRef({ x: 0, y: 0 });
+  const pinchRef = useRef<{ dist: number; zoom: number; panX: number; panY: number; cx: number; cy: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
   const [followupQuestion, setFollowupQuestion] = useState("");
-  const [followupTurns, setFollowupTurns] = useState<MindMapFollowupTurn[]>([]);
+  const [followupTurns, setFollowupTurns] = useState<MindMapFollowupTurn[]>(() => initialSession.followupTurns);
   const [followupLoading, setFollowupLoading] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const followupControllerRef = useRef<AbortController | null>(null);
@@ -46,10 +55,145 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   }, []);
 
   useEffect(() => {
-    setMindMap(loadMindMap(ownerId));
-    setFollowupTurns([]);
+    const session = loadMindMapSession(ownerId);
+    setMindMap(session.mindMap);
+    setFollowupTurns(session.followupTurns);
+    setPrompt(session.prompt);
+    setDepth(session.depth);
+    setAttachments(session.attachments);
     setFollowupError("");
   }, [ownerId]);
+
+  useEffect(() => {
+    saveMindMapSession(ownerId, {
+      mindMap,
+      followupTurns,
+      prompt,
+      depth,
+      attachments
+    });
+  }, [ownerId, mindMap, followupTurns, prompt, depth, attachments]);
+
+  useEffect(() => {
+    if (!previewing) return;
+    previewZoomRef.current = 1;
+    previewPanRef.current = { x: 0, y: 0 };
+    setPreviewZoom(1);
+    setPreviewPan({ x: 0, y: 0 });
+  }, [previewing]);
+
+  useEffect(() => {
+    previewZoomRef.current = previewZoom;
+  }, [previewZoom]);
+
+  useEffect(() => {
+    previewPanRef.current = previewPan;
+  }, [previewPan]);
+
+  // Android WebView needs non-passive touch/wheel listeners so preventDefault can stop page scroll
+  // during pinch-zoom and one-finger pan. React's synthetic onTouchMove is often passive.
+  useEffect(() => {
+    if (!previewing) return;
+    const el = previewImgRef.current;
+    if (!el) return;
+
+    const clampZoom = (value: number) => Math.min(5, Math.max(0.2, value));
+
+    const onWheel = (event: WheelEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      const next = clampZoom(previewZoomRef.current + (-event.deltaY * 0.002));
+      previewZoomRef.current = next;
+      setPreviewZoom(next);
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length >= 2) {
+        dragRef.current = null;
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        pinchRef.current = {
+          dist: Math.max(1, Math.hypot(dx, dy)),
+          zoom: previewZoomRef.current,
+          panX: previewPanRef.current.x,
+          panY: previewPanRef.current.y,
+          cx: (event.touches[0].clientX + event.touches[1].clientX) / 2,
+          cy: (event.touches[0].clientY + event.touches[1].clientY) / 2
+        };
+        return;
+      }
+      if (event.touches.length === 1) {
+        pinchRef.current = null;
+        dragRef.current = {
+          startX: event.touches[0].clientX,
+          startY: event.touches[0].clientY,
+          panX: previewPanRef.current.x,
+          panY: previewPanRef.current.y
+        };
+      }
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (event.touches.length >= 2 && pinchRef.current) {
+        event.preventDefault();
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        const scale = dist / pinchRef.current.dist;
+        const nextZoom = clampZoom(pinchRef.current.zoom * scale);
+        const cx = (event.touches[0].clientX + event.touches[1].clientX) / 2;
+        const cy = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+        // Keep the content under the pinch midpoint stable while zooming.
+        const nextPan = {
+          x: pinchRef.current.panX + (cx - pinchRef.current.cx),
+          y: pinchRef.current.panY + (cy - pinchRef.current.cy)
+        };
+        previewZoomRef.current = nextZoom;
+        previewPanRef.current = nextPan;
+        setPreviewZoom(nextZoom);
+        setPreviewPan(nextPan);
+        return;
+      }
+      if (event.touches.length === 1 && dragRef.current) {
+        event.preventDefault();
+        const nextPan = {
+          x: dragRef.current.panX + (event.touches[0].clientX - dragRef.current.startX),
+          y: dragRef.current.panY + (event.touches[0].clientY - dragRef.current.startY)
+        };
+        previewPanRef.current = nextPan;
+        setPreviewPan(nextPan);
+      }
+    };
+
+    const onTouchEnd = (event: TouchEvent) => {
+      if (event.touches.length >= 2) return;
+      if (event.touches.length === 1) {
+        pinchRef.current = null;
+        dragRef.current = {
+          startX: event.touches[0].clientX,
+          startY: event.touches[0].clientY,
+          panX: previewPanRef.current.x,
+          panY: previewPanRef.current.y
+        };
+        return;
+      }
+      pinchRef.current = null;
+      dragRef.current = null;
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [previewing]);
 
   useEffect(() => {
     setAiTaskDialogOpen("mind_map", true);
@@ -121,7 +265,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
         }),
       onSuccess: (result) => {
         setAttachmentProgress("");
-        localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(result.mindMap));
+        // New mind map starts a new topic: keep attachments/prompt, reset follow-up thread.
         setMindMap(result.mindMap);
         setFollowupTurns([]);
         setFollowupError("");
@@ -191,6 +335,14 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
               maxLength={6000}
               placeholder="输入要梳理的主题、课程内容或项目方案，也可以导入图片和文档"
               onChange={(event) => setPrompt(event.target.value)}
+              onFocus={(event) => {
+                // Keep the action row (attachments / generate) above the soft keyboard on APK/WebView.
+                const target = event.currentTarget;
+                window.setTimeout(() => {
+                  target.scrollIntoView({ block: "center", behavior: "smooth" });
+                  document.querySelector(".mind-map-composer-actions")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                }, 80);
+              }}
             />
           </label>
           <div className="mind-map-examples">
@@ -253,8 +405,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
           {mindMap ? (
             <>
               <div className="mind-map-result-toolbar">
-                <div><Network size={18} /><span><strong>{mindMap.label}</strong><small>可拖动滚动区域查看完整结构</small></span></div>
-                <div>
+                <div><Network size={18} /><span><strong>{mindMap.label}</strong><small>可拖动查看 · 可追问并补充背景</small></span></div>
+                <div className="mind-map-result-toolbar-actions" role="toolbar" aria-label="脑图操作">
                   <button type="button" className="icon-button" aria-label="缩小脑图" onClick={() => setZoom((current) => Math.max(0, Number((current - 0.1).toFixed(1))))}><Minus size={16} /></button>
                   <span>{Math.round(zoom * 100)}%</span>
                   <button type="button" className="icon-button" aria-label="放大脑图" onClick={() => setZoom((current) => Math.min(1.5, current + 0.1))}><Plus size={16} /></button>
@@ -280,8 +432,15 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
                     value={followupQuestion}
                     maxLength={1000}
                     aria-label="追问思维导图"
-                    placeholder="继续追问附件或脑图中的内容"
+                    placeholder="继续追问，可补充背景后让 AI 一起分析"
                     onChange={(event) => setFollowupQuestion(event.target.value)}
+                    onFocus={(event) => {
+                      const target = event.currentTarget;
+                      window.setTimeout(() => {
+                        target.scrollIntoView({ block: "center", behavior: "smooth" });
+                        document.querySelector(".mind-map-followup")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                      }, 80);
+                    }}
                   />
                   {followupLoading ? (
                     <button type="button" className="icon-button danger-button" aria-label="取消追问" onClick={() => followupControllerRef.current?.abort()}><X size={17} /></button>
@@ -298,11 +457,75 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
         </section>
       </div>
       {previewing && mindMap && (
-        <div className="mind-map-preview-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setPreviewing(false)}>
+        <div className={`mind-map-preview-backdrop ${previewFullscreen ? "fullscreen" : ""}`} role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setPreviewing(false)}>
           <section className="mind-map-preview-dialog" role="dialog" aria-modal="true" aria-label="思维导图预览">
-            <header><strong>{mindMap.label}</strong><button type="button" className="icon-button" aria-label="关闭预览" onClick={() => setPreviewing(false)}><X size={20} /></button></header>
-            <div><img src={mindMapPreviewUrl(mindMap)} alt={`${mindMap.label} 完整预览`} /></div>
-            <footer><button type="button" className="button secondary" onClick={() => downloadMindMapSvg(mindMap)}><Download size={15} />SVG</button><button type="button" className="button primary" onClick={() => void downloadMindMapPng(mindMap)}><Download size={15} />PNG</button></footer>
+            <header>
+              <strong>{mindMap.label}</strong>
+              <div>
+                <button type="button" className="icon-button" aria-label={previewFullscreen ? "退出全屏" : "全屏预览"} title={previewFullscreen ? "退出全屏" : "全屏预览"} onClick={() => setPreviewFullscreen((f) => !f)}>
+                  {previewFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button mind-map-preview-close"
+                  aria-label="关闭预览"
+                  title="关闭预览"
+                  onClick={() => { setPreviewing(false); setPreviewFullscreen(false); }}
+                >
+                  <X size={22} />
+                </button>
+              </div>
+            </header>
+            <div
+              className="mind-map-preview-image-container"
+              ref={previewImgRef}
+              onMouseDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                dragRef.current = { startX: event.clientX, startY: event.clientY, panX: previewPanRef.current.x, panY: previewPanRef.current.y };
+              }}
+              onMouseMove={(event) => {
+                if (!dragRef.current) return;
+                const nextPan = {
+                  x: dragRef.current.panX + (event.clientX - dragRef.current.startX),
+                  y: dragRef.current.panY + (event.clientY - dragRef.current.startY)
+                };
+                previewPanRef.current = nextPan;
+                setPreviewPan(nextPan);
+              }}
+              onMouseUp={() => { dragRef.current = null; }}
+              onMouseLeave={() => { dragRef.current = null; }}
+              style={{ touchAction: "none", cursor: "grab" }}
+            >
+              <img
+                src={mindMapPreviewUrl(mindMap)}
+                alt={`${mindMap.label} 完整预览`}
+                style={{ transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`, transformOrigin: "center center" }}
+                draggable={false}
+              />
+            </div>
+            <footer>
+              <button type="button" className="icon-button" aria-label="缩小" onClick={() => {
+                const next = Math.max(0.2, previewZoomRef.current - 0.3);
+                previewZoomRef.current = next;
+                setPreviewZoom(next);
+              }}><Minus size={15} /></button>
+              <span className="mind-map-preview-zoom-label">{Math.round(previewZoom * 100)}%</span>
+              <button type="button" className="icon-button" aria-label="放大" onClick={() => {
+                const next = Math.min(5, previewZoomRef.current + 0.3);
+                previewZoomRef.current = next;
+                setPreviewZoom(next);
+              }}><Plus size={15} /></button>
+              <button type="button" className="button secondary compact" onClick={() => {
+                previewZoomRef.current = 1;
+                previewPanRef.current = { x: 0, y: 0 };
+                setPreviewZoom(1);
+                setPreviewPan({ x: 0, y: 0 });
+              }} disabled={previewZoom === 1 && previewPan.x === 0 && previewPan.y === 0}>重置</button>
+              <button type="button" className="button secondary compact" onClick={() => downloadMindMapSvg(mindMap)}><Download size={13} />SVG</button>
+              <button type="button" className="button primary compact" onClick={() => void downloadMindMapPng(mindMap)}><Download size={13} />PNG</button>
+              <button type="button" className="button secondary compact mind-map-preview-close" onClick={() => { setPreviewing(false); setPreviewFullscreen(false); }}>关闭</button>
+            </footer>
           </section>
         </div>
       )}
@@ -366,8 +589,20 @@ export function MindMapCanvas({ root, zoom, onPreview }: { root: AiMindMapNode; 
   );
 }
 
+interface MindMapSession {
+  mindMap: AiMindMapNode | null;
+  followupTurns: MindMapFollowupTurn[];
+  prompt: string;
+  depth: MindMapDepth;
+  attachments: AiAssistantAttachment[];
+}
+
 function mindMapStorageKey(ownerId: string): string {
   return `semester-schedule-mind-map:${ownerId}`;
+}
+
+function mindMapSessionStorageKey(ownerId: string): string {
+  return `semester-schedule-mind-map-session:${ownerId}`;
 }
 
 function replaceProcessedAttachments(current: AiAssistantAttachment[], processed: AiAssistantAttachment[]): AiAssistantAttachment[] {
@@ -375,12 +610,70 @@ function replaceProcessedAttachments(current: AiAssistantAttachment[], processed
   return current.map((attachment) => replacements.get(`${attachment.kind}:${attachment.name}`) ?? attachment);
 }
 
-function loadMindMap(ownerId: string): AiMindMapNode | null {
+/** Persist follow-up context without huge binary page images / data URLs. */
+function slimAttachmentsForStorage(attachments: AiAssistantAttachment[]): AiAssistantAttachment[] {
+  return attachments.slice(0, 3).map((attachment) => ({
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    kind: attachment.kind,
+    text: attachment.text?.slice(0, 40_000),
+    documentId: attachment.documentId,
+    pageCount: attachment.pageCount,
+    processedPageCount: attachment.processedPageCount,
+    notice: attachment.notice
+  }));
+}
+
+function emptyMindMapSession(): MindMapSession {
+  return { mindMap: null, followupTurns: [], prompt: "", depth: "standard", attachments: [] };
+}
+
+function loadMindMapSession(ownerId: string): MindMapSession {
   try {
-    const saved = JSON.parse(localStorage.getItem(mindMapStorageKey(ownerId)) ?? "null") as AiMindMapNode | null;
-    return saved?.label ? saved : null;
+    const rawSession = localStorage.getItem(mindMapSessionStorageKey(ownerId));
+    if (rawSession) {
+      const parsed = JSON.parse(rawSession) as Partial<MindMapSession>;
+      const mindMap = parsed.mindMap && typeof parsed.mindMap === "object" && parsed.mindMap.label ? parsed.mindMap : null;
+      const followupTurns = Array.isArray(parsed.followupTurns)
+        ? parsed.followupTurns
+          .filter((turn): turn is MindMapFollowupTurn => Boolean(turn && typeof turn.question === "string" && typeof turn.answer === "string"))
+          .slice(-20)
+        : [];
+      const depth = parsed.depth === "quick" || parsed.depth === "deep" || parsed.depth === "standard" ? parsed.depth : "standard";
+      const attachments = Array.isArray(parsed.attachments)
+        ? parsed.attachments.filter((item): item is AiAssistantAttachment => Boolean(item && item.name && item.kind)).slice(0, 3)
+        : [];
+      return {
+        mindMap,
+        followupTurns,
+        prompt: typeof parsed.prompt === "string" ? parsed.prompt.slice(0, 6000) : "",
+        depth,
+        attachments
+      };
+    }
+    // Backward compatible: older builds only stored the mind-map tree.
+    const legacy = JSON.parse(localStorage.getItem(mindMapStorageKey(ownerId)) ?? "null") as AiMindMapNode | null;
+    if (legacy?.label) return { ...emptyMindMapSession(), mindMap: legacy };
   } catch {
-    return null;
+    // Fall through to empty session.
+  }
+  return emptyMindMapSession();
+}
+
+function saveMindMapSession(ownerId: string, session: MindMapSession): void {
+  try {
+    const payload: MindMapSession = {
+      mindMap: session.mindMap,
+      followupTurns: session.followupTurns.slice(-20),
+      prompt: session.prompt.slice(0, 6000),
+      depth: session.depth,
+      attachments: slimAttachmentsForStorage(session.attachments)
+    };
+    localStorage.setItem(mindMapSessionStorageKey(ownerId), JSON.stringify(payload));
+    if (session.mindMap?.label) localStorage.setItem(mindMapStorageKey(ownerId), JSON.stringify(session.mindMap));
+    else localStorage.removeItem(mindMapStorageKey(ownerId));
+  } catch {
+    // Quota or private mode — ignore persistence failures.
   }
 }
 

@@ -18,14 +18,14 @@ import {
   totalFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
-import { closeFocusSystemWindow, focusSystemWindowSupported, openFocusSystemWindow } from "../lib/focusSystemWindow";
+import { closeFocusSystemWindow, focusSystemWindowSupported, openFocusSystemWindow, updateFocusSystemWindow } from "../lib/focusSystemWindow";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
 import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
 import { Modal } from "./Modal";
 import { FocusAudioPlayer } from "./FocusAudioPlayer";
-import { FocusFullscreen, enterImmersiveFullscreen, exitImmersiveFullscreen } from "./FocusFullscreen";
+import { FocusFullscreen, enterImmersiveFullscreen, exitImmersiveFullscreen, lockOrientation } from "./FocusFullscreen";
 
 interface FocusPageProps {
   ownerId: string;
@@ -114,6 +114,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     return () => window.clearInterval(timer);
   }, []);
 
+
+
   useEffect(() => {
     if (active?.mode !== "lock") return;
     const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
@@ -173,6 +175,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   function exitFullscreen() {
     setShowFullscreen(false);
     void exitImmersiveFullscreen();
+    void lockOrientation("auto");
   }
 
   function finishActiveFocus() {
@@ -190,10 +193,12 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       const next = { ...active, paused_seconds: active.paused_seconds + pausedFor, pause_started_at: null };
       setActive(next);
       saveActiveFocus(ownerId, next);
+      updateFocusSystemWindow(next);
     } else {
       const next = { ...active, pause_started_at: current.toISOString() };
       setActive(next);
       saveActiveFocus(ownerId, next);
+      updateFocusSystemWindow(next);
     }
   }
 
@@ -218,6 +223,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     clearActiveFocus(ownerId);
     void closeFocusSystemWindow();
     void exitImmersiveFullscreen();
+    void lockOrientation("auto");
     setActive(null);
     setShowFullscreen(false);
     setSystemWindowOpen(false);
@@ -233,6 +239,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     clearActiveFocus(ownerId);
     void closeFocusSystemWindow();
     void exitImmersiveFullscreen();
+    void lockOrientation("auto");
     setActive(null);
     setShowFullscreen(false);
     setSystemWindowOpen(false);

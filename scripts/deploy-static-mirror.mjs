@@ -15,19 +15,33 @@ if (listError) throw listError;
 if (!buckets.some((item) => item.id === bucket)) {
   const { error } = await client.storage.createBucket(bucket, {
     public: false,
-    fileSizeLimit: 25 * 1024 * 1024
+    // Allow APK packages (~10–40 MB) next to web mirror assets.
+    fileSizeLimit: 80 * 1024 * 1024
   });
   if (error) throw error;
 } else {
   const { error } = await client.storage.updateBucket(bucket, {
     public: false,
-    fileSizeLimit: 25 * 1024 * 1024
+    fileSizeLimit: 80 * 1024 * 1024
   });
   if (error) throw error;
 }
 
 let files = await walk(sourceDir);
 const release = JSON.parse(await readFile(join(sourceDir, "release.json"), "utf8"));
+// Old APK clients do not resolve relative apkUrl; always publish an absolute HTTPS link.
+const mirrorBase = (process.env.VITE_APP_ASSET_MIRROR_URL?.trim()
+  || `${supabaseUrl}/functions/v1/app-hosting/`).replace(/\/?$/, "/");
+if (release.apkUrl || release.apkVersionCode) {
+  const rawApk = typeof release.apkUrl === "string" && release.apkUrl.trim()
+    ? release.apkUrl.trim()
+    : "android/semester-schedule.apk";
+  release.apkUrl = /^https?:\/\//i.test(rawApk)
+    ? rawApk
+    : new URL(rawApk.replace(/^\/+/, ""), mirrorBase).href;
+  await writeFile(join(sourceDir, "release.json"), `${JSON.stringify(release, null, 2)}\n`, "utf8");
+  console.log(`Normalized release.apkUrl -> ${release.apkUrl}`);
+}
 const packageFiles = files
   .map((absolutePath) => relative(sourceDir, absolutePath).split(sep).join("/"))
   .filter((objectPath) => objectPath !== "asset-manifest.json")
@@ -107,7 +121,8 @@ function contentType(path) {
     ".webmanifest": "application/manifest+json; charset=utf-8",
     ".svg": "image/svg+xml",
     ".png": "image/png",
-    ".ico": "image/x-icon"
+    ".ico": "image/x-icon",
+    ".apk": "application/vnd.android.package-archive"
   })[extension] || "application/octet-stream";
 }
 

@@ -98,7 +98,15 @@ public class FocusOverlayPlugin extends Plugin {
             call.reject("overlay-permission-denied");
             return;
         }
-        readState(call);
+        // Always treat the WebView payload as the source of truth. Re-opening or pausing must not
+        // invent a new startedAt (that makes the card look like a full-duration restart).
+        final long incomingStartedAt = readLong(call, "startedAt", System.currentTimeMillis());
+        final double incomingPaused = readDouble(call, "pausedSeconds", 0.0);
+        final long incomingPauseStartedAt = readLong(call, "pauseStartedAt", -1);
+        final long incomingPlanned = readLong(call, "plannedSeconds", -1);
+        final String incomingLabel = call.getString("label", "专注");
+        final String incomingTitle = call.getString("title", "");
+
         final Activity activity = getActivity();
         if (activity == null) {
             call.reject("no-activity");
@@ -106,12 +114,21 @@ public class FocusOverlayPlugin extends Plugin {
         }
         activity.runOnUiThread(() -> {
             ensureOverlay(activity);
+            applyAnchors(
+                incomingStartedAt,
+                incomingPaused,
+                incomingPauseStartedAt,
+                incomingPlanned,
+                incomingLabel,
+                incomingTitle
+            );
             if (!showing && overlayView != null && windowManager != null) {
                 try {
                     windowManager.addView(overlayView, layoutParams);
                     showing = true;
                 } catch (Exception ignored) {
-                    // View may already be attached; fall through to a render.
+                    // View may already be attached; keep going so we still render/tick.
+                    showing = true;
                 }
             }
             render();
@@ -122,14 +139,38 @@ public class FocusOverlayPlugin extends Plugin {
 
     @PluginMethod
     public void update(PluginCall call) {
-        readState(call);
+        // Same robust number parsing as show(); Capacitor getDouble() drops Long timestamps.
+        final long incomingStartedAt = readLong(call, "startedAt", startedAt);
+        final double incomingPaused = readDouble(call, "pausedSeconds", pausedSeconds);
+        final long incomingPauseStartedAt = readLong(call, "pauseStartedAt", pauseStartedAt);
+        final long incomingPlanned = readLong(call, "plannedSeconds", plannedSeconds);
+        final String incomingLabel = call.getString("label", modeLabel);
+        final String incomingTitle = call.getString("title", taskTitle);
+
         final Activity activity = getActivity();
         if (activity != null) {
             activity.runOnUiThread(() -> {
+                applyAnchors(
+                    incomingStartedAt,
+                    incomingPaused,
+                    incomingPauseStartedAt,
+                    incomingPlanned,
+                    incomingLabel,
+                    incomingTitle
+                );
                 if (showing) {
                     render();
                 }
             });
+        } else {
+            applyAnchors(
+                incomingStartedAt,
+                incomingPaused,
+                incomingPauseStartedAt,
+                incomingPlanned,
+                incomingLabel,
+                incomingTitle
+            );
         }
         call.resolve();
     }
@@ -208,19 +249,62 @@ public class FocusOverlayPlugin extends Plugin {
         return Settings.canDrawOverlays(getContext());
     }
 
-    private void readState(PluginCall call) {
-        startedAt = readLong(call, "startedAt", System.currentTimeMillis());
-        pauseStartedAt = readLong(call, "pauseStartedAt", -1);
-        plannedSeconds = readLong(call, "plannedSeconds", -1);
-        Double paused = call.getDouble("pausedSeconds", 0.0);
-        pausedSeconds = paused == null ? 0.0 : paused;
-        modeLabel = call.getString("label", "专注");
-        taskTitle = call.getString("title", "");
+    private void applyAnchors(
+        long nextStartedAt,
+        double nextPausedSeconds,
+        long nextPauseStartedAt,
+        long nextPlannedSeconds,
+        String nextLabel,
+        String nextTitle
+    ) {
+        startedAt = nextStartedAt;
+        pausedSeconds = nextPausedSeconds;
+        pauseStartedAt = nextPauseStartedAt;
+        plannedSeconds = nextPlannedSeconds;
+        modeLabel = nextLabel != null ? nextLabel : "专注";
+        taskTitle = nextTitle != null ? nextTitle : "";
     }
 
+    /**
+     * Capacitor's PluginCall.getDouble/getLong only accept a subset of JSON number types.
+     * JS millisecond timestamps arrive as Long (they do not fit in Integer) and getDouble()
+     * silently falls back — previously that fallback was "now", which reset every countdown.
+     * Accept any Number (and numeric String) so anchors stay stable across show/update/pause.
+     */
     private long readLong(PluginCall call, String key, long fallback) {
-        Double value = call.getDouble(key, (double) fallback);
-        return value == null ? fallback : Math.round(value);
+        Object value = call.getData() != null ? call.getData().opt(key) : null;
+        if (value == null || value == org.json.JSONObject.NULL) {
+            return fallback;
+        }
+        if (value instanceof Number) {
+            return Math.round(((Number) value).doubleValue());
+        }
+        if (value instanceof String) {
+            try {
+                return Math.round(Double.parseDouble((String) value));
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
+    private double readDouble(PluginCall call, String key, double fallback) {
+        Object value = call.getData() != null ? call.getData().opt(key) : null;
+        if (value == null || value == org.json.JSONObject.NULL) {
+            return fallback;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
     }
 
     private void ensureOverlay(Context context) {

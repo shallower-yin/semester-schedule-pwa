@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Copy, Download, FileAudio, KeyRound, Send, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
-import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
+import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks, updateAiTaskProgress } from "../lib/aiBackgroundTasks";
 import { askAboutAudioTranscript, MAX_AUDIO_FILES, transcribeAudioFiles, validateAudioFile, type AudioConversationMessage, type AudioLanguage, type AudioTranscriptionResult } from "../lib/audioTranscription";
 import { extractClipboardFiles } from "../lib/clipboardFiles";
 import { showToast } from "../lib/toast";
@@ -17,6 +17,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
   const [summarize, setSummarize] = useState(true);
   const [accessCode, setAccessCode] = useState("");
   const [progress, setProgress] = useState("");
+  const [uploadPercent, setUploadPercent] = useState(0);
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<AudioTranscriptionResult | null>(() => loadLatestResult(ownerId));
   const task = useSyncExternalStore(subscribeAiTasks, () => getAiTaskSnapshot("audio_transcription"), () => getAiTaskSnapshot("audio_transcription"));
@@ -72,31 +73,61 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
     });
   }
 
+  function reportProgress(message: string, percent?: number) {
+    setProgress(message);
+    if (typeof percent === "number") setUploadPercent(percent);
+    updateAiTaskProgress("audio_transcription", message);
+  }
+
   function runTranscription() {
     if (!files.length || loading) return;
     const selectedFiles = [...files];
     setProgress("准备上传音频…");
+    setUploadPercent(0);
     const started = startAiTask({
       feature: "audio_transcription",
       label: `正在转写 ${selectedFiles.length} 个音频`,
       successMessage: "音频转写已完成，点击可查看和继续提问。",
-      run: (signal) => transcribeAudioFiles({
-        files: selectedFiles,
-        language,
-        summarize,
-        accessCode,
-        signal,
-        onProgress: (completed, total, fileName) => setProgress(completed >= total ? "正在整理结果…" : `正在处理 ${completed + 1}/${total}：${fileName}`)
-      }),
+      run: (signal) => {
+        updateAiTaskProgress("audio_transcription", "准备上传音频…");
+        return transcribeAudioFiles({
+          files: selectedFiles,
+          language,
+          summarize,
+          accessCode,
+          signal,
+          onProgress: (completed, total, step) => {
+            if (step === "转写中") {
+              const safeTotal = Math.max(1, total);
+              const display = Math.min(safeTotal, Math.max(1, completed));
+              const percent = Math.round((display / safeTotal) * 100);
+              reportProgress(`正在转写 ${display}/${safeTotal} 段`, percent);
+            } else if (step === "整理结果") {
+              reportProgress(total > 1 ? `分段转写完成（${total}/${total}），正在整理结果…` : "正在整理结果…", 100);
+            } else {
+              // Upload phase: completed is finished count (0..total), show next file as completed+1.
+              const currentFile = Math.min(total, Math.max(1, completed + 1));
+              reportProgress(`正在上传 ${currentFile}/${total}：${step}`, 0);
+            }
+          },
+          onUploadProgress: (percent, fileName) => {
+            reportProgress(`正在上传：${fileName}（${percent}%）`, percent);
+          }
+        });
+      },
       onSuccess: (next) => {
         saveLatestResult(ownerId, next);
         setResult(next);
         setProgress("");
+        setUploadPercent(0);
         if (next.access === "access-code") setAccessCode("");
       },
-      onError: () => setProgress("")
+      onError: () => { setProgress(""); setUploadPercent(0); }
     });
-    if (!started) showToast("已有音频任务正在处理。", "error");
+    if (!started) {
+      setProgress("");
+      showToast("已有音频任务正在处理。", "error");
+    }
   }
 
   function askQuestion() {
@@ -197,7 +228,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
           </label>
           <label className="checkbox-label"><input type="checkbox" checked={summarize} onChange={(event) => setSummarize(event.target.checked)} />转写后生成摘要</label>
           {loading ? (
-            <button type="button" className="button danger-button" onClick={() => { if (cancelAiTask("audio_transcription")) { setProgress(""); showToast("已取消当前音频处理。", "success"); } }}>
+            <button type="button" className="button danger-button" onClick={() => { if (cancelAiTask("audio_transcription")) { setProgress(""); setUploadPercent(0); showToast("已取消当前音频处理。", "success"); } }}>
               <X size={16} />取消处理
             </button>
           ) : (
@@ -205,8 +236,30 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
               <Sparkles size={16} />{`开始转写${files.length > 1 ? `（${files.length} 段）` : ""}`}
             </button>
           )}
+          {loading && (
+            <div className="audio-transcription-progress" role="status" aria-live="polite">
+              <strong>{progress || task.message || "处理中…"}</strong>
+              <div className="audio-transcription-progress-bar" aria-hidden="true">
+                <span style={{
+                  width: `${
+                    progress.includes("整理")
+                      ? 100
+                      : uploadPercent > 0
+                        ? uploadPercent
+                        : progress.includes("转写")
+                          ? Math.max(8, uploadPercent)
+                          : 12
+                  }%`
+                }} />
+              </div>
+              {uploadPercent > 0 && uploadPercent < 100 && (
+                <small>{progress.includes("转写") ? `分段进度约 ${uploadPercent}%` : `当前文件 ${uploadPercent}%`}</small>
+              )}
+            </div>
+          )}
           {task.status === "error" && <div className="ai-inline-error" role="alert"><span>{task.message}</span><button type="button" className="button secondary compact" onClick={() => retryAiTask("audio_transcription")}>重试</button></div>}
-          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 MP3、WAV 会自动分段转写；其他大文件请先转换格式。音频完成或失败后会从临时存储删除。</p>
+          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 MP3、WAV、M4A 会自动分段转写；FLAC/OGG 大文件请先转为 MP3 或 M4A。音频完成或失败后会从临时存储删除。</p>
+          <p className="muted-note" style={{ color: "#b45309" }}>⚠ 音频转写对网络稳定性要求较高，大文件上传可能需要几分钟。建议在 Wi-Fi 或信号良好的环境下使用，上传期间请勿切换网络。</p>
         </section>
 
         <section className="audio-transcription-result">

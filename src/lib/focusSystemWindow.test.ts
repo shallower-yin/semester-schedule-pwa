@@ -133,17 +133,55 @@ describe("专注系统窗口适配层", () => {
     expect(mocks.overlay.show).not.toHaveBeenCalled();
   });
 
-  it("APK 端仅在计时锚点变化时才推送更新", async () => {
+  it("APK 端未打开小窗时不推送 update，打开后仅在锚点变化时推送", async () => {
     mocks.isNativeApp.mockReturnValue(true);
     const mod = await loadModule();
     const active = activeState();
 
     mod.updateFocusSystemWindow(active);
+    expect(mocks.overlay.update).not.toHaveBeenCalled();
+
+    await mod.openFocusSystemWindow(active, new Date(), true);
     mod.updateFocusSystemWindow(active);
-    expect(mocks.overlay.update).toHaveBeenCalledTimes(1);
+    expect(mocks.overlay.update).not.toHaveBeenCalled();
 
     mod.updateFocusSystemWindow(activeState({ pause_started_at: "2026-07-20T01:10:00.000Z" }));
-    expect(mocks.overlay.update).toHaveBeenCalledTimes(2);
+    expect(mocks.overlay.update).toHaveBeenCalledTimes(1);
+    expect(mocks.overlay.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startedAt: new Date("2026-07-20T01:00:00.000Z").getTime(),
+        pauseStartedAt: new Date("2026-07-20T01:10:00.000Z").getTime(),
+        label: "已暂停"
+      })
+    );
+
+    mod.updateFocusSystemWindow(activeState({
+      pause_started_at: "2026-07-20T01:10:00.000Z",
+      paused_seconds: 0
+    }));
+    expect(mocks.overlay.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("APK 端重新打开小窗时再次携带完整计时锚点，不会省略 startedAt", async () => {
+    mocks.isNativeApp.mockReturnValue(true);
+    const mod = await loadModule();
+    const active = activeState({
+      started_at: "2026-07-20T01:00:00.000Z",
+      paused_seconds: 42,
+      planned_seconds: 1500
+    });
+
+    await mod.openFocusSystemWindow(active, new Date(), true);
+    await mod.closeFocusSystemWindow();
+    await mod.openFocusSystemWindow(active, new Date(), true);
+
+    expect(mocks.overlay.show).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        startedAt: new Date("2026-07-20T01:00:00.000Z").getTime(),
+        pausedSeconds: 42,
+        plannedSeconds: 1500
+      })
+    );
   });
 
   it("APK 端关闭时隐藏原生悬浮窗", async () => {

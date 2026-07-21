@@ -126,6 +126,15 @@ export function cancelAiTask(feature: AiTaskFeature): boolean {
   return true;
 }
 
+/** Update the running task message (upload step, page progress, etc.) without changing status. */
+export function updateAiTaskProgress(feature: AiTaskFeature, message: string): void {
+  const current = getAiTaskSnapshot(feature);
+  if (current.status !== "running") return;
+  const nextMessage = message.trim();
+  if (!nextMessage || nextMessage === current.message) return;
+  updateTask({ ...current, message: nextMessage });
+}
+
 export function dismissAiTask(feature: AiTaskFeature): void {
   if (getAiTaskSnapshot(feature).status === "running") return;
   clearDismissalTimer(feature);

@@ -107,7 +107,9 @@ import { AI_TASK_OPEN_EVENT, type AiTaskFeature } from "./lib/aiBackgroundTasks"
 import { appHistoryLayer, appHistoryPage, initializeAppHistory, navigateAppHistory } from "./lib/appHistory";
 import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
-import { fetchLatestRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
+import { appMirrorApkUrl } from "./lib/appHosting";
+import { fetchLatestRelease, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
+import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
 import { isNativeApp } from "./lib/nativeApp";
@@ -354,11 +356,23 @@ export default function App() {
   } = useRegisterSW();
 
   useEffect(() => {
-    if (isNativeApp()) return;
     let active = true;
     async function checkRelease() {
       const release = await fetchLatestRelease();
-      if (!active) return;
+      if (!active || !release) {
+        if (active) setAvailableRelease(null);
+        return;
+      }
+      if (isNativeApp()) {
+        try {
+          const native = await AppUpdater.getNativeVersion();
+          setAvailableRelease(shouldShowNativeRelease(native, release) ? release : null);
+        } catch {
+          // Fall back to web version string comparison if the native plugin is unavailable.
+          setAvailableRelease(shouldShowRelease(__APP_VERSION__, release) ? release : null);
+        }
+        return;
+      }
       setAvailableRelease(shouldShowRelease(__APP_VERSION__, release) ? release : null);
     }
     void checkRelease();
@@ -565,6 +579,45 @@ export default function App() {
     const release = availableRelease;
     if (!release) return;
     setUpdatingApp(true);
+
+    // Android APK: download signed package and hand it to the system installer (cover update, same key).
+    if (isNativeApp()) {
+      try {
+        // Absolute HTTPS only — relative paths fail in the native downloader and look like "未配置".
+        const candidate = release.apkUrl?.trim() || "";
+        const apkUrl = /^https?:\/\//i.test(candidate) ? candidate : appMirrorApkUrl;
+        if (!apkUrl || !/^https?:\/\//i.test(apkUrl)) {
+          throw new Error("当前更新通道尚未配置 APK 下载地址，请稍后从分发页安装，或联系管理员。");
+        }
+        setUpdateMessage(mode === "background" ? "正在后台下载安装包…" : "正在下载安装包…");
+        if (mode === "background") {
+          setAvailableRelease(null);
+          showToast("已开始后台下载安装包，下载完成后会打开系统安装界面。", "info");
+        }
+        const permission = await AppUpdater.canRequestPackageInstalls();
+        if (!permission.granted) {
+          const requested = await AppUpdater.requestPackageInstallPermission();
+          if (!requested.granted) throw new Error("需要允许“安装未知应用”后才能覆盖更新。");
+        }
+        setUpdateMessage("正在下载安装包，请保持网络畅通…");
+        await AppUpdater.downloadAndInstall({
+          url: apkUrl,
+          sha256: release.apkSha256
+        });
+        skipReleaseVersion(release.version, release.apkVersionCode);
+        setUpdateMessage("已打开系统安装界面，确认后即可覆盖更新。");
+        showToast("请在系统安装界面确认更新（无需卸载）。", "success", 6000);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "APK 更新失败，请稍后重试。";
+        setAvailableRelease(release);
+        setUpdateMessage(message);
+        showToast(message, "error", 6000);
+      } finally {
+        setUpdatingApp(false);
+      }
+      return;
+    }
+
     if (mode === "background") {
       setAvailableRelease(null);
       setUpdateMessage("正在后台下载新版本…");
@@ -666,7 +719,7 @@ export default function App() {
 
   function skipAvailableRelease() {
     if (!availableRelease) return;
-    skipReleaseVersion(availableRelease.version);
+    skipReleaseVersion(availableRelease.version, availableRelease.apkVersionCode);
     setAvailableRelease(null);
     setNeedRefresh(false);
   }

@@ -37,4 +37,6 @@
     <!-- Exact reminder alarms so scheduled notifications fire on time even when the app is closed. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- In-app APK updates (sideload over the existing install, same signing key). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

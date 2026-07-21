@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRelease } from "./appRelease";
-import { installOfflineAppUpdate } from "./offlineAppUpdate";
+import { installOfflineAppUpdate, rewriteRootAbsolutePaths } from "./offlineAppUpdate";
 
 class MemoryCache {
   private entries = new Map<string, Response>();
@@ -64,11 +64,15 @@ describe("免代理应用更新", () => {
         return Response.json({
           version: release.version,
           commit: release.commit,
-          files: ["index.html", "assets/app.js", "assets/app.css"]
+          files: ["index.html", "assets/app.js", "assets/app.css", "android/semester-schedule.apk", "sw.js"]
         });
       }
-      if (url.includes("index.html")) return new Response("<html>new</html>", { headers: { "content-type": "text/plain" } });
-      if (url.includes("app.js")) return new Response("window.updated=true");
+      if (url.includes("index.html")) {
+        return new Response('<html><script src="/assets/app.js"></script></html>', {
+          headers: { "content-type": "text/html" }
+        });
+      }
+      if (url.includes("app.js")) return new Response('import("/assets/chunk.js");window.updated=true');
       if (url.includes("app.css")) return new Response("body{color:black}");
       return new Response("missing", { status: 404 });
     });
@@ -77,12 +81,25 @@ describe("免代理应用更新", () => {
 
     const precache = await caches.open("workbox-precache-v2-test");
     const indexRequest = (await precache.keys())[0];
-    expect(await (await precache.match(indexRequest))?.text()).toContain("new");
+    const indexText = await (await precache.match(indexRequest))?.text();
+    // Under test BASE_URL is usually "/"; when non-root, rewrite is applied in production Pages builds.
+    expect(indexText).toContain("app.js");
     expect((await precache.match(indexRequest))?.headers.get("content-type")).toContain("text/html");
 
     const runtime = await caches.open("semester-schedule-offline-updates");
     expect(await (await runtime.match(new URL("assets/app.js", document.baseURI)))?.text()).toContain("updated");
+    // manifest + 3 web assets (apk/sw excluded)
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("把镜像根路径资源改写到子路径 base，避免 GitHub Pages 白屏", () => {
+    const html = '<script type="module" src="/assets/index-abc.js"></script><link href="/favicon.svg">';
+    const rewritten = rewriteRootAbsolutePaths(html, "/semester-schedule-pwa/");
+    expect(rewritten).toContain('src="/semester-schedule-pwa/assets/index-abc.js"');
+    expect(rewritten).toContain('href="/semester-schedule-pwa/favicon.svg"');
+    expect(rewritten).not.toContain('src="/assets/');
+    // Already-prefixed paths stay intact.
+    expect(rewriteRootAbsolutePaths(rewritten, "/semester-schedule-pwa/")).toBe(rewritten);
   });
 });
 

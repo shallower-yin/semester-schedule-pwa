@@ -13,6 +13,8 @@ import { isNativeApp } from "./nativeApp";
 // focus page and headless timer do not need to know which platform they are on.
 
 let lastNativePayload = "";
+/** True after a successful native show until hide. Prevents idle update IPC when the card is closed. */
+let nativeWindowOpen = false;
 
 function overlayPayload(active: ActiveFocusState): FocusOverlayPayload {
   return {
@@ -50,6 +52,7 @@ export async function openFocusSystemWindow(
     const payload = overlayPayload(active);
     lastNativePayload = JSON.stringify(payload);
     await FocusOverlay.show(payload);
+    nativeWindowOpen = true;
     return;
   }
   await openFocusPictureInPicture(active, now);
@@ -57,10 +60,11 @@ export async function openFocusSystemWindow(
 
 export function updateFocusSystemWindow(active: ActiveFocusState | null, now = new Date()): void {
   if (isNativeApp()) {
-    if (!active) return;
+    if (!active || !nativeWindowOpen) return;
     const payload = overlayPayload(active);
     const serialized = JSON.stringify(payload);
-    // The native overlay ticks itself, so only push when the anchors actually change.
+    // The native overlay ticks itself, so only push when the anchors actually change
+    // (pause/resume, title, planned duration). Same anchors must not re-open or reset time.
     if (serialized === lastNativePayload) return;
     lastNativePayload = serialized;
     void FocusOverlay.update(payload);
@@ -72,6 +76,7 @@ export function updateFocusSystemWindow(active: ActiveFocusState | null, now = n
 export async function closeFocusSystemWindow(): Promise<void> {
   if (isNativeApp()) {
     lastNativePayload = "";
+    nativeWindowOpen = false;
     await FocusOverlay.hide();
     return;
   }
