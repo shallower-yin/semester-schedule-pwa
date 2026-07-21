@@ -129,6 +129,7 @@ jobs:
         run: supabase functions deploy ai-assistant --project-ref "$PROJECT_REF"
 
       - name: Configure R2 CORS and lifecycle
+        continue-on-error: true
         env:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
@@ -140,7 +141,11 @@ jobs:
             exit 0
           fi
           npm install --no-save @aws-sdk/client-s3@^3.1089.0
-          npm run configure:r2
+          # Object-only R2 tokens return 403 on PutBucketCors/PutBucketLifecycle; do not block function deploys.
+          if ! npm run configure:r2; then
+            echo "::warning::R2 CORS/lifecycle configure failed (often AccessDenied on object-only API tokens). Set ai-audio/ lifecycle to 7 days in the Cloudflare dashboard if needed."
+            exit 1
+          fi
 
       - name: Deploy admin function
         run: supabase functions deploy admin --project-ref "$PROJECT_REF"

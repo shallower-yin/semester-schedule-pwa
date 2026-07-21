@@ -61,7 +61,13 @@ await configure("lifecycle", new PutBucketLifecycleConfigurationCommand({
   }
 }));
 
-if (failures.length) throw new Error(`R2 bucket management failed: ${failures.join(", ")}`);
+if (failures.length) {
+  throw new Error(
+    `R2 bucket management failed: ${failures.join(", ")}. ` +
+    `If AccessDenied, use an R2 token with Admin Read & Write (bucket CORS/lifecycle), ` +
+    `or set ai-audio/ expiration to 7 days in the Cloudflare dashboard.`
+  );
+}
 
 console.log(`R2 bucket "${bucket}" is reachable; browser + APK WebView CORS, 7-day ai-audio and 1-day ai-documents lifecycle cleanup are configured.`);
 
