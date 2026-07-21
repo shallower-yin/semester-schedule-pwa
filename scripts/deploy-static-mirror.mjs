@@ -16,15 +16,16 @@ if (!buckets.some((item) => item.id === bucket)) {
   const { error } = await client.storage.createBucket(bucket, {
     public: false,
     // Allow APK packages (~10–40 MB) next to web mirror assets.
-    fileSizeLimit: 80 * 1024 * 1024
+    fileSizeLimit: 50 * 1024 * 1024
   });
   if (error) throw error;
 } else {
-  const { error } = await client.storage.updateBucket(bucket, {
-    public: false,
-    fileSizeLimit: 80 * 1024 * 1024
-  });
-  if (error) throw error;
+  // Some projects reject updateBucket fileSizeLimit changes with storage 413.
+  // The bucket already exists in production; skip hard-failing size updates.
+  const { error } = await client.storage.updateBucket(bucket, { public: false });
+  if (error) {
+    console.warn(`Skipping bucket update (${error.message}); continuing with existing bucket settings.`);
+  }
 }
 
 let files = await walk(sourceDir);
