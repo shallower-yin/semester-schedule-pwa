@@ -32,6 +32,16 @@ const release = JSON.parse(await readFile(join(sourceDir, "release.json"), "utf8
 // Old APK clients do not resolve relative apkUrl; always publish an absolute HTTPS link.
 const mirrorBase = (process.env.VITE_APP_ASSET_MIRROR_URL?.trim()
   || `${supabaseUrl}/functions/v1/app-hosting/`).replace(/\/?$/, "/");
+// Web-only CI builds omit APK fields; merge the last published APK metadata so phone OTA survives.
+if (!release.apkUrl && !release.apkVersionCode) {
+  const previous = await downloadJsonObject("release.json");
+  if (previous?.apkVersionCode || previous?.apkUrl) {
+    release.apkUrl = previous.apkUrl;
+    release.apkVersionCode = previous.apkVersionCode;
+    release.apkSha256 = previous.apkSha256;
+    console.log(`Merged previous APK metadata (versionCode=${release.apkVersionCode}) into release.json`);
+  }
+}
 if (release.apkUrl || release.apkVersionCode) {
   const rawApk = typeof release.apkUrl === "string" && release.apkUrl.trim()
     ? release.apkUrl.trim()
@@ -128,6 +138,16 @@ function contentType(path) {
     ".ico": "image/x-icon",
     ".apk": "application/vnd.android.package-archive"
   })[extension] || "application/octet-stream";
+}
+
+async function downloadJsonObject(objectPath) {
+  const { data, error } = await client.storage.from(bucket).download(objectPath);
+  if (error || !data) return null;
+  try {
+    return JSON.parse(await data.text());
+  } catch {
+    return null;
+  }
 }
 
 function required(name) {
