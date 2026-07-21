@@ -65,6 +65,8 @@ jobs:
         run: npm run build
 
       - name: Deploy no-proxy mirror
+        # Mirror failures must not block GitHub Pages; APK/web OTA is also published manually when needed.
+        continue-on-error: true
         env:
           SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
