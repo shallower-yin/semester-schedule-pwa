@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3157d5" />
+  <meta name="description" content="日程计划表 — 网页版与 Android 安装包分发" />
+  <title>日程计划表 · 安装与下载</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      color-scheme: light;
+      --primary: #3157d5;
+      --primary-hover: #2649bd;
+      --bg: #f5f7fb;
+      --surface: #fff;
+      --text: #172033;
+      --muted: #697386;
+      --border: #dfe4ee;
+      --ok: #0f7b4c;
+      --shadow: 0 14px 40px rgb(30 48 88 / 12%);
+      font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #dfe8ff 0%, transparent 55%),
+        radial-gradient(900px 400px at 100% 0%, #e8f7ff 0%, transparent 50%),
+        var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      width: min(720px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 48px;
+    }
+    header {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    header img {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      background: #fff;
+    }
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 1.45rem;
+      letter-spacing: 0.02em;
+    }
+    header p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 0.95rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px 18px 16px;
+      box-shadow: var(--shadow);
+      margin-bottom: 14px;
+    }
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 1.08rem;
+    }
+    .card p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.94rem;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    a.btn, button.btn {
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 0.98rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 46px;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-secondary {
+      background: #edf2ff;
+      color: var(--primary);
+    }
+    .btn-secondary:hover { background: #e2e9ff; }
+    .meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    @media (max-width: 560px) {
+      .meta { grid-template-columns: 1fr; }
+    }
+    .meta div {
+      background: #f7f9fc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .meta strong {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .meta span {
+      font-size: 0.92rem;
+      word-break: break-all;
+    }
+    .status {
+      margin-top: 10px;
+      font-size: 0.88rem;
+      color: var(--muted);
+      min-height: 1.3em;
+    }
+    .status.ok { color: var(--ok); }
+    .status.err { color: #b42318; }
+    ol {
+      margin: 0;
+      padding-left: 1.2rem;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 0.93rem;
+    }
+    footer {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+      text-align: center;
+    }
+    footer a { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="./app-icon-192.png" alt="日程计划表" width="64" height="64" />
+      <div>
+        <h1>日程计划表 · 分发页</h1>
+        <p>电脑/手机浏览器打开网页版，或下载 Android 安装包。国内网络可走下方镜像链接。</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>网页版（PWA）</h2>
+      <p>推荐 Edge / Chrome。打开后可「安装到桌面 / 添加到主屏幕」。登录同一账号后可跨设备同步日程。</p>
+      <div class="actions">
+        <a class="btn btn-primary" id="open-web" href="./">打开网页版</a>
+        <button type="button" class="btn btn-secondary" id="copy-web">复制网页链接</button>
+      </div>
+      <div class="status" id="web-status"></div>
+    </section>
+
+    <section class="card">
+      <h2>Android 安装包（APK）</h2>
+      <p>适用于安卓手机侧载安装。下载后如系统提示「未知来源」，请允许本文件管理器/浏览器安装应用。覆盖安装可保留本地数据（同签名）。</p>
+      <div class="actions">
+        <a class="btn btn-primary" id="download-apk" href="#">下载 APK</a>
+        <button type="button" class="btn btn-secondary" id="copy-apk">复制下载链接</button>
+      </div>
+      <div class="meta" style="margin-top:14px">
+        <div><strong>版本号</strong><span id="apk-version">加载中…</span></div>
+        <div><strong>versionCode</strong><span id="apk-code">—</span></div>
+        <div><strong>SHA-256</strong><span id="apk-sha">—</span></div>
+        <div><strong>下载通道</strong><span id="apk-channel">国内镜像</span></div>
+      </div>
+      <div class="status" id="apk-status">正在读取 release 信息…</div>
+    </section>
+
+    <section class="card">
+      <h2>安装说明（安卓）</h2>
+      <ol>
+        <li>点击「下载 APK」，等待下载完成。</li>
+        <li>用系统文件管理打开 APK，按提示安装。</li>
+        <li>首次打开若提示通知权限，建议允许，以便日程提醒。</li>
+        <li>登录账号后点同步，与电脑网页版共用数据。</li>
+      </ol>
+    </section>
+
+    <footer>
+      <div>网页：<a id="footer-web" href="./">GitHub Pages</a>
+        · 镜像：<a id="footer-mirror" href="#">app-hosting</a></div>
+      <div id="footer-commit">—</div>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var GITHUB_PAGES = "https://shallower-yin.github.io/semester-schedule-pwa/";
+      var MIRROR_BASE = "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/";
+      var DEFAULT_APK = MIRROR_BASE + "android/semester-schedule.apk";
+
+      var openWeb = document.getElementById("open-web");
+      var copyWeb = document.getElementById("copy-web");
+      var webStatus = document.getElementById("web-status");
+      var downloadApk = document.getElementById("download-apk");
+      var copyApk = document.getElementById("copy-apk");
+      var apkStatus = document.getElementById("apk-status");
+      var apkVersion = document.getElementById("apk-version");
+      var apkCode = document.getElementById("apk-code");
+      var apkSha = document.getElementById("apk-sha");
+      var footerWeb = document.getElementById("footer-web");
+      var footerMirror = document.getElementById("footer-mirror");
+      var footerCommit = document.getElementById("footer-commit");
+
+      // Prefer same-origin app if this page is served from Pages or the mirror.
+      var webUrl = (function () {
+        try {
+          var u = new URL("./", location.href);
+          if (/github\.io|app-hosting/i.test(u.href)) return u.href;
+        } catch (e) {}
+        return GITHUB_PAGES;
+      })();
+      openWeb.href = webUrl;
+      footerWeb.href = GITHUB_PAGES;
+      footerMirror.href = MIRROR_BASE;
+
+      downloadApk.href = DEFAULT_APK;
+
+      function setStatus(el, text, cls) {
+        el.textContent = text || "";
+        el.className = "status" + (cls ? " " + cls : "");
+      }
+
+      async function copyText(text, okEl, okMsg) {
+        try {
+          await navigator.clipboard.writeText(text);
+          setStatus(okEl, okMsg || "已复制。", "ok");
+        } catch (e) {
+          setStatus(okEl, "复制失败，请长按链接手动复制。", "err");
+        }
+      }
+
+      copyWeb.addEventListener("click", function () {
+        copyText(webUrl, webStatus, "网页链接已复制。");
+      });
+      copyApk.addEventListener("click", function () {
+        copyText(downloadApk.href, apkStatus, "APK 下载链接已复制。");
+      });
+
+      async function loadRelease() {
+        var candidates = [
+          new URL("release.json", location.href).href + "?t=" + Date.now(),
+          MIRROR_BASE + "release.json?t=" + Date.now(),
+          GITHUB_PAGES + "release.json?t=" + Date.now()
+        ];
+        var lastErr = null;
+        for (var i = 0; i < candidates.length; i++) {
+          try {
+            var res = await fetch(candidates[i], { cache: "no-store" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            var data = await res.json();
+            applyRelease(data);
+            setStatus(apkStatus, "已加载版本信息（通道 " + (i === 0 ? "本站" : i === 1 ? "镜像" : "Pages") + "）。", "ok");
+            return;
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        apkVersion.textContent = "未知（使用默认下载地址）";
+        setStatus(apkStatus, "无法读取 release.json，仍可尝试默认 APK 链接。" + (lastErr ? " " + lastErr.message : ""), "err");
+      }
+
+      function applyRelease(data) {
+        apkVersion.textContent = data.version || "—";
+        apkCode.textContent = data.apkVersionCode != null ? String(data.apkVersionCode) : "—";
+        apkSha.textContent = data.apkSha256 || "—";
+        footerCommit.textContent = [
+          data.version ? "版本 " + data.version : null,
+          data.commit ? "提交 " + data.commit : null,
+          data.publishedAt ? "发布 " + data.publishedAt : null
+        ].filter(Boolean).join(" · ");
+
+        var apk = (data.apkUrl || "").trim();
+        if (apk && /^https?:\/\//i.test(apk)) {
+          downloadApk.href = apk;
+        } else if (apk) {
+          downloadApk.href = new URL(apk.replace(/^\/+/, ""), MIRROR_BASE).href;
+        } else {
+          downloadApk.href = DEFAULT_APK;
+        }
+      }
+
+      loadRelease();
+    })();
+  </script>
+</body>
+</html>

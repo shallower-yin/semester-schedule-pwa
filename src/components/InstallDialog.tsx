@@ -1,6 +1,6 @@
 import { CheckCircle2, Clipboard, Download, Home, LogIn, Menu, Monitor, Search, Smartphone } from "lucide-react";
 import { useState } from "react";
-import { appInstallUrl } from "../lib/appHosting";
+import { appInstallUrl, appMirrorApkUrl } from "../lib/appHosting";
 import { Modal } from "./Modal";
 
 interface InstallDialogProps {
@@ -98,6 +98,12 @@ export function InstallDialog({
               <article><span>3</span><Home size={17} /><p>安装后从手机桌面打开“日程计划表”。</p></article>
               <article><span>4</span><LogIn size={17} /><p>登录同一账号，让手机和电脑同步。</p></article>
             </div>
+            <p className="install-note" style={{ marginTop: 12 }}>
+              也可以安装 Android APK：
+              <a href={new URL("download.html", appInstallUrl).href} target="_blank" rel="noreferrer">打开分发页</a>
+              {" · "}
+              <a href={appMirrorApkUrl} target="_blank" rel="noreferrer">直接下载 APK</a>
+            </p>
           </section>
         </div>
 
