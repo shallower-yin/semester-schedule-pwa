@@ -100,7 +100,7 @@ export function InstallDialog({
             </div>
             <p className="install-note" style={{ marginTop: 12 }}>
               也可以安装 Android APK：
-              <a href={new URL("download.html", appInstallUrl).href} target="_blank" rel="noreferrer">打开分发页</a>
+              <a href={new URL("download.html", appInstallUrl).href} target="_blank" rel="noreferrer">打开介绍与下载页</a>
               {" · "}
               <a href={appMirrorApkUrl} target="_blank" rel="noreferrer">直接下载 APK</a>
             </p>
