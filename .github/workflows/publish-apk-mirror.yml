@@ -7,11 +7,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "android/app/build.gradle"
+      - "android/**"
       - "src/**"
       - "public/**"
       - "package.json"
       - "package-lock.json"
+      - "release-notes.json"
       - ".github/workflows/publish-apk-mirror.yml"
 
 concurrency:
@@ -79,32 +80,47 @@ jobs:
 
       - name: Assemble debug APK
         working-directory: android
+        env:
+          # Explicit path used by android/app/build.gradle signingConfigs.debug
+          SEMESTER_DEBUG_KEYSTORE: ${{ runner.temp }}/semester-debug.keystore
         run: |
           set -euo pipefail
-          # Gradle debug signing uses ~/.android/debug.keystore (restored above).
           test -s "$HOME/.android/debug.keystore"
+          cp "$HOME/.android/debug.keystore" "$SEMESTER_DEBUG_KEYSTORE"
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --console=plain
 
       - name: Stage APK and checksum
         id: apk
+        env:
+          SEMESTER_DEBUG_KEYSTORE: ${{ runner.temp }}/semester-debug.keystore
         run: |
           set -euo pipefail
           SRC="android/app/build/outputs/apk/debug/app-debug.apk"
           test -f "$SRC"
-          # Fail the job if CI accidentally signed with the wrong cert (phone OTA would conflict).
+          test -s "$SEMESTER_DEBUG_KEYSTORE"
+          # Force-sign with the project debug key so OTA matches phones (Gradle default may still use another keystore).
+          APKSIGNER="$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          test -x "$APKSIGNER"
+          mkdir -p dist-mirror/android
+          OUT="dist-mirror/android/semester-schedule.apk"
+          "$APKSIGNER" sign \
+            --ks "$SEMESTER_DEBUG_KEYSTORE" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out "$OUT" \
+            "$SRC"
+          "$APKSIGNER" verify --print-certs "$OUT" | tee /tmp/apk-certs.txt
+          # Phone installs use Studio AndroidUser debug cert 98e610ed…
           EXPECTED_CERT_SHA256="98e610edcfa3d9e4f34752da158ea48e48592f08481543ad0ac26f85294a3e24"
-          CERT_LINE=$(keytool -printcert -jarfile "$SRC" 2>/dev/null | tr 'A-F' 'a-f' | tr -d ' :' | grep -i "sha256" | head -1 || true)
-          echo "APK cert line: $CERT_LINE"
-          if ! keytool -printcert -jarfile "$SRC" 2>/dev/null | tr 'A-F' 'a-f' | tr -d ' :\n' | grep -q "$EXPECTED_CERT_SHA256"; then
-            echo "::error::APK signing cert does not match expected Studio debug cert ($EXPECTED_CERT_SHA256). Refusing to publish (would break in-place updates)."
-            keytool -printcert -jarfile "$SRC" || true
+          if ! tr 'A-F' 'a-f' < /tmp/apk-certs.txt | tr -d ' :' | grep -q "$EXPECTED_CERT_SHA256"; then
+            echo "::error::APK signing cert does not match expected Studio debug cert ($EXPECTED_CERT_SHA256). Refusing to publish."
+            cat /tmp/apk-certs.txt
             exit 1
           fi
           echo "APK signing cert OK ($EXPECTED_CERT_SHA256)"
-          mkdir -p dist-mirror/android
-          cp "$SRC" dist-mirror/android/semester-schedule.apk
-          SHA=$(sha256sum dist-mirror/android/semester-schedule.apk | awk '{print tolower($1)}')
+          SHA=$(sha256sum "$OUT" | awk '{print tolower($1)}')
           CODE=$(python3 - <<'PY'
           import re
           text=open("android/app/build.gradle",encoding="utf-8").read()
@@ -114,7 +130,7 @@ jobs:
           )
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
-          echo "APK versionCode=$CODE sha256=$SHA size=$(wc -c < dist-mirror/android/semester-schedule.apk)"
+          echo "APK versionCode=$CODE sha256=$SHA size=$(wc -c < "$OUT")"
 
       - name: Build mirror web package with APK metadata
         env:

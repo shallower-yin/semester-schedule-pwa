@@ -16,7 +16,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            // CI / local can pin the same keystore phones already trust (OTA otherwise fails with signature conflict).
+            def customStore = System.getenv("SEMESTER_DEBUG_KEYSTORE")
+            if (customStore != null && customStore.trim()) {
+                storeFile file(customStore)
+                storePassword System.getenv("SEMESTER_DEBUG_KEYSTORE_PASSWORD") ?: "android"
+                keyAlias System.getenv("SEMESTER_DEBUG_KEYSTORE_ALIAS") ?: "androiddebugkey"
+                keyPassword System.getenv("SEMESTER_DEBUG_KEYSTORE_PASSWORD") ?: "android"
+            }
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
