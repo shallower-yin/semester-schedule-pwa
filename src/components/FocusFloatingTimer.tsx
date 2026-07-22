@@ -10,9 +10,10 @@ import {
   type ActiveFocusState
 } from "../lib/focus";
 import { closeFocusSystemWindow, updateFocusSystemWindow } from "../lib/focusSystemWindow";
+import { stopNativeFocusTimer } from "../lib/focusNativeTimer";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
-import type { FocusSession } from "../types";
+import type { FocusSession, RestSession } from "../types";
 
 interface FocusFloatingTimerProps {
   ownerId: string;
@@ -68,23 +69,38 @@ export async function completeExpiredFocus(ownerId: string, active: ActiveFocusS
   const latest = loadActiveFocus(ownerId);
   if (!latest || latest.started_at !== active.started_at || latest.pause_started_at || remainingFocusSeconds(latest, now) !== 0) return false;
   const duration = Math.max(1, elapsedFocusSeconds(latest, now));
-  const record: FocusSession = {
-    ...syncFields(),
-    mode: latest.mode,
-    task_title: latest.task_title,
-    linked_event_id: latest.linked_event_id,
-    planned_seconds: latest.planned_seconds,
-    duration_seconds: duration,
-    started_at: latest.started_at,
-    ended_at: now.toISOString(),
-    completed: true,
-    interrupted: false
-  };
-  await db.focusSessions.put(record);
-  await queueChange("focusSessions", record.id);
+  if (latest.mode === "rest") {
+    const record: RestSession = {
+      ...syncFields(),
+      planned_seconds: latest.planned_seconds ?? duration,
+      duration_seconds: duration,
+      started_at: latest.started_at,
+      ended_at: now.toISOString(),
+      completed: true,
+      interrupted: false
+    };
+    await db.restSessions.put(record);
+    await queueChange("restSessions", record.id);
+  } else {
+    const record: FocusSession = {
+      ...syncFields(),
+      mode: latest.mode,
+      task_title: latest.task_title,
+      linked_event_id: latest.linked_event_id,
+      planned_seconds: latest.planned_seconds,
+      duration_seconds: duration,
+      started_at: latest.started_at,
+      ended_at: now.toISOString(),
+      completed: true,
+      interrupted: false
+    };
+    await db.focusSessions.put(record);
+    await queueChange("focusSessions", record.id);
+  }
+  await stopNativeFocusTimer(latest.mode === "lock");
   clearActiveFocus(ownerId);
   const settings = await db.focusSettings.filter((item) => item.user_id === ownerId && !item.deleted_at).last();
-  notifyFocusComplete(record.task_title, settings?.sound_enabled ?? true);
-  showToast(`“${record.task_title}”专注结束。`, "success");
+  notifyFocusComplete(latest.task_title, settings?.sound_enabled ?? true);
+  showToast(latest.mode === "rest" ? "休息结束。" : `“${latest.task_title}”专注结束。`, "success");
   return true;
 }

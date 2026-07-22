@@ -12,17 +12,24 @@ import {
   formatFocusDuration,
   loadActiveFocus,
   notifyFocusComplete,
-  remainingFocusSeconds,
   requestFocusNotificationPermission,
   saveActiveFocus,
   totalFocusSeconds,
   type ActiveFocusState
 } from "../lib/focus";
 import { closeFocusSystemWindow, focusSystemWindowSupported, openFocusSystemWindow, updateFocusSystemWindow } from "../lib/focusSystemWindow";
+import {
+  enterNativeLockTask,
+  pauseNativeFocusTimer,
+  readNativeFocusTimer,
+  resumeNativeFocusTimer,
+  startNativeFocusTimer,
+  stopNativeFocusTimer
+} from "../lib/focusNativeTimer";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
-import type { EventItem, FocusMode, FocusSession, FocusSettings } from "../types";
+import type { EventItem, FocusMode, FocusSession, FocusSettings, FocusTimerMode, RestSession } from "../types";
 import { Modal } from "./Modal";
 import { FocusAudioPlayer } from "./FocusAudioPlayer";
 import { FocusFullscreen, enterImmersiveFullscreen, exitImmersiveFullscreen, lockOrientation } from "./FocusFullscreen";
@@ -51,11 +58,15 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     () => db.focusSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
     [ownerId]
   ) ?? [];
+  const restSessions = useLiveQuery(
+    () => db.restSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
+    [ownerId]
+  ) ?? [];
   const events = useLiveQuery(
     () => db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
     [ownerId]
   ) ?? [];
-  const [mode, setMode] = useState<FocusMode>("pomodoro");
+  const [mode, setMode] = useState<FocusTimerMode>("pomodoro");
   const [taskTitle, setTaskTitle] = useState("");
   const [linkedEventId, setLinkedEventId] = useState("");
   const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
@@ -67,6 +78,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set());
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [systemWindowOpen, setSystemWindowOpen] = useState(false);
+  const [nativeElapsed, setNativeElapsed] = useState<number | null>(null);
+  const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>("week");
 
   const effectiveSettings = storedSettings ?? settingsDraft;
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
@@ -81,14 +94,22 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const maxDailySeconds = Math.max(1, ...dailyTotals.map((item) => item.total_seconds));
   const todayBreakdown = useMemo(() => focusBreakdown(todaySessions, events), [events, todaySessions]);
   const weekBreakdown = useMemo(() => focusBreakdown(weekSessions, events), [events, weekSessions]);
-  const elapsed = active ? elapsedFocusSeconds(active, now) : 0;
-  const remaining = active ? remainingFocusSeconds(active, now) : null;
+  const elapsed = active ? nativeElapsed ?? elapsedFocusSeconds(active, now) : 0;
+  const remaining = active?.planned_seconds == null ? null : Math.max(0, active.planned_seconds - elapsed);
   const displaySeconds = active ? remaining ?? elapsed : plannedSecondsForMode(mode, effectiveSettings);
   const progress = active?.planned_seconds ? Math.min(1, elapsed / active.planned_seconds) : 0;
   const recentSessions = useMemo(
     () => sessions.slice().sort((left, right) => right.ended_at.localeCompare(left.ended_at)).slice(0, 20),
     [sessions]
   );
+  const recentRestSessions = useMemo(
+    () => restSessions.slice().sort((left, right) => right.ended_at.localeCompare(left.ended_at)).slice(0, 10),
+    [restSessions]
+  );
+  const periodFocusSessions = useMemo(() => recordsForPeriod(sessions, statsPeriod, now), [now, sessions, statsPeriod]);
+  const periodRestSessions = useMemo(() => recordsForPeriod(restSessions, statsPeriod, now), [now, restSessions, statsPeriod]);
+  const periodFocusSeconds = totalFocusSeconds(periodFocusSessions);
+  const periodRestSeconds = totalRestSeconds(periodRestSessions);
 
   useEffect(() => {
     if (storedSettings) {
@@ -114,6 +135,32 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!active) {
+      setNativeElapsed(null);
+      return;
+    }
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        let state = await readNativeFocusTimer(ownerId);
+        if (!state) {
+          await startNativeFocusTimer(ownerId, active);
+          state = await readNativeFocusTimer(ownerId);
+        }
+        if (!cancelled && state) setNativeElapsed(state.elapsedSeconds);
+      } catch {
+        if (!cancelled) setNativeElapsed(null);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [active?.started_at, ownerId]);
+
 
 
   useEffect(() => {
@@ -128,13 +175,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
   const selectedEvent = events.find((event) => event.id === linkedEventId);
 
-  function startFocus() {
-    const title = taskTitle.trim() || selectedEvent?.title || focusModeLabel(mode);
+  async function startFocus() {
+    const isRest = mode === "rest";
+    const title = isRest ? "休息" : taskTitle.trim() || selectedEvent?.title || focusModeLabel(mode);
     const plannedSeconds = plannedSecondsForMode(mode, effectiveSettings);
     const next: ActiveFocusState = {
       mode,
       task_title: title,
-      linked_event_id: linkedEventId || null,
+      linked_event_id: isRest ? null : linkedEventId || null,
       planned_seconds: mode === "stopwatch" || mode === "lock" ? null : plannedSeconds,
       started_at: new Date().toISOString(),
       paused_seconds: 0,
@@ -142,9 +190,23 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     };
     setActive(next);
     saveActiveFocus(ownerId, next);
+    try {
+      const elapsedSeconds = await startNativeFocusTimer(ownerId, next);
+      if (elapsedSeconds != null) setNativeElapsed(elapsedSeconds);
+    } catch {
+      setNativeElapsed(null);
+    }
     // 系统小窗（原生悬浮窗 / 画中画）只在用户点击“系统小窗”时打开，开始专注不再自动弹出。
     if (effectiveSettings.sound_enabled) requestFocusNotificationPermission();
-    if (mode === "lock") void enterImmersiveFullscreen();
+    if (mode === "lock") {
+      void enterImmersiveFullscreen();
+      try {
+        const pinned = await enterNativeLockTask();
+        if (!pinned) showToast("系统未进入屏幕固定，请确认系统弹窗。", "info");
+      } catch {
+        showToast("无法启动系统屏幕固定，请在安卓设置中启用“固定屏幕”。", "error");
+      }
+    }
     setMessage("");
   }
 
@@ -193,11 +255,13 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       const next = { ...active, paused_seconds: active.paused_seconds + pausedFor, pause_started_at: null };
       setActive(next);
       saveActiveFocus(ownerId, next);
+      void resumeNativeFocusTimer().then((seconds) => seconds != null && setNativeElapsed(seconds));
       updateFocusSystemWindow(next);
     } else {
       const next = { ...active, pause_started_at: current.toISOString() };
       setActive(next);
       saveActiveFocus(ownerId, next);
+      void pauseNativeFocusTimer().then((seconds) => seconds != null && setNativeElapsed(seconds));
       updateFocusSystemWindow(next);
     }
   }
@@ -206,20 +270,35 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     if (!active) return;
     const endedAt = new Date();
     const duration = Math.max(1, elapsedFocusSeconds(active, endedAt));
-    const record: FocusSession = {
-      ...syncFields(),
-      mode: active.mode,
-      task_title: active.task_title,
-      linked_event_id: active.linked_event_id,
-      planned_seconds: active.planned_seconds,
-      duration_seconds: duration,
-      started_at: active.started_at,
-      ended_at: endedAt.toISOString(),
-      completed,
-      interrupted
-    };
-    await db.focusSessions.put(record);
-    await queueChange("focusSessions", record.id);
+    if (active.mode === "rest") {
+      const record: RestSession = {
+        ...syncFields(),
+        planned_seconds: active.planned_seconds ?? effectiveSettings.short_break_minutes * 60,
+        duration_seconds: duration,
+        started_at: active.started_at,
+        ended_at: endedAt.toISOString(),
+        completed,
+        interrupted
+      };
+      await db.restSessions.put(record);
+      await queueChange("restSessions", record.id);
+    } else {
+      const record: FocusSession = {
+        ...syncFields(),
+        mode: active.mode,
+        task_title: active.task_title,
+        linked_event_id: active.linked_event_id,
+        planned_seconds: active.planned_seconds,
+        duration_seconds: duration,
+        started_at: active.started_at,
+        ended_at: endedAt.toISOString(),
+        completed,
+        interrupted
+      };
+      await db.focusSessions.put(record);
+      await queueChange("focusSessions", record.id);
+    }
+    await stopNativeFocusTimer(active.mode === "lock");
     clearActiveFocus(ownerId);
     void closeFocusSystemWindow();
     void exitImmersiveFullscreen();
@@ -229,13 +308,17 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     setSystemWindowOpen(false);
     setTaskTitle("");
     setLinkedEventId("");
-    setMessage(completed ? `已完成 ${formatFocusDuration(duration)} 专注。` : `已保存 ${formatFocusDuration(duration)} 专注记录。`);
-    showToast(completed ? `已完成 ${formatFocusDuration(duration)} 专注。` : `已保存 ${formatFocusDuration(duration)} 专注记录。`, "success");
-    if (completed) notifyFocusComplete(record.task_title, effectiveSettings.sound_enabled);
+    setNativeElapsed(null);
+    const kind = active.mode === "rest" ? "休息" : "专注";
+    const resultMessage = completed ? `已完成 ${formatFocusDuration(duration)} ${kind}。` : `已保存 ${formatFocusDuration(duration)} ${kind}记录。`;
+    setMessage(resultMessage);
+    showToast(resultMessage, "success");
+    if (completed) notifyFocusComplete(active.task_title, effectiveSettings.sound_enabled);
   }
 
   function discardFocus() {
-    if (!active || !window.confirm("放弃当前专注？不会保存本次记录。")) return;
+    if (!active || !window.confirm(`放弃当前${active.mode === "rest" ? "休息" : "专注"}？不会保存本次记录。`)) return;
+    void stopNativeFocusTimer(active.mode === "lock");
     clearActiveFocus(ownerId);
     void closeFocusSystemWindow();
     void exitImmersiveFullscreen();
@@ -243,6 +326,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     setActive(null);
     setShowFullscreen(false);
     setSystemWindowOpen(false);
+    setNativeElapsed(null);
     setMessage("已放弃当前专注。");
     showToast("已放弃当前专注。", "info");
   }
@@ -263,6 +347,13 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     await hardDeleteLocalRecord("focusSessions", session.id);
     setMessage("专注记录已彻底删除。");
     showToast("专注记录已彻底删除。", "success");
+  }
+
+  async function deleteRestSession(session: RestSession) {
+    if (!window.confirm(`确定彻底删除这条 ${formatFocusDuration(session.duration_seconds)} 的休息记录吗？此操作无法恢复。`)) return;
+    await hardDeleteLocalRecord("restSessions", session.id);
+    setMessage("休息记录已彻底删除。");
+    showToast("休息记录已彻底删除。", "success");
   }
 
   function toggleRecordSelection(id: string) {
@@ -289,7 +380,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       <div className="page-heading focus-heading">
         <div>
           <h1>专注</h1>
-          <p>正计时、倒计时、番茄钟和锁机记录会同步到手机和电脑。</p>
+          <p>专注与休息分开记录；休息不会计入专注目标和专注历史。</p>
         </div>
         <div className="focus-stats">
           <span><strong>{formatFocusDuration(todaySeconds)}</strong><small>今日</small></span>
@@ -302,27 +393,29 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         <div className="focus-main-column">
         <section className="focus-panel">
           <div className="focus-mode-tabs">
-            {(["stopwatch", "pomodoro", "countdown", "lock"] as FocusMode[]).map((item) => (
+            {(["stopwatch", "pomodoro", "rest", "lock"] as FocusTimerMode[]).map((item) => (
               <button key={item} className={mode === item ? "active" : ""} disabled={Boolean(active)} onClick={() => setMode(item)}>
                 {focusModeLabel(item)}
               </button>
             ))}
           </div>
 
-          <label className="focus-linked-task">
-            <Link2 size={17} />
-            <select value={linkedEventId} disabled={Boolean(active)} onChange={(event) => setLinkedEventId(event.target.value)}>
-              <option value="">关联任务：无</option>
-              {events.slice(0, 80).map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
-            </select>
-          </label>
-          <input
-            className="focus-task-input"
-            placeholder="专注任务，例如：复习高数"
-            value={taskTitle}
-            disabled={Boolean(active)}
-            onChange={(event) => setTaskTitle(event.target.value)}
-          />
+          {(mode !== "rest" || active) && active?.mode !== "rest" && <>
+            <label className="focus-linked-task">
+              <Link2 size={17} />
+              <select value={linkedEventId} disabled={Boolean(active)} onChange={(event) => setLinkedEventId(event.target.value)}>
+                <option value="">关联任务：无</option>
+                {events.slice(0, 80).map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
+              </select>
+            </label>
+            <input
+              className="focus-task-input"
+              placeholder="专注任务，例如：复习高数"
+              value={taskTitle}
+              disabled={Boolean(active)}
+              onChange={(event) => setTaskTitle(event.target.value)}
+            />
+          </>}
 
           <div className="focus-ring" style={{ "--progress": `${progress * 360}deg` } as React.CSSProperties}>
             <div>
@@ -333,7 +426,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           </div>
 
           {!active ? (
-            <button className="button primary focus-start-button" onClick={startFocus}><Play size={18} />开始专注</button>
+            <button className="button primary focus-start-button" onClick={() => void startFocus()}><Play size={18} />{mode === "rest" ? "开始休息" : "开始专注"}</button>
           ) : (
             <div className="focus-actions">
               <button className="button secondary" onClick={enterFullscreen} title="进入全屏专注">
@@ -355,11 +448,10 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
         <aside className="focus-side">
           <section>
-            <h2><Settings size={18} />番茄和倒计时设置</h2>
+            <h2><Settings size={18} />番茄、休息与目标设置</h2>
             <div className="focus-settings-grid">
               <label><span>番茄</span><input aria-label="番茄分钟" type="number" min={1} max={240} value={settingsDraft.pomodoro_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, pomodoro_minutes: Number(event.target.value) })} /><small>分钟</small></label>
               <label><span>休息</span><input aria-label="休息分钟" type="number" min={1} max={120} value={settingsDraft.short_break_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, short_break_minutes: Number(event.target.value) })} /><small>分钟</small></label>
-              <label><span>倒计时</span><input aria-label="倒计时分钟" type="number" min={1} max={720} value={settingsDraft.countdown_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, countdown_minutes: Number(event.target.value) })} /><small>分钟</small></label>
               <label><span>每日目标</span><input aria-label="每日目标分钟" type="number" min={1} max={1440} value={settingsDraft.daily_goal_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, daily_goal_minutes: Number(event.target.value) })} /><small>分钟</small></label>
             </div>
             <label className="checkbox-label focus-sound"><input type="checkbox" checked={settingsDraft.sound_enabled} onChange={(event) => setSettingsDraft({ ...settingsDraft, sound_enabled: event.target.checked })} /><Bell size={16} />结束提醒</label>
@@ -367,7 +459,24 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           </section>
 
           <section>
-            <h2><BarChart3 size={18} />近 7 日统计</h2>
+            <div className="focus-period-heading">
+              <h2><BarChart3 size={18} />专注 / 休息统计</h2>
+              <div className="focus-period-tabs" aria-label="统计周期">
+                {(["day", "week", "month"] as StatsPeriod[]).map((period) => (
+                  <button key={period} className={statsPeriod === period ? "active" : ""} onClick={() => setStatsPeriod(period)}>{statsPeriodLabel(period)}</button>
+                ))}
+              </div>
+            </div>
+            <div className="focus-period-stats">
+              <span><small>专注时长</small><strong>{formatFocusDuration(periodFocusSeconds)}</strong></span>
+              <span><small>专注次数</small><strong>{periodFocusSessions.length}</strong></span>
+              <span className="rest"><small>休息时长</small><strong>{formatFocusDuration(periodRestSeconds)}</strong></span>
+              <span className="rest"><small>休息次数</small><strong>{periodRestSessions.length}</strong></span>
+            </div>
+          </section>
+
+          <section>
+            <h2><BarChart3 size={18} />近 7 日专注趋势</h2>
             <div className="focus-chart">
               {dailyTotals.map((item) => (
                 <div key={item.date} className="focus-chart-bar">
@@ -419,6 +528,24 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         </div>
       </section>
 
+      <section className="focus-record-section focus-record-section-wide rest-record-section">
+        <div className="focus-section-heading">
+          <div><h2><Pause size={18} />最近休息</h2><p>独立保存，不计入任何专注时长、次数或每日目标。</p></div>
+        </div>
+        <div className="focus-record-list focus-record-grid">
+          {recentRestSessions.map((session) => (
+            <article key={session.id}>
+              <strong>休息 {formatFocusDuration(session.duration_seconds)}</strong>
+              <span>{session.completed ? "已完成" : "提前结束"} · {new Date(session.ended_at).toLocaleString()}</span>
+              <div className="focus-record-actions">
+                <button className="button danger-button compact" onClick={() => void deleteRestSession(session)}><Trash2 size={14} />彻底删除</button>
+              </div>
+            </article>
+          ))}
+          {!recentRestSessions.length && <p>还没有休息记录。</p>}
+        </div>
+      </section>
+
       {showFullscreen && active && active.mode !== "lock" && (
         <FocusFullscreen
           active={active}
@@ -441,7 +568,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             <span>锁机专注中</span>
             <h2>{active.task_title}</h2>
             <strong>{formatFocusDuration(elapsed)}</strong>
-            <p>这是 PWA 内的锁机界面，会阻挡应用内操作并在关闭页面前提示；浏览器无法真正锁住手机系统返回键或主屏幕。</p>
+            <p>APK 已调用安卓“屏幕固定/锁定任务”并保持亮屏；首次使用请在系统确认框中允许。网页端仍只能提供应用内沉浸界面。</p>
             <div className="focus-actions">
               <button className="button secondary" onClick={pauseOrResume}>{active.pause_started_at ? <Play size={17} /> : <Pause size={17} />}{active.pause_started_at ? "继续" : "暂停"}</button>
               <button className="button primary" onClick={() => void finishFocus(true, false)}><CheckCircle2 size={17} />结束并保存</button>
@@ -503,8 +630,30 @@ function FocusBreakdownList({ title, items }: { title: string; items: FocusBreak
   );
 }
 
-function plannedSecondsForMode(mode: FocusMode, settings: typeof DEFAULT_SETTINGS): number {
+type StatsPeriod = "day" | "week" | "month";
+
+function statsPeriodLabel(period: StatsPeriod): string {
+  return { day: "日", week: "周", month: "月" }[period];
+}
+
+function periodStart(period: StatsPeriod, now: Date): Date {
+  if (period === "day") return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (period === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+}
+
+function recordsForPeriod<T extends { ended_at: string; deleted_at: string | null }>(records: T[], period: StatsPeriod, now: Date): T[] {
+  const start = periodStart(period, now).getTime();
+  return records.filter((record) => !record.deleted_at && new Date(record.ended_at).getTime() >= start);
+}
+
+function totalRestSeconds(sessions: RestSession[]): number {
+  return sessions.reduce((sum, session) => sum + Math.max(0, Number(session.duration_seconds ?? 0)), 0);
+}
+
+function plannedSecondsForMode(mode: FocusTimerMode, settings: typeof DEFAULT_SETTINGS): number {
   if (mode === "pomodoro") return settings.pomodoro_minutes * 60;
+  if (mode === "rest") return settings.short_break_minutes * 60;
   if (mode === "countdown") return settings.countdown_minutes * 60;
   return 0;
 }
@@ -579,5 +728,3 @@ function FocusSessionDialog({ session, events, onClose, onSaved }: FocusSessionD
     </Modal>
   );
 }
-
-

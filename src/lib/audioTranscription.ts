@@ -225,6 +225,23 @@ async function transcribeUploadedSequentially(input: {
 }): Promise<AudioTranscriptionResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const total = Math.max(1, input.uploaded.length);
+  // A multi-file selection can mix short files and a large MP3. The old branch sent every file to
+  // the one-shot endpoint, so a single >7MB MP3 was rejected as require_client_progressive. Plan
+  // large files individually and keep the final transcript in the user's original file order.
+  const progressivePlans = await Promise.all(input.uploaded.map((audio) => (
+    isLargeMp3Upload(audio)
+      ? planAudioTranscription([audio], input.language, input.accessCode, input.signal)
+      : Promise.resolve<AudioPlanResult | null>(null)
+  )));
+  for (let index = 0; index < progressivePlans.length; index += 1) {
+    const plan = progressivePlans[index];
+    if (isLargeMp3Upload(input.uploaded[index]) && (!plan || plan.strategy !== "progressive" || !plan.tasks.length)) {
+      throw new Error(`「${input.uploaded[index].name}」体积较大，但云端未返回分段计划。请稍后重试。`);
+    }
+  }
+  const workUnits = progressivePlans.map((plan) => Math.max(1, plan?.tasks.length ?? 1));
+  const totalWork = workUnits.reduce((sum, value) => sum + value, 0);
+  let completedWork = 0;
   // Fixed-length array keeps segment i aligned with prepared part i (chronological).
   const segments: Array<string | null> = Array.from({ length: total }, () => null);
   const failedParts: string[] = [];
@@ -236,15 +253,31 @@ async function transcribeUploadedSequentially(input: {
       cancelled = true;
       break;
     }
-    input.onProgress?.(index + 1, total, "转写中");
+    input.onProgress?.(completedWork, totalWork, input.fileNames[index] || "转写中");
     try {
-      const one = await invokeSingleTranscriptionWithRetry(
-        [input.uploaded[index]],
-        input.language,
-        false,
-        input.accessCode,
-        input.signal
-      );
+      const plan = progressivePlans[index];
+      const one = plan
+        ? await runProgressiveTranscription({
+          uploaded: [input.uploaded[index]],
+          plan,
+          language: input.language,
+          summarize: false,
+          accessCode: input.accessCode,
+          signal: input.signal,
+          onProgress: (completed, _chunkTotal, step) => input.onProgress?.(
+            Math.min(totalWork, completedWork + completed),
+            totalWork,
+            `${input.fileNames[index] || input.uploaded[index].name} · ${step}`
+          ),
+          fileNames: [input.fileNames[index] || input.uploaded[index].name]
+        })
+        : await invokeSingleTranscriptionWithRetry(
+          [input.uploaded[index]],
+          input.language,
+          false,
+          input.accessCode,
+          input.signal
+        );
       segments[index] = one.transcript.trim();
       lastModel = one.model || lastModel;
     } catch (error) {
@@ -256,6 +289,8 @@ async function transcribeUploadedSequentially(input: {
       failedParts.push(`第 ${index + 1}/${total} 段：${message}`);
       segments[index] = null;
     }
+    completedWork += workUnits[index];
+    input.onProgress?.(completedWork, totalWork, input.fileNames[index] || "转写中");
   }
 
   const successCount = segments.filter((text) => Boolean(text?.trim())).length;
@@ -287,7 +322,7 @@ async function transcribeUploadedSequentially(input: {
     return base;
   }
 
-  input.onProgress?.(total, total, "整理结果");
+  input.onProgress?.(totalWork, totalWork, "整理结果");
   try {
     // Summary only over successful segments; order labels remain chronological.
     const successAudios = input.uploaded
@@ -1043,7 +1078,11 @@ async function uploadAudioFile(
         if (xhr.status >= 200 && xhr.status < 300) resolve();
         else reject(new Error(`音频上传失败（HTTP ${xhr.status}）。`));
       };
-      xhr.onerror = () => reject(new Error("音频上传网络错误，请检查网络后重试。"));
+      xhr.onerror = () => reject(new Error(
+        location.protocol === "https:" && location.hostname === "localhost"
+          ? "APK 音频上传被网络或 R2 跨域策略拦截，请确认存储桶 CORS 已允许 https://localhost 后重试。"
+          : "音频上传网络错误，请检查网络后重试。"
+      ));
       xhr.onabort = () => reject(new Error("上传已取消。"));
       if (signal) {
         signal.addEventListener("abort", () => xhr.abort(), { once: true });

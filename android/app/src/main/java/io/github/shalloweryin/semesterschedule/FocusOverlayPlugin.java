@@ -431,7 +431,12 @@ public class FocusOverlayPlugin extends Plugin {
     private void render() {
         long now = System.currentTimeMillis();
         double currentPause = pauseStartedAt >= 0 ? Math.max(0, (now - pauseStartedAt) / 1000.0) : 0;
-        long elapsed = (long) Math.max(0, Math.floor((now - startedAt) / 1000.0 - pausedSeconds - currentPause));
+        long wallElapsed = (long) Math.max(0, Math.floor((now - startedAt) / 1000.0 - pausedSeconds - currentPause));
+        // The APK timer owns an elapsedRealtime-based clock. Prefer it so manual clock changes and
+        // WebView throttling cannot jump the system overlay; keep the wall-clock fallback for old
+        // active sessions created before the native timer bridge existed.
+        long nativeElapsed = FocusNativeTimerPlugin.readElapsedSeconds(getContext());
+        long elapsed = nativeElapsed > 0 || wallElapsed == 0 ? nativeElapsed : wallElapsed;
         long display = plannedSeconds >= 0 ? Math.max(0, plannedSeconds - elapsed) : elapsed;
         if (timeView != null) {
             timeView.setText(formatDuration(display));

@@ -15,6 +15,7 @@ import type {
   LocalBackupSnapshot,
   Memo,
   MemoFolder,
+  RestSession,
   Semester,
   SyncQueueItem,
   SyncTableName
@@ -37,6 +38,7 @@ class ScheduleDatabase extends Dexie {
   memos!: EntityTable<Memo, "id">;
   focusSettings!: EntityTable<FocusSettings, "id">;
   focusSessions!: EntityTable<FocusSession, "id">;
+  restSessions!: EntityTable<RestSession, "id">;
   healthProfiles!: EntityTable<HealthProfile, "id">;
   healthLogs!: EntityTable<HealthLog, "id">;
   syncQueue!: EntityTable<SyncQueueItem, "id">;
@@ -363,6 +365,27 @@ class ScheduleDatabase extends Dexie {
       memos: "id, folder_id, title, is_pinned, updated_at, deleted_at",
       focusSettings: "id, user_id, updated_at, deleted_at",
       focusSessions: "id, mode, started_at, ended_at, linked_event_id, updated_at, deleted_at",
+      healthProfiles: "id, user_id, updated_at, deleted_at",
+      healthLogs: "id, user_id, kind, logged_at, [user_id+kind], updated_at, deleted_at",
+      syncQueue: "id, table_name, record_id, queued_at",
+      localBackupSnapshots: "id, created_at, reason",
+      aiAttachmentContexts: "id, ownerId, updatedAt"
+    });
+    this.version(11).stores({
+      semesters: "id, is_current, start_date, updated_at, deleted_at",
+      classPeriods: "id, semester_id, [semester_id+weekday], [semester_id+weekday+period_number], updated_at, deleted_at",
+      courses: "id, semester_id, name, updated_at, deleted_at",
+      courseSchedules: "id, course_id, weekday, updated_at, deleted_at",
+      courseCancellations: "id, course_schedule_id, occurrence_date, updated_at, deleted_at",
+      categories: "id, name, updated_at, deleted_at",
+      events: "id, event_type, start_date, end_date, recurrence_type, updated_at, deleted_at",
+      eventOccurrenceStates: "id, [event_id+occurrence_date], updated_at, deleted_at",
+      anniversaries: "id, kind, date, reminder_enabled, reminder_sent_for, updated_at, deleted_at",
+      memoFolders: "id, name, sort_order, updated_at, deleted_at",
+      memos: "id, folder_id, title, is_pinned, updated_at, deleted_at",
+      focusSettings: "id, user_id, updated_at, deleted_at",
+      focusSessions: "id, mode, started_at, ended_at, linked_event_id, updated_at, deleted_at",
+      restSessions: "id, user_id, started_at, ended_at, updated_at, deleted_at",
       healthProfiles: "id, user_id, updated_at, deleted_at",
       healthLogs: "id, user_id, kind, logged_at, [user_id+kind], updated_at, deleted_at",
       syncQueue: "id, table_name, record_id, queued_at",

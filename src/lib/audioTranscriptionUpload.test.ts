@@ -233,6 +233,67 @@ describe("R2 音频转写上传", () => {
     })).rejects.toThrow(/分段计划|多段/);
   });
 
+  it("多文件中混有大 MP3 时只对大文件分段，并保留全部文件顺序", async () => {
+    let uploadIndex = 0;
+    invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
+      if (options.body.action === "create_audio_upload") {
+        uploadIndex += 1;
+        const extension = uploadIndex === 1 ? "mp3" : "wav";
+        return {
+          data: {
+            objectKey: `ai-audio/user-1/audio-${uploadIndex}.${extension}`,
+            uploadUrl: `https://upload.example/audio-${uploadIndex}`,
+            expiresAt: new Date().toISOString()
+          },
+          error: null
+        };
+      }
+      if (options.body.action === "plan_audio_transcription") {
+        return {
+          data: {
+            strategy: "progressive",
+            totalChunks: 2,
+            tasks: [0, 1].map((chunkIndex) => ({
+              fileIndex: 0,
+              fileName: "long.mp3",
+              objectKey: "ai-audio/user-1/audio-1.mp3",
+              chunkIndex,
+              chunkCount: 2,
+              language: "zh",
+              nominalStart: chunkIndex * 100,
+              nominalEnd: chunkIndex * 100 + 99,
+              fetchStart: chunkIndex * 100,
+              fetchEnd: chunkIndex * 100 + 99,
+              signature: `sig-${chunkIndex}`
+            }))
+          },
+          error: null
+        };
+      }
+      if (options.body.action === "transcribe_audio_range") {
+        const chunk = Number((options.body.audioRange as { chunkIndex?: number }).chunkIndex ?? 0);
+        return { data: { transcript: `长录音第${chunk + 1}段` }, error: null };
+      }
+      if (options.body.mode === "audio_transcription") {
+        return { data: { transcript: "短录音内容", summary: null, model: "mimo-v2.5-asr-chunked" }, error: null };
+      }
+      return { data: { ok: true }, error: null };
+    });
+
+    const large = new File([new Uint8Array(8)], "long.mp3", { type: "audio/mpeg" });
+    Object.defineProperty(large, "size", { value: 8 * 1024 * 1024 });
+    const result = await transcribeAudioFiles({
+      files: [large, new File(["short"], "short.wav", { type: "audio/wav" })],
+      language: "zh",
+      summarize: false
+    });
+
+    expect(result.transcript).toContain("长录音第1段");
+    expect(result.transcript).toContain("长录音第2段");
+    expect(result.transcript).toContain("短录音内容");
+    expect(result.transcript.indexOf("长录音第1段")).toBeLessThan(result.transcript.indexOf("短录音内容"));
+  });
+
   it("后续文件上传失败时清理已经上传的临时对象", async () => {
     let uploadIndex = 0;
     invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {

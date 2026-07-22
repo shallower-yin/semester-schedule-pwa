@@ -8,7 +8,9 @@ import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
 import { isNativeApp } from "./nativeApp";
 import {
   cancelAllNativeReminders,
+  ensureNativeExactAlarmPermission,
   ensureNativeReminderPermission,
+  getNativeReminderHealth,
   showNativeNotificationNow,
   syncNativeReminders
 } from "./nativeReminders";
@@ -28,7 +30,7 @@ export type NotificationStatus =
 export type NotificationEnableResult = "enabled" | "local-only" | "denied" | "unsupported";
 export type NotificationSetupStage = "permission" | "service-worker" | "push-service" | "cloud";
 export interface NotificationDiagnosticStep {
-  id: NotificationSetupStage | "support";
+  id: NotificationSetupStage | "support" | "channel" | "exact-alarm" | "pending" | "battery";
   label: string;
   status: "ok" | "warning" | "error";
   detail: string;
@@ -49,7 +51,9 @@ export function notificationsSupported(): boolean {
 
 export async function getNotificationStatus(): Promise<NotificationStatus> {
   if (isNativeApp()) {
-    return (await ensureNativeReminderPermission(false)) === "granted" ? "subscribed" : "not-allowed";
+    const health = await getNativeReminderHealth();
+    if (!health?.permissionGranted || !health.notificationsEnabled) return "not-allowed";
+    return health.exactAlarmAllowed && health.channelReady ? "subscribed" : "permission-only";
   }
   if (!notificationsSupported()) return "unsupported";
   if (Notification.permission === "default") return "not-allowed";
@@ -80,6 +84,9 @@ export async function enableNotifications(
   if (isNativeApp()) {
     onStage?.("permission");
     if ((await ensureNativeReminderPermission(true)) !== "granted") return "denied";
+    if (!(await ensureNativeExactAlarmPermission(true))) {
+      throw new Error("请在安卓系统设置中允许“闹钟和提醒”，否则熄屏或清理后台后可能延迟。 ");
+    }
     await rescheduleNativeReminders(getCurrentUserId());
     return "enabled";
   }
@@ -182,13 +189,46 @@ export async function showHealthMovementReminder(): Promise<void> {
 export async function diagnoseNotifications(): Promise<NotificationDiagnosticStep[]> {
   const steps: NotificationDiagnosticStep[] = [];
   if (isNativeApp()) {
-    const granted = (await ensureNativeReminderPermission(false)) === "granted";
-    steps.push({ id: "support", label: "系统通知", status: "ok", detail: "已接入安卓系统通知，应用关闭后也能按时提醒。" });
+    const health = await getNativeReminderHealth();
+    const granted = Boolean(health?.permissionGranted && health.notificationsEnabled);
+    steps.push({ id: "support", label: "提醒方式", status: "ok", detail: "使用安卓本地精确闹钟，不依赖 TPNS，也不要求应用驻留后台。" });
     steps.push({
       id: "permission",
       label: "通知权限",
       status: granted ? "ok" : "warning",
       detail: granted ? "已允许安卓通知权限。" : "尚未允许通知，点击启用提醒后在系统弹窗中选择允许。"
+    });
+    steps.push({
+      id: "channel",
+      label: "锁屏提醒渠道",
+      status: health?.channelReady && health.channelSoundEnabled ? "ok" : "warning",
+      detail: health?.channelReady && health.channelSoundEnabled
+        ? "高优先级、有声、振动、锁屏可见渠道正常。"
+        : "提醒渠道被静音或降级，请到系统通知设置中将“日程提醒（重要）”设为允许并开启声音。"
+    });
+    steps.push({
+      id: "exact-alarm",
+      label: "精确闹钟",
+      status: health?.exactAlarmAllowed ? "ok" : "error",
+      detail: health?.exactAlarmAllowed
+        ? "已允许精确闹钟，熄屏时由 Android AlarmManager 唤醒提醒。"
+        : "未允许“闹钟和提醒”，请点击启用提醒并在系统设置中授权。"
+    });
+    steps.push({
+      id: "pending",
+      label: "系统待发队列",
+      status: health?.lastError ? "warning" : "ok",
+      detail: health?.lastError
+        ? `最近一次安排异常：${health.lastError}`
+        : `Android 当前保存了 ${health?.pendingCount ?? 0} 条待发日程提醒。`
+    });
+    steps.push({
+      id: "battery",
+      label: "省电策略",
+      status: health?.batteryOptimizationIgnored ? "ok" : "warning",
+      detail: health?.batteryOptimizationIgnored
+        ? "应用不受系统电池优化限制。"
+        : "当前受电池优化限制；精确闹钟通常仍可触发，但部分国产系统建议同时允许自启动并设为“不限制”。"
     });
     return steps;
   }

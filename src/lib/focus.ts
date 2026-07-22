@@ -1,8 +1,8 @@
-import type { FocusMode, FocusSession } from "../types";
+import type { FocusSession, FocusTimerMode } from "../types";
 import { toISODate } from "./date";
 
 export interface ActiveFocusState {
-  mode: FocusMode;
+  mode: FocusTimerMode;
   task_title: string;
   linked_event_id: string | null;
   planned_seconds: number | null;
@@ -117,11 +117,12 @@ export function focusDailyTotals(sessions: FocusSession[], days = 7, now = new D
   });
 }
 
-export function focusModeLabel(mode: FocusMode): string {
+export function focusModeLabel(mode: FocusTimerMode): string {
   return {
     stopwatch: "正计时",
     countdown: "倒计时",
     pomodoro: "番茄钟",
-    lock: "锁机"
+    lock: "锁机",
+    rest: "休息"
   }[mode];
 }

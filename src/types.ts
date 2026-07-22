@@ -128,6 +128,7 @@ export interface Memo extends SyncFields {
 }
 
 export type FocusMode = "stopwatch" | "countdown" | "pomodoro" | "lock";
+export type FocusTimerMode = FocusMode | "rest";
 
 export interface FocusSettings extends SyncFields {
   pomodoro_minutes: number;
@@ -142,6 +143,15 @@ export interface FocusSession extends SyncFields {
   task_title: string;
   linked_event_id: string | null;
   planned_seconds: number | null;
+  duration_seconds: number;
+  started_at: ISODateTime;
+  ended_at: ISODateTime;
+  completed: boolean;
+  interrupted: boolean;
+}
+
+export interface RestSession extends SyncFields {
+  planned_seconds: number;
   duration_seconds: number;
   started_at: ISODateTime;
   ended_at: ISODateTime;
@@ -194,6 +204,7 @@ export type SyncTableName =
   | "memos"
   | "focusSettings"
   | "focusSessions"
+  | "restSessions"
   | "healthProfiles"
   | "healthLogs";
 

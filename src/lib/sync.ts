@@ -20,6 +20,7 @@ export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: s
   { local: "memos", remote: "memos", label: "备忘录" },
   { local: "focusSettings", remote: "focus_settings", label: "专注设置" },
   { local: "focusSessions", remote: "focus_sessions", label: "专注记录" },
+  { local: "restSessions", remote: "rest_sessions", label: "休息记录" },
   { local: "healthProfiles", remote: "health_profiles", label: "健康设置" },
   { local: "healthLogs", remote: "health_logs", label: "健康记录" }
 ];
@@ -34,6 +35,7 @@ const DELETE_TABLES = [
   "semesters",
   "eventOccurrenceStates",
   "focusSessions",
+  "restSessions",
   "healthLogs",
   "healthProfiles",
   "events",
@@ -255,6 +257,15 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       ...record,
       linked_event_id: record.linked_event_id ?? null,
       planned_seconds: record.planned_seconds == null ? null : Number(record.planned_seconds),
+      duration_seconds: Number(record.duration_seconds ?? 0),
+      completed: Boolean(record.completed),
+      interrupted: Boolean(record.interrupted)
+    };
+  }
+  if (table === "restSessions") {
+    return {
+      ...record,
+      planned_seconds: Number(record.planned_seconds ?? 0),
       duration_seconds: Number(record.duration_seconds ?? 0),
       completed: Boolean(record.completed),
       interrupted: Boolean(record.interrupted)

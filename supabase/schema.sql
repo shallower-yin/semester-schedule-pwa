@@ -265,6 +265,24 @@ create table if not exists public.focus_sessions (
   foreign key (linked_event_id, user_id) references public.events(id, user_id)
 );
 
+create table if not exists public.rest_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  server_updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  version bigint not null default 1,
+  device_id uuid not null,
+  planned_seconds integer not null check (planned_seconds >= 0),
+  duration_seconds integer not null check (duration_seconds >= 0),
+  started_at timestamptz not null,
+  ended_at timestamptz not null,
+  completed boolean not null default false,
+  interrupted boolean not null default false,
+  unique (id, user_id)
+);
+
 create table if not exists public.focus_audio_tracks (
   id uuid primary key default gen_random_uuid(),
   title text not null check (char_length(title) between 1 and 120),
@@ -374,7 +392,8 @@ declare
     'memo_folders',
     'memos',
     'focus_settings',
-    'focus_sessions'
+    'focus_sessions',
+    'rest_sessions'
   ];
 begin
   foreach table_name in array tables loop

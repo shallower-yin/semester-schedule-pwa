@@ -18,6 +18,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(FocusOverlayPlugin.class);
+        registerPlugin(FocusNativeTimerPlugin.class);
+        registerPlugin(ReminderSupportPlugin.class);
         registerPlugin(AppUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
 
