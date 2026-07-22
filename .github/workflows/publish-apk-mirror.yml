@@ -61,9 +61,30 @@ jobs:
       - name: Capacitor sync
         run: npx cap sync android
 
+      # Must match the debug keystore already on phones (Studio AndroidUser cert 98e610ed…).
+      # CI's default ~/.android/debug.keystore is a different key → INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+      - name: Restore fixed debug keystore
+        env:
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ANDROID_DEBUG_KEYSTORE_BASE64:-}" ]; then
+            echo "::error::Missing secret ANDROID_DEBUG_KEYSTORE_BASE64 (base64 of the project debug.keystore)."
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          echo "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 -d > "$HOME/.android/debug.keystore"
+          test -s "$HOME/.android/debug.keystore"
+          echo "Restored debug.keystore ($(wc -c < "$HOME/.android/debug.keystore") bytes)"
+
       - name: Assemble debug APK
         working-directory: android
-        run: chmod +x gradlew; ./gradlew assembleDebug --no-daemon --console=plain
+        run: |
+          set -euo pipefail
+          # Gradle debug signing uses ~/.android/debug.keystore (restored above).
+          test -s "$HOME/.android/debug.keystore"
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --console=plain
 
       - name: Stage APK and checksum
         id: apk
@@ -71,6 +92,16 @@ jobs:
           set -euo pipefail
           SRC="android/app/build/outputs/apk/debug/app-debug.apk"
           test -f "$SRC"
+          # Fail the job if CI accidentally signed with the wrong cert (phone OTA would conflict).
+          EXPECTED_CERT_SHA256="98e610edcfa3d9e4f34752da158ea48e48592f08481543ad0ac26f85294a3e24"
+          CERT_LINE=$(keytool -printcert -jarfile "$SRC" 2>/dev/null | tr 'A-F' 'a-f' | tr -d ' :' | grep -i "sha256" | head -1 || true)
+          echo "APK cert line: $CERT_LINE"
+          if ! keytool -printcert -jarfile "$SRC" 2>/dev/null | tr 'A-F' 'a-f' | tr -d ' :\n' | grep -q "$EXPECTED_CERT_SHA256"; then
+            echo "::error::APK signing cert does not match expected Studio debug cert ($EXPECTED_CERT_SHA256). Refusing to publish (would break in-place updates)."
+            keytool -printcert -jarfile "$SRC" || true
+            exit 1
+          fi
+          echo "APK signing cert OK ($EXPECTED_CERT_SHA256)"
           mkdir -p dist-mirror/android
           cp "$SRC" dist-mirror/android/semester-schedule.apk
           SHA=$(sha256sum dist-mirror/android/semester-schedule.apk | awk '{print tolower($1)}')
