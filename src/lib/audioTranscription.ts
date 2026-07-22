@@ -414,8 +414,14 @@ async function prepareFilesForAsr(
   for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
     const file = files[fileIndex];
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-    const needsConversion = file.size > 7_000_000 && ["m4a", "ogg", "flac"].includes(extension);
-    if (!needsConversion) {
+    // Large containers: prefer browser decode → 16k mono WAV parts (stable ASR path).
+    // Large MP3 used to rely on progressive byte-ranges; real-world VBR files often yield 0/N.
+    // Try conversion first for mp3 as well when not huge enough to risk phone OOM (~25 min cap).
+    const convertExtensions = ["m4a", "ogg", "flac", "mp3"];
+    const needsConversion = file.size > 7_000_000 && convertExtensions.includes(extension);
+    // Rough safety: ~25 min mono 48k float ≈ 280MB RAM; skip forced convert for very large mp3.
+    const mp3TooLargeForBrowserConvert = extension === "mp3" && file.size > 35 * 1024 * 1024;
+    if (!needsConversion || mp3TooLargeForBrowserConvert) {
       const prefix = multiSource ? `文件${fileIndex + 1}/${files.length} · ` : "";
       prepared.push({
         file,
@@ -434,6 +440,12 @@ async function prepareFilesForAsr(
         });
       }
     } catch (error) {
+      // MP3 progressive path remains available when decode/convert fails.
+      if (extension === "mp3") {
+        const prefix = multiSource ? `文件${fileIndex + 1}/${files.length} · ` : "";
+        prepared.push({ file, orderLabel: `${prefix}${file.name}` });
+        continue;
+      }
       const reason = error instanceof Error ? error.message : "转换失败";
       throw new Error(`“${file.name}”无法自动转换为可转写格式（${reason}）。请先导出为标准 MP3 后重试。`);
     }
@@ -693,6 +705,7 @@ async function runProgressiveTranscription(input: {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const total = Math.max(1, input.plan.totalChunks || input.plan.tasks.length);
   const segmentsByFile: Array<Array<string | null>> = input.uploaded.map(() => []);
+  const segmentErrors: string[] = [];
   let cancelled = false;
 
   // Sort by file then chunk so UI counts 1..N in natural order (e.g. 1/8 … 8/8 for ~50MB MP3).
@@ -760,6 +773,8 @@ async function runProgressiveTranscription(input: {
         cancelled = true;
         return;
       }
+      const message = error instanceof Error ? error.message : String(error || "分段转写失败");
+      segmentErrors[index] = `第 ${index + 1}/${total} 段失败：${message}`;
       if (!segmentsByFile[task.fileIndex]) segmentsByFile[task.fileIndex] = [];
       segmentsByFile[task.fileIndex][task.chunkIndex] = null;
       const succeeded = tasks.filter((item) =>
@@ -799,7 +814,9 @@ async function runProgressiveTranscription(input: {
   const successCount = orderedSegments.filter((text) => Boolean(text?.trim())).length;
   if (!successCount) {
     if (cancelled) throw new DOMException("操作已取消。", "AbortError");
-    throw new Error("全部分段均未识别成功。请检查网络后重试；已产生的模型调用费用不会自动退回。");
+    const detail = segmentErrors.filter(Boolean).slice(0, 3).join("；")
+      || "各分段均未返回正文（常见原因：MP3 分段抽帧失败、签名无效或云端超时）。";
+    throw new Error(`全部分段均未识别成功。${detail}`);
   }
 
   // Transcript is assembled ONLY on the client — never depends on a final network call.

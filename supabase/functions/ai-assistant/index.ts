@@ -382,8 +382,9 @@ Deno.serve(async (request) => {
       }
       const credentials = configuredMimoAudioCredentials(settings);
       if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
-      const bytes = await downloadR2AudioRange(range.objectKey!, range.fetchStart!, range.fetchEnd!);
-      const chunk = extractMp3RangeForAsr(bytes, range.fetchStart!, range.nominalStart!, range.nominalEnd!);
+      // Byte-range extract often fails on real-world MP3 (VBR/padding). Prefer full-object
+      // frame scan for the nominal window — R2/API cost is acceptable for completion quality.
+      const chunk = await loadMp3ChunkForAsrRange(range.objectKey!, range.nominalStart!, range.nominalEnd!, range.fetchStart!, range.fetchEnd!);
       return jsonResponse(await transcribeAudioChunk(
         chunk,
         range.language,
@@ -1746,6 +1747,34 @@ async function downloadR2AudioRange(objectKey: string, start: number, end: numbe
     return await response.Body.transformToByteArray();
   } catch (error) {
     throw new Error(friendlyR2ObjectError(error, "临时音频分段不存在或已清理，请重新上传后重试。"));
+  }
+}
+
+/**
+ * Load one ASR-ready MP3 chunk for [nominalStart, nominalEnd].
+ * 1) Try padded byte-range (fast).
+ * 2) On frame-sync failure, download the whole object and extract by absolute offsets (reliable).
+ */
+async function loadMp3ChunkForAsrRange(
+  objectKey: string,
+  nominalStart: number,
+  nominalEnd: number,
+  fetchStart: number,
+  fetchEnd: number
+): Promise<AudioChunk> {
+  try {
+    const paddedStart = Math.max(0, fetchStart - 64 * 1024);
+    const bytes = await downloadR2AudioRange(objectKey, paddedStart, fetchEnd);
+    return extractMp3RangeForAsr(bytes, paddedStart, nominalStart, nominalEnd);
+  } catch (rangeError) {
+    console.warn("mp3_range_extract_failed_fallback_full", {
+      objectKey,
+      nominalStart,
+      nominalEnd,
+      reason: rangeError instanceof Error ? rangeError.message : String(rangeError)
+    });
+    const full = await downloadR2AudioObject(objectKey);
+    return extractMp3RangeForAsr(full, 0, nominalStart, nominalEnd);
   }
 }
 
