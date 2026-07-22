@@ -3,427 +3,436 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#3157d5" />
-  <meta name="description" content="日程计划表 — 跨端日程管理：网页版与 Android 安装包" />
-  <title>日程计划表 · 介绍与下载</title>
+  <meta name="theme-color" content="#0b0d12" />
+  <meta name="description" content="日程计划表 — 跨端日程管理。网页版与 Android APK 同步分发。" />
+  <title>日程计划表</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <style>
     :root {
-      color-scheme: light;
-      --primary: #3157d5;
-      --primary-hover: #2649bd;
-      --bg: #f4f6fb;
-      --surface: #ffffff;
-      --text: #172033;
-      --muted: #697386;
-      --border: #e3e8f1;
-      --soft: #edf2ff;
-      --ok: #0f7b4c;
-      --shadow: 0 10px 30px rgb(30 48 88 / 10%);
-      font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --bg: #0b0d12;
+      --bg-elev: #12151c;
+      --bg-soft: #171b24;
+      --text: #eef1f7;
+      --muted: #9aa3b5;
+      --line: rgba(255,255,255,.08);
+      --primary: #5b7cfa;
+      --primary-2: #7c93ff;
+      --card: rgba(255,255,255,.03);
+      --ok: #3dcf8e;
+      --radius: 18px;
+      --shadow: 0 24px 80px rgba(0,0,0,.35);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, system-ui, sans-serif;
+      color-scheme: dark;
     }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
       margin: 0;
-      min-height: 100vh;
+      background:
+        radial-gradient(900px 420px at 15% -10%, rgba(91,124,250,.22), transparent 60%),
+        radial-gradient(700px 360px at 90% 0%, rgba(88,200,255,.12), transparent 55%),
+        var(--bg);
       color: var(--text);
-      background: var(--bg);
+      min-height: 100vh;
     }
-    a { color: var(--primary); text-decoration: none; }
+    a { color: var(--primary-2); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      backdrop-filter: blur(12px);
-      background: rgb(255 255 255 / 86%);
-      border-bottom: 1px solid var(--border);
+    .top {
+      position: sticky; top: 0; z-index: 30;
+      backdrop-filter: blur(16px);
+      background: rgba(11,13,18,.72);
+      border-bottom: 1px solid var(--line);
     }
-    .topbar-inner {
-      width: min(960px, calc(100% - 28px));
+    .top-inner {
+      width: min(1100px, calc(100% - 32px));
       margin: 0 auto;
-      min-height: 58px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+      min-height: 64px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }
     .brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--text);
-      font-weight: 700;
-      text-decoration: none;
+      display: inline-flex; align-items: center; gap: 12px;
+      color: var(--text); text-decoration: none; font-weight: 700;
     }
-    .brand img {
-      width: 34px;
-      height: 34px;
-      border-radius: 9px;
-    }
-    .brand small {
-      display: block;
-      font-weight: 500;
-      color: var(--muted);
-      font-size: 0.72rem;
-      letter-spacing: 0.04em;
-    }
-    .nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px 14px;
-      align-items: center;
-      justify-content: flex-end;
-    }
+    .brand img { width: 36px; height: 36px; border-radius: 10px; }
+    .brand em { display: block; font-style: normal; font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: .04em; }
+    .nav { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
     .nav a {
-      color: var(--muted);
-      font-size: 0.9rem;
-      font-weight: 600;
-      text-decoration: none;
-      padding: 6px 2px;
+      color: var(--muted); font-size: 14px; font-weight: 600; text-decoration: none; padding: 8px 2px;
     }
-    .nav a:hover { color: var(--primary); }
-    .nav a.cta {
-      background: var(--primary);
-      color: #fff !important;
-      border-radius: 999px;
-      padding: 8px 14px;
+    .nav a:hover { color: var(--text); }
+    .nav .pill {
+      background: var(--text); color: #0b0d12 !important;
+      border-radius: 999px; padding: 9px 16px; font-weight: 700;
     }
-    .nav a.cta:hover { background: var(--primary-hover); text-decoration: none; }
+    .nav .pill:hover { opacity: .92; text-decoration: none; }
 
-    .wrap {
-      width: min(960px, calc(100% - 28px));
-      margin: 0 auto;
-      padding: 28px 0 56px;
-    }
+    .wrap { width: min(1100px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 72px; }
 
     .hero {
-      background: linear-gradient(145deg, #ffffff 0%, #f3f7ff 100%);
-      border: 1px solid var(--border);
-      border-radius: 22px;
-      box-shadow: var(--shadow);
-      padding: 28px 24px 24px;
-      margin-bottom: 18px;
+      padding: 48px 0 28px;
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 28px;
+      align-items: center;
     }
     .hero h1 {
+      margin: 0 0 12px;
+      font-size: clamp(2.1rem, 4.6vw, 3.4rem);
+      line-height: 1.08;
+      letter-spacing: -.02em;
+    }
+    .hero .sub {
       margin: 0 0 10px;
-      font-size: clamp(1.55rem, 3.5vw, 2rem);
-      letter-spacing: 0.01em;
+      color: var(--muted);
+      font-size: 1.05rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-weight: 600;
     }
     .hero .lede {
-      margin: 0 0 16px;
-      color: var(--muted);
-      line-height: 1.65;
-      font-size: 1rem;
-      max-width: 48rem;
-    }
-    .chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 18px;
-    }
-    .chip {
-      background: var(--soft);
-      color: var(--primary);
-      border-radius: 999px;
-      padding: 6px 12px;
-      font-size: 0.84rem;
-      font-weight: 600;
-    }
-    .hero-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .btn {
-      appearance: none;
-      border: 0;
-      border-radius: 12px;
-      padding: 13px 18px;
-      font-size: 0.98rem;
-      font-weight: 700;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      min-height: 48px;
-      text-decoration: none;
-    }
-    .btn-primary { background: #1c1f26; color: #fff; }
-    .btn-primary:hover { background: #10131a; text-decoration: none; }
-    .btn-secondary {
-      background: #fff;
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-secondary:hover { background: #f7f9fc; text-decoration: none; }
-    .btn-soft {
-      background: var(--soft);
-      color: var(--primary);
-    }
-    .btn-soft:hover { background: #e2e9ff; text-decoration: none; }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 14px;
-      margin-bottom: 14px;
-    }
-    @media (max-width: 800px) {
-      .grid { grid-template-columns: 1fr; }
-      .nav { display: none; }
-      .nav-mobile {
-        display: flex !important;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 0 0 16px;
-      }
-    }
-    .nav-mobile { display: none; }
-    .nav-mobile a {
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 8px 12px;
-      color: var(--muted);
-      font-size: 0.86rem;
-      font-weight: 600;
-      text-decoration: none;
-    }
-
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      box-shadow: var(--shadow);
-      padding: 18px 18px 16px;
-    }
-    .card h2 {
-      margin: 0 0 12px;
+      margin: 0 0 22px;
+      color: #c5ccd9;
       font-size: 1.08rem;
+      line-height: 1.7;
+      max-width: 36rem;
     }
-    .card p {
-      margin: 0 0 10px;
-      color: var(--muted);
-      line-height: 1.6;
-      font-size: 0.94rem;
+    .hero-card {
+      background: linear-gradient(160deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+      min-height: 280px;
+    }
+    .hero-card .mock-title {
+      font-size: 13px; color: var(--muted); margin-bottom: 14px;
+    }
+    .hero-card .mock-row {
+      display: flex; gap: 10px; margin-bottom: 10px;
+    }
+    .hero-card .pill-s {
+      flex: 1; border-radius: 12px; background: rgba(255,255,255,.04);
+      border: 1px solid var(--line); padding: 12px; font-size: 13px; color: #d7deea;
+    }
+    .hero-card .pill-s b { display: block; color: var(--text); margin-bottom: 4px; font-size: 14px; }
+    .hero-card .block {
+      margin-top: 14px; border-radius: 14px; padding: 14px;
+      background: rgba(91,124,250,.12); border: 1px solid rgba(91,124,250,.25);
+      color: #dce4ff; font-size: 13px; line-height: 1.55;
     }
 
-    .feature-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .btn {
+      appearance: none; border: 0; cursor: pointer;
+      border-radius: 14px; min-height: 50px; padding: 12px 18px;
+      font-size: 15px; font-weight: 700;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      text-decoration: none;
     }
-    .feature-list li {
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
+    .btn-primary { background: #f4f6fb; color: #0b0d12; }
+    .btn-primary:hover { background: #fff; text-decoration: none; }
+    .btn-ghost {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--line);
     }
-    .feature-list li:last-child { border-bottom: 0; padding-bottom: 2px; }
-    .feature-list strong {
-      display: block;
-      margin-bottom: 4px;
-      font-size: 0.96rem;
+    .btn-ghost:hover { background: rgba(255,255,255,.04); text-decoration: none; }
+
+    .section { padding: 56px 0 8px; }
+    .section-kicker {
+      color: var(--muted); font-size: 13px; letter-spacing: .14em;
+      text-transform: uppercase; font-weight: 700; margin: 0 0 10px;
     }
-    .feature-list span {
-      color: var(--muted);
-      font-size: 0.9rem;
-      line-height: 1.55;
+    .section h2 {
+      margin: 0 0 12px;
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      letter-spacing: -.02em;
+    }
+    .section .intro {
+      margin: 0 0 28px; color: var(--muted); max-width: 40rem; line-height: 1.7; font-size: 1.02rem;
     }
 
-    .notes {
-      list-style: none;
-      margin: 0;
-      padding: 0;
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
     }
+    .feature {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px 18px;
+    }
+    .feature h3 { margin: 0 0 8px; font-size: 1.08rem; }
+    .feature p { margin: 0; color: var(--muted); line-height: 1.65; font-size: .95rem; }
+    .tag {
+      display: inline-block; margin-bottom: 10px;
+      background: rgba(91,124,250,.16); color: #b9c7ff;
+      border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+    .panel h3 { margin: 0 0 14px; font-size: 1.15rem; }
+    .notes { list-style: none; margin: 0; padding: 0; }
     .notes li {
-      position: relative;
-      padding: 10px 0 10px 14px;
-      border-bottom: 1px solid var(--border);
-      color: var(--text);
-      font-size: 0.94rem;
-      line-height: 1.55;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+      color: #d7deea;
+      line-height: 1.6;
+      font-size: .96rem;
     }
     .notes li:last-child { border-bottom: 0; }
-    .notes li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 1.05em;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--primary);
-    }
-    .notes-empty { color: var(--muted); font-size: 0.92rem; }
-
     .meta {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-top: 12px;
-    }
-    @media (max-width: 560px) {
-      .meta { grid-template-columns: 1fr; }
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px;
     }
     .meta div {
-      background: #f7f9fc;
-      border: 1px solid var(--border);
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--line);
       border-radius: 12px;
       padding: 10px 12px;
     }
     .meta strong {
-      display: block;
-      font-size: 0.76rem;
-      color: var(--muted);
-      font-weight: 600;
-      margin-bottom: 4px;
+      display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; letter-spacing: .04em;
     }
-    .meta span {
-      font-size: 0.9rem;
-      word-break: break-all;
-    }
+    .meta span { font-size: 13px; word-break: break-all; color: #e7ebf5; }
 
-    .status {
-      margin-top: 10px;
-      font-size: 0.86rem;
-      color: var(--muted);
-      min-height: 1.25em;
+    .download-box {
+      background: linear-gradient(165deg, #171b24, #12151c);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 28px 24px;
+      box-shadow: var(--shadow);
     }
+    .download-box .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 18px; }
+    .chip {
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 6px 12px; color: var(--muted); font-size: 13px; font-weight: 600;
+    }
+    .hint { margin: 14px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .status { margin-top: 12px; min-height: 1.3em; color: var(--muted); font-size: 13px; }
     .status.ok { color: var(--ok); }
-    .status.err { color: #b42318; }
+    .status.err { color: #ff7b7b; }
 
-    ol.steps {
-      margin: 0;
-      padding-left: 1.15rem;
-      color: var(--muted);
-      line-height: 1.7;
-      font-size: 0.93rem;
-    }
+    ol.steps { margin: 0; padding-left: 1.2rem; color: var(--muted); line-height: 1.75; font-size: .95rem; }
 
     footer {
-      margin-top: 18px;
-      text-align: center;
-      color: var(--muted);
-      font-size: 0.82rem;
-      line-height: 1.55;
+      margin-top: 48px; padding-top: 22px; border-top: 1px solid var(--line);
+      color: var(--muted); font-size: 13px; text-align: center; line-height: 1.6;
+    }
+
+    @media (max-width: 860px) {
+      .hero, .feature-grid, .split { grid-template-columns: 1fr; }
+      .nav a:not(.pill) { display: none; }
+      .meta { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <div class="topbar">
-    <div class="topbar-inner">
+  <header class="top">
+    <div class="top-inner">
       <a class="brand" href="#top">
-        <img src="./app-icon-192.png" alt="" width="34" height="34" />
-        <span>日程计划表<small>跨端 · 同步 · AI</small></span>
+        <img src="./app-icon-192.png" alt="" width="36" height="36" />
+        <span>日程计划表<em>SEMESTER SCHEDULE</em></span>
       </a>
       <nav class="nav" aria-label="页面导航">
+        <a href="#why">为何不同</a>
         <a href="#features">能做什么</a>
-        <a href="#updates">更新说明</a>
-        <a href="#install">安装说明</a>
-        <a class="cta" href="#download">下载</a>
+        <a href="#ai">AI 工具</a>
+        <a href="#sync">跨端同步</a>
+        <a href="#updates">更新</a>
+        <a class="pill" href="#download">下载</a>
       </nav>
     </div>
-  </div>
+  </header>
 
-  <div class="wrap" id="top">
-    <nav class="nav-mobile" aria-label="移动导航">
-      <a href="#features">能做什么</a>
-      <a href="#updates">更新说明</a>
-      <a href="#install">安装说明</a>
-      <a href="#download">下载</a>
-    </nav>
-
+  <main class="wrap" id="top">
     <section class="hero">
-      <h1>日程计划表</h1>
-      <p class="lede">
-        同时服务电脑、平板和手机的日程管理应用。课程与临时事项统一管理，支持提醒、专注、备忘录、健康记录，以及 AI 助手、思维导图与音频转写。
-        浏览器可安装为网页应用；安卓也可下载 APK 使用。同一账号登录后可跨设备同步。
-      </p>
-      <div class="chips" id="version-chips">
-        <span class="chip" id="chip-version">版本加载中…</span>
-        <span class="chip">Android 8.0+</span>
-        <span class="chip" id="chip-size">APK 约 — MB</span>
-        <span class="chip" id="chip-date">更新日期 —</span>
+      <div>
+        <p class="sub">跨端日程 · 同步 · AI</p>
+        <h1>日程计划表</h1>
+        <p class="lede">
+          同时服务电脑、平板和手机。课程与临时事项统一管理，提醒、专注、备忘录、健康记录一站完成；
+          AI 助手、思维导图与<strong>音频转写</strong>在网页版与安卓 APK 中使用同一套云端能力。
+        </p>
+        <div class="actions">
+          <a class="btn btn-primary" href="#download">下载 Android APK</a>
+          <a class="btn btn-ghost" id="open-web" href="./">打开网页版（PWA）</a>
+        </div>
       </div>
-      <div class="hero-actions" id="download">
-        <a class="btn btn-primary" id="download-apk" href="#">下载 Android APK</a>
-        <a class="btn btn-secondary" id="open-web" href="./">安装 / 打开网页版（PWA）</a>
-        <button type="button" class="btn btn-soft" id="copy-apk">复制 APK 链接</button>
+      <div class="hero-card" aria-hidden="true">
+        <div class="mock-title">今日 · 与网页版一致的功能入口</div>
+        <div class="mock-row">
+          <div class="pill-s"><b>日程</b>课程 / 临时事项</div>
+          <div class="pill-s"><b>专注</b>番茄钟 / 正计时</div>
+        </div>
+        <div class="mock-row">
+          <div class="pill-s"><b>备忘录</b>待办与图片</div>
+          <div class="pill-s"><b>AI</b>助手 / 脑图 / 转写</div>
+        </div>
+        <div class="block">
+          网页版与 APK 共用同一账号与云端服务：音频转写、更新公告、同步逻辑一致。安装 APK 后打开也会弹出新版本说明。
+        </div>
       </div>
-      <div class="status" id="hero-status">正在读取版本信息…</div>
     </section>
 
-    <div class="grid">
-      <section class="card" id="features">
-        <h2>能做什么</h2>
-        <ul class="feature-list">
-          <li>
-            <strong>日程与课程</strong>
-            <span>课程、临时事项、习惯统一在日程里管理；支持周视图、提醒与跨日安排。</span>
-          </li>
-          <li>
-            <strong>跨端同步</strong>
-            <span>电脑网页、手机网页安装版与安卓 APK 登录同一账号后可同步数据。</span>
-          </li>
-          <li>
-            <strong>专注与健康</strong>
-            <span>正计时 / 倒计时 / 番茄钟与专注记录；饮水、运动等健康记录。</span>
-          </li>
-          <li>
-            <strong>备忘录与搜索</strong>
-            <span>富文本备忘录、待办勾选、图片附件；全局搜索快速定位事项。</span>
-          </li>
-          <li>
-            <strong>AI 工具</strong>
-            <span>AI 助手、思维导图（含扫描 PDF）、音频转写；额度与权限由管理员配置。</span>
-          </li>
-        </ul>
-      </section>
+    <section class="section" id="why">
+      <p class="section-kicker">Why different</p>
+      <h2>一个产品，两种打开方式</h2>
+      <p class="intro">浏览器可直接用、可安装为 PWA；安卓也可下载 APK。数据与 AI 能力走同一套后端，不再「网页一套、App 一套」。</p>
+      <div class="feature-grid">
+        <article class="feature">
+          <span class="tag">网页版</span>
+          <h3>电脑 / 平板 / 手机浏览器</h3>
+          <p>Edge / Chrome 打开即可使用；支持安装到桌面或主屏幕。适合日常排课、改日程、查周视图。</p>
+        </article>
+        <article class="feature">
+          <span class="tag">Android APK</span>
+          <h3>侧载安装包</h3>
+          <p>适合手机常开、需要系统级通知与更稳的前台体验。与网页登录同一账号即可同步。</p>
+        </article>
+        <article class="feature">
+          <span class="tag">同步</span>
+          <h3>同一账号，两端数据一致</h3>
+          <p>日程、习惯、备忘录等业务数据云同步；APK 与网页版看到的是同一套记录。</p>
+        </article>
+        <article class="feature">
+          <span class="tag">更新公告</span>
+          <h3>打开 App 同样弹出新版本说明</h3>
+          <p>APK 与网页版共用 <code>release.json</code> 更新说明。有新版本时，打开应用会弹出与网页一致的公告内容。</p>
+        </article>
+      </div>
+    </section>
 
-      <section class="card" id="updates">
-        <h2 id="updates-title">本次更新</h2>
-        <ul class="notes" id="release-notes">
-          <li class="notes-empty">正在加载更新说明…</li>
-        </ul>
-        <div class="meta">
-          <div><strong>应用版本</strong><span id="meta-version">—</span></div>
-          <div><strong>提交</strong><span id="meta-commit">—</span></div>
-          <div><strong>APK versionCode</strong><span id="meta-code">—</span></div>
-          <div><strong>SHA-256</strong><span id="meta-sha">—</span></div>
+    <section class="section" id="features">
+      <p class="section-kicker">What it does</p>
+      <h2>日程与日常，装在一处</h2>
+      <p class="intro">从排课到专注，从备忘到健康，界面按手机与电脑分别优化，而不是简单缩放网页。</p>
+      <div class="feature-grid">
+        <article class="feature"><h3>课程与临时事项</h3><p>统一在日程中管理；周视图、提醒、跨日安排、习惯打卡。</p></article>
+        <article class="feature"><h3>专注</h3><p>正计时、倒计时、番茄钟；记录可回顾，支持系统小窗等能力（APK）。</p></article>
+        <article class="feature"><h3>备忘录</h3><p>富文本、待办、图片附件；列表与九宫格视图。</p></article>
+        <article class="feature"><h3>健康与纪念日</h3><p>饮水、运动等记录；纪念日与节日提醒。</p></article>
+      </div>
+    </section>
+
+    <section class="section" id="ai">
+      <p class="section-kicker">AI</p>
+      <h2>AI 工具：网页与 APK 同一套</h2>
+      <p class="intro">AI 助手、思维导图、音频转写均走云端配置。额度与模型由服务端统一管理；APK 与网页版行为对齐，音频转写也使用相同链路。</p>
+      <div class="feature-grid">
+        <article class="feature">
+          <span class="tag">音频转写</span>
+          <h3>长录音分段识别</h3>
+          <p>支持 MP3 / M4A 等；大文件自动分段。APK 与网页版共用同一云端转写服务与结果保存方式（本机记录 + 云端处理）。</p>
+        </article>
+        <article class="feature">
+          <span class="tag">思维导图</span>
+          <h3>文档与扫描 PDF</h3>
+          <p>主题、附件与扫描版 PDF 分批提取后生成脑图；失败可保留中间结果重试。</p>
+        </article>
+        <article class="feature">
+          <span class="tag">AI 助手</span>
+          <h3>结合日程上下文</h3>
+          <p>可问计划、创建事项；权限与日周额度按账号角色配置。</p>
+        </article>
+        <article class="feature">
+          <span class="tag">同步注意</span>
+          <h3>转写正文优先本机</h3>
+          <p>转写结果保存在当前设备，便于离线查看；业务日程数据则随账号云同步。两端打开方式不同，但功能入口一致。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="sync">
+      <p class="section-kicker">Cross-device</p>
+      <h2>网页版 ↔ APK</h2>
+      <div class="split">
+        <div class="panel">
+          <h3>建议用法</h3>
+          <ol class="steps">
+            <li>电脑用网页版排课、改日程、装 PWA。</li>
+            <li>手机安装 APK 或添加主屏幕，登录<strong>同一账号</strong>。</li>
+            <li>在账号页执行同步；通知权限建议开启。</li>
+            <li>有新版本时，APK 与网页都会弹出更新公告（说明一致）。</li>
+          </ol>
         </div>
-      </section>
-    </div>
+        <div class="panel">
+          <h3>安装提示</h3>
+          <ol class="steps">
+            <li>APK 为侧载包：首次需允许「未知来源 / 本次安装」。</li>
+            <li>同签名覆盖安装可保留本地数据。</li>
+            <li>国内网络优先用镜像下载通道。</li>
+            <li>SHA-256 可用于校验安装包完整性。</li>
+          </ol>
+        </div>
+      </div>
+    </section>
 
-    <section class="card" id="install">
-      <h2>安装说明</h2>
-      <p><strong>网页版（电脑 / 手机浏览器）</strong></p>
-      <ol class="steps">
-        <li>点击「安装 / 打开网页版」进入应用。</li>
-        <li>在 Edge / Chrome 菜单中选择「安装应用」或「添加到主屏幕」。</li>
-        <li>登录账号后即可同步日程数据。</li>
-      </ol>
-      <p style="margin-top:14px"><strong>Android APK</strong></p>
-      <ol class="steps">
-        <li>点击「下载 Android APK」，等待下载完成。</li>
-        <li>用系统文件管理打开安装包；若提示未知来源，请允许本次安装。</li>
-        <li>同签名覆盖安装可保留本地数据；首次使用建议允许通知权限。</li>
-        <li>登录同一账号并同步，与电脑网页版共用数据。</li>
-      </ol>
-      <p style="margin-top:12px">
-        国内网络可优先使用镜像下载。若 GitHub Pages 打不开，可打开
-        <a id="mirror-link" href="#">镜像分发页</a>。
-      </p>
+    <section class="section" id="updates">
+      <p class="section-kicker">Changelog</p>
+      <h2 id="updates-title">本次更新</h2>
+      <p class="intro" id="updates-intro">加载中…</p>
+      <div class="split">
+        <div class="panel">
+          <h3>更新说明</h3>
+          <ul class="notes" id="release-notes">
+            <li>正在读取 release.json…</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>版本信息</h3>
+          <div class="meta">
+            <div><strong>VERSION</strong><span id="meta-version">—</span></div>
+            <div><strong>COMMIT</strong><span id="meta-commit">—</span></div>
+            <div><strong>APK VERSION CODE</strong><span id="meta-code">—</span></div>
+            <div><strong>SHA-256</strong><span id="meta-sha">—</span></div>
+          </div>
+          <p class="hint">公告内容与应用内弹窗共用同一份 release.json，保证网页版与 APK 看到的更新说明一致。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="download">
+      <p class="section-kicker">Download</p>
+      <h2>下载与打开</h2>
+      <div class="download-box">
+        <div class="chips">
+          <span class="chip" id="chip-version">版本 —</span>
+          <span class="chip">Android 8.0+</span>
+          <span class="chip" id="chip-size">APK — MB</span>
+          <span class="chip" id="chip-date">更新日期 —</span>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" id="download-apk" href="#">下载 Android APK</a>
+          <a class="btn btn-ghost" id="open-web-2" href="./">打开网页版</a>
+          <button type="button" class="btn btn-ghost" id="copy-apk">复制 APK 链接</button>
+        </div>
+        <p class="hint">
+          适用：Android 8.0 及以上。下载后双击/点按安装即可。不确定网络时使用镜像通道。
+          镜像页：<a id="mirror-link" href="#">app-hosting/download.html</a>
+        </p>
+        <div class="status" id="status">正在读取版本信息…</div>
+      </div>
     </section>
 
     <footer>
-      <div>日程计划表 · 网页分发 / 介绍页</div>
+      <div>日程计划表 · 介绍与分发</div>
       <div id="footer-line">—</div>
     </footer>
-  </div>
+  </main>
 
   <script>
     (function () {
@@ -432,9 +441,10 @@
       var DEFAULT_APK = MIRROR_BASE + "android/semester-schedule.apk";
 
       var openWeb = document.getElementById("open-web");
+      var openWeb2 = document.getElementById("open-web-2");
       var downloadApk = document.getElementById("download-apk");
       var copyApk = document.getElementById("copy-apk");
-      var heroStatus = document.getElementById("hero-status");
+      var statusEl = document.getElementById("status");
       var mirrorLink = document.getElementById("mirror-link");
 
       var webUrl = (function () {
@@ -445,39 +455,37 @@
         return GITHUB_PAGES;
       })();
       openWeb.href = webUrl;
+      openWeb2.href = webUrl;
       downloadApk.href = DEFAULT_APK;
       mirrorLink.href = MIRROR_BASE + "download.html";
 
       function setStatus(text, cls) {
-        heroStatus.textContent = text || "";
-        heroStatus.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text || "";
+        statusEl.className = "status" + (cls ? " " + cls : "");
       }
-
       function formatBytes(n) {
         if (!n || !isFinite(n)) return "—";
         return (n / (1024 * 1024)).toFixed(1) + " MB";
       }
-
       function formatDate(iso) {
         if (!iso) return "—";
         try {
           var d = new Date(iso);
           if (isNaN(d.getTime())) return iso;
-          var y = d.getFullYear();
-          var m = String(d.getMonth() + 1).padStart(2, "0");
-          var day = String(d.getDate()).padStart(2, "0");
-          return y + "-" + m + "-" + day;
-        } catch (e) {
-          return iso;
-        }
+          return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        } catch (e) { return iso; }
+      }
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
       }
 
       copyApk.addEventListener("click", async function () {
         try {
           await navigator.clipboard.writeText(downloadApk.href);
-          setStatus("APK 下载链接已复制。", "ok");
+          setStatus("APK 链接已复制。", "ok");
         } catch (e) {
-          setStatus("复制失败，请长按下载按钮复制链接。", "err");
+          setStatus("复制失败，请长按下载按钮复制。", "err");
         }
       });
 
@@ -487,9 +495,7 @@
           if (!res.ok) return null;
           var len = res.headers.get("content-length");
           return len ? Number(len) : null;
-        } catch (e) {
-          return null;
-        }
+        } catch (e) { return null; }
       }
 
       async function loadRelease() {
@@ -503,70 +509,45 @@
           try {
             var res = await fetch(candidates[i], { cache: "no-store" });
             if (!res.ok) throw new Error("HTTP " + res.status);
-            var data = await res.json();
-            await applyRelease(data);
+            await applyRelease(await res.json());
             setStatus("版本信息已就绪。", "ok");
             return;
-          } catch (e) {
-            lastErr = e;
-          }
+          } catch (e) { lastErr = e; }
         }
-        document.getElementById("chip-version").textContent = "版本未知";
-        document.getElementById("release-notes").innerHTML =
-          '<li class="notes-empty">暂时无法加载更新说明，仍可尝试下载 APK 或打开网页版。</li>';
-        setStatus("无法读取 release.json" + (lastErr ? "：" + lastErr.message : "") + "。", "err");
+        document.getElementById("release-notes").innerHTML = "<li>暂时无法加载更新说明，仍可下载 APK 或打开网页版。</li>";
+        setStatus("无法读取 release.json" + (lastErr ? "：" + lastErr.message : ""), "err");
       }
 
       async function applyRelease(data) {
         var version = data.version || "—";
         var title = data.title || "本次更新";
         var notes = Array.isArray(data.notes) ? data.notes : [];
-        var publishedAt = data.publishedAt || "";
-        var commit = data.commit || "—";
-        var code = data.apkVersionCode != null ? String(data.apkVersionCode) : "—";
-        var sha = data.apkSha256 || "—";
-
         document.getElementById("chip-version").textContent = "v" + version;
-        document.getElementById("chip-date").textContent = "更新日期 " + formatDate(publishedAt);
+        document.getElementById("chip-date").textContent = "更新日期 " + formatDate(data.publishedAt);
         document.getElementById("updates-title").textContent = title;
+        document.getElementById("updates-intro").textContent = "与应用内「发现新版本」公告同一数据源。";
         document.getElementById("meta-version").textContent = version;
-        document.getElementById("meta-commit").textContent = commit;
-        document.getElementById("meta-code").textContent = code;
-        document.getElementById("meta-sha").textContent = sha;
+        document.getElementById("meta-commit").textContent = data.commit || "—";
+        document.getElementById("meta-code").textContent = data.apkVersionCode != null ? String(data.apkVersionCode) : "—";
+        document.getElementById("meta-sha").textContent = data.apkSha256 || "—";
         document.getElementById("footer-line").textContent = [
-          version ? "版本 " + version : null,
-          commit !== "—" ? "提交 " + commit : null,
-          publishedAt ? "发布 " + publishedAt : null
+          "版本 " + version,
+          data.commit ? "提交 " + data.commit : null,
+          data.publishedAt ? "发布 " + data.publishedAt : null
         ].filter(Boolean).join(" · ");
 
         var list = document.getElementById("release-notes");
-        if (!notes.length) {
-          list.innerHTML = '<li class="notes-empty">暂无更新说明。</li>';
-        } else {
-          list.innerHTML = notes.map(function (note) {
-            return "<li>" + escapeHtml(String(note)) + "</li>";
-          }).join("");
-        }
+        list.innerHTML = notes.length
+          ? notes.map(function (n) { return "<li>" + escapeHtml(n) + "</li>"; }).join("")
+          : "<li>暂无更新说明。</li>";
 
         var apk = (data.apkUrl || "").trim();
-        if (apk && /^https?:\/\//i.test(apk)) {
-          downloadApk.href = apk;
-        } else if (apk) {
-          downloadApk.href = new URL(apk.replace(/^\/+/, ""), MIRROR_BASE).href;
-        } else {
-          downloadApk.href = DEFAULT_APK;
-        }
+        if (apk && /^https?:\/\//i.test(apk)) downloadApk.href = apk;
+        else if (apk) downloadApk.href = new URL(apk.replace(/^\/+/, ""), MIRROR_BASE).href;
+        else downloadApk.href = DEFAULT_APK;
 
         var size = await headSize(downloadApk.href);
-        document.getElementById("chip-size").textContent = "APK 约 " + formatBytes(size);
-      }
-
-      function escapeHtml(value) {
-        return value
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;");
+        document.getElementById("chip-size").textContent = "APK " + formatBytes(size);
       }
 
       loadRelease();

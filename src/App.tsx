@@ -367,7 +367,8 @@ export default function App() {
       if (isNativeApp()) {
         try {
           const native = await AppUpdater.getNativeVersion();
-          setAvailableRelease(shouldShowNativeRelease(native, release) ? release : null);
+          // Use packaged web __APP_VERSION__ so APK shows the same release notes dialog as PWA.
+          setAvailableRelease(shouldShowNativeRelease(native, release, __APP_VERSION__) ? release : null);
         } catch {
           // Fall back to web version string comparison if the native plugin is unavailable.
           setAvailableRelease(shouldShowRelease(__APP_VERSION__, release) ? release : null);

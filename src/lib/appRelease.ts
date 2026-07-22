@@ -45,18 +45,29 @@ export function shouldShowRelease(currentVersion: string, release: AppRelease | 
   return localStorage.getItem(SKIPPED_RELEASE_KEY) !== release.version;
 }
 
-/** Android uses versionCode; web uses the human version string in release.json. */
+/**
+ * APK should show the same release-notes dialog as the web build when
+ * release.json version advances, and also when a newer APK binary (versionCode) is published.
+ */
 export function shouldShowNativeRelease(
   installed: { versionCode: number; versionName: string },
-  release: AppRelease | null
+  release: AppRelease | null,
+  packagedWebVersion: string = installed.versionName
 ): release is AppRelease {
   if (!release) return false;
-  if (typeof release.apkVersionCode === "number" && Number.isFinite(release.apkVersionCode)) {
-    if (localStorage.getItem(SKIPPED_APK_CODE_KEY) === String(release.apkVersionCode)) return false;
-    return release.apkVersionCode > installed.versionCode;
+  // Same human version gate as PWA (avoid type-predicate narrowing that collapses release to never).
+  const webVersion = packagedWebVersion || installed.versionName;
+  if (
+    compareVersions(release.version, webVersion) > 0
+    && localStorage.getItem(SKIPPED_RELEASE_KEY) !== release.version
+  ) {
+    return true;
   }
-  // Without published APK metadata, do not open the in-app APK updater
-  // (avoids "链接没配置好" when only the packaged web release.json is available).
+  const apkCode = release.apkVersionCode;
+  if (typeof apkCode === "number" && Number.isFinite(apkCode)) {
+    if (localStorage.getItem(SKIPPED_APK_CODE_KEY) === String(apkCode)) return false;
+    return apkCode > installed.versionCode;
+  }
   return false;
 }
 
