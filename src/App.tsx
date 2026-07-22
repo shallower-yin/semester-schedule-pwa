@@ -39,7 +39,7 @@ import {
   X
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
 import { AssistantDialogs } from "./components/AssistantDialogs";
@@ -108,7 +108,7 @@ import { appHistoryLayer, appHistoryPage, initializeAppHistory, navigateAppHisto
 import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { appMirrorApkUrl } from "./lib/appHosting";
-import { fetchLatestRelease, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
+import { clearSkippedRelease, fetchLatestRelease, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
@@ -356,32 +356,43 @@ export default function App() {
     updateServiceWorker
   } = useRegisterSW();
 
+  const checkRelease = useCallback(async (options?: { force?: boolean }) => {
+    if (options?.force) clearSkippedRelease();
+    const release = await fetchLatestRelease();
+    if (!release) {
+      setAvailableRelease(null);
+      return null;
+    }
+    if (isNativeApp()) {
+      try {
+        const native = await AppUpdater.getNativeVersion();
+        // Use packaged web __APP_VERSION__ so APK shows the same release notes dialog as PWA.
+        const show = shouldShowNativeRelease(native, release, __APP_VERSION__);
+        setAvailableRelease(show ? release : null);
+        return show ? release : null;
+      } catch {
+        // Fall back to web version string comparison if the native plugin is unavailable.
+        const show = shouldShowRelease(__APP_VERSION__, release);
+        setAvailableRelease(show ? release : null);
+        return show ? release : null;
+      }
+    }
+    const show = shouldShowRelease(__APP_VERSION__, release);
+    setAvailableRelease(show ? release : null);
+    return show ? release : null;
+  }, []);
+
   useEffect(() => {
     let active = true;
-    async function checkRelease() {
-      const release = await fetchLatestRelease();
-      if (!active || !release) {
-        if (active) setAvailableRelease(null);
-        return;
+    void checkRelease().then((release) => {
+      if (!active && release) {
+        // effect cleaned up; ignore
       }
-      if (isNativeApp()) {
-        try {
-          const native = await AppUpdater.getNativeVersion();
-          // Use packaged web __APP_VERSION__ so APK shows the same release notes dialog as PWA.
-          setAvailableRelease(shouldShowNativeRelease(native, release, __APP_VERSION__) ? release : null);
-        } catch {
-          // Fall back to web version string comparison if the native plugin is unavailable.
-          setAvailableRelease(shouldShowRelease(__APP_VERSION__, release) ? release : null);
-        }
-        return;
-      }
-      setAvailableRelease(shouldShowRelease(__APP_VERSION__, release) ? release : null);
-    }
-    void checkRelease();
+    });
     return () => {
       active = false;
     };
-  }, [needRefresh]);
+  }, [needRefresh, checkRelease]);
 
   useEffect(() => {
     if (!supabase) {
@@ -1070,8 +1081,37 @@ export default function App() {
             <div className="settings-sections">
               {renderSettingsSection("常用", "版本、皮肤、安装和反馈入口。", (
                 <>
-                  <button className="setting-card" onClick={() => needRefresh ? void applyAppUpdate() : window.location.reload()} disabled={updatingApp}>
-                    <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : needRefresh ? "有新版本，点击更新" : "点击重新加载并检查更新"}</small></span><ChevronRight />
+                  <button
+                    className="setting-card"
+                    disabled={updatingApp}
+                    onClick={() => {
+                      if (needRefresh) {
+                        void applyAppUpdate();
+                        return;
+                      }
+                      if (availableRelease) {
+                        void applyAppUpdate();
+                        return;
+                      }
+                      void (async () => {
+                        setUpdateMessage("正在检查更新…");
+                        const found = await checkRelease({ force: true });
+                        if (found) {
+                          setUpdateMessage("发现新版本，请确认更新说明。");
+                          showToast("发现新版本", "success");
+                          return;
+                        }
+                        setUpdateMessage("已是最新版本");
+                        showToast(
+                          isNativeApp()
+                            ? "当前已是最新安装包（或网络未能拉取更新信息）。"
+                            : "当前已是最新版本。",
+                          "info"
+                        );
+                      })();
+                    }}
+                  >
+                    <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : availableRelease || needRefresh ? "有新版本，点击更新" : "点击检查更新"}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
                     <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />

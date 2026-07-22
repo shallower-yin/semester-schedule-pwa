@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { appMirrorApkUrl } from "./appHosting";
 import {
+  clearSkippedRelease,
   ensureAbsoluteApkUrl,
   shouldShowNativeRelease,
   shouldShowRelease,
@@ -32,6 +33,13 @@ describe("版本更新说明", () => {
     skipReleaseVersion(release.version);
     expect(shouldShowRelease("2026.07.18.1", release)).toBe(false);
     expect(shouldShowRelease("2026.07.18.1", { ...release, version: "2026.07.18.3" })).toBe(true);
+  });
+
+  it("清除跳过后可再次提示", () => {
+    skipReleaseVersion(release.version, release.apkVersionCode);
+    expect(shouldShowNativeRelease({ versionCode: 8, versionName: "0.1.0" }, release, "2026.07.18.1")).toBe(false);
+    clearSkippedRelease();
+    expect(shouldShowNativeRelease({ versionCode: 8, versionName: "0.1.0" }, release, "2026.07.18.1")).toBe(true);
   });
 
   it("APK 在 versionCode 更高时提示更新", () => {

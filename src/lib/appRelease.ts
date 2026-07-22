@@ -78,6 +78,12 @@ export function skipReleaseVersion(version: string, apkVersionCode?: number) {
   }
 }
 
+/** Clear "skip this version" so a manual check can show the dialog again. */
+export function clearSkippedRelease() {
+  localStorage.removeItem(SKIPPED_RELEASE_KEY);
+  localStorage.removeItem(SKIPPED_APK_CODE_KEY);
+}
+
 export function compareVersions(left: string, right: string): number {
   const leftParts = left.split(/[.\-+_]/).map((part) => Number.parseInt(part, 10) || 0);
   const rightParts = right.split(/[.\-+_]/).map((part) => Number.parseInt(part, 10) || 0);
