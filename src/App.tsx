@@ -113,7 +113,7 @@ import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
 import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
-import { isNativeApp } from "./lib/nativeApp";
+import { consumePendingNativeNotificationKey, isNativeApp, NATIVE_NOTIFICATION_OPEN_EVENT } from "./lib/nativeApp";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -165,6 +165,7 @@ function formatBackupDateTime(value: string | null): string {
 export default function App() {
   const appVersion = `版本 ${__APP_VERSION__} · 提交 ${__APP_COMMIT__}`;
   const [page, setPage] = useState<Page>("today");
+  const [nativeNotificationKey, setNativeNotificationKey] = useState<string | null>(() => consumePendingNativeNotificationKey());
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [overviewNow, setOverviewNow] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
@@ -330,6 +331,43 @@ export default function App() {
     () => ({ semester, courses, schedules, cancellations, events, categories, occurrenceStates, anniversaries, memos, periods, focusSessions }),
     [semester, courses, schedules, cancellations, events, categories, occurrenceStates, anniversaries, memos, periods, focusSessions]
   );
+
+  useEffect(() => {
+    const handleOpen = (event: Event) => setNativeNotificationKey((event as CustomEvent<string>).detail || null);
+    window.addEventListener(NATIVE_NOTIFICATION_OPEN_EVENT, handleOpen);
+    const pending = consumePendingNativeNotificationKey();
+    if (pending) setNativeNotificationKey(pending);
+    return () => window.removeEventListener(NATIVE_NOTIFICATION_OPEN_EVENT, handleOpen);
+  }, []);
+
+  useEffect(() => {
+    if (!nativeNotificationKey) return;
+    if (nativeNotificationKey === "route:focus") {
+      navigate("focus");
+      setNativeNotificationKey(null);
+      return;
+    }
+    const eventMatch = /^event:([^:]+):/.exec(nativeNotificationKey);
+    if (eventMatch) {
+      const target = events.find((item) => item.id === eventMatch[1]);
+      if (!target && events.length === 0) return;
+      navigate(target?.event_type === "habit" ? "habits" : "calendar");
+      if (target) setEventToEdit(target);
+      else showToast("这条提醒对应的事项已被删除。", "info");
+      setNativeNotificationKey(null);
+      return;
+    }
+    const anniversaryMatch = /^anniversary:([^:]+):/.exec(nativeNotificationKey);
+    if (anniversaryMatch) {
+      if (!anniversaries.some((item) => item.id === anniversaryMatch[1]) && anniversaries.length === 0) return;
+      navigate("anniversaries");
+      setAnniversaryToOpen(anniversaryMatch[1]);
+      setNativeNotificationKey(null);
+      return;
+    }
+    if (nativeNotificationKey === "health") navigate("health");
+    setNativeNotificationKey(null);
+  }, [anniversaries, events, nativeNotificationKey]);
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
     if (eventStatusFilter !== "all") return [];

@@ -21,7 +21,7 @@ describe("audio chunking", () => {
     expect(chunks.reduce((sum, chunk) => sum + chunk.bytes.length, 0)).toBe(bytes.length);
   });
 
-  it("keeps long MP3 chunks within six minutes", () => {
+  it("keeps long MP3 chunks within three minutes", () => {
     const frameLength = 417;
     const frameCount = 15_000;
     const bytes = new Uint8Array(frameLength * frameCount);
@@ -30,7 +30,7 @@ describe("audio chunking", () => {
     }
     const chunks = splitAudioForAsr(bytes, "long-meeting.mp3", "audio/mpeg", 6_000_000);
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.every((chunk) => (chunk.durationMs ?? 0) <= 360_050)).toBe(true);
+    expect(chunks.every((chunk) => (chunk.durationMs ?? 0) <= 180_050)).toBe(true);
   });
 
   it("assigns overlapping R2 ranges without duplicating MP3 frames", () => {
@@ -71,6 +71,15 @@ describe("audio chunking", () => {
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks.every((chunk) => chunk.mimeType === "audio/aac")).toBe(true);
     expect(chunks.every((chunk) => chunk.bytes[0] === 0xff && (chunk.bytes[1] & 0xf0) === 0xf0)).toBe(true);
+  });
+
+  it("prefers the concrete M4A extension over stale picker MIME metadata", () => {
+    const frame = createAdtsFrame(200);
+    const bytes = new Uint8Array(frame.length * 6);
+    for (let index = 0; index < 6; index += 1) bytes.set(frame, index * frame.length);
+    const chunks = splitAudioForAsr(bytes, "lecture.m4a", "audio/mpeg", frame.length * 2 + 20);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.mimeType === "audio/aac")).toBe(true);
   });
 
   it("rejects large formats that cannot be safely split", () => {

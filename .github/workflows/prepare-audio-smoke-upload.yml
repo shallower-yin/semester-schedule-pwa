@@ -1,0 +1,35 @@
+name: Prepare encrypted audio smoke upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: One-use ASCII request identifier
+        required: true
+      rsa_public_key_base64:
+        description: One-use RSA public PEM encoded as base64
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  tickets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      REQUEST_ID: ${{ inputs.request_id }}
+      RSA_PUBLIC_KEY_BASE64: ${{ inputs.rsa_public_key_base64 }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Emit encrypted one-use upload tickets
+        run: node scripts/create-audio-smoke-upload-tickets.mjs

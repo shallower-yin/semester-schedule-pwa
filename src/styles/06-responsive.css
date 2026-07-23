@@ -8,6 +8,7 @@
   }
 
   .app-shell {
+    position: relative;
     display: flex;
     width: 100%;
     height: 100dvh;
@@ -154,7 +155,7 @@
   }
 
   .mobile-bottom-nav {
-    position: fixed;
+    position: absolute;
     z-index: 70;
     right: 10px;
     bottom: calc(10px + var(--safe-bottom));
@@ -545,7 +546,13 @@
 
   .memo-page {
     width: 100%;
+    min-height: 0;
     overflow-x: clip;
+  }
+
+  .memo-main {
+    width: 100%;
+    min-width: 0;
   }
 
   .focus-record-grid {

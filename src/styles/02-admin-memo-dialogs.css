@@ -1425,6 +1425,12 @@ textarea {
   margin-bottom: 14px;
 }
 
+.memo-main {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 .memo-status {
   margin-bottom: 12px !important;
 }
@@ -1497,6 +1503,8 @@ textarea {
 }
 
 .memo-card h2 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   margin: 10px 0 8px;
   font-size: 19px;
 }
@@ -1537,6 +1545,8 @@ textarea {
   margin: 0;
   color: #707989;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -1557,6 +1567,7 @@ textarea {
 }
 
 .memo-card-actions .button {
+  min-width: 0;
   margin-top: 0;
 }
 
@@ -1643,4 +1654,3 @@ textarea {
 .memo-visual-marker.checked {
   color: #60a5fa;
 }
-

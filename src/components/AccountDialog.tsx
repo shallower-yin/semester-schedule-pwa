@@ -8,7 +8,6 @@ import { toISODate } from "../lib/date";
 import { syncFields } from "../lib/identity";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import {
-  checkDueLocalReminders,
   diagnoseNotifications,
   disableNotificationsForCurrentDevice,
   enableNotifications,
@@ -18,6 +17,7 @@ import {
   type NotificationStatus
 } from "../lib/notifications";
 import { isNativeApp } from "../lib/nativeApp";
+import { scheduleNativeReminderTest } from "../lib/nativeReminders";
 import { getSyncHealth, type SyncResult } from "../lib/sync";
 import { getAdminStatus, type AdminAiAccess } from "../lib/admin";
 import { buildSyncStatus } from "../lib/syncStatus";
@@ -142,8 +142,16 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         setNotificationMessage("当前浏览器不支持系统通知。");
         return;
       }
+      if (isNativeApp()) {
+        const triggerAt = await scheduleNativeReminderTest(120);
+        const triggerText = triggerAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+        setDiagnosticSteps(await diagnoseNotifications());
+        setNotificationMessage(`已由安卓原生闹钟安排 ${triggerText} 的测试提醒。现在可以返回桌面、划掉应用或熄屏。`);
+        return;
+      }
       const startsAt = new Date();
-      startsAt.setMinutes(startsAt.getMinutes() + 1);
+      startsAt.setSeconds(0, 0);
+      startsAt.setMinutes(startsAt.getMinutes() + 2);
       const startTime = `${String(startsAt.getHours()).padStart(2, "0")}:${String(startsAt.getMinutes()).padStart(2, "0")}`;
       const record = {
         ...syncFields(),
@@ -168,11 +176,8 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       };
       await db.events.put(record);
       await queueChange("events", record.id);
-      if (isNativeApp()) await checkDueLocalReminders(user.id);
       setNotificationMessage(
-        isNativeApp()
-          ? `已安排 ${startTime} 的提醒。可以关闭应用，届时系统会按时通知你。`
-          : `已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台提醒。`
+        `已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台提醒。`
       );
     } catch (error) {
       setNotificationMessage(error instanceof Error ? error.message : "创建测试提醒失败");
@@ -353,7 +358,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
           <BellRing size={17} />发送测试通知
         </button>
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void scheduleRealReminderTest()}>
-          <BellRing size={17} />1 分钟后提醒测试
+          <BellRing size={17} />2 分钟后台提醒测试
         </button>
       </div>
       <div className="account-sync-actions">

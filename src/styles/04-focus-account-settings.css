@@ -691,6 +691,32 @@
   line-height: 1.65;
 }
 
+.focus-lock-card.focus-lock-minimal {
+  min-height: min(50vh, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(36px, 8vh, 72px);
+}
+
+.focus-lock-card.focus-lock-minimal > strong {
+  margin: 0;
+  color: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: clamp(48px, 16vw, 112px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.focus-lock-minimal > .button {
+  min-width: 144px;
+  min-height: 48px;
+  font-size: 16px;
+}
+
 .auth-links button {
   padding: 5px;
   border: 0;

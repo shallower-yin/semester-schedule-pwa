@@ -1,5 +1,5 @@
 import { createReadStream, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, extname } from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 const bucket = required("R2_BUCKET");
@@ -11,13 +11,15 @@ const client = new S3Client({
 const prefix = `codex-smoke-source/${Date.now()}`;
 
 for (const [index, filePath] of process.argv.slice(2).entries()) {
-  const key = `${prefix}/audio-${index + 1}.mp3`;
+  const extension = extname(filePath).toLowerCase() || ".bin";
+  const contentType = extension === ".mp3" ? "audio/mpeg" : extension === ".m4a" ? "audio/mp4" : "application/octet-stream";
+  const key = `${prefix}/audio-${index + 1}${extension}`;
   await client.send(new PutObjectCommand({
     Bucket: bucket,
     Key: key,
     Body: createReadStream(filePath),
     ContentLength: statSync(filePath).size,
-    ContentType: "audio/mpeg",
+    ContentType: contentType,
     Metadata: { originalName: Buffer.from(basename(filePath)).toString("base64url") }
   }));
   console.log(key);

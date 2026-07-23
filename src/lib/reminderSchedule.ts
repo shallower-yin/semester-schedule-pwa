@@ -7,10 +7,11 @@ import {
 import { eventOccursOn, toISODate } from "./date";
 import { reminderTimeForOccurrence } from "./reminderTime";
 
-// How far ahead we materialise concrete reminder occurrences, and how many we keep. The cap mirrors
-// iOS's 64 pending-notification limit so the same logic is safe if this ever ships beyond Android.
-export const REMINDER_HORIZON_DAYS = 60;
-export const MAX_SCHEDULED_REMINDERS = 64;
+// Android can persist hundreds of one-shot alarms cheaply. A one-year rolling horizon avoids silently
+// losing reminders when the APK is not reopened during a long vacation; the nearest 512 occurrences
+// still provide a bounded reconciliation cost for unusually dense recurring calendars.
+export const REMINDER_HORIZON_DAYS = 366;
+export const MAX_SCHEDULED_REMINDERS = 512;
 
 // One-off notifications (test / health) use fixed ids reserved above the hashed range so they never
 // collide with a scheduled reminder.

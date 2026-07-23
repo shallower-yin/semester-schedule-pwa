@@ -5,6 +5,7 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.view.WindowManager;
 
 import com.getcapacitor.JSObject;
@@ -31,6 +32,8 @@ public class FocusNativeTimerPlugin extends Plugin {
     private static final String PLANNED = "planned";
     private static final String ELAPSED_BASE = "elapsed-base";
     private static final String ANCHOR_REALTIME = "anchor-realtime";
+    private static final String ANCHOR_WALL = "anchor-wall";
+    private static final String ANCHOR_BOOT = "anchor-boot";
     private static final String PAUSED = "paused";
 
     private SharedPreferences prefs() {
@@ -48,6 +51,8 @@ public class FocusNativeTimerPlugin extends Plugin {
             .putLong(PLANNED, readLong(call, "plannedSeconds", -1))
             .putLong(ELAPSED_BASE, initialElapsed)
             .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
+            .putLong(ANCHOR_WALL, System.currentTimeMillis())
+            .putLong(ANCHOR_BOOT, bootCount(getContext()))
             .putBoolean(PAUSED, false)
             .apply();
         call.resolve(readState());
@@ -60,6 +65,8 @@ public class FocusNativeTimerPlugin extends Plugin {
             current.edit()
                 .putLong(ELAPSED_BASE, currentElapsedSeconds(current))
                 .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
+                .putLong(ANCHOR_WALL, System.currentTimeMillis())
+                .putLong(ANCHOR_BOOT, bootCount(getContext()))
                 .putBoolean(PAUSED, true)
                 .apply();
         }
@@ -72,6 +79,8 @@ public class FocusNativeTimerPlugin extends Plugin {
         if (current.getBoolean(ACTIVE, false) && current.getBoolean(PAUSED, false)) {
             current.edit()
                 .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
+                .putLong(ANCHOR_WALL, System.currentTimeMillis())
+                .putLong(ANCHOR_BOOT, bootCount(getContext()))
                 .putBoolean(PAUSED, false)
                 .apply();
         }
@@ -98,7 +107,6 @@ public class FocusNativeTimerPlugin extends Plugin {
         }
         activity.runOnUiThread(() -> {
             try {
-                activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 activity.startLockTask();
                 JSObject result = new JSObject();
                 result.put("active", isLockTaskActive());
@@ -144,21 +152,38 @@ public class FocusNativeTimerPlugin extends Plugin {
     }
 
     private long currentElapsedSeconds(SharedPreferences current) {
-        return readElapsedSeconds(current);
+        return readElapsedSeconds(getContext(), current);
     }
 
     static long readElapsedSeconds(Context context) {
-        return readElapsedSeconds(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE));
+        return readElapsedSeconds(context, context.getSharedPreferences(PREFS, Context.MODE_PRIVATE));
     }
 
-    private static long readElapsedSeconds(SharedPreferences current) {
+    private static long readElapsedSeconds(Context context, SharedPreferences current) {
         long base = Math.max(0, current.getLong(ELAPSED_BASE, 0));
         if (!current.getBoolean(ACTIVE, false) || current.getBoolean(PAUSED, false)) return base;
-        long anchor = current.getLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime());
-        long delta = SystemClock.elapsedRealtime() - anchor;
-        // elapsedRealtime resets on reboot. A negative delta means the old anchor belongs to a prior boot.
+        long anchorBoot = current.getLong(ANCHOR_BOOT, bootCount(context));
+        long currentBoot = bootCount(context);
+        long delta;
+        if (anchorBoot == currentBoot) {
+            long anchor = current.getLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime());
+            delta = SystemClock.elapsedRealtime() - anchor;
+        } else {
+            // elapsedRealtime intentionally resets at reboot. Fall back to the persisted wall anchor
+            // only across a proven boot change so normal manual clock changes cannot jump the timer.
+            long wallAnchor = current.getLong(ANCHOR_WALL, System.currentTimeMillis());
+            delta = System.currentTimeMillis() - wallAnchor;
+        }
         if (delta < 0) return base;
         return base + delta / 1000;
+    }
+
+    private static long bootCount(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT);
+        } catch (Exception ignored) {
+            return -1;
+        }
     }
 
     private boolean isLockTaskActive() {

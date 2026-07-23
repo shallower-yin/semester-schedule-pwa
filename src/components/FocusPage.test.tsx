@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import { setCurrentUserId } from "../lib/identity";
@@ -43,6 +43,7 @@ describe("专注记录管理", () => {
     localStorage.clear();
     setCurrentUserId("local");
     await db.focusSessions.clear();
+    await db.restSessions.clear();
     await db.focusSettings.clear();
     await db.events.clear();
     await db.syncQueue.clear();
@@ -80,5 +81,26 @@ describe("专注记录管理", () => {
       expect.any(Date),
       true
     );
+  });
+
+  it("休息只写入休息记录，不计入专注记录", async () => {
+    render(<FocusPage ownerId="local" />);
+    fireEvent.click(await screen.findByRole("button", { name: "休息" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始休息" }));
+    fireEvent.click(await screen.findByRole("button", { name: /结束并保存/ }));
+    await waitFor(() => expect(db.restSessions.count()).resolves.toBe(1));
+    expect(await db.focusSessions.count()).toBe(2);
+    expect(await db.syncQueue.where("table_name").equals("restSessions").count()).toBe(1);
+  });
+
+  it("锁机层只显示正计时时钟和结束按钮", async () => {
+    render(<FocusPage ownerId="local" />);
+    fireEvent.click(await screen.findByRole("button", { name: "锁机" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始专注" }));
+    const dialog = await screen.findByRole("dialog", { name: "锁机专注" });
+    expect(within(dialog).getByLabelText(/已专注/)).toHaveTextContent(/^\d{2}:\d{2}(?::\d{2})?$/);
+    expect(within(dialog).getAllByRole("button")).toHaveLength(1);
+    expect(within(dialog).getByRole("button", { name: "结束" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/暂停|放弃|任务|锁机专注模式/)).not.toBeInTheDocument();
   });
 });

@@ -114,7 +114,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
               );
             } else if (step === "整理结果") {
               reportProgress(total > 1 ? `分段转写完成（${total}/${total}），正在整理结果…` : "正在整理结果…", 100);
-            } else if (step.includes("转换分段") || step.includes("转为")) {
+            } else if (step.includes("转换分段") || step.includes("解析分段") || step.includes("按音频时间") || step.includes("转为")) {
               reportProgress(step, typeof completed === "number" && total > 0 ? Math.round((completed / total) * 100) : 0);
             } else {
               const currentFile = Math.min(total, Math.max(1, completed + 1));
@@ -209,7 +209,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${safeFileName(result.files?.[0]?.replace(/\.(mp3|wav)$/i, "") || "音频")}-转写.txt`;
+    anchor.download = `${safeFileName(result.files?.[0]?.replace(/\.(mp3|wav|m4a|aac|ogg|flac)$/i, "") || "音频")}-转写.txt`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
@@ -293,7 +293,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             </div>
           )}
           {task.status === "error" && <div className="ai-inline-error" role="alert"><span>{task.message}</span><button type="button" className="button secondary compact" onClick={() => retryAiTask("audio_transcription")}>重试</button></div>}
-          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个源文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。超过 7 MB 的 M4A/OGG/FLAC 会在浏览器（含安卓 App 内置页面）转成 16kHz 单声道语音 WAV，并按录音时间顺序自动切段上传。多个文件按列表从上到下的顺序拼接（可用上下箭头调整）。中间某段网络失败会跳过并继续后面的段，结果里会标注失败段。上传的临时音频约 7 天后自动清理。转写结果仅保存在本机，不会在账号间云同步。</p>
+          <p className="muted-note">支持 MP3、WAV、FLAC、M4A、OGG，单个源文件不超过 100 MB，最多 {MAX_AUDIO_FILES} 个。长 M4A 直接按 AAC 音频帧和真实时长切段，不再在手机中整段解码；长 MP3 按帧渐进转写。多个文件严格按列表顺序、再按各自分段序号拼接（可用上下箭头调整）。中间某段失败会保留原位置并只补救缺口。临时音频在成功、取消或终止失败后主动清理，存储生命周期仅作兜底。转写结果保存在当前设备。</p>
           <p className="muted-note" style={{ color: "#b45309" }}>⚠ 音频转写对网络稳定性要求较高，大文件上传可能需要几分钟。建议在 Wi-Fi 或信号良好的环境下使用，上传期间请勿切换网络。</p>
         </section>
 

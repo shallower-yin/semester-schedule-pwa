@@ -98,98 +98,37 @@ public class FocusOverlayPlugin extends Plugin {
             call.reject("overlay-permission-denied");
             return;
         }
-        // Always treat the WebView payload as the source of truth. Re-opening or pausing must not
-        // invent a new startedAt (that makes the card look like a full-duration restart).
-        final long incomingStartedAt = readLong(call, "startedAt", System.currentTimeMillis());
-        final double incomingPaused = readDouble(call, "pausedSeconds", 0.0);
-        final long incomingPauseStartedAt = readLong(call, "pauseStartedAt", -1);
-        final long incomingPlanned = readLong(call, "plannedSeconds", -1);
-        final String incomingLabel = call.getString("label", "专注");
-        final String incomingTitle = call.getString("title", "");
-
-        final Activity activity = getActivity();
-        if (activity == null) {
-            call.reject("no-activity");
-            return;
-        }
-        activity.runOnUiThread(() -> {
-            ensureOverlay(activity);
-            applyAnchors(
-                incomingStartedAt,
-                incomingPaused,
-                incomingPauseStartedAt,
-                incomingPlanned,
-                incomingLabel,
-                incomingTitle
-            );
-            if (!showing && overlayView != null && windowManager != null) {
-                try {
-                    windowManager.addView(overlayView, layoutParams);
-                    showing = true;
-                } catch (Exception ignored) {
-                    // View may already be attached; keep going so we still render/tick.
-                    showing = true;
-                }
-            }
-            render();
-            startTicking();
-        });
+        FocusOverlayService.show(getContext(), serviceIntent(call));
         call.resolve();
     }
 
     @PluginMethod
     public void update(PluginCall call) {
-        // Same robust number parsing as show(); Capacitor getDouble() drops Long timestamps.
-        final long incomingStartedAt = readLong(call, "startedAt", startedAt);
-        final double incomingPaused = readDouble(call, "pausedSeconds", pausedSeconds);
-        final long incomingPauseStartedAt = readLong(call, "pauseStartedAt", pauseStartedAt);
-        final long incomingPlanned = readLong(call, "plannedSeconds", plannedSeconds);
-        final String incomingLabel = call.getString("label", modeLabel);
-        final String incomingTitle = call.getString("title", taskTitle);
-
-        final Activity activity = getActivity();
-        if (activity != null) {
-            activity.runOnUiThread(() -> {
-                applyAnchors(
-                    incomingStartedAt,
-                    incomingPaused,
-                    incomingPauseStartedAt,
-                    incomingPlanned,
-                    incomingLabel,
-                    incomingTitle
-                );
-                if (showing) {
-                    render();
-                }
-            });
-        } else {
-            applyAnchors(
-                incomingStartedAt,
-                incomingPaused,
-                incomingPauseStartedAt,
-                incomingPlanned,
-                incomingLabel,
-                incomingTitle
-            );
-        }
+        if (canDraw()) FocusOverlayService.update(getContext(), serviceIntent(call));
         call.resolve();
     }
 
     @PluginMethod
     public void hide(PluginCall call) {
-        final Activity activity = getActivity();
-        if (activity != null) {
-            activity.runOnUiThread(this::removeOverlay);
-        } else {
-            removeOverlay();
-        }
+        FocusOverlayService.hide(getContext());
         call.resolve();
     }
 
     @Override
     protected void handleOnDestroy() {
-        removeOverlay();
+        // The foreground service owns the cross-app window; destroying the WebView must not stop it.
         super.handleOnDestroy();
+    }
+
+    private Intent serviceIntent(PluginCall call) {
+        Intent intent = new Intent();
+        intent.putExtra("startedAt", readLong(call, "startedAt", System.currentTimeMillis()));
+        intent.putExtra("pausedSeconds", readDouble(call, "pausedSeconds", 0));
+        intent.putExtra("pauseStartedAt", readLong(call, "pauseStartedAt", -1));
+        intent.putExtra("plannedSeconds", readLong(call, "plannedSeconds", -1));
+        intent.putExtra("label", call.getString("label", "专注"));
+        intent.putExtra("title", call.getString("title", ""));
+        return intent;
     }
 
     @PluginMethod

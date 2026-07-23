@@ -564,16 +564,9 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       )}
       {active?.mode === "lock" && (
         <div className="focus-lock-overlay" role="dialog" aria-modal="true" aria-label="锁机专注">
-          <div className="focus-lock-card">
-            <span>锁机专注中</span>
-            <h2>{active.task_title}</h2>
-            <strong>{formatFocusDuration(elapsed)}</strong>
-            <p>APK 已调用安卓“屏幕固定/锁定任务”并保持亮屏；首次使用请在系统确认框中允许。网页端仍只能提供应用内沉浸界面。</p>
-            <div className="focus-actions">
-              <button className="button secondary" onClick={pauseOrResume}>{active.pause_started_at ? <Play size={17} /> : <Pause size={17} />}{active.pause_started_at ? "继续" : "暂停"}</button>
-              <button className="button primary" onClick={() => void finishFocus(true, false)}><CheckCircle2 size={17} />结束并保存</button>
-              <button className="button danger-button" onClick={discardFocus}><Square size={16} />放弃</button>
-            </div>
+          <div className="focus-lock-card focus-lock-minimal">
+            <strong aria-label={`已专注 ${formatFocusDuration(elapsed)}`}>{formatFocusDuration(elapsed)}</strong>
+            <button className="button primary" onClick={() => void finishFocus(true, false)}>结束</button>
           </div>
         </div>
       )}
@@ -644,7 +637,11 @@ function periodStart(period: StatsPeriod, now: Date): Date {
 
 function recordsForPeriod<T extends { ended_at: string; deleted_at: string | null }>(records: T[], period: StatsPeriod, now: Date): T[] {
   const start = periodStart(period, now).getTime();
-  return records.filter((record) => !record.deleted_at && new Date(record.ended_at).getTime() >= start);
+  const end = now.getTime();
+  return records.filter((record) => {
+    const endedAt = new Date(record.ended_at).getTime();
+    return !record.deleted_at && endedAt >= start && endedAt <= end;
+  });
 }
 
 function totalRestSeconds(sessions: RestSession[]): number {

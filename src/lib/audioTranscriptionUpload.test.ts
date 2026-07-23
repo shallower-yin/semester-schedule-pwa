@@ -65,6 +65,62 @@ describe("R2 音频转写上传", () => {
     expect(result.transcript.indexOf("第一段内容")).toBeLessThan(result.transcript.indexOf("第二段内容"));
   });
 
+  it("客户端小分段使用签名叶子任务，整份录音只走一次最终额度登记", async () => {
+    let uploadIndex = 0;
+    invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
+      if (options.body.action === "create_audio_upload") {
+        uploadIndex += 1;
+        return {
+          data: {
+            objectKey: `ai-audio/user-1/part-${uploadIndex}.wav`,
+            uploadUrl: `https://upload.example/part-${uploadIndex}`,
+            expiresAt: new Date().toISOString()
+          },
+          error: null
+        };
+      }
+      if (options.body.action === "plan_audio_parts") {
+        const audios = options.body.audios as Array<{ name: string; mimeType: string; size: number; objectKey: string }>;
+        return {
+          data: {
+            tasks: audios.map((audio, index) => ({
+              ...audio,
+              fileIndex: index,
+              fileName: audio.name,
+              language: "zh",
+              partIndex: index,
+              partCount: audios.length,
+              signature: `signed-${index}`
+            }))
+          },
+          error: null
+        };
+      }
+      if (options.body.action === "transcribe_audio_part") {
+        const part = options.body.audioPart as { partIndex: number };
+        return { data: { transcript: `签名分段${part.partIndex + 1}`, model: "mimo-v2.5-asr-signed-part" }, error: null };
+      }
+      if (options.body.action === "finalize_audio_transcription") {
+        return { data: { transcript: "server-order", summary: null, warning: null, model: "finalized" }, error: null };
+      }
+      return { data: { ok: true }, error: null };
+    });
+
+    const result = await transcribeAudioFiles({
+      files: [
+        new File(["part-1"], "第一段.wav", { type: "audio/wav" }),
+        new File(["part-2"], "第二段.wav", { type: "audio/wav" })
+      ],
+      language: "zh",
+      summarize: false
+    });
+
+    expect(invokeMock.mock.calls.filter(([, options]) => options.body.action === "transcribe_audio_part")).toHaveLength(2);
+    expect(invokeMock.mock.calls.filter(([, options]) => options.body.action === "finalize_audio_transcription")).toHaveLength(1);
+    expect(invokeMock.mock.calls.filter(([, options]) => options.body.mode === "audio_transcription")).toHaveLength(0);
+    expect(result.transcript.indexOf("签名分段1")).toBeLessThan(result.transcript.indexOf("签名分段2"));
+  });
+
   it("中间段失败后继续转写后续段，并保持时间顺序", async () => {
     let uploadIndex = 0;
     let asrCalls = 0;
@@ -99,6 +155,7 @@ describe("R2 音频转写上传", () => {
       return { data: { ok: true }, error: null };
     });
 
+    const partial = vi.fn();
     const result = await transcribeAudioFiles({
       files: [
         new File(["a"], "seg-01.mp3", { type: "audio/mpeg" }),
@@ -106,7 +163,8 @@ describe("R2 音频转写上传", () => {
         new File(["c"], "seg-03.mp3", { type: "audio/mpeg" })
       ],
       language: "zh",
-      summarize: false
+      summarize: false,
+      onPartialResult: partial
     });
 
     // One attempt per part (middle fails once with non-transient error); later parts still run.
@@ -114,6 +172,8 @@ describe("R2 音频转写上传", () => {
     expect(result.transcript.indexOf("内容seg-01.mp3")).toBeLessThan(result.transcript.indexOf("本段转写失败"));
     expect(result.transcript.indexOf("本段转写失败")).toBeLessThan(result.transcript.indexOf("内容seg-03.mp3"));
     expect(result.warning).toMatch(/部分完成/);
+    expect(partial).toHaveBeenCalled();
+    expect(partial.mock.calls.some(([checkpoint]) => checkpoint.transcript.includes("内容seg-01.mp3"))).toBe(true);
   });
 
   it("大 MP3 走分段计划并上报 1/N 进度，且不会回退成 1/1 整包", async () => {
@@ -312,7 +372,7 @@ describe("R2 音频转写上传", () => {
     });
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(null, { status: 500 })));
+      .mockResolvedValue(new Response(null, { status: 500 })));
 
     await expect(transcribeAudioFiles({
       files: [

@@ -1,22 +1,21 @@
-import type { LocalNotificationSchema, PendingLocalNotificationSchema } from "@capacitor/local-notifications";
 import { isNativeApp } from "./nativeApp";
 import { HEALTH_NOTIFICATION_ID, TEST_NOTIFICATION_ID, type ScheduledReminder } from "./reminderSchedule";
 import { withTimeout } from "./asyncTimeout";
-import { ReminderSupport, type ReminderSystemStatus } from "./reminderSupport";
+import { ReminderSupport, type ReminderDiagnostics, type ReminderSystemStatus } from "./reminderSupport";
 
 // Native Android reminders. The browser keeps its Web Push / service-worker path; the APK WebView has
 // no Notification API, so it schedules real Android local notifications through the OS AlarmManager
 // (via @capacitor/local-notifications), which fire even when the app is closed. The plugin is imported
 // lazily so it never enters the web bundle or the jsdom test environment.
 
-const CHANNEL_ID = "reminders-v2";
-const RESERVED_IDS = new Set([TEST_NOTIFICATION_ID, HEALTH_NOTIFICATION_ID]);
+const CHANNEL_ID = "reminders-v3";
 // A native bridge call should return in milliseconds; anything longer is a stuck OEM implementation.
 // Bounding every call keeps the account panel from freezing on "正在检查…" the way it once did.
 const BRIDGE_TIMEOUT_MS = 8_000;
 const PERMISSION_PROMPT_TIMEOUT_MS = 120_000;
 let channelReady = false;
 let lastNativeReminderError: string | null = null;
+let legacyPendingCleaned = false;
 
 export interface NativeReminderHealth extends ReminderSystemStatus {
   permissionGranted: boolean;
@@ -86,15 +85,11 @@ export async function getNativeReminderHealth(): Promise<NativeReminderHealth | 
   const permissionGranted = (await ensureNativeReminderPermission(false)) === "granted";
   try {
     await ensureChannel();
-    const [{ LocalNotifications }, system] = await Promise.all([
-      loadPlugin(),
-      withTimeout(ReminderSupport.getSystemStatus(), BRIDGE_TIMEOUT_MS, "读取安卓提醒状态超时")
-    ]);
-    const pending = await withTimeout(LocalNotifications.getPending(), BRIDGE_TIMEOUT_MS, "读取待发提醒超时");
+    const system = await withTimeout(ReminderSupport.getSystemStatus(), BRIDGE_TIMEOUT_MS, "读取安卓提醒状态超时");
     return {
       ...system,
       permissionGranted,
-      pendingCount: pending.notifications.filter((item) => !RESERVED_IDS.has(item.id)).length,
+      pendingCount: Math.max(0, system.scheduledCount ?? 0),
       channelReady: system.channelImportance >= 3,
       lastError: lastNativeReminderError
     };
@@ -139,9 +134,22 @@ function signatureOf(reminder: ScheduledReminder): string {
   return `${reminder.title}${reminder.body}${reminder.at.getTime()}`;
 }
 
-function pendingSignature(pending: PendingLocalNotificationSchema): string {
-  const extra = pending.extra as { sig?: string } | null | undefined;
-  return extra?.sig ?? "";
+async function cleanLegacyCapacitorPending(): Promise<void> {
+  if (legacyPendingCleaned) return;
+  legacyPendingCleaned = true;
+  try {
+    const { LocalNotifications } = await loadPlugin();
+    const pending = (await withTimeout(LocalNotifications.getPending(), BRIDGE_TIMEOUT_MS, "读取旧提醒超时")).notifications;
+    if (pending.length) {
+      await withTimeout(
+        LocalNotifications.cancel({ notifications: pending.map((item) => ({ id: item.id })) }),
+        BRIDGE_TIMEOUT_MS,
+        "迁移旧提醒超时"
+      );
+    }
+  } catch {
+    // A previous APK might not contain Capacitor Local Notifications; the v3 scheduler is independent.
+  }
 }
 
 // Reconciles the OS's pending notifications with the desired set: cancels reminders that no longer
@@ -151,36 +159,22 @@ export async function syncNativeReminders(reminders: ScheduledReminder[]): Promi
   if (!isNativeApp()) return 0;
   if ((await ensureNativeReminderPermission(false)) !== "granted") return 0;
   try {
-    const { LocalNotifications } = await loadPlugin();
     await ensureChannel();
-    const pending = (await withTimeout(LocalNotifications.getPending(), BRIDGE_TIMEOUT_MS, "读取待发提醒超时")).notifications;
-    const pendingById = new Map(pending.map((item) => [item.id, item]));
-    const desiredIds = new Set(reminders.map((reminder) => reminder.id));
-
-    const toCancel = pending
-      .filter((item) => !RESERVED_IDS.has(item.id) && !desiredIds.has(item.id))
-      .map((item) => ({ id: item.id }));
-    if (toCancel.length) await withTimeout(LocalNotifications.cancel({ notifications: toCancel }), BRIDGE_TIMEOUT_MS, "取消提醒超时");
-
-    const toSchedule: LocalNotificationSchema[] = reminders
-      .filter((reminder) => {
-        const existing = pendingById.get(reminder.id);
-        return !existing || pendingSignature(existing) !== signatureOf(reminder);
-      })
-      .map((reminder) => ({
+    await cleanLegacyCapacitorPending();
+    const result = await withTimeout(
+      ReminderSupport.scheduleReminders({
+        reminders: reminders.map((reminder) => ({
         id: reminder.id,
         title: reminder.title,
         body: reminder.body,
-        channelId: CHANNEL_ID,
-        schedule: { at: reminder.at, allowWhileIdle: true },
-        extra: { sig: signatureOf(reminder), key: reminder.key }
-      }));
-    if (toSchedule.length) {
-      await withTimeout(LocalNotifications.schedule({ notifications: toSchedule }), BRIDGE_TIMEOUT_MS, "安排提醒超时");
-    }
-    const verified = (await withTimeout(LocalNotifications.getPending(), BRIDGE_TIMEOUT_MS, "校验待发提醒超时")).notifications;
-    const verifiedIds = new Set(verified.map((item) => item.id));
-    const verifiedCount = reminders.filter((item) => verifiedIds.has(item.id)).length;
+        key: reminder.key,
+        sig: signatureOf(reminder),
+        triggerAt: reminder.at.getTime()
+      })) }),
+      BRIDGE_TIMEOUT_MS,
+      "注册原生提醒超时"
+    );
+    const verifiedCount = Math.max(0, result.scheduledCount ?? reminders.length);
     if (verifiedCount !== reminders.length) {
       lastNativeReminderError = `系统仅保存了 ${verifiedCount}/${reminders.length} 条提醒`;
     } else {
@@ -197,11 +191,8 @@ export async function syncNativeReminders(reminders: ScheduledReminder[]): Promi
 export async function cancelAllNativeReminders(): Promise<void> {
   if (!isNativeApp()) return;
   try {
-    const { LocalNotifications } = await loadPlugin();
-    const pending = (await withTimeout(LocalNotifications.getPending(), BRIDGE_TIMEOUT_MS, "读取待发提醒超时")).notifications
-      .filter((item) => !RESERVED_IDS.has(item.id))
-      .map((item) => ({ id: item.id }));
-    if (pending.length) await withTimeout(LocalNotifications.cancel({ notifications: pending }), BRIDGE_TIMEOUT_MS, "取消提醒超时");
+    await withTimeout(ReminderSupport.cancelAll(), BRIDGE_TIMEOUT_MS, "取消提醒超时");
+    await cleanLegacyCapacitorPending();
   } catch (error) {
     lastNativeReminderError = error instanceof Error ? error.message : "取消提醒失败";
     // Nothing scheduled or plugin unavailable.
@@ -212,12 +203,9 @@ export async function cancelAllNativeReminders(): Promise<void> {
 export async function showNativeNotificationNow(options: { id: number; title: string; body: string }): Promise<boolean> {
   if ((await ensureNativeReminderPermission(false)) !== "granted") return false;
   try {
-    const { LocalNotifications } = await loadPlugin();
     await ensureChannel();
     await withTimeout(
-      LocalNotifications.schedule({
-        notifications: [{ id: options.id, title: options.title, body: options.body, channelId: CHANNEL_ID }]
-      }),
+      ReminderSupport.postNow({ ...options, key: options.id === HEALTH_NOTIFICATION_ID ? "health" : "test:immediate" }),
       BRIDGE_TIMEOUT_MS,
       "发送通知超时"
     );
@@ -225,5 +213,27 @@ export async function showNativeNotificationNow(options: { id: number; title: st
   } catch (error) {
     lastNativeReminderError = error instanceof Error ? error.message : "发送通知失败";
     return false;
+  }
+}
+
+export async function scheduleNativeReminderTest(delaySeconds = 120): Promise<Date> {
+  if ((await ensureNativeReminderPermission(false)) !== "granted") throw new Error("请先允许系统通知");
+  if (!(await ensureNativeExactAlarmPermission(false))) throw new Error("请先允许“闹钟和提醒”权限");
+  await ensureChannel();
+  const result = await withTimeout(
+    ReminderSupport.scheduleTest({ id: TEST_NOTIFICATION_ID, delaySeconds }),
+    BRIDGE_TIMEOUT_MS,
+    "注册后台测试提醒超时"
+  );
+  return new Date(result.triggerAt);
+}
+
+export async function getNativeReminderDiagnostics(): Promise<ReminderDiagnostics | null> {
+  if (!isNativeApp()) return null;
+  try {
+    return await withTimeout(ReminderSupport.getDiagnostics(), BRIDGE_TIMEOUT_MS, "读取提醒诊断超时");
+  } catch (error) {
+    lastNativeReminderError = error instanceof Error ? error.message : "读取提醒诊断失败";
+    return null;
   }
 }

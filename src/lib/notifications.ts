@@ -10,6 +10,7 @@ import {
   cancelAllNativeReminders,
   ensureNativeExactAlarmPermission,
   ensureNativeReminderPermission,
+  getNativeReminderDiagnostics,
   getNativeReminderHealth,
   showNativeNotificationNow,
   syncNativeReminders
@@ -30,7 +31,7 @@ export type NotificationStatus =
 export type NotificationEnableResult = "enabled" | "local-only" | "denied" | "unsupported";
 export type NotificationSetupStage = "permission" | "service-worker" | "push-service" | "cloud";
 export interface NotificationDiagnosticStep {
-  id: NotificationSetupStage | "support" | "channel" | "exact-alarm" | "pending" | "battery";
+  id: NotificationSetupStage | "support" | "channel" | "exact-alarm" | "pending" | "delivery" | "battery";
   label: string;
   status: "ok" | "warning" | "error";
   detail: string;
@@ -189,7 +190,7 @@ export async function showHealthMovementReminder(): Promise<void> {
 export async function diagnoseNotifications(): Promise<NotificationDiagnosticStep[]> {
   const steps: NotificationDiagnosticStep[] = [];
   if (isNativeApp()) {
-    const health = await getNativeReminderHealth();
+    const [health, diagnostics] = await Promise.all([getNativeReminderHealth(), getNativeReminderDiagnostics()]);
     const granted = Boolean(health?.permissionGranted && health.notificationsEnabled);
     steps.push({ id: "support", label: "提醒方式", status: "ok", detail: "使用安卓本地精确闹钟，不依赖 TPNS，也不要求应用驻留后台。" });
     steps.push({
@@ -204,7 +205,7 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
       status: health?.channelReady && health.channelSoundEnabled ? "ok" : "warning",
       detail: health?.channelReady && health.channelSoundEnabled
         ? "高优先级、有声、振动、锁屏可见渠道正常。"
-        : "提醒渠道被静音或降级，请到系统通知设置中将“日程提醒（重要）”设为允许并开启声音。"
+        : "提醒渠道被静音或降级，请到系统通知设置中将“日程提醒（响铃与振动）”设为允许并开启声音和振动。"
     });
     steps.push({
       id: "exact-alarm",
@@ -220,7 +221,16 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
       status: health?.lastError ? "warning" : "ok",
       detail: health?.lastError
         ? `最近一次安排异常：${health.lastError}`
-        : `Android 当前保存了 ${health?.pendingCount ?? 0} 条待发日程提醒。`
+        : `原生 AlarmManager 当前持久化了 ${health?.pendingCount ?? 0} 条待发日程提醒${diagnostics?.nextTriggerAt ? `，最近一条为 ${new Date(diagnostics.nextTriggerAt).toLocaleString("zh-CN", { hour12: false })}` : ""}。`
+    });
+    const lastDelivery = diagnostics?.lastNotifiedAt || diagnostics?.lastReceivedAt || 0;
+    steps.push({
+      id: "delivery",
+      label: "原生触发记录",
+      status: lastDelivery ? "ok" : "warning",
+      detail: lastDelivery
+        ? `安卓接收器最近在 ${new Date(lastDelivery).toLocaleString("zh-CN", { hour12: false })} ${diagnostics?.lastNotifiedAt ? "成功发布了通知" : "已被系统唤醒"}。`
+        : "尚无真实触发记录。请运行“2 分钟后台提醒测试”，这比仅查看待发队列更可靠。"
     });
     steps.push({
       id: "battery",

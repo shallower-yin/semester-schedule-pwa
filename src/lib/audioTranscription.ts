@@ -1,5 +1,6 @@
 import type { DeepSeekAssistantHistoryMessage } from "./deepSeekAssistant";
 import { supabase } from "./supabase";
+import { splitAudioForAsr } from "../../supabase/functions/_shared/audioChunking";
 
 export type AudioLanguage = "auto" | "zh" | "en";
 
@@ -50,10 +51,25 @@ interface AudioPlanTask {
   signature: string;
 }
 
+interface AudioPartTask {
+  fileIndex: number;
+  fileName: string;
+  objectKey: string;
+  mimeType: string;
+  size: number;
+  language: AudioLanguage;
+  partIndex: number;
+  partCount: number;
+  signature: string;
+}
 interface AudioPlanResult {
   strategy: "progressive" | "single";
   totalChunks: number;
   tasks: AudioPlanTask[];
+}
+
+interface AudioPartPlanResult {
+  tasks: AudioPartTask[];
 }
 
 export const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
@@ -101,9 +117,6 @@ export async function transcribeAudioFiles(input: {
 
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const uploaded: UploadedAudio[] = [];
-  // After transcription starts successfully we keep R2 objects for 7-day lifecycle.
-  // Only clean up early when upload/prep fails before a successful ASR handoff.
-  let retainUploadedObjects = false;
   try {
     // M4A/OGG/FLAC over the ASR chunk limit often fail as raw container bytes; convert to compact mono speech WAV first.
     // prepared[] is strictly chronological: source-file order, then time order within each converted file.
@@ -128,10 +141,10 @@ export async function transcribeAudioFiles(input: {
         accessCode: input.accessCode,
         signal: input.signal,
         onProgress: input.onProgress,
+        onPartialResult: input.onPartialResult,
         orderLabels: prepared.map((part) => part.orderLabel),
         fileNames: prepared.map((part) => part.file.name)
       });
-      retainUploadedObjects = true;
       return sequential;
     }
 
@@ -151,7 +164,6 @@ export async function transcribeAudioFiles(input: {
         onPartialResult: input.onPartialResult,
         fileNames: prepared.map((part) => part.file.name)
       });
-      retainUploadedObjects = true;
       return progressive;
     }
 
@@ -166,7 +178,6 @@ export async function transcribeAudioFiles(input: {
     // Small single-file job only (progress 1/1 is correct here).
     input.onProgress?.(1, 1, "转写中");
     const data = await invokeSingleTranscription(uploaded, input.language, input.summarize, input.accessCode, input.signal);
-    retainUploadedObjects = true;
     input.onProgress?.(1, 1, "整理结果");
     return {
       ...data,
@@ -174,7 +185,7 @@ export async function transcribeAudioFiles(input: {
       conversation: []
     };
   } finally {
-    if (!retainUploadedObjects && uploaded.length) {
+    if (uploaded.length) {
       await Promise.allSettled(uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
     }
   }
@@ -210,8 +221,9 @@ async function invokeSingleTranscription(
 
 /**
  * One Edge job per prepared part, strictly in chronological prepared[] order.
- * R2 objects are retained until the bucket lifecycle expires ai-audio/ (7 days).
- * Network flukes retry; a failed middle part no longer aborts later parts.
+ * Network flukes retry; a failed middle part no longer aborts later parts. Every completed
+ * part emits a chronological checkpoint, while the caller deletes all temporary R2 objects
+ * in its terminal finally block.
  */
 async function transcribeUploadedSequentially(input: {
   uploaded: UploadedAudio[];
@@ -220,6 +232,7 @@ async function transcribeUploadedSequentially(input: {
   accessCode?: string;
   signal?: AbortSignal;
   onProgress?: (completed: number, total: number, step: string) => void;
+  onPartialResult?: (partial: AudioTranscriptionResult) => void;
   orderLabels: string[];
   fileNames: string[];
 }): Promise<AudioTranscriptionResult> {
@@ -233,6 +246,11 @@ async function transcribeUploadedSequentially(input: {
       ? planAudioTranscription([audio], input.language, input.accessCode, input.signal)
       : Promise.resolve<AudioPlanResult | null>(null)
   )));
+  const signedPartCandidates = input.uploaded.filter((audio) => !isLargeMp3Upload(audio) && audio.size <= LARGE_MP3_BYTES);
+  const signedPartPlan = signedPartCandidates.length
+    ? await planAudioParts(signedPartCandidates, input.language, input.accessCode, input.signal)
+    : { tasks: [] };
+  const signedPartsByObjectKey = new Map(signedPartPlan.tasks.map((task) => [task.objectKey, task]));
   for (let index = 0; index < progressivePlans.length; index += 1) {
     const plan = progressivePlans[index];
     if (isLargeMp3Upload(input.uploaded[index]) && (!plan || plan.strategy !== "progressive" || !plan.tasks.length)) {
@@ -247,6 +265,15 @@ async function transcribeUploadedSequentially(input: {
   const failedParts: string[] = [];
   let lastModel = "mimo-v2.5-asr-chunked";
   let cancelled = false;
+
+  const buildCheckpoint = (warning?: string | null): AudioTranscriptionResult => ({
+    transcript: joinSequentialTranscripts(input.orderLabels, segments),
+    summary: null,
+    warning: warning ?? null,
+    model: lastModel,
+    files: input.fileNames,
+    conversation: []
+  });
 
   for (let index = 0; index < input.uploaded.length; index += 1) {
     if (input.signal?.aborted) {
@@ -271,15 +298,18 @@ async function transcribeUploadedSequentially(input: {
           ),
           fileNames: [input.fileNames[index] || input.uploaded[index].name]
         })
-        : await invokeSingleTranscriptionWithRetry(
-          [input.uploaded[index]],
-          input.language,
-          false,
-          input.accessCode,
-          input.signal
-        );
+        : signedPartsByObjectKey.has(input.uploaded[index].objectKey)
+          ? await transcribeSignedAudioPart(signedPartsByObjectKey.get(input.uploaded[index].objectKey)!, input.signal)
+          : await invokeSingleTranscriptionWithRetry(
+            [input.uploaded[index]],
+            input.language,
+            false,
+            input.accessCode,
+            input.signal
+          );
       segments[index] = one.transcript.trim();
       lastModel = one.model || lastModel;
+      input.onPartialResult?.(buildCheckpoint(`已保存 ${segments.filter((text) => Boolean(text?.trim())).length}/${total} 段，未完成位置会继续补齐。`));
     } catch (error) {
       if (input.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
         cancelled = true;
@@ -288,6 +318,7 @@ async function transcribeUploadedSequentially(input: {
       const message = error instanceof Error ? error.message : "分段转写失败";
       failedParts.push(`第 ${index + 1}/${total} 段：${message}`);
       segments[index] = null;
+      input.onPartialResult?.(buildCheckpoint(`第 ${index + 1}/${total} 段暂未成功，后续分段仍会按原顺序继续。`));
     }
     completedWork += workUnits[index];
     input.onProgress?.(completedWork, totalWork, input.fileNames[index] || "转写中");
@@ -317,8 +348,9 @@ async function transcribeUploadedSequentially(input: {
     files: input.fileNames,
     conversation: []
   };
+  input.onPartialResult?.(base);
 
-  if (!input.summarize || partialError) {
+  if (partialError) {
     return base;
   }
 
@@ -343,7 +375,7 @@ async function transcribeUploadedSequentially(input: {
           objectKey: audio.objectKey,
           segments: [text || ""]
         })),
-        summarizeAudio: true,
+        summarizeAudio: input.summarize,
         skipAudioObjectCleanup: true,
         accessCode: input.accessCode?.trim() || undefined
       }
@@ -449,10 +481,22 @@ async function prepareFilesForAsr(
   for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
     const file = files[fileIndex];
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-    // Large containers: prefer browser decode → 16k mono WAV parts (stable ASR path).
+    // Large M4A is demuxed on AAC sample boundaries without decoding the full recording to PCM.
+    // A 70-minute stereo file would otherwise allocate multiple gigabytes in Android WebView.
+    if (extension === "m4a" && file.size > 7_000_000) {
+      onProgress?.(0, 1, `正在按音频时间解析 ${file.name}…`);
+      const parts = await splitM4aFileForAsr(file, onProgress);
+      const sourcePrefix = multiSource ? `文件${fileIndex + 1}/${files.length} · ` : "";
+      for (const part of parts) {
+        prepared.push({ file: part.file, orderLabel: `${sourcePrefix}${part.orderLabel}` });
+      }
+      continue;
+    }
+    // Other medium containers use browser decode → 16k mono WAV parts. Very large MP3 keeps the
+    // progressive frame-range path so the client never expands it into raw PCM.
     // Large MP3 used to rely on progressive byte-ranges; real-world VBR files often yield 0/N.
     // Try conversion first for mp3 as well when not huge enough to risk phone OOM (~25 min cap).
-    const convertExtensions = ["m4a", "ogg", "flac", "mp3"];
+    const convertExtensions = ["ogg", "flac", "mp3"];
     const needsConversion = file.size > 7_000_000 && convertExtensions.includes(extension);
     // Rough safety: ~25 min mono 48k float ≈ 280MB RAM; skip forced convert for very large mp3.
     const mp3TooLargeForBrowserConvert = extension === "mp3" && file.size > 35 * 1024 * 1024;
@@ -486,6 +530,38 @@ async function prepareFilesForAsr(
     }
   }
   return prepared;
+}
+
+/** Low-memory M4A path: MP4 sample table → ADTS AAC chunks, preserving exact chronological order. */
+export async function splitM4aFileForAsr(
+  file: File,
+  onProgress?: (completed: number, total: number, step: string) => void
+): Promise<ConvertedSpeechPart[]> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunks = splitAudioForAsr(bytes, file.name, file.type || "audio/mp4");
+  if (!chunks.length) throw new Error("没有解析到可转写的 AAC 音频段");
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
+  const width = Math.max(2, String(chunks.length).length);
+  let elapsedMs = 0;
+  return chunks.map((chunk, index) => {
+    const durationMs = Math.max(1, Math.round(chunk.durationMs ?? 0));
+    const startSec = elapsedMs / 1000;
+    elapsedMs += durationMs;
+    const endSec = elapsedMs / 1000;
+    onProgress?.(index + 1, chunks.length, `解析分段 ${index + 1}/${chunks.length}…`);
+    return {
+      file: new File(
+        [chunk.bytes],
+        `p${String(index).padStart(width, "0")}_${baseName}.aac`,
+        { type: "audio/aac", lastModified: file.lastModified }
+      ),
+      orderLabel: `第 ${index + 1}/${chunks.length} 段 · 约 ${formatAudioClock(startSec)}–${formatAudioClock(endSec)}`,
+      startSec,
+      endSec,
+      partIndex: index,
+      partCount: chunks.length
+    };
+  });
 }
 
 /** 16 kHz mono speech is the usual ASR operating point for clear speech. */
@@ -724,6 +800,26 @@ async function planAudioTranscription(
     totalChunks: Math.max(0, Number(data.totalChunks) || 0),
     tasks: Array.isArray(data.tasks) ? data.tasks : []
   };
+}
+
+async function planAudioParts(
+  uploaded: UploadedAudio[],
+  language: AudioLanguage,
+  accessCode: string | undefined,
+  signal?: AbortSignal
+): Promise<AudioPartPlanResult> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
+  const { data, error } = await supabase.functions.invoke<AudioPartPlanResult>("ai-assistant", {
+    signal,
+    body: {
+      action: "plan_audio_parts",
+      audios: uploaded,
+      audioLanguage: language,
+      accessCode: accessCode?.trim() || undefined
+    }
+  });
+  if (error) throw new Error(await audioFunctionError(error));
+  return { tasks: Array.isArray(data?.tasks) ? data.tasks : [] };
 }
 
 async function runProgressiveTranscription(input: {
@@ -965,6 +1061,46 @@ async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSig
   throw lastError ?? new Error(`音频“${task.fileName}”第 ${task.chunkIndex + 1}/${task.chunkCount} 段转写失败。`);
 }
 
+async function transcribeSignedAudioPart(task: AudioPartTask, signal?: AbortSignal): Promise<SingleAudioTranscriptionResult> {
+  if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if (signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
+    try {
+      const { data, error } = await invokeAudioFunctionWithTransientRetry(
+        () => supabase!.functions.invoke<SingleAudioTranscriptionResult>("ai-assistant", {
+          signal,
+          headers: { "x-audio-part-signature": task.signature },
+          body: {
+            action: "transcribe_audio_part",
+            audioPartSignature: task.signature,
+            audioPart: {
+              objectKey: task.objectKey,
+              fileName: task.fileName,
+              mimeType: task.mimeType,
+              size: task.size,
+              language: task.language,
+              partIndex: task.partIndex,
+              partCount: task.partCount
+            }
+          }
+        }),
+        signal,
+        3
+      );
+      if (error) throw new Error(await audioFunctionError(error));
+      if (!data?.transcript?.trim()) throw new Error(`音频“${task.fileName}”第 ${task.partIndex + 1}/${task.partCount} 段没有识别到语音。`);
+      return { ...data, transcript: data.transcript.trim(), model: data.model || "mimo-v2.5-asr-signed-part" };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error || "分段转写失败"));
+      if (signal?.aborted) throw lastError;
+      if (/权限|口令|额度|格式|签名|Invalid|未开放|不能超过/.test(lastError.message)) throw lastError;
+      if (attempt + 1 < 6) await delay(Math.min(12_000, 900 * 2 ** attempt) + Math.floor(Math.random() * 500));
+    }
+  }
+  throw lastError ?? new Error(`音频“${task.fileName}”第 ${task.partIndex + 1}/${task.partCount} 段转写失败。`);
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1063,8 +1199,12 @@ async function uploadAudioFile(
     && typeof XMLHttpRequest !== "undefined"
     && typeof XMLHttpRequest.prototype !== "undefined"
     && "upload" in XMLHttpRequest.prototype;
-  if (hasXhrUpload) {
-    await new Promise<void>((resolve, reject) => {
+  let uploadError: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
+    try {
+      if (hasXhrUpload) {
+        await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", data.uploadUrl, true);
       xhr.setRequestHeader("content-type", mimeType);
@@ -1087,18 +1227,27 @@ async function uploadAudioFile(
       if (signal) {
         signal.addEventListener("abort", () => xhr.abort(), { once: true });
       }
-      xhr.send(file);
-    });
-  } else {
-    // Fallback for test environments (jsdom) without XHR upload support.
-    const response = await fetch(data.uploadUrl, {
-      method: "PUT",
-      headers: { "content-type": mimeType },
-      body: file,
-      signal
-    });
-    if (!response.ok) throw new Error(`音频上传失败（HTTP ${response.status}）。`);
+          xhr.send(file);
+        });
+      } else {
+        // Fallback for test environments (jsdom) without XHR upload support.
+        const response = await fetch(data.uploadUrl, {
+          method: "PUT",
+          headers: { "content-type": mimeType },
+          body: file,
+          signal
+        });
+        if (!response.ok) throw new Error(`音频上传失败（HTTP ${response.status}）。`);
+      }
+      uploadError = null;
+      break;
+    } catch (error) {
+      if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+      uploadError = error instanceof Error ? error : new Error("音频上传失败");
+      if (attempt < 2) await delay(800 * (attempt + 1));
+    }
   }
+  if (uploadError) throw uploadError;
 
   return { name: file.name, mimeType, size: file.size, objectKey: data.objectKey };
 }

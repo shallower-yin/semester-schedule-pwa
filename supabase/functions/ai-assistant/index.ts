@@ -4,7 +4,7 @@ import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYT
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "plan_audio_transcription" | "finalize_audio_transcription" | "summarize_audio_transcript" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
+  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "transcribe_audio_part" | "plan_audio_transcription" | "plan_audio_parts" | "finalize_audio_transcription" | "summarize_audio_transcript" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
   /** Plain transcript text for summarize_audio_transcript (no R2). */
   audioTranscript?: string;
   /** When true, finalize only merges segments / optional summary and does not touch R2 objects. */
@@ -51,6 +51,16 @@ interface AiAssistantRequest {
   };
   /** Optional body fallback when custom headers are stripped by the client runtime. */
   audioRangeSignature?: string;
+  audioPart?: {
+    objectKey?: string;
+    fileName?: string;
+    mimeType?: string;
+    size?: number;
+    language?: "auto" | "zh" | "en";
+    partIndex?: number;
+    partCount?: number;
+  };
+  audioPartSignature?: string;
 }
 
 interface AiAssistantAttachment {
@@ -219,6 +229,12 @@ interface UploadedAudioInput {
   objectKey: string;
 }
 
+interface SignedAudioPart extends UploadedAudioInput {
+  language: "auto" | "zh" | "en";
+  partIndex: number;
+  partCount: number;
+}
+
 class DiagnosticError extends Error {
   constructor(message: string, readonly details: Record<string, unknown>) {
     super(message);
@@ -298,7 +314,7 @@ function jsonResponse(body: unknown, status = 200): Response {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "access-control-allow-origin": "*",
-      "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
+      "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-audio-range-signature, x-audio-part-signature",
       "access-control-allow-methods": "POST, OPTIONS"
     }
   });
@@ -323,6 +339,28 @@ async function hmacAudioRange(userId: string, range: NonNullable<AiAssistantRequ
     range.nominalEnd,
     range.fetchStart,
     range.fetchEnd
+  ].join("|");
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function hmacAudioPart(userId: string, part: SignedAudioPart): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(serviceRoleSecret()),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const payload = [
+    userId,
+    part.objectKey,
+    part.name,
+    part.mimeType,
+    part.size,
+    part.language,
+    part.partIndex,
+    part.partCount
   ].join("|");
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -394,6 +432,31 @@ Deno.serve(async (request) => {
         range.chunkCount!,
         request.signal
       ));
+    }
+    if (body.action === "transcribe_audio_part") {
+      const part = sanitizeInternalAudioPart(body.audioPart, user.id);
+      const expectedSignature = await hmacAudioPart(user.id, part);
+      const suppliedSignature = (request.headers.get("x-audio-part-signature")
+        ?? (typeof body.audioPartSignature === "string" ? body.audioPartSignature : "")
+        ?? "").trim();
+      if (!constantTimeEqual(suppliedSignature, expectedSignature)) {
+        return jsonResponse({ error: "音频分段签名无效，请重新开始转写。", code: "AUDIO_PART_SIGNATURE" }, 403);
+      }
+      const credentials = configuredMimoAudioCredentials(settings);
+      if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
+      const rawBytes = await downloadR2AudioObject(part.objectKey);
+      if (rawBytes.length !== part.size || rawBytes.length > MAX_ASR_AUDIO_CHUNK_BYTES) {
+        return jsonResponse({ error: "音频分段大小无效，请重新开始转写。", code: "AUDIO_PART_SIZE" }, 400);
+      }
+      const chunks = splitAudioForAsr(rawBytes, part.name, part.mimeType);
+      const results = await mapWithRetryIsolation(chunks, 1, (chunk, chunkIndex) =>
+        transcribeAudioChunk(chunk, part.language, credentials, part.name, chunkIndex, chunks.length, request.signal), request.signal
+      );
+      return jsonResponse({
+        transcript: results.map((result) => result.transcript).join("\n\n"),
+        model: "mimo-v2.5-asr-signed-part",
+        usage: results.reduce((usage, result) => combineUsage(usage, result.usage), emptyUsage())
+      });
     }
     if (body.action === "create_document_page_uploads") {
       featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
@@ -473,6 +536,13 @@ Deno.serve(async (request) => {
       if (!planAccess.allowed) return jsonResponse({ error: planAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
       accessMethod = planAccess.method ?? "";
       return jsonResponse(await planAudioTranscription(body, user.id, body.audioLanguage));
+    }
+    if (body.action === "plan_audio_parts") {
+      featureKey = "audio_transcription";
+      const planAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!planAccess.allowed) return jsonResponse({ error: planAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = planAccess.method ?? "";
+      return jsonResponse(await planAudioParts(body, user.id, body.audioLanguage));
     }
     if (body.action === "finalize_audio_transcription") {
       featureKey = "audio_transcription";
@@ -1611,6 +1681,7 @@ function sanitizeAudioUploadMetadata(value: AiAssistantRequest["audio"]): { name
     wav: ["audio/wav", "audio/x-wav"],
     flac: ["audio/flac", "audio/x-flac"],
     m4a: ["audio/mp4", "audio/x-m4a", "audio/m4a"],
+    aac: ["audio/aac", "audio/aacp", "audio/x-aac"],
     ogg: ["audio/ogg", "application/ogg"]
   };
   const mimeType = value?.mimeType?.trim().toLowerCase() ?? "";
@@ -1626,7 +1697,7 @@ function sanitizeAudioUploadMetadata(value: AiAssistantRequest["audio"]): { name
 
 function userAudioObjectKey(userId: string, value: unknown): string {
   const objectKey = typeof value === "string" ? value.trim() : "";
-  if (!objectKey.startsWith(`ai-audio/${userId}/`) || !/^ai-audio\/[a-f0-9-]+\/[a-f0-9-]+\.(?:mp3|wav|flac|m4a|ogg)$/i.test(objectKey)) {
+  if (!objectKey.startsWith(`ai-audio/${userId}/`) || !/^ai-audio\/[a-f0-9-]+\/[a-f0-9-]+\.(?:mp3|wav|flac|m4a|aac|ogg)$/i.test(objectKey)) {
     throw new Error("无效的临时音频文件。");
   }
   return objectKey;
@@ -1888,6 +1959,37 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
   }
 }
 
+async function planAudioParts(
+  body: AiAssistantRequest,
+  userId: string,
+  language: AiAssistantRequest["audioLanguage"]
+): Promise<{ tasks: Array<SignedAudioPart & { fileIndex: number; fileName: string; signature: string }> }> {
+  const audios = sanitizeUploadedAudios(body.audios, userId);
+  if (!audios.length) throw new Error("请选择要转写的音频文件。");
+  const resolvedLanguage: "auto" | "zh" | "en" = language === "zh" || language === "en" ? language : "auto";
+  const tasks = [] as Array<SignedAudioPart & { fileIndex: number; fileName: string; signature: string }>;
+  for (let fileIndex = 0; fileIndex < audios.length; fileIndex += 1) {
+    const audio = audios[fileIndex];
+    const objectSize = await headR2AudioObject(audio.objectKey);
+    if (objectSize !== audio.size || objectSize > MAX_ASR_AUDIO_CHUNK_BYTES) {
+      throw new Error(`音频“${audio.name}”分段大小无效，请重新上传后重试。`);
+    }
+    const part: SignedAudioPart = {
+      ...audio,
+      language: resolvedLanguage,
+      partIndex: fileIndex,
+      partCount: audios.length
+    };
+    tasks.push({
+      ...part,
+      fileIndex,
+      fileName: audio.name,
+      signature: await hmacAudioPart(userId, part)
+    });
+  }
+  return { tasks };
+}
+
 async function planAudioTranscription(
   body: AiAssistantRequest,
   userId: string,
@@ -1911,7 +2013,7 @@ async function planAudioTranscription(
 }> {
   const audios = sanitizeUploadedAudios(body.audios, userId);
   if (!audios.length) throw new Error("请选择要转写的音频文件。");
-  const resolvedLanguage = language === "zh" || language === "en" ? language : "auto";
+  const resolvedLanguage: "auto" | "zh" | "en" = language === "zh" || language === "en" ? language : "auto";
   const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
   const tasks: Array<{
     fileIndex: number;
@@ -2145,6 +2247,22 @@ async function transcribeUploadedAudios(
       usage: transcriptionUsage
     };
   }
+}
+
+function sanitizeInternalAudioPart(value: AiAssistantRequest["audioPart"], userId: string): SignedAudioPart {
+  const audio = sanitizeUploadedAudios([{
+    name: value?.fileName,
+    mimeType: value?.mimeType,
+    size: value?.size,
+    objectKey: value?.objectKey
+  }], userId)[0];
+  const language = value?.language === "zh" || value?.language === "en" ? value.language : "auto";
+  const partIndex = Number(value?.partIndex);
+  const partCount = Number(value?.partCount);
+  if (!Number.isSafeInteger(partIndex) || !Number.isSafeInteger(partCount) || partIndex < 0 || partCount < 1 || partIndex >= partCount || partCount > 80) {
+    throw new Error("音频分段序号无效，请重新开始转写。");
+  }
+  return { ...audio, language, partIndex, partCount };
 }
 
 function sanitizeInternalAudioRange(value: AiAssistantRequest["audioRange"], userId: string): NonNullable<AiAssistantRequest["audioRange"]> {

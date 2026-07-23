@@ -6,7 +6,9 @@ export interface AudioChunk {
 
 // 7,000,000 raw bytes become about 9.33 MB after Base64, leaving room in MiMo's 10 MB JSON request body.
 export const MAX_ASR_AUDIO_CHUNK_BYTES = 7_000_000;
-export const MAX_ASR_AUDIO_CHUNK_DURATION_MS = 6 * 60 * 1000;
+// Keep every ASR request near three minutes. Byte-only caps make low-bitrate M4A chunks far too long
+// even when their payload is small, which increases provider timeouts and boundary errors.
+export const MAX_ASR_AUDIO_CHUNK_DURATION_MS = 3 * 60 * 1000;
 export const MP3_RANGE_OVERLAP_BYTES = 4_096;
 
 export function splitAudioForAsr(
@@ -17,13 +19,24 @@ export function splitAudioForAsr(
 ): AudioChunk[] {
   if (bytes.length <= maxBytes) return [{ bytes, mimeType: normalizeAudioMime(mimeType, fileName) }];
   const extension = fileName.split(".").pop()?.toLowerCase();
-  if (extension === "mp3" || mimeType.includes("mpeg") || mimeType.includes("mp3")) {
+  // File pickers and upload metadata occasionally report a stale or generic MIME type.
+  // A concrete supported extension is more reliable; use MIME only when the name is ambiguous.
+  if (extension === "mp3") {
     return splitMp3(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/mpeg" }));
   }
-  if (extension === "wav" || mimeType.includes("wav")) {
+  if (extension === "wav") {
     return splitWav(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/wav" }));
   }
-  if (extension === "m4a" || extension === "mp4" || mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) {
+  if (extension === "m4a" || extension === "mp4" || extension === "aac") {
+    return splitM4aOrAac(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/aac" }));
+  }
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) {
+    return splitMp3(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/mpeg" }));
+  }
+  if (mimeType.includes("wav")) {
+    return splitWav(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/wav" }));
+  }
+  if (mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) {
     return splitM4aOrAac(bytes, maxBytes).map((chunk) => ({ ...chunk, mimeType: "audio/aac" }));
   }
   throw new Error("超过 7 MB 的音频目前支持 MP3、WAV、M4A 自动分段；FLAC/OGG 请先转换为 MP3/M4A 后重试。");
