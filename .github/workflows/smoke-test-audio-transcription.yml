@@ -34,5 +34,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Ensure ffmpeg is available for the M4A-to-WAV parity conversion
+        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
       - name: Transcribe both exact real audio files in strict order
         run: node scripts/smoke-audio-transcription.mjs

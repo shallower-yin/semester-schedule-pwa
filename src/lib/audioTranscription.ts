@@ -481,8 +481,9 @@ async function prepareFilesForAsr(
   for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
     const file = files[fileIndex];
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-    // Large M4A is demuxed on AAC sample boundaries without decoding the full recording to PCM.
-    // A 70-minute stereo file would otherwise allocate multiple gigabytes in Android WebView.
+    // Large M4A is first demuxed on AAC sample boundaries, then each short AAC segment is decoded
+    // independently to 16 kHz mono WAV. MiMo rejects raw AAC, while decoding the full 70-minute
+    // recording at once would allocate multiple gigabytes in Android WebView.
     if (extension === "m4a" && file.size > 7_000_000) {
       onProgress?.(0, 1, `正在按音频时间解析 ${file.name}…`);
       const parts = await splitM4aFileForAsr(file, onProgress);
@@ -532,36 +533,57 @@ async function prepareFilesForAsr(
   return prepared;
 }
 
-/** Low-memory M4A path: MP4 sample table → ADTS AAC chunks, preserving exact chronological order. */
+/** Low-memory M4A path: MP4 samples → short ADTS AAC → 16 kHz mono WAV, in exact time order. */
 export async function splitM4aFileForAsr(
   file: File,
   onProgress?: (completed: number, total: number, step: string) => void
 ): Promise<ConvertedSpeechPart[]> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bytes = new Uint8Array(await file.arrayBuffer());
   const chunks = splitAudioForAsr(bytes, file.name, file.type || "audio/mp4");
+  // The demuxer returns independent frame buffers; release the original 67–100 MB container
+  // before accumulating WAV blobs on memory-constrained Android WebViews.
+  bytes = new Uint8Array(0);
   if (!chunks.length) throw new Error("没有解析到可转写的 AAC 音频段");
   const baseName = file.name.replace(/\.[^.]+$/, "") || "audio";
   const width = Math.max(2, String(chunks.length).length);
   let elapsedMs = 0;
-  return chunks.map((chunk, index) => {
+  const parts: ConvertedSpeechPart[] = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
     const durationMs = Math.max(1, Math.round(chunk.durationMs ?? 0));
     const startSec = elapsedMs / 1000;
     elapsedMs += durationMs;
     const endSec = elapsedMs / 1000;
-    onProgress?.(index + 1, chunks.length, `解析分段 ${index + 1}/${chunks.length}…`);
-    return {
-      file: new File(
-        [chunk.bytes],
-        `p${String(index).padStart(width, "0")}_${baseName}.aac`,
-        { type: "audio/aac", lastModified: file.lastModified }
-      ),
+    onProgress?.(index, chunks.length, `解码 M4A 分段 ${index + 1}/${chunks.length}…`);
+    const prefix = `p${String(index).padStart(width, "0")}`;
+    const aac = new File(
+      [chunk.bytes],
+      `${prefix}_${baseName}.aac`,
+      { type: "audio/aac", lastModified: file.lastModified }
+    );
+    let converted: ConvertedSpeechPart[];
+    try {
+      converted = await convertAudioFileToSpeechParts(aac);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "AAC 解码失败";
+      throw new Error(`M4A 第 ${index + 1}/${chunks.length} 段无法转换为 WAV（${reason}）`);
+    }
+    if (converted.length !== 1) {
+      throw new Error(`M4A 第 ${index + 1}/${chunks.length} 段转换结果异常`);
+    }
+    const wav = converted[0].file;
+    parts.push({
+      file: new File([wav], `${prefix}_${baseName}.wav`, { type: "audio/wav", lastModified: file.lastModified }),
       orderLabel: `第 ${index + 1}/${chunks.length} 段 · 约 ${formatAudioClock(startSec)}–${formatAudioClock(endSec)}`,
       startSec,
       endSec,
       partIndex: index,
       partCount: chunks.length
-    };
-  });
+    });
+    chunks[index] = { ...chunk, bytes: new Uint8Array(0) };
+    onProgress?.(index + 1, chunks.length, `已转换 M4A 分段 ${index + 1}/${chunks.length}`);
+  }
+  return parts;
 }
 
 /** 16 kHz mono speech is the usual ASR operating point for clear speech. */

@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { splitAudioForAsr } from "../supabase/functions/_shared/audioChunking.ts";
 
 const supabaseUrl = required("SUPABASE_URL").replace(/\/$/, "");
 const publishableKey = required("PUBLISHABLE_KEY");
@@ -21,6 +24,7 @@ const r2 = new S3Client({
 
 let userId = "";
 const temporaryKeys = [];
+let conversionDir = "";
 let succeeded = false;
 try {
   const user = await createSmokeUser();
@@ -49,18 +53,27 @@ try {
   const m4aObject = await r2.send(new GetObjectCommand({ Bucket: bucket, Key: sourceKeys[1] }));
   if (!m4aObject.Body) throw new Error("M4A smoke source body is empty");
   const m4aBytes = await m4aObject.Body.transformToByteArray();
-  const m4aChunks = splitAudioForAsr(m4aBytes, sourceNames[1], "audio/mp4");
-  if (m4aChunks.length < 2) throw new Error("real M4A did not enter ordered client chunking");
+  conversionDir = await mkdtemp(join(tmpdir(), "semester-audio-smoke-"));
+  const m4aPath = join(conversionDir, "source.m4a");
+  await writeFile(m4aPath, m4aBytes);
+  execFileSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y", "-i", m4aPath,
+    "-f", "segment", "-segment_time", "75", "-reset_timestamps", "1",
+    "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+    join(conversionDir, "part-%03d.wav")
+  ], { stdio: "inherit" });
+  const wavNames = (await readdir(conversionDir)).filter((name) => /^part-\d+\.wav$/.test(name)).sort();
+  if (wavNames.length < 2) throw new Error("real M4A did not enter ordered WAV chunking");
   const aacAudios = [];
-  for (let index = 0; index < m4aChunks.length; index += 1) {
-    const chunk = m4aChunks[index];
+  for (let index = 0; index < wavNames.length; index += 1) {
+    const wavBytes = await readFile(join(conversionDir, wavNames[index]));
     const audio = {
-      name: `p${String(index).padStart(2, "0")}_cyl工程图录音.aac`,
-      mimeType: "audio/aac",
-      size: chunk.bytes.length,
-      objectKey: `ai-audio/${userId}/${crypto.randomUUID()}.aac`
+      name: `p${String(index).padStart(2, "0")}_cyl工程图录音.wav`,
+      mimeType: "audio/wav",
+      size: wavBytes.length,
+      objectKey: `ai-audio/${userId}/${crypto.randomUUID()}.wav`
     };
-    await r2.send(new PutObjectCommand({ Bucket: bucket, Key: audio.objectKey, Body: chunk.bytes, ContentType: audio.mimeType }));
+    await r2.send(new PutObjectCommand({ Bucket: bucket, Key: audio.objectKey, Body: wavBytes, ContentType: audio.mimeType }));
     temporaryKeys.push(audio.objectKey);
     aacAudios.push(audio);
   }
@@ -130,6 +143,7 @@ try {
 } finally {
   await Promise.all(temporaryKeys.map((key) => r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined)));
   if (succeeded) await Promise.all(sourceKeys.map((key) => r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined)));
+  if (conversionDir) await rm(conversionDir, { recursive: true, force: true }).catch(() => undefined);
   if (userId) {
     await fetch(`${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE", headers: serviceHeaders() });
   }
