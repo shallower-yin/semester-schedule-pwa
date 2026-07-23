@@ -14,7 +14,9 @@ const password = `${crypto.randomUUID()}Aa1!`;
 const r2 = new S3Client({
   region: "auto",
   endpoint: required("R2_ENDPOINT"),
-  credentials: { accessKeyId: required("R2_ACCESS_KEY_ID"), secretAccessKey: required("R2_SECRET_ACCESS_KEY") }
+  credentials: { accessKeyId: required("R2_ACCESS_KEY_ID"), secretAccessKey: required("R2_SECRET_ACCESS_KEY") },
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED"
 });
 
 let userId = "";

@@ -1668,7 +1668,11 @@ function r2Configuration(): { client: S3Client; bucket: string } {
   cachedR2Client ??= new S3Client({
     region: "auto",
     endpoint,
-    credentials: { accessKeyId, secretAccessKey }
+    credentials: { accessKeyId, secretAccessKey },
+    // Cloudflare R2 may expose CRC32 as an unsigned value that the Deno AWS SDK path treats as a
+    // signed integer. R2 does not require flexible checksums for these authenticated operations.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED"
   });
   return { client: cachedR2Client, bucket };
 }
