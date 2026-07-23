@@ -24,26 +24,27 @@ function profile(overrides: Partial<HealthProfile> = {}): HealthProfile {
 
 describe("computeNextHealthReminder", () => {
   it("按最近活动或设置更新时间向后安排一个间隔", () => {
+    const lastMovementAt = new Date(2026, 6, 24, 9, 15).toISOString();
     const result = computeNextHealthReminder(
       profile(),
-      "2026-07-24T09:15:00.000+08:00",
-      new Date("2026-07-24T09:20:00.000+08:00")
+      lastMovementAt,
+      new Date(2026, 6, 24, 9, 20)
     );
-    expect(result?.triggerAt.getTime()).toBe(
-      new Date("2026-07-24T10:15:00.000+08:00").getTime()
-    );
+    expect(result?.triggerAt.getHours()).toBe(10);
+    expect(result?.triggerAt.getMinutes()).toBe(15);
     expect(result?.intervalMinutes).toBe(60);
   });
 
   it("候选时间越过结束时刻后移动到下一提醒窗口", () => {
+    const updatedAt = new Date(2026, 6, 24, 21, 30).toISOString();
     const result = computeNextHealthReminder(
-      profile({ updated_at: "2026-07-24T21:30:00.000+08:00" }),
+      profile({ updated_at: updatedAt }),
       null,
-      new Date("2026-07-24T21:35:00.000+08:00")
+      new Date(2026, 6, 24, 21, 35)
     );
-    expect(result?.triggerAt.getTime()).toBe(
-      new Date("2026-07-25T09:00:00.000+08:00").getTime()
-    );
+    expect(result?.triggerAt.getDate()).toBe(25);
+    expect(result?.triggerAt.getHours()).toBe(9);
+    expect(result?.triggerAt.getMinutes()).toBe(0);
   });
 
   it("关闭活动提醒时不生成原生计划", () => {
