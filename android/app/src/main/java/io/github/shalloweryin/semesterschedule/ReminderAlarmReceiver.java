@@ -35,9 +35,25 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
         String title = intent.getStringExtra("title");
         String body = intent.getStringExtra("body");
         String key = intent.getStringExtra("key");
+        JSONObject record = findRecord(context, id);
         recordDiagnostic(context, "received", id, key == null ? "" : key);
         removeRecord(context, id);
         postNotification(context, id, title, body, key);
+        if (record != null && record.optInt("repeatIntervalMinutes") > 0) {
+            try {
+                long nextTrigger = nextWindowedTrigger(
+                    Math.max(System.currentTimeMillis(), record.optLong("triggerAt")),
+                    record.optInt("repeatIntervalMinutes"),
+                    record.optInt("windowStartMinutes"),
+                    record.optInt("windowEndMinutes")
+                );
+                record.put("triggerAt", nextTrigger);
+                record.put("sig", "health:" + nextTrigger);
+                upsertAndSchedule(context, record);
+            } catch (Exception error) {
+                recordDiagnostic(context, "health_repeat_error", id, error.getClass().getSimpleName());
+            }
+        }
     }
 
     public static JSONObject createRecord(int id, String title, String body, String key, String sig, long triggerAt) {
@@ -80,7 +96,9 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
             if (item == null) continue;
             int id = item.optInt("id");
             String key = item.optString("key", "");
-            if (key.startsWith("test:") && item.optLong("triggerAt") > System.currentTimeMillis() && !desiredIds.contains(id)) {
+            if ((key.startsWith("test:") || key.startsWith("health"))
+                && item.optLong("triggerAt") > System.currentTimeMillis()
+                && !desiredIds.contains(id)) {
                 desiredIds.add(id);
                 next.put(item);
             }
@@ -176,6 +194,13 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
         recordDiagnostic(context, "cancelled_all", 0, String.valueOf(current.length()));
     }
 
+    public static synchronized void cancelById(Context context, int id) {
+        if (findRecord(context, id) == null) return;
+        cancelAlarm(context, id);
+        removeRecord(context, id);
+        recordDiagnostic(context, "cancelled", id, "");
+    }
+
     private static synchronized void removeRecord(Context context, int id) {
         JSONArray current = readRecords(context);
         JSONArray next = new JSONArray();
@@ -210,7 +235,7 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setLights(0xff3157d5, 700, 1800)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .build();
@@ -279,6 +304,35 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
         } catch (Exception ignored) {
             return new JSONArray();
         }
+    }
+
+    private static JSONObject findRecord(Context context, int id) {
+        JSONArray records = readRecords(context);
+        for (int index = 0; index < records.length(); index += 1) {
+            JSONObject record = records.optJSONObject(index);
+            if (record != null && record.optInt("id") == id) return record;
+        }
+        return null;
+    }
+
+    private static long nextWindowedTrigger(long from, int intervalMinutes, int startMinutes, int endMinutes) {
+        java.util.Calendar next = java.util.Calendar.getInstance();
+        next.setTimeInMillis(from);
+        next.add(java.util.Calendar.MINUTE, Math.max(15, intervalMinutes));
+        int minute = next.get(java.util.Calendar.HOUR_OF_DAY) * 60 + next.get(java.util.Calendar.MINUTE);
+        boolean inside = startMinutes <= endMinutes
+            ? minute >= startMinutes && minute <= endMinutes
+            : minute >= startMinutes || minute <= endMinutes;
+        if (inside) return next.getTimeInMillis();
+
+        if (startMinutes <= endMinutes && minute > endMinutes) {
+            next.add(java.util.Calendar.DAY_OF_MONTH, 1);
+        }
+        next.set(java.util.Calendar.HOUR_OF_DAY, Math.max(0, Math.min(23, startMinutes / 60)));
+        next.set(java.util.Calendar.MINUTE, Math.max(0, Math.min(59, startMinutes % 60)));
+        next.set(java.util.Calendar.SECOND, 0);
+        next.set(java.util.Calendar.MILLISECOND, 0);
+        return next.getTimeInMillis();
     }
 
     private static void writeRecords(Context context, JSONArray records) {

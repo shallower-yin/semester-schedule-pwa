@@ -8,15 +8,19 @@ import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
 import { isNativeApp } from "./nativeApp";
 import {
   cancelAllNativeReminders,
+  ensureNativeReliableReminderService,
   ensureNativeExactAlarmPermission,
   ensureNativeReminderPermission,
   getNativeReminderDiagnostics,
   getNativeReminderHealth,
   showNativeNotificationNow,
+  stopNativeReliableReminderService,
+  syncNativeHealthReminder,
   syncNativeReminders
 } from "./nativeReminders";
 import { computeScheduledReminders, HEALTH_NOTIFICATION_ID, TEST_NOTIFICATION_ID } from "./reminderSchedule";
 import { withTimeout } from "./asyncTimeout";
+import { computeNextHealthReminder } from "./healthReminderSchedule";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 
@@ -31,7 +35,7 @@ export type NotificationStatus =
 export type NotificationEnableResult = "enabled" | "local-only" | "denied" | "unsupported";
 export type NotificationSetupStage = "permission" | "service-worker" | "push-service" | "cloud";
 export interface NotificationDiagnosticStep {
-  id: NotificationSetupStage | "support" | "channel" | "exact-alarm" | "pending" | "delivery" | "battery" | "last-exit" | "native-trace";
+  id: NotificationSetupStage | "support" | "channel" | "exact-alarm" | "pending" | "delivery" | "battery" | "last-exit" | "native-trace" | "reliable-service";
   label: string;
   status: "ok" | "warning" | "error";
   detail: string;
@@ -147,6 +151,7 @@ export async function enableNotifications(
 export async function disableNotificationsForCurrentDevice(): Promise<void> {
   if (isNativeApp()) {
     await cancelAllNativeReminders();
+    await stopNativeReliableReminderService();
     return;
   }
   if (!notificationsSupported() || !("PushManager" in window)) return;
@@ -192,20 +197,26 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
   if (isNativeApp()) {
     const [health, diagnostics] = await Promise.all([getNativeReminderHealth(), getNativeReminderDiagnostics()]);
     const granted = Boolean(health?.permissionGranted && health.notificationsEnabled);
-    steps.push({ id: "support", label: "提醒方式", status: "ok", detail: "使用安卓本地精确闹钟，不依赖 TPNS，也不要求应用驻留后台。" });
+    steps.push({ id: "support", label: "提醒方式", status: "ok", detail: "使用安卓本地精确闹钟，并由前台常驻服务增强进程存活，不依赖 TPNS。" });
     steps.push({
       id: "permission",
       label: "通知权限",
       status: granted ? "ok" : "warning",
       detail: granted ? "已允许安卓通知权限。" : "尚未允许通知，点击启用提醒后在系统弹窗中选择允许。"
     });
+    const channelReady = Boolean(
+      health?.channelReady
+      && (health?.channelImportance ?? 0) >= 4
+      && !health?.channelSoundEnabled
+      && !health?.channelVibrationEnabled
+    );
     steps.push({
       id: "channel",
       label: "锁屏提醒渠道",
-      status: health?.channelReady && health.channelSoundEnabled ? "ok" : "warning",
-      detail: health?.channelReady && health.channelSoundEnabled
-        ? "高优先级、有声、振动、锁屏可见渠道正常。"
-        : "提醒渠道被静音或降级，请到系统通知设置中将“日程提醒（响铃与振动）”设为允许并开启声音和振动。"
+      status: channelReady ? "ok" : "warning",
+      detail: channelReady
+        ? "高优先级、静音、不振动、锁屏可见渠道正常。"
+        : "提醒渠道被关闭、降级或改成了其他提示方式，请打开通知渠道检查。"
     });
     steps.push({
       id: "exact-alarm",
@@ -221,7 +232,7 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
       status: health?.lastError ? "warning" : "ok",
       detail: health?.lastError
         ? `最近一次安排异常：${health.lastError}`
-        : `原生 AlarmManager 当前持久化了 ${health?.pendingCount ?? 0} 条待发日程提醒${diagnostics?.nextTriggerAt ? `，最近一条为 ${new Date(diagnostics.nextTriggerAt).toLocaleString("zh-CN", { hour12: false })}` : ""}。`
+        : `原生 AlarmManager 当前持久化了 ${health?.pendingCount ?? 0} 条待发系统提醒${diagnostics?.nextTriggerAt ? `，最近一条为 ${new Date(diagnostics.nextTriggerAt).toLocaleString("zh-CN", { hour12: false })}` : ""}。`
     });
     const lastDelivery = diagnostics?.lastNotifiedAt || diagnostics?.lastReceivedAt || 0;
     steps.push({
@@ -239,6 +250,17 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
       detail: health?.batteryOptimizationIgnored
         ? "应用不受系统电池优化限制。"
         : "当前受电池优化限制；精确闹钟通常仍可触发，但部分国产系统建议同时允许自启动并设为“不限制”。"
+    });
+    const serviceHeartbeat = health?.reliableServiceLastHeartbeatAt
+      ? formatDiagnosticTime(health.reliableServiceLastHeartbeatAt)
+      : "暂无心跳";
+    steps.push({
+      id: "reliable-service",
+      label: "可靠提醒服务",
+      status: health?.reliableServiceRunning ? "ok" : "warning",
+      detail: health?.reliableServiceRunning
+        ? `前台常驻服务运行中，最近心跳 ${serviceHeartbeat}，累计启动 ${health.reliableServiceStartCount ?? 0} 次。`
+        : `前台常驻服务当前未运行，最近心跳 ${serviceHeartbeat}；重新启用提醒可尝试恢复。`
     });
     if (health?.lastExitReason) {
       steps.push({
@@ -400,13 +422,40 @@ export async function resetSentRemindersForChangedEvent(
 // Loads the current user's reminder-eligible data and hands the computed schedule to the native OS.
 // Cancels/updates/adds OS notifications so they stay in sync with events and anniversaries.
 async function rescheduleNativeReminders(ownerId: string): Promise<number> {
-  const [events, anniversaries, occurrenceStates] = await Promise.all([
+  if ((await ensureNativeReminderPermission(false)) !== "granted") return 0;
+  const [events, anniversaries, occurrenceStates, healthProfile, movementLogs] = await Promise.all([
     db.events.filter((event) => event.user_id === ownerId).toArray(),
     db.anniversaries.filter((anniversary) => anniversary.user_id === ownerId).toArray(),
-    db.eventOccurrenceStates.filter((state) => state.user_id === ownerId).toArray()
+    db.eventOccurrenceStates.filter((state) => state.user_id === ownerId).toArray(),
+    db.healthProfiles.filter((profile) => profile.user_id === ownerId && !profile.deleted_at).first(),
+    db.healthLogs
+      .filter((log) => log.user_id === ownerId && !log.deleted_at && log.kind === "movement")
+      .reverse()
+      .sortBy("logged_at")
   ]);
   const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates });
-  return syncNativeReminders(reminders);
+  const scheduledCount = await syncNativeReminders(reminders);
+  const healthPlan = healthProfile
+    ? computeNextHealthReminder(healthProfile, movementLogs[0]?.logged_at ?? null)
+    : null;
+  await syncNativeHealthReminder(healthPlan ? {
+    enabled: true,
+    triggerAt: healthPlan.triggerAt,
+    intervalMinutes: healthPlan.intervalMinutes,
+    startMinutes: healthPlan.startMinutes,
+    endMinutes: healthPlan.endMinutes
+  } : { enabled: false });
+  await ensureNativeReliableReminderService();
+  return scheduledCount + (healthPlan ? 1 : 0);
+}
+
+export async function refreshNativeReminderSchedule(ownerId: string): Promise<number> {
+  if (!isNativeApp()) return 0;
+  return rescheduleNativeReminders(ownerId);
+}
+
+function formatDiagnosticTime(value: number): string {
+  return new Date(value).toLocaleString("zh-CN", { hour12: false });
 }
 
 export async function checkDueLocalReminders(ownerId: string): Promise<number> {

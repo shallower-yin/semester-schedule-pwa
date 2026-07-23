@@ -30,7 +30,7 @@ import java.util.UUID;
 
 /** Foreground Pomodoro state machine that continues across app switches and screen-off. */
 public class FocusTimerService extends Service {
-    private static final String CHANNEL_ID = "focus-overlay-v1";
+    private static final String CHANNEL_ID = "focus-status-v2";
     private static final String ALERT_CHANNEL_ID = "focus-alerts-v1";
     private static final int NOTIFICATION_ID = 31_002;
     private static final int ALERT_NOTIFICATION_ID = 31_003;
@@ -189,8 +189,11 @@ public class FocusTimerService extends Service {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager == null) return;
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "专注计时", NotificationManager.IMPORTANCE_LOW);
+        manager.deleteNotificationChannel("focus-overlay-v1");
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "专注计时", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("番茄钟、锁机与悬浮计时的持续状态");
+        channel.setSound(null, null);
+        channel.enableVibration(false);
         manager.createNotificationChannel(channel);
         NotificationChannel alertChannel = new NotificationChannel(ALERT_CHANNEL_ID, "专注阶段提醒", NotificationManager.IMPORTANCE_HIGH);
         alertChannel.setDescription("番茄专注和休息阶段结束提醒");

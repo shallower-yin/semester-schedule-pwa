@@ -11,6 +11,10 @@ export interface ReminderSystemStatus {
   lastExitReason?: string;
   scheduledCount?: number;
   nextTriggerAt?: number;
+  reliableServiceEnabled?: boolean;
+  reliableServiceRunning?: boolean;
+  reliableServiceLastHeartbeatAt?: number;
+  reliableServiceStartCount?: number;
 }
 
 export interface ReminderDiagnosticEvent {
@@ -41,10 +45,19 @@ interface ReminderSupportPlugin {
   ensureChannel(): Promise<ReminderSystemStatus>;
   getSystemStatus(): Promise<ReminderSystemStatus>;
   scheduleReminders(options: { reminders: NativeReminderInput[] }): Promise<ReminderSystemStatus>;
+  scheduleHealthReminder(options: {
+    enabled: boolean;
+    triggerAt?: number;
+    intervalMinutes?: number;
+    startMinutes?: number;
+    endMinutes?: number;
+  }): Promise<ReminderSystemStatus>;
   cancelAll(): Promise<ReminderSystemStatus>;
   postNow(options: { id: number; title: string; body: string; key: string }): Promise<ReminderSystemStatus>;
   scheduleTest(options: { id: number; delaySeconds: number }): Promise<ReminderSystemStatus & { triggerAt: number }>;
   getDiagnostics(): Promise<ReminderDiagnostics>;
+  startReliableService(): Promise<ReminderSystemStatus>;
+  stopReliableService(): Promise<ReminderSystemStatus>;
   openChannelSettings(): Promise<void>;
   openAppSettings(): Promise<void>;
   requestBatteryExemption(): Promise<ReminderSystemStatus>;

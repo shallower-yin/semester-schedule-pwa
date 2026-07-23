@@ -33,7 +33,7 @@ public class FocusOverlayService extends Service {
     public static final String ACTION_SHOW = "focus.overlay.SHOW";
     public static final String ACTION_UPDATE = "focus.overlay.UPDATE";
     public static final String ACTION_HIDE = "focus.overlay.HIDE";
-    private static final String CHANNEL_ID = "focus-overlay-v1";
+    private static final String CHANNEL_ID = "focus-status-v2";
     private static final int NOTIFICATION_ID = 31_001;
     private static final String PREFS = "focus_overlay_state";
 
@@ -296,7 +296,8 @@ public class FocusOverlayService extends Service {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager == null) return;
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "专注悬浮计时", NotificationManager.IMPORTANCE_LOW);
+        manager.deleteNotificationChannel("focus-overlay-v1");
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "专注悬浮计时", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("保持跨应用专注计时器运行");
         channel.setSound(null, null);
         manager.createNotificationChannel(channel);

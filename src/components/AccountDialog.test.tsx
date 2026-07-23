@@ -101,6 +101,7 @@ describe("账号与同步布局", () => {
     expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
 
     expect(screen.getAllByText("通知权限").length).toBeGreaterThan(0);
+    expect(screen.queryByText("浏览器能力")).not.toBeInTheDocument();
   });
 
   it("点击用户名后原地编辑并保存", async () => {

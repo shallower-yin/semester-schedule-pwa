@@ -3,7 +3,7 @@ import webpush from "npm:web-push@3.6.7";
 
 interface ReminderRow {
   delivery_id: string;
-  source_type?: "event" | "anniversary";
+  source_type?: "event" | "anniversary" | "health";
   source_id?: string;
   event_id?: string | null;
   anniversary_id?: string | null;
@@ -72,26 +72,31 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const rows = await callRpc<ReminderRow[]>("claim_due_reminders", {
-      dispatcher_token: dispatcherToken
-    });
+    const [scheduleRows, healthRows] = await Promise.all([
+      callRpc<ReminderRow[]>("claim_due_reminders", {
+        dispatcher_token: dispatcherToken
+      }),
+      claimHealthRows()
+    ]);
+    const rows = [...(Array.isArray(scheduleRows) ? scheduleRows : []), ...healthRows];
     if (!Array.isArray(rows) || rows.length === 0) {
       return jsonResponse({ claimed: 0, delivered: 0, failed: 0 });
     }
 
     const deliveries = new Map<string, Delivery>();
     for (const row of rows) {
-      const current = deliveries.get(row.delivery_id) ?? { reminder: row, subscriptions: [] };
+      const deliveryKey = `${row.source_type ?? "event"}:${row.delivery_id}`;
+      const current = deliveries.get(deliveryKey) ?? { reminder: row, subscriptions: [] };
       current.subscriptions.push({
         endpoint: row.endpoint,
         keys: { p256dh: row.p256dh, auth: row.auth }
       });
-      deliveries.set(row.delivery_id, current);
+      deliveries.set(deliveryKey, current);
     }
 
     let deliveredCount = 0;
     let failedCount = 0;
-    for (const [deliveryId, delivery] of deliveries) {
+    for (const delivery of deliveries.values()) {
       let delivered = false;
       const errors: string[] = [];
       const expiredEndpoints: string[] = [];
@@ -110,9 +115,12 @@ Deno.serve(async (request) => {
         }
       }
 
-      await callRpc<null>("complete_reminder_delivery", {
+      const completionRpc = delivery.reminder.source_type === "health"
+        ? "complete_health_reminder_delivery"
+        : "complete_reminder_delivery";
+      await callRpc<null>(completionRpc, {
         dispatcher_token: dispatcherToken,
-        target_delivery_id: deliveryId,
+        target_delivery_id: delivery.reminder.delivery_id,
         was_successful: delivered,
         failure_message: errors.length ? errors.join(" | ").slice(0, 1000) : null,
         expired_endpoints: expiredEndpoints
@@ -137,6 +145,14 @@ Deno.serve(async (request) => {
 function buildPayload(row: ReminderRow) {
   const sourceType = row.source_type ?? "event";
   const sourceId = row.source_id ?? row.event_id ?? row.anniversary_id ?? "unknown";
+  if (sourceType === "health") {
+    return {
+      title: "起来活动一下",
+      body: "喝口水，活动肩颈或走动几分钟。完成后可在健康页记录。",
+      tag: "health-movement-reminder",
+      url: appUrl
+    };
+  }
   if (sourceType === "anniversary") {
     return {
       title: row.title,
@@ -152,6 +168,20 @@ function buildPayload(row: ReminderRow) {
     tag: `event-${sourceId}-${row.occurrence_date}`,
     url: appUrl
   };
+}
+
+async function claimHealthRows(): Promise<ReminderRow[]> {
+  try {
+    const rows = await callRpc<ReminderRow[]>("claim_due_health_reminders", {
+      dispatcher_token: dispatcherToken
+    });
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    // Schema and function deployments can briefly overlap. Existing event reminders must keep
+    // flowing even before the additive health-reminder RPC is available.
+    console.warn("Health reminder claim skipped", error);
+    return [];
+  }
 }
 
 function anniversaryKindLabel(kind: ReminderRow["anniversary_kind"]): string {

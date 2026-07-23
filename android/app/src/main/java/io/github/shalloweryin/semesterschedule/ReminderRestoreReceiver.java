@@ -10,5 +10,6 @@ public class ReminderRestoreReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         ReminderSupportPlugin.ensureChannel(context);
         ReminderAlarmReceiver.restore(context);
+        ReliableReminderService.restoreIfEnabled(context);
     }
 }

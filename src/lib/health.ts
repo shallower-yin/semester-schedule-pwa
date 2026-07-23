@@ -20,7 +20,10 @@ const LAST_REMINDER_KEY = "semester-schedule-health-reminder";
 
 export async function checkDueHealthReminder(ownerId: string, now = new Date()): Promise<boolean> {
   if (isNativeApp()) {
-    if ((await ensureNativeReminderPermission(false)) !== "granted") return false;
+    // Android health reminders are persisted by AlarmManager and repeat from the native receiver.
+    // Posting again from this page-lifecycle poll would create duplicates.
+    await ensureNativeReminderPermission(false);
+    return false;
   } else if (!("Notification" in window) || Notification.permission !== "granted") {
     return false;
   }

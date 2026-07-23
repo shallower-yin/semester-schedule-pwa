@@ -8,7 +8,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
-import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
@@ -30,7 +29,8 @@ import org.json.JSONObject;
 /** Native exact-alarm scheduler plus durable diagnostics for Android reminders. */
 @CapacitorPlugin(name = "ReminderSupport")
 public class ReminderSupportPlugin extends Plugin {
-    public static final String CHANNEL_ID = "reminders-v3";
+    public static final String CHANNEL_ID = "reminders-v4";
+    public static final int HEALTH_NOTIFICATION_ID = 2_147_483_645;
 
     public static void ensureChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
@@ -40,24 +40,20 @@ public class ReminderSupportPlugin extends Plugin {
         // Capacitor's unused default channel; the focus foreground-service channel remains intact.
         manager.deleteNotificationChannel("reminders");
         manager.deleteNotificationChannel("reminders-v2");
+        manager.deleteNotificationChannel("reminders-v3");
         manager.deleteNotificationChannel("default");
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
-            "日程提醒（响铃与振动）",
+            "重要日程提醒",
             NotificationManager.IMPORTANCE_HIGH
         );
-        channel.setDescription("事项、纪念日与活动的系统提醒");
+        channel.setDescription("事项、纪念日与健康活动的高优先级静音提醒");
         channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         channel.enableLights(true);
         channel.setLightColor(0xff3157d5);
-        channel.enableVibration(true);
-        channel.setVibrationPattern(new long[] { 0, 320, 180, 320 });
-        Uri sound = Settings.System.DEFAULT_NOTIFICATION_URI;
-        AudioAttributes attributes = new AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build();
-        channel.setSound(sound, attributes);
+        channel.enableVibration(false);
+        channel.setVibrationPattern(null);
+        channel.setSound(null, null);
         manager.createNotificationChannel(channel);
     }
 
@@ -84,6 +80,39 @@ public class ReminderSupportPlugin extends Plugin {
         } catch (Exception error) {
             ReminderAlarmReceiver.recordDiagnostic(getContext(), "schedule_error", 0, error.getClass().getSimpleName());
             call.reject("原生提醒注册失败", error);
+        }
+    }
+
+    @PluginMethod
+    public void scheduleHealthReminder(PluginCall call) {
+        boolean enabled = call.getBoolean("enabled", false);
+        if (!enabled) {
+            ReminderAlarmReceiver.cancelById(getContext(), HEALTH_NOTIFICATION_ID);
+            call.resolve(systemStatus());
+            return;
+        }
+        long triggerAt = call.getLong("triggerAt", 0L);
+        int intervalMinutes = Math.max(15, call.getInt("intervalMinutes", 60));
+        int startMinutes = Math.max(0, Math.min(1439, call.getInt("startMinutes", 9 * 60)));
+        int endMinutes = Math.max(0, Math.min(1439, call.getInt("endMinutes", 22 * 60)));
+        if (triggerAt <= System.currentTimeMillis()) triggerAt = System.currentTimeMillis() + 5_000L;
+        JSONObject record = ReminderAlarmReceiver.createRecord(
+            HEALTH_NOTIFICATION_ID,
+            "起来活动一下",
+            "喝口水，活动肩颈或走动几分钟。完成后可在健康页记录。",
+            "health",
+            "health:" + triggerAt,
+            triggerAt
+        );
+        try {
+            record.put("repeatIntervalMinutes", intervalMinutes);
+            record.put("windowStartMinutes", startMinutes);
+            record.put("windowEndMinutes", endMinutes);
+            ReminderAlarmReceiver.upsertAndSchedule(getContext(), record);
+            call.resolve(systemStatus());
+        } catch (Exception error) {
+            ReminderAlarmReceiver.recordDiagnostic(getContext(), "health_schedule_error", HEALTH_NOTIFICATION_ID, error.getClass().getSimpleName());
+            call.reject("健康活动提醒注册失败", error);
         }
     }
 
@@ -137,6 +166,23 @@ public class ReminderSupportPlugin extends Plugin {
         result.put("lastNotifiedAt", ReminderAlarmReceiver.lastStageAt(getContext(), "notified"));
         result.put("events", ReminderAlarmReceiver.diagnostics(getContext()));
         call.resolve(result);
+    }
+
+    @PluginMethod
+    public void startReliableService(PluginCall call) {
+        try {
+            ReliableReminderService.start(getContext());
+            call.resolve(systemStatus());
+        } catch (Exception error) {
+            ReminderAlarmReceiver.recordDiagnostic(getContext(), "service_start_error", 0, error.getClass().getSimpleName());
+            call.reject("可靠提醒服务启动失败", error);
+        }
+    }
+
+    @PluginMethod
+    public void stopReliableService(PluginCall call) {
+        ReliableReminderService.stop(getContext());
+        call.resolve(systemStatus());
     }
 
     @PluginMethod
@@ -213,6 +259,10 @@ public class ReminderSupportPlugin extends Plugin {
         result.put("lastExitReason", lastExitReason(context));
         result.put("scheduledCount", ReminderAlarmReceiver.scheduledCount(context));
         result.put("nextTriggerAt", ReminderAlarmReceiver.nextTriggerAt(context));
+        result.put("reliableServiceEnabled", ReliableReminderService.isEnabled(context));
+        result.put("reliableServiceRunning", ReliableReminderService.isRunning(context));
+        result.put("reliableServiceLastHeartbeatAt", ReliableReminderService.lastHeartbeatAt(context));
+        result.put("reliableServiceStartCount", ReliableReminderService.startCount(context));
         return result;
     }
 

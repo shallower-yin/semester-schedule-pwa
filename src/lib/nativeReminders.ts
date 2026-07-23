@@ -8,7 +8,7 @@ import { ReminderSupport, type ReminderDiagnostics, type ReminderSystemStatus } 
 // (via @capacitor/local-notifications), which fire even when the app is closed. The plugin is imported
 // lazily so it never enters the web bundle or the jsdom test environment.
 
-const CHANNEL_ID = "reminders-v3";
+const CHANNEL_ID = "reminders-v4";
 // A native bridge call should return in milliseconds; anything longer is a stuck OEM implementation.
 // Bounding every call keeps the account panel from freezing on "正在检查…" the way it once did.
 const BRIDGE_TIMEOUT_MS = 8_000;
@@ -16,6 +16,7 @@ const PERMISSION_PROMPT_TIMEOUT_MS = 120_000;
 let channelReady = false;
 let lastNativeReminderError: string | null = null;
 let legacyPendingCleaned = false;
+let reliableServiceStarted = false;
 
 export interface NativeReminderHealth extends ReminderSystemStatus {
   permissionGranted: boolean;
@@ -52,7 +53,7 @@ async function ensureChannel(): Promise<void> {
           visibility: 1,
           lights: true,
           lightColor: "#3157d5",
-          vibration: true
+          vibration: false
         }),
         BRIDGE_TIMEOUT_MS,
         "创建通知渠道超时"
@@ -196,6 +197,57 @@ export async function cancelAllNativeReminders(): Promise<void> {
   } catch (error) {
     lastNativeReminderError = error instanceof Error ? error.message : "取消提醒失败";
     // Nothing scheduled or plugin unavailable.
+  }
+}
+
+export async function syncNativeHealthReminder(options: {
+  enabled: boolean;
+  triggerAt?: Date;
+  intervalMinutes?: number;
+  startMinutes?: number;
+  endMinutes?: number;
+}): Promise<void> {
+  if (!isNativeApp()) return;
+  try {
+    await ensureChannel();
+    await withTimeout(
+      ReminderSupport.scheduleHealthReminder({
+        enabled: options.enabled,
+        triggerAt: options.triggerAt?.getTime(),
+        intervalMinutes: options.intervalMinutes,
+        startMinutes: options.startMinutes,
+        endMinutes: options.endMinutes
+      }),
+      BRIDGE_TIMEOUT_MS,
+      "注册健康活动提醒超时"
+    );
+    lastNativeReminderError = null;
+  } catch (error) {
+    lastNativeReminderError = error instanceof Error ? error.message : "健康活动提醒安排失败";
+    throw error;
+  }
+}
+
+export async function ensureNativeReliableReminderService(): Promise<void> {
+  if (!isNativeApp()) return;
+  if (reliableServiceStarted) return;
+  try {
+    await ensureChannel();
+    await withTimeout(ReminderSupport.startReliableService(), BRIDGE_TIMEOUT_MS, "启动可靠提醒服务超时");
+    reliableServiceStarted = true;
+  } catch (error) {
+    lastNativeReminderError = error instanceof Error ? error.message : "可靠提醒服务启动失败";
+    throw error;
+  }
+}
+
+export async function stopNativeReliableReminderService(): Promise<void> {
+  if (!isNativeApp()) return;
+  try {
+    await withTimeout(ReminderSupport.stopReliableService(), BRIDGE_TIMEOUT_MS, "停止可靠提醒服务超时");
+    reliableServiceStarted = false;
+  } catch (error) {
+    lastNativeReminderError = error instanceof Error ? error.message : "可靠提醒服务停止失败";
   }
 }
 

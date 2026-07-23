@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, BellRing, Camera, CheckCircle2, Cloud, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
+import { AlertTriangle, BellRing, Camera, CheckCircle2, ClipboardCopy, Cloud, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
@@ -39,6 +39,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus | null>(null);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [diagnosticSteps, setDiagnosticSteps] = useState<NotificationDiagnosticStep[]>([]);
+  const [showNotificationDiagnostics, setShowNotificationDiagnostics] = useState(false);
   const [enablingNotifications, setEnablingNotifications] = useState(false);
   const [healthRefreshKey, setHealthRefreshKey] = useState(0);
   const [accountAccess, setAccountAccess] = useState<AdminAiAccess | null>(null);
@@ -266,6 +267,21 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     }
   }
 
+  async function openNotificationDiagnostics() {
+    setShowNotificationDiagnostics(true);
+    setDiagnosticSteps(await diagnoseNotifications());
+  }
+
+  async function copyNotificationDiagnostics() {
+    const text = diagnosticSteps.map((step) => `${step.label}：${step.detail}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("通知诊断信息已复制。", "success");
+    } catch {
+      showToast("复制失败，请稍后重试。", "error");
+    }
+  }
+
   const hasSyncProblem = Boolean(message && !/完成|重新拉取|已接管/.test(message)) || Boolean(syncHealth?.failed);
   const syncStatus = buildSyncStatus({
     authReady: true,
@@ -291,7 +307,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         />
         <button
           type="button"
-          className="account-avatar"
+          className={`account-avatar ${avatarUrl ? "has-image" : "no-image"}`}
           disabled={savingAvatar}
           onClick={() => avatarInputRef.current?.click()}
           aria-label="更换头像"
@@ -358,21 +374,12 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         </button>
       </div>
       {notificationMessage && <p className="auth-message">{notificationMessage}</p>}
-      {diagnosticSteps.length > 0 && (
-        <div className="notification-diagnostic-list" aria-label="提醒诊断">
-          {diagnosticSteps.map((step) => (
-            <article key={step.id} className={step.status}>
-              <strong>{step.label}</strong>
-              <span>{step.detail}</span>
-            </article>
-          ))}
-        </div>
-      )}
       {isNativeApp() && (
-        <div className="account-test-actions">
+        <div className="account-native-settings-actions">
           <button className="button secondary compact" onClick={() => void openNativeReminderChannelSettings()}>通知渠道</button>
           <button className="button secondary compact" onClick={() => void requestNativeReminderBatteryExemption().then(() => diagnoseNotifications().then(setDiagnosticSteps))}>电池不限制</button>
           <button className="button secondary compact" onClick={() => void openNativeReminderAppSettings()}>应用详情</button>
+          <button className="button secondary compact" onClick={() => void openNotificationDiagnostics()}>通知高级诊断</button>
         </div>
       )}
       <div className="account-test-actions">
@@ -387,6 +394,28 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : syncStatus.primaryAction === "retry" ? "重试同步" : "立即同步"}</button>
         <button className="button secondary" onClick={logout}><LogOut size={17} />退出登录</button>
       </div>
+      {showNotificationDiagnostics && (
+        <Modal
+          title="通知高级诊断"
+          onClose={() => setShowNotificationDiagnostics(false)}
+          className="notification-diagnostics-modal"
+          headerExtra={
+            <button className="button secondary compact" onClick={() => void copyNotificationDiagnostics()}>
+              <ClipboardCopy size={15} />复制
+            </button>
+          }
+        >
+          <div className="notification-diagnostic-list" aria-label="通知高级诊断结果">
+            {diagnosticSteps.map((step) => (
+              <article key={step.id} className={step.status}>
+                <strong>{step.label}</strong>
+                <span>{step.detail}</span>
+              </article>
+            ))}
+            {!diagnosticSteps.length && <p className="empty-state">正在读取通知状态…</p>}
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -430,6 +459,8 @@ async function resizeAccountAvatar(file: File): Promise<Blob> {
     canvas.height = 192;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("当前浏览器无法处理头像图片。");
+    context.fillStyle = "#f7f8fc";
+    context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(
       image,
       (image.naturalWidth - side) / 2,

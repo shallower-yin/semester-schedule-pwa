@@ -4,7 +4,7 @@ import { useMemo, useState, type CSSProperties } from "react";
 import { db, queueChange } from "../db";
 import { DEFAULT_EXERCISE_ITEMS, DEFAULT_HEALTH_PROFILE } from "../lib/health";
 import { syncFields } from "../lib/identity";
-import { enableNotifications } from "../lib/notifications";
+import { enableNotifications, refreshNativeReminderSchedule } from "../lib/notifications";
 import { showToast } from "../lib/toast";
 import type { HealthLog, HealthLogKind, HealthProfile } from "../types";
 import { Modal } from "./Modal";
@@ -66,6 +66,7 @@ export function HealthPage({ ownerId }: HealthPageProps) {
     const record: HealthLog = { ...syncFields(), kind, logged_at: new Date().toISOString(), amount, unit, activity, note: "" };
     await db.healthLogs.add(record);
     await queueChange("healthLogs", record.id);
+    if (kind === "movement") void refreshHealthReminders();
     showToast(`${logLabel(record)}，已记录。`, "success");
   }
 
@@ -74,6 +75,7 @@ export function HealthPage({ ownerId }: HealthPageProps) {
     const deleted = { ...record, ...syncFields(record), deleted_at: new Date().toISOString() };
     await db.healthLogs.put(deleted);
     await queueChange("healthLogs", deleted.id, "delete");
+    if (record.kind === "movement") void refreshHealthReminders();
     showToast(`已撤销：${logLabel(record)}。`, "success");
   }
 
@@ -101,12 +103,21 @@ export function HealthPage({ ownerId }: HealthPageProps) {
     }
     await db.healthProfiles.put(next);
     await queueChange("healthProfiles", next.id);
+    void refreshHealthReminders();
     if (weight.trim()) {
       const nextWeight = clampOptional(Number(weight), 20, 500);
       if (nextWeight) await addLog("weight", nextWeight, "kg");
       setWeight("");
     }
     showToast("健康设置已保存。", "success");
+  }
+
+  async function refreshHealthReminders() {
+    try {
+      await refreshNativeReminderSchedule(ownerId);
+    } catch (error) {
+      console.warn("Unable to refresh native health reminders", error);
+    }
   }
 
   function addExerciseItem() {
