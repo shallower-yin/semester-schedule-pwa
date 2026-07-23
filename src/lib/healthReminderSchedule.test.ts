@@ -29,8 +29,9 @@ describe("computeNextHealthReminder", () => {
       "2026-07-24T09:15:00.000+08:00",
       new Date("2026-07-24T09:20:00.000+08:00")
     );
-    expect(result?.triggerAt.getHours()).toBe(10);
-    expect(result?.triggerAt.getMinutes()).toBe(15);
+    expect(result?.triggerAt.getTime()).toBe(
+      new Date("2026-07-24T10:15:00.000+08:00").getTime()
+    );
     expect(result?.intervalMinutes).toBe(60);
   });
 
@@ -40,9 +41,9 @@ describe("computeNextHealthReminder", () => {
       null,
       new Date("2026-07-24T21:35:00.000+08:00")
     );
-    expect(result?.triggerAt.getDate()).toBe(25);
-    expect(result?.triggerAt.getHours()).toBe(9);
-    expect(result?.triggerAt.getMinutes()).toBe(0);
+    expect(result?.triggerAt.getTime()).toBe(
+      new Date("2026-07-25T09:00:00.000+08:00").getTime()
+    );
   });
 
   it("关闭活动提醒时不生成原生计划", () => {
