@@ -81,7 +81,8 @@ Deno.serve(async (request) => {
 });
 
 async function serveHtmlDocumentNavigation(requestUrl: URL, objectPath: string): Promise<Response> {
-  const mirrorBase = `${requestUrl.origin}/functions/v1/${functionName}/`;
+  // Edge runtime may report http:// behind the TLS terminator; public URLs must be https.
+  const mirrorBase = `${supabaseUrl}/functions/v1/${functionName}/`;
 
   // Custom domain: platform allows real text/html from Edge Functions.
   if (hostAllowsHtml(requestUrl.hostname)) {
@@ -102,12 +103,14 @@ async function serveHtmlDocumentNavigation(requestUrl: URL, objectPath: string):
     : buildGenericHtmlLandingText(objectPath, mirrorBase, release);
 
   const headers = new Headers(corsHeaders());
+  // Gateway may strip "; charset=utf-8" from text/plain; UTF-8 BOM helps mobile browsers
+  // (WeChat etc.) avoid GBK mojibake when charset is missing.
   headers.set("content-type", "text/plain; charset=utf-8");
   headers.set("cache-control", "no-store, max-age=0");
   headers.set("x-content-type-options", "nosniff");
   headers.set("link", `<${githubPagesBase}download.html>; rel="alternate"; type="text/html"`);
 
-  return new Response(body, { status: 200, headers });
+  return new Response(`\uFEFF${body}`, { status: 200, headers });
 }
 
 function buildDownloadLandingText(mirrorBase: string, release: ReleaseInfo | null): string {
