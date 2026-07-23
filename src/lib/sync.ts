@@ -246,7 +246,11 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
     return {
       ...record,
       pomodoro_minutes: Number(record.pomodoro_minutes ?? 25),
+      pomodoro_rounds: Number(record.pomodoro_rounds ?? 4),
       short_break_minutes: Number(record.short_break_minutes ?? 5),
+      long_break_minutes: Number(record.long_break_minutes ?? 15),
+      long_break_interval: Number(record.long_break_interval ?? 4),
+      auto_start_break: record.auto_start_break !== false,
       countdown_minutes: Number(record.countdown_minutes ?? 30),
       daily_goal_minutes: Number(record.daily_goal_minutes ?? 120),
       sound_enabled: Boolean(record.sound_enabled)
@@ -259,7 +263,9 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       planned_seconds: record.planned_seconds == null ? null : Number(record.planned_seconds),
       duration_seconds: Number(record.duration_seconds ?? 0),
       completed: Boolean(record.completed),
-      interrupted: Boolean(record.interrupted)
+      interrupted: Boolean(record.interrupted),
+      pomodoro_plan_id: record.pomodoro_plan_id ?? null,
+      pomodoro_round: record.pomodoro_round == null ? null : Number(record.pomodoro_round)
     };
   }
   if (table === "restSessions") {
@@ -268,7 +274,10 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       planned_seconds: Number(record.planned_seconds ?? 0),
       duration_seconds: Number(record.duration_seconds ?? 0),
       completed: Boolean(record.completed),
-      interrupted: Boolean(record.interrupted)
+      interrupted: Boolean(record.interrupted),
+      rest_kind: record.rest_kind == null ? "manual" : String(record.rest_kind),
+      pomodoro_plan_id: record.pomodoro_plan_id ?? null,
+      pomodoro_round: record.pomodoro_round == null ? null : Number(record.pomodoro_round)
     };
   }
   return record;

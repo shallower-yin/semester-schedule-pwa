@@ -59,6 +59,39 @@ const periods: ClassPeriod[] = [
 ];
 
 describe("首页日程概览", () => {
+  it("跨天事项整项完成后今日概览立即显示完成", () => {
+    const eventItem: EventItem = {
+      ...baseFields,
+      id: "event-range-completed",
+      event_type: "event",
+      title: "跨天复习",
+      start_date: "2026-07-22",
+      start_time: "09:00",
+      end_date: "2026-07-24",
+      end_time: "10:00",
+      all_day: false,
+      category_id: null,
+      color: "#3157d5",
+      note: "",
+      recurrence_type: "none",
+      recurrence_until: null,
+      recurrence_interval: 1,
+      reminder_enabled: false,
+      reminder_minutes_before: 10,
+      timezone: "Asia/Shanghai",
+      completed_at: "2026-07-23T02:00:00.000Z"
+    };
+
+    const overview = buildScheduleOverview(
+      { semester: null, courses: [], schedules: [], cancellations: [], events: [eventItem], categories: [], occurrenceStates: [], periods: [], focusSessions: [] },
+      new Date(2026, 6, 23, 12, 0)
+    );
+
+    expect(overview.todayCompletedEventCount).toBe(1);
+    expect(overview.todayIncompleteEventCount).toBe(0);
+    expect(overview.upcomingItems[0]).toMatchObject({ targetId: eventItem.id, completed: true });
+  });
+
   it("没有学期时也能统计今天的普通事项", () => {
     const events: EventItem[] = [
       {

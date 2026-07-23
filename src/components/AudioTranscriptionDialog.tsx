@@ -3,6 +3,7 @@ import { useEffect, useState, useSyncExternalStore, type ClipboardEvent as React
 import { cancelAiTask, getAiTaskSnapshot, retryAiTask, setAiTaskDialogOpen, startAiTask, subscribeAiTasks, updateAiTaskProgress } from "../lib/aiBackgroundTasks";
 import { askAboutAudioTranscript, MAX_AUDIO_FILES, transcribeAudioFiles, validateAudioFile, type AudioConversationMessage, type AudioLanguage, type AudioTranscriptionResult } from "../lib/audioTranscription";
 import { extractClipboardFiles } from "../lib/clipboardFiles";
+import { exportText } from "../lib/fileExport";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 
@@ -200,18 +201,20 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
     }
   }
 
-  function downloadResult() {
+  async function downloadResult() {
     if (!result) return;
     const content = result.summary
       ? `音频摘要\n\n${result.summary}\n\n完整转写\n\n${result.transcript}`
       : result.transcript;
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${safeFileName(result.files?.[0]?.replace(/\.(mp3|wav|m4a|aac|ogg|flac)$/i, "") || "音频")}-转写.txt`;
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    try {
+      const exported = await exportText(
+        content,
+        `${safeFileName(result.files?.[0]?.replace(/\.(mp3|wav|m4a|aac|ogg|flac)$/i, "") || "音频")}-转写.txt`
+      );
+      if (exported.saved) showToast("转写 TXT 已保存。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "保存 TXT 失败。", "error");
+    }
   }
 
   function clearHistory() {
@@ -305,7 +308,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
                 <div className="inline-actions">
                   <button type="button" className="button danger-button compact" onClick={clearHistory}><Trash2 size={15} />清除记录</button>
                   <button type="button" className="icon-button" aria-label="复制完整转写" title="复制完整转写" onClick={() => void copyText(result.transcript)}><Copy size={16} /></button>
-                  <button type="button" className="button secondary compact" onClick={downloadResult}><Download size={15} />TXT</button>
+                  <button type="button" className="button secondary compact" onClick={() => void downloadResult()}><Download size={15} />TXT</button>
                 </div>
               </header>
               {result.warning && <p className="status-message">{result.warning}</p>}

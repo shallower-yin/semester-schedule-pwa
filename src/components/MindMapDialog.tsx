@@ -314,6 +314,18 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
     }
   }
 
+  async function exportMindMap(format: "svg" | "png") {
+    if (!mindMap) return;
+    try {
+      const result = format === "svg"
+        ? await downloadMindMapSvg(mindMap)
+        : await downloadMindMapPng(mindMap);
+      if (result.saved) showToast(`思维导图 ${format.toUpperCase()} 已保存。`, "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "思维导图导出失败。", "error");
+    }
+  }
+
   return (
     <Modal
       title="AI 思维导图"
@@ -411,8 +423,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
                   <span>{Math.round(zoom * 100)}%</span>
                   <button type="button" className="icon-button" aria-label="放大脑图" onClick={() => setZoom((current) => Math.min(1.5, current + 0.1))}><Plus size={16} /></button>
                   <button type="button" className="icon-button" aria-label="预览" title="预览完整脑图" onClick={() => setPreviewing(true)}><Eye size={16} /></button>
-                  <button type="button" className="button secondary compact" onClick={() => downloadMindMapSvg(mindMap)}><Download size={15} />SVG</button>
-                  <button type="button" className="button secondary compact" onClick={() => void downloadMindMapPng(mindMap)}><Download size={15} />PNG</button>
+                  <button type="button" className="button secondary compact" onClick={() => void exportMindMap("svg")}><Download size={15} />SVG</button>
+                  <button type="button" className="button secondary compact" onClick={() => void exportMindMap("png")}><Download size={15} />PNG</button>
                 </div>
               </div>
               <MindMapCanvas root={mindMap} zoom={zoom} onPreview={() => setPreviewing(true)} />
@@ -522,8 +534,8 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
                 setPreviewZoom(1);
                 setPreviewPan({ x: 0, y: 0 });
               }} disabled={previewZoom === 1 && previewPan.x === 0 && previewPan.y === 0}>重置</button>
-              <button type="button" className="button secondary compact" onClick={() => downloadMindMapSvg(mindMap)}><Download size={13} />SVG</button>
-              <button type="button" className="button primary compact" onClick={() => void downloadMindMapPng(mindMap)}><Download size={13} />PNG</button>
+              <button type="button" className="button secondary compact" onClick={() => void exportMindMap("svg")}><Download size={13} />SVG</button>
+              <button type="button" className="button primary compact" onClick={() => void exportMindMap("png")}><Download size={13} />PNG</button>
               <button type="button" className="button secondary compact mind-map-preview-close" onClick={() => { setPreviewing(false); setPreviewFullscreen(false); }}>关闭</button>
             </footer>
           </section>

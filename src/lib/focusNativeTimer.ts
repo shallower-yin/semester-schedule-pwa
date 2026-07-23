@@ -3,15 +3,42 @@ import type { ActiveFocusState } from "./focus";
 import { elapsedFocusSeconds } from "./focus";
 import { isNativeApp } from "./nativeApp";
 
-interface NativeTimerState {
+export interface NativeTimerState {
   active: boolean;
   ownerId: string;
   mode: string;
   title: string;
+  linkedEventId: string;
   plannedSeconds: number;
   elapsedSeconds: number;
+  startedAt: number;
   paused: boolean;
+  pomodoroPlanId: string;
+  pomodoroRound: number;
+  pomodoroTotalRounds: number;
+  pomodoroShortBreakSeconds: number;
+  pomodoroLongBreakSeconds: number;
+  pomodoroLongBreakInterval: number;
+  pomodoroAutoStartBreak: boolean;
+  pomodoroRestKind: string;
   lockTaskActive: boolean;
+}
+
+export interface NativeFocusTransition {
+  id: string;
+  ownerId: string;
+  kind: "focus" | "rest";
+  mode: string;
+  title: string;
+  linkedEventId: string;
+  plannedSeconds: number;
+  durationSeconds: number;
+  startedAt: number;
+  endedAt: number;
+  pomodoroPlanId: string;
+  pomodoroRound: number;
+  pomodoroTotalRounds: number;
+  restKind: "manual" | "pomodoro_short" | "pomodoro_long";
 }
 
 interface FocusNativeTimerPlugin {
@@ -19,12 +46,24 @@ interface FocusNativeTimerPlugin {
     ownerId: string;
     mode: string;
     title: string;
+    linkedEventId: string;
     plannedSeconds: number;
     initialElapsedSeconds: number;
+    pomodoroPlanId: string;
+    pomodoroRound: number;
+    pomodoroTotalRounds: number;
+    pomodoroShortBreakSeconds: number;
+    pomodoroLongBreakSeconds: number;
+    pomodoroLongBreakInterval: number;
+    pomodoroAutoStartBreak: boolean;
+    pomodoroRestKind: string;
+    soundEnabled: boolean;
   }): Promise<NativeTimerState>;
   pause(): Promise<NativeTimerState>;
   resume(): Promise<NativeTimerState>;
   getState(): Promise<NativeTimerState>;
+  getTransitions(): Promise<{ transitions: NativeFocusTransition[] }>;
+  clearTransitions(options: { ids: string[] }): Promise<void>;
   stop(): Promise<void>;
   enterLockTask(): Promise<{ active: boolean }>;
   exitLockTask(): Promise<{ active: boolean }>;
@@ -38,8 +77,18 @@ export async function startNativeFocusTimer(ownerId: string, active: ActiveFocus
     ownerId,
     mode: active.mode,
     title: active.task_title,
+    linkedEventId: active.linked_event_id ?? "",
     plannedSeconds: active.planned_seconds ?? -1,
-    initialElapsedSeconds: elapsedFocusSeconds(active)
+    initialElapsedSeconds: elapsedFocusSeconds(active),
+    pomodoroPlanId: active.pomodoro_plan_id ?? "",
+    pomodoroRound: active.pomodoro_round ?? 0,
+    pomodoroTotalRounds: active.pomodoro_total_rounds ?? 0,
+    pomodoroShortBreakSeconds: active.pomodoro_short_break_seconds ?? 300,
+    pomodoroLongBreakSeconds: active.pomodoro_long_break_seconds ?? 900,
+    pomodoroLongBreakInterval: active.pomodoro_long_break_interval ?? 4,
+    pomodoroAutoStartBreak: active.pomodoro_auto_start_break ?? false,
+    pomodoroRestKind: active.pomodoro_rest_kind ?? "",
+    soundEnabled: active.sound_enabled ?? true
   });
   return state.elapsedSeconds;
 }
@@ -47,7 +96,18 @@ export async function startNativeFocusTimer(ownerId: string, active: ActiveFocus
 export async function readNativeFocusTimer(ownerId: string): Promise<NativeTimerState | null> {
   if (!isNativeApp()) return null;
   const state = await FocusNativeTimer.getState();
-  return state.active && state.ownerId === ownerId ? state : null;
+  return state.ownerId === ownerId ? state : null;
+}
+
+export async function readNativeFocusTransitions(ownerId?: string): Promise<NativeFocusTransition[]> {
+  if (!isNativeApp()) return [];
+  const transitions = (await FocusNativeTimer.getTransitions()).transitions;
+  return ownerId ? transitions.filter((item) => !item.ownerId || item.ownerId === ownerId) : transitions;
+}
+
+export async function clearNativeFocusTransitions(ids: string[]): Promise<void> {
+  if (!isNativeApp()) return;
+  if (ids.length) await FocusNativeTimer.clearTransitions({ ids });
 }
 
 export async function pauseNativeFocusTimer(): Promise<number | null> {

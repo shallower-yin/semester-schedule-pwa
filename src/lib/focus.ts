@@ -9,6 +9,24 @@ export interface ActiveFocusState {
   started_at: string;
   paused_seconds: number;
   pause_started_at: string | null;
+  pomodoro_plan_id?: string | null;
+  pomodoro_round?: number | null;
+  pomodoro_total_rounds?: number | null;
+  pomodoro_short_break_seconds?: number | null;
+  pomodoro_long_break_seconds?: number | null;
+  pomodoro_long_break_interval?: number | null;
+  pomodoro_auto_start_break?: boolean;
+  pomodoro_rest_kind?: "pomodoro_short" | "pomodoro_long" | null;
+  sound_enabled?: boolean;
+}
+
+export interface PomodoroPlanState {
+  id: string;
+  task_title: string;
+  linked_event_id: string | null;
+  total_rounds: number;
+  next_round: number;
+  completed_rounds: number;
 }
 
 export const FOCUS_STATE_CHANGED_EVENT = "semester-schedule-focus-state-changed";
@@ -34,6 +52,34 @@ export function saveActiveFocus(ownerId: string, active: ActiveFocusState): void
 export function clearActiveFocus(ownerId: string): void {
   localStorage.removeItem(activeFocusStorageKey(ownerId));
   window.dispatchEvent(new CustomEvent(FOCUS_STATE_CHANGED_EVENT));
+}
+
+export function pomodoroPlanStorageKey(ownerId: string): string {
+  return `semester-schedule-pomodoro-plan:${ownerId}`;
+}
+
+export function loadPomodoroPlan(ownerId: string): PomodoroPlanState | null {
+  try {
+    const raw = localStorage.getItem(pomodoroPlanStorageKey(ownerId));
+    return raw ? JSON.parse(raw) as PomodoroPlanState : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePomodoroPlan(ownerId: string, plan: PomodoroPlanState): void {
+  localStorage.setItem(pomodoroPlanStorageKey(ownerId), JSON.stringify(plan));
+}
+
+export function clearPomodoroPlan(ownerId: string): void {
+  localStorage.removeItem(pomodoroPlanStorageKey(ownerId));
+}
+
+export function pomodoroRestKind(active: ActiveFocusState): "pomodoro_short" | "pomodoro_long" {
+  const round = Math.max(1, active.pomodoro_round ?? 1);
+  const interval = Math.max(1, active.pomodoro_long_break_interval ?? 4);
+  const total = Math.max(round, active.pomodoro_total_rounds ?? round);
+  return round % interval === 0 || round >= total ? "pomodoro_long" : "pomodoro_short";
 }
 
 export function requestFocusNotificationPermission(): void {

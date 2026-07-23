@@ -237,3 +237,15 @@ export async function getNativeReminderDiagnostics(): Promise<ReminderDiagnostic
     return null;
   }
 }
+
+export async function openNativeReminderChannelSettings(): Promise<void> {
+  if (isNativeApp()) await ReminderSupport.openChannelSettings();
+}
+
+export async function openNativeReminderAppSettings(): Promise<void> {
+  if (isNativeApp()) await ReminderSupport.openAppSettings();
+}
+
+export async function requestNativeReminderBatteryExemption(): Promise<void> {
+  if (isNativeApp()) await ReminderSupport.requestBatteryExemption();
+}

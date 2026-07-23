@@ -132,7 +132,11 @@ export type FocusTimerMode = FocusMode | "rest";
 
 export interface FocusSettings extends SyncFields {
   pomodoro_minutes: number;
+  pomodoro_rounds: number;
   short_break_minutes: number;
+  long_break_minutes: number;
+  long_break_interval: number;
+  auto_start_break: boolean;
   countdown_minutes: number;
   daily_goal_minutes: number;
   sound_enabled: boolean;
@@ -148,6 +152,8 @@ export interface FocusSession extends SyncFields {
   ended_at: ISODateTime;
   completed: boolean;
   interrupted: boolean;
+  pomodoro_plan_id?: string | null;
+  pomodoro_round?: number | null;
 }
 
 export interface RestSession extends SyncFields {
@@ -157,6 +163,9 @@ export interface RestSession extends SyncFields {
   ended_at: ISODateTime;
   completed: boolean;
   interrupted: boolean;
+  rest_kind?: "manual" | "pomodoro_short" | "pomodoro_long";
+  pomodoro_plan_id?: string | null;
+  pomodoro_round?: number | null;
 }
 
 export interface HealthProfile extends SyncFields {

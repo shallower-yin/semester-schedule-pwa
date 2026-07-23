@@ -1,4 +1,5 @@
 import { processAiRemoteDocumentAttachments, type AiAssistantAttachment } from "./assistantAttachments";
+import { canvasToPngBlob, exportBlob, type ExportedFile } from "./fileExport";
 import { supabase } from "./supabase";
 
 export interface AiMindMapNode {
@@ -252,12 +253,12 @@ export function mindMapToSvg(root: AiMindMapNode): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}"><rect width="100%" height="100%" fill="#f7f8fc"/>${edges}${nodes}</svg>`;
 }
 
-export function downloadMindMapSvg(root: AiMindMapNode) {
+export async function downloadMindMapSvg(root: AiMindMapNode): Promise<ExportedFile> {
   const blob = new Blob([mindMapToSvg(root)], { type: "image/svg+xml;charset=utf-8" });
-  downloadBlob(blob, `${safeFileName(root.label)}-思维导图.svg`);
+  return exportBlob(blob, `${safeFileName(root.label)}-思维导图.svg`);
 }
 
-export async function downloadMindMapPng(root: AiMindMapNode): Promise<void> {
+export async function downloadMindMapPng(root: AiMindMapNode): Promise<ExportedFile> {
   const layout = buildMindMapLayout(root);
   const maxDimension = 4096;
   const scale = Math.min(2, maxDimension / layout.width, maxDimension / layout.height);
@@ -275,8 +276,8 @@ export async function downloadMindMapPng(root: AiMindMapNode): Promise<void> {
     context.fillStyle = "#f7f8fc";
     context.fillRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
-    const blob = await canvasToBlob(canvas);
-    downloadBlob(blob, `${safeFileName(root.label)}-思维导图.png`);
+    const blob = await canvasToPngBlob(canvas);
+    return await exportBlob(blob, `${safeFileName(root.label)}-思维导图.png`);
   } finally {
     URL.revokeObjectURL(sourceUrl);
   }
@@ -344,19 +345,4 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     image.onerror = () => reject(new Error("思维导图图片渲染失败。"));
     image.src = url;
   });
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG 图片生成失败。")), "image/png", 0.95);
-  });
-}
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }

@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { courseScheduleOccursOn, eventOccursOn, formatMonthDay, toISODate } from "./date";
 import { eventCompletionForDate } from "./eventCompletion";
+import { canvasToPngBlob, exportBlob } from "./fileExport";
 import { THEME_SKINS, type ThemeSkinId } from "./themeSkins";
 
 export interface SnapshotScheduleItem {
@@ -107,10 +108,7 @@ export async function exportScheduleSnapshot(options: {
     ? drawDaySnapshot(options.days[0], skin.colors, options.title, template)
     : drawWeekSnapshot(options.days, skin.colors, options.title, template);
   const canvas = template.backgroundImageUrl ? await applyTemplateArtwork(rendered, template.backgroundImageUrl) : rendered;
-  const link = document.createElement("a");
-  link.download = `${options.fileName}.png`;
-  link.href = canvas.toDataURL("image/png");
-  link.click();
+  await exportBlob(await canvasToPngBlob(canvas), `${options.fileName}.png`);
 }
 
 async function applyTemplateArtwork(source: HTMLCanvasElement, imageUrl: string): Promise<HTMLCanvasElement> {

@@ -5,29 +5,39 @@ import { db, queueChange } from "../db";
 import {
   elapsedFocusSeconds,
   clearActiveFocus,
+  clearPomodoroPlan,
   FOCUS_STATE_CHANGED_EVENT,
   focusDailyTotals,
   focusModeLabel,
   focusSessionsForDate,
   formatFocusDuration,
   loadActiveFocus,
+  loadPomodoroPlan,
   notifyFocusComplete,
+  pomodoroRestKind,
   requestFocusNotificationPermission,
   saveActiveFocus,
+  savePomodoroPlan,
   totalFocusSeconds,
-  type ActiveFocusState
+  type ActiveFocusState,
+  type PomodoroPlanState
 } from "../lib/focus";
 import { closeFocusSystemWindow, focusSystemWindowSupported, openFocusSystemWindow, updateFocusSystemWindow } from "../lib/focusSystemWindow";
 import {
+  clearNativeFocusTransitions,
   enterNativeLockTask,
   pauseNativeFocusTimer,
   readNativeFocusTimer,
+  readNativeFocusTransitions,
   resumeNativeFocusTimer,
   startNativeFocusTimer,
-  stopNativeFocusTimer
+  stopNativeFocusTimer,
+  type NativeFocusTransition,
+  type NativeTimerState
 } from "../lib/focusNativeTimer";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { isNativeApp } from "../lib/nativeApp";
 import { showToast } from "../lib/toast";
 import type { EventItem, FocusMode, FocusSession, FocusSettings, FocusTimerMode, RestSession } from "../types";
 import { Modal } from "./Modal";
@@ -40,7 +50,11 @@ interface FocusPageProps {
 
 const DEFAULT_SETTINGS = {
   pomodoro_minutes: 25,
+  pomodoro_rounds: 4,
   short_break_minutes: 5,
+  long_break_minutes: 15,
+  long_break_interval: 4,
+  auto_start_break: true,
   countdown_minutes: 30,
   daily_goal_minutes: 120,
   sound_enabled: true
@@ -67,6 +81,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     [ownerId]
   ) ?? [];
   const [mode, setMode] = useState<FocusTimerMode>("pomodoro");
+  const [pomodoroPlan, setPomodoroPlan] = useState<PomodoroPlanState | null>(() => loadPomodoroPlan(ownerId));
   const [taskTitle, setTaskTitle] = useState("");
   const [linkedEventId, setLinkedEventId] = useState("");
   const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
@@ -81,7 +96,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [nativeElapsed, setNativeElapsed] = useState<number | null>(null);
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>("week");
 
-  const effectiveSettings = storedSettings ?? settingsDraft;
+  const effectiveSettings = useMemo(
+    () => ({
+      ...DEFAULT_SETTINGS,
+      ...(storedSettings ?? settingsDraft),
+      pomodoro_rounds: storedSettings?.pomodoro_rounds ?? settingsDraft.pomodoro_rounds ?? DEFAULT_SETTINGS.pomodoro_rounds
+    }),
+    [settingsDraft, storedSettings]
+  );
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
   const todaySeconds = totalFocusSeconds(todaySessions);
   const weekSessions = useMemo(() => {
@@ -115,7 +137,11 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     if (storedSettings) {
       setSettingsDraft({
         pomodoro_minutes: storedSettings.pomodoro_minutes,
+        pomodoro_rounds: storedSettings.pomodoro_rounds ?? 4,
         short_break_minutes: storedSettings.short_break_minutes,
+        long_break_minutes: storedSettings.long_break_minutes ?? 15,
+        long_break_interval: storedSettings.long_break_interval ?? 4,
+        auto_start_break: storedSettings.auto_start_break !== false,
         countdown_minutes: storedSettings.countdown_minutes,
         daily_goal_minutes: storedSettings.daily_goal_minutes,
         sound_enabled: storedSettings.sound_enabled
@@ -125,7 +151,11 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
   useEffect(() => {
     setActive(loadActiveFocus(ownerId));
-    const refresh = () => setActive(loadActiveFocus(ownerId));
+    setPomodoroPlan(loadPomodoroPlan(ownerId));
+    const refresh = () => {
+      setActive(loadActiveFocus(ownerId));
+      setPomodoroPlan(loadPomodoroPlan(ownerId));
+    };
     window.addEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
   }, [ownerId]);
@@ -141,16 +171,41 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       return;
     }
     let cancelled = false;
+    let refreshing = false;
     const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
       try {
+        const transitions = await readNativeFocusTransitions(ownerId);
+        if (transitions.length) {
+          const nextPlan = await persistNativeTransitions(ownerId, transitions);
+          await clearNativeFocusTransitions(transitions.map((item) => item.id));
+          if (!cancelled && nextPlan !== undefined) setPomodoroPlan(nextPlan);
+        }
         let state = await readNativeFocusTimer(ownerId);
         if (!state) {
           await startNativeFocusTimer(ownerId, active);
           state = await readNativeFocusTimer(ownerId);
         }
-        if (!cancelled && state) setNativeElapsed(state.elapsedSeconds);
+        if (cancelled || !state) return;
+        if (!state.active && active.pomodoro_plan_id) {
+          clearActiveFocus(ownerId);
+          setActive(null);
+          setNativeElapsed(null);
+          return;
+        }
+        if (state.active) {
+          const next = activeFocusFromNativeState(active, state);
+          if (!sameActiveStage(active, next)) {
+            saveActiveFocus(ownerId, next);
+            setActive(next);
+          }
+          setNativeElapsed(state.elapsedSeconds);
+        }
       } catch {
         if (!cancelled) setNativeElapsed(null);
+      } finally {
+        refreshing = false;
       }
     };
     void refresh();
@@ -160,6 +215,12 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       window.clearInterval(timer);
     };
   }, [active?.started_at, ownerId]);
+
+  useEffect(() => {
+    if (!active?.planned_seconds || remaining == null || remaining > 0 || active.pause_started_at) return;
+    if (isNativeApp() && active.pomodoro_plan_id) return;
+    void finishFocus(true, false);
+  }, [active?.started_at, active?.pause_started_at, remaining]);
 
 
 
@@ -177,16 +238,38 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
   async function startFocus() {
     const isRest = mode === "rest";
-    const title = isRest ? "休息" : taskTitle.trim() || selectedEvent?.title || focusModeLabel(mode);
+    let plan = mode === "pomodoro" ? pomodoroPlan : null;
+    if (mode === "pomodoro" && !plan) {
+      plan = {
+        id: crypto.randomUUID(),
+        task_title: taskTitle.trim() || selectedEvent?.title || "番茄专注",
+        linked_event_id: linkedEventId || null,
+        total_rounds: Math.max(1, effectiveSettings.pomodoro_rounds),
+        next_round: 1,
+        completed_rounds: 0
+      };
+      savePomodoroPlan(ownerId, plan);
+      setPomodoroPlan(plan);
+    }
+    const title = isRest ? "休息" : plan?.task_title || taskTitle.trim() || selectedEvent?.title || focusModeLabel(mode);
     const plannedSeconds = plannedSecondsForMode(mode, effectiveSettings);
     const next: ActiveFocusState = {
       mode,
       task_title: title,
-      linked_event_id: isRest ? null : linkedEventId || null,
+      linked_event_id: isRest ? null : (plan?.linked_event_id ?? linkedEventId) || null,
       planned_seconds: mode === "stopwatch" || mode === "lock" ? null : plannedSeconds,
       started_at: new Date().toISOString(),
       paused_seconds: 0,
-      pause_started_at: null
+      pause_started_at: null,
+      pomodoro_plan_id: plan?.id ?? null,
+      pomodoro_round: plan?.next_round ?? null,
+      pomodoro_total_rounds: plan?.total_rounds ?? null,
+      pomodoro_short_break_seconds: plan ? effectiveSettings.short_break_minutes * 60 : null,
+      pomodoro_long_break_seconds: plan ? effectiveSettings.long_break_minutes * 60 : null,
+      pomodoro_long_break_interval: plan ? effectiveSettings.long_break_interval : null,
+      pomodoro_auto_start_break: plan ? effectiveSettings.auto_start_break : false,
+      pomodoro_rest_kind: null,
+      sound_enabled: effectiveSettings.sound_enabled
     };
     setActive(next);
     saveActiveFocus(ownerId, next);
@@ -278,7 +361,10 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         started_at: active.started_at,
         ended_at: endedAt.toISOString(),
         completed,
-        interrupted
+        interrupted,
+        rest_kind: active.pomodoro_rest_kind ?? "manual",
+        pomodoro_plan_id: active.pomodoro_plan_id ?? null,
+        pomodoro_round: active.pomodoro_round ?? null
       };
       await db.restSessions.put(record);
       await queueChange("restSessions", record.id);
@@ -293,22 +379,85 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         started_at: active.started_at,
         ended_at: endedAt.toISOString(),
         completed,
-        interrupted
+        interrupted,
+        pomodoro_plan_id: active.pomodoro_plan_id ?? null,
+        pomodoro_round: active.pomodoro_round ?? null
       };
       await db.focusSessions.put(record);
       await queueChange("focusSessions", record.id);
     }
     await stopNativeFocusTimer(active.mode === "lock");
-    clearActiveFocus(ownerId);
+    let nextActive: ActiveFocusState | null = null;
+    if (completed && active.mode === "pomodoro" && active.pomodoro_plan_id) {
+      const round = active.pomodoro_round ?? 1;
+      const total = active.pomodoro_total_rounds ?? effectiveSettings.pomodoro_rounds;
+      const updatedPlan: PomodoroPlanState = {
+        id: active.pomodoro_plan_id,
+        task_title: active.task_title,
+        linked_event_id: active.linked_event_id,
+        total_rounds: total,
+        next_round: Math.min(total, round + 1),
+        completed_rounds: round
+      };
+      savePomodoroPlan(ownerId, updatedPlan);
+      setPomodoroPlan(updatedPlan);
+      if (active.pomodoro_auto_start_break) {
+        const restKind = pomodoroRestKind(active);
+        const restSeconds = restKind === "pomodoro_long"
+          ? active.pomodoro_long_break_seconds ?? effectiveSettings.long_break_minutes * 60
+          : active.pomodoro_short_break_seconds ?? effectiveSettings.short_break_minutes * 60;
+        nextActive = {
+          ...active,
+          mode: "rest",
+          task_title: restKind === "pomodoro_long" ? "长休息" : "短休息",
+          linked_event_id: null,
+          planned_seconds: restSeconds,
+          started_at: endedAt.toISOString(),
+          paused_seconds: 0,
+          pause_started_at: null,
+          pomodoro_rest_kind: restKind
+        };
+      }
+    } else if (completed && active.mode === "rest" && active.pomodoro_plan_id) {
+      const round = active.pomodoro_round ?? 1;
+      const total = active.pomodoro_total_rounds ?? pomodoroPlan?.total_rounds ?? round;
+      if (round >= total) {
+        clearPomodoroPlan(ownerId);
+        setPomodoroPlan(null);
+      } else {
+        const updatedPlan: PomodoroPlanState = {
+          id: active.pomodoro_plan_id,
+          task_title: pomodoroPlan?.task_title ?? "番茄专注",
+          linked_event_id: pomodoroPlan?.linked_event_id ?? null,
+          total_rounds: total,
+          next_round: round + 1,
+          completed_rounds: round
+        };
+        savePomodoroPlan(ownerId, updatedPlan);
+        setPomodoroPlan(updatedPlan);
+      }
+    }
+    if (nextActive) {
+      saveActiveFocus(ownerId, nextActive);
+      setActive(nextActive);
+      try {
+        const nativeSeconds = await startNativeFocusTimer(ownerId, nextActive);
+        setNativeElapsed(nativeSeconds);
+      } catch {
+        setNativeElapsed(null);
+      }
+    } else {
+      clearActiveFocus(ownerId);
+      setActive(null);
+    }
     void closeFocusSystemWindow();
     void exitImmersiveFullscreen();
     void lockOrientation("auto");
-    setActive(null);
     setShowFullscreen(false);
     setSystemWindowOpen(false);
     setTaskTitle("");
     setLinkedEventId("");
-    setNativeElapsed(null);
+    if (!nextActive) setNativeElapsed(null);
     const kind = active.mode === "rest" ? "休息" : "专注";
     const resultMessage = completed ? `已完成 ${formatFocusDuration(duration)} ${kind}。` : `已保存 ${formatFocusDuration(duration)} ${kind}记录。`;
     setMessage(resultMessage);
@@ -451,9 +600,13 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             <h2><Settings size={18} />番茄、休息与目标设置</h2>
             <div className="focus-settings-grid">
               <label><span>番茄</span><input aria-label="番茄分钟" type="number" min={1} max={240} value={settingsDraft.pomodoro_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, pomodoro_minutes: Number(event.target.value) })} /><small>分钟</small></label>
-              <label><span>休息</span><input aria-label="休息分钟" type="number" min={1} max={120} value={settingsDraft.short_break_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, short_break_minutes: Number(event.target.value) })} /><small>分钟</small></label>
+              <label><span>番茄个数</span><input aria-label="番茄个数" type="number" min={1} max={24} value={settingsDraft.pomodoro_rounds} onChange={(event) => setSettingsDraft({ ...settingsDraft, pomodoro_rounds: Number(event.target.value) })} /><small>个</small></label>
+              <label><span>短休息</span><input aria-label="短休息分钟" type="number" min={1} max={120} value={settingsDraft.short_break_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, short_break_minutes: Number(event.target.value) })} /><small>分钟</small></label>
+              <label><span>长休息</span><input aria-label="长休息分钟" type="number" min={1} max={240} value={settingsDraft.long_break_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, long_break_minutes: Number(event.target.value) })} /><small>分钟</small></label>
+              <label><span>长休息间隔</span><input aria-label="长休息间隔" type="number" min={1} max={24} value={settingsDraft.long_break_interval} onChange={(event) => setSettingsDraft({ ...settingsDraft, long_break_interval: Number(event.target.value) })} /><small>轮</small></label>
               <label><span>每日目标</span><input aria-label="每日目标分钟" type="number" min={1} max={1440} value={settingsDraft.daily_goal_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, daily_goal_minutes: Number(event.target.value) })} /><small>分钟</small></label>
             </div>
+            <label className="checkbox-label focus-sound"><input type="checkbox" checked={settingsDraft.auto_start_break} onChange={(event) => setSettingsDraft({ ...settingsDraft, auto_start_break: event.target.checked })} /><Pause size={16} />专注结束后自动开始休息</label>
             <label className="checkbox-label focus-sound"><input type="checkbox" checked={settingsDraft.sound_enabled} onChange={(event) => setSettingsDraft({ ...settingsDraft, sound_enabled: event.target.checked })} /><Bell size={16} />结束提醒</label>
             <button className="button secondary compact" onClick={() => void saveSettings()}><RotateCcw size={16} />保存设置</button>
           </section>
@@ -583,6 +736,106 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       )}
     </section>
   );
+}
+
+function activeFocusFromNativeState(current: ActiveFocusState, state: NativeTimerState): ActiveFocusState {
+  const mode: FocusTimerMode = state.mode === "rest"
+    ? "rest"
+    : state.mode === "stopwatch" || state.mode === "countdown" || state.mode === "lock"
+      ? state.mode
+      : "pomodoro";
+  return {
+    ...current,
+    mode,
+    task_title: state.title || current.task_title,
+    linked_event_id: mode === "rest" ? null : state.linkedEventId || null,
+    planned_seconds: state.plannedSeconds > 0 ? state.plannedSeconds : null,
+    started_at: state.startedAt > 0 ? new Date(state.startedAt).toISOString() : current.started_at,
+    pause_started_at: state.paused ? current.pause_started_at ?? new Date().toISOString() : null,
+    pomodoro_plan_id: state.pomodoroPlanId || null,
+    pomodoro_round: state.pomodoroRound || null,
+    pomodoro_total_rounds: state.pomodoroTotalRounds || null,
+    pomodoro_short_break_seconds: state.pomodoroShortBreakSeconds || null,
+    pomodoro_long_break_seconds: state.pomodoroLongBreakSeconds || null,
+    pomodoro_long_break_interval: state.pomodoroLongBreakInterval || null,
+    pomodoro_auto_start_break: state.pomodoroAutoStartBreak,
+    pomodoro_rest_kind: state.pomodoroRestKind === "pomodoro_long"
+      ? "pomodoro_long"
+      : state.pomodoroRestKind === "pomodoro_short"
+        ? "pomodoro_short"
+        : null
+  };
+}
+
+function sameActiveStage(left: ActiveFocusState, right: ActiveFocusState): boolean {
+  return left.mode === right.mode
+    && left.task_title === right.task_title
+    && left.started_at === right.started_at
+    && left.planned_seconds === right.planned_seconds
+    && Boolean(left.pause_started_at) === Boolean(right.pause_started_at)
+    && left.pomodoro_round === right.pomodoro_round
+    && left.pomodoro_rest_kind === right.pomodoro_rest_kind;
+}
+
+async function persistNativeTransitions(
+  ownerId: string,
+  transitions: NativeFocusTransition[]
+): Promise<PomodoroPlanState | null | undefined> {
+  if (!transitions.length) return undefined;
+  let plan = loadPomodoroPlan(ownerId);
+  for (const transition of transitions) {
+    const common = {
+      ...syncFields(),
+      id: transition.id,
+      user_id: ownerId,
+      planned_seconds: transition.plannedSeconds,
+      duration_seconds: Math.max(1, transition.durationSeconds),
+      started_at: new Date(transition.startedAt).toISOString(),
+      ended_at: new Date(transition.endedAt).toISOString(),
+      completed: true,
+      interrupted: false,
+      pomodoro_plan_id: transition.pomodoroPlanId || null,
+      pomodoro_round: transition.pomodoroRound || null
+    };
+    if (transition.kind === "rest") {
+      const record: RestSession = {
+        ...common,
+        rest_kind: transition.restKind || "manual"
+      };
+      await db.restSessions.put(record);
+      await queueChange("restSessions", record.id);
+    } else {
+      const record: FocusSession = {
+        ...common,
+        mode: "pomodoro",
+        task_title: transition.title || plan?.task_title || "番茄专注",
+        linked_event_id: transition.linkedEventId || null
+      };
+      await db.focusSessions.put(record);
+      await queueChange("focusSessions", record.id);
+    }
+
+    const round = Math.max(1, transition.pomodoroRound || 1);
+    const total = Math.max(round, transition.pomodoroTotalRounds || plan?.total_rounds || round);
+    if (transition.kind === "focus") {
+      plan = {
+        id: transition.pomodoroPlanId,
+        task_title: transition.title || plan?.task_title || "番茄专注",
+        linked_event_id: transition.linkedEventId || plan?.linked_event_id || null,
+        total_rounds: total,
+        next_round: Math.min(total, round + 1),
+        completed_rounds: round
+      };
+      savePomodoroPlan(ownerId, plan);
+    } else if (round >= total) {
+      plan = null;
+      clearPomodoroPlan(ownerId);
+    } else if (plan) {
+      plan = { ...plan, next_round: round + 1, completed_rounds: round };
+      savePomodoroPlan(ownerId, plan);
+    }
+  }
+  return plan;
 }
 
 interface FocusBreakdownItem {

@@ -236,7 +236,11 @@ create table if not exists public.focus_settings (
   version bigint not null default 1,
   device_id uuid not null,
   pomodoro_minutes integer not null default 25 check (pomodoro_minutes between 1 and 240),
+  pomodoro_rounds integer not null default 4 check (pomodoro_rounds between 1 and 24),
   short_break_minutes integer not null default 5 check (short_break_minutes between 1 and 120),
+  long_break_minutes integer not null default 15 check (long_break_minutes between 1 and 240),
+  long_break_interval integer not null default 4 check (long_break_interval between 1 and 24),
+  auto_start_break boolean not null default true,
   countdown_minutes integer not null default 30 check (countdown_minutes between 1 and 720),
   daily_goal_minutes integer not null default 120 check (daily_goal_minutes between 1 and 1440),
   sound_enabled boolean not null default true,
@@ -261,6 +265,8 @@ create table if not exists public.focus_sessions (
   ended_at timestamptz not null,
   completed boolean not null default false,
   interrupted boolean not null default false,
+  pomodoro_plan_id text,
+  pomodoro_round integer check (pomodoro_round is null or pomodoro_round > 0),
   unique (id, user_id),
   foreign key (linked_event_id, user_id) references public.events(id, user_id)
 );
@@ -280,6 +286,9 @@ create table if not exists public.rest_sessions (
   ended_at timestamptz not null,
   completed boolean not null default false,
   interrupted boolean not null default false,
+  rest_kind text not null default 'manual' check (rest_kind in ('manual', 'pomodoro_short', 'pomodoro_long')),
+  pomodoro_plan_id text,
+  pomodoro_round integer check (pomodoro_round is null or pomodoro_round > 0),
   unique (id, user_id)
 );
 

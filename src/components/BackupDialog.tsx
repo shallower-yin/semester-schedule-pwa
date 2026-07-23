@@ -55,11 +55,16 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
     }
   }
 
-  function exportLatestSnapshot() {
+  async function exportLatestSnapshot() {
     if (!latestSnapshot) return;
-    downloadBackup(latestSnapshot.backup, `本机自动备份-${latestSnapshot.created_at.slice(0, 10)}.json`);
-    setMessage("本机备份已下载为 JSON 文件。");
-    showToast("本机备份已下载为 JSON 文件。", "success");
+    try {
+      const result = await downloadBackup(latestSnapshot.backup, `本机自动备份-${latestSnapshot.created_at.slice(0, 10)}.json`);
+      if (!result.saved) return;
+      setMessage("本机备份已下载为 JSON 文件。");
+      showToast("本机备份已下载为 JSON 文件。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "本机备份导出失败。", "error");
+    }
   }
 
   async function previewBackup(file?: File) {
@@ -108,7 +113,11 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
     setImporting(true);
     setMessage("");
     try {
-      downloadBackup(await createBackup(), `导入前自动备份-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+      const exported = await downloadBackup(await createBackup(), `导入前自动备份-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+      if (!exported.saved) {
+        setMessage("已取消导入前备份，数据尚未导入。");
+        return;
+      }
       const currentUserId = getCurrentUserId();
 
       await db.transaction("rw", [...BACKUP_TABLES.map((name) => db.table(name)), db.syncQueue], async () => {

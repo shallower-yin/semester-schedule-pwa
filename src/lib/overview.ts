@@ -105,9 +105,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
 
   const eventItems = input.events.flatMap((eventItem) => {
     if (eventItem.deleted_at || !eventOccursOn(eventItem, now)) return [];
-    const occurrenceState = input.occurrenceStates.find(
-      (state) => state.event_id === eventItem.id && state.occurrence_date === todayDate && !state.deleted_at
-    );
+    const completion = eventCompletionForDate(eventItem, input.occurrenceStates, now);
     const category = eventItem.category_id ? categoryMap.get(eventItem.category_id) : undefined;
     const sortTime = eventItem.all_day ? "99:98" : eventItem.start_time ?? "99:99";
     return [{
@@ -119,7 +117,7 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
       timeLabel: eventItem.all_day ? "全天" : formatTimeRange(eventItem.start_time, eventItem.end_time),
       sortTime,
       color: eventItem.color || category?.color || "#e36b32",
-      completed: occurrenceState?.completed ?? false,
+      completed: completion.completed,
       occurrenceDate: todayDate,
       allDay: eventItem.all_day,
       endTime: eventItem.end_time

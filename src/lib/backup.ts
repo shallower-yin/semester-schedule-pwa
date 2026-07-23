@@ -1,6 +1,7 @@
 import { db } from "../db";
 import type { BackupFile, SyncTableName } from "../types";
 import { markBackupExported } from "./backupStatus";
+import { exportText, type ExportedFile } from "./fileExport";
 
 export const BACKUP_TABLES: SyncTableName[] = [
   "semesters",
@@ -36,13 +37,8 @@ export async function createBackup(): Promise<BackupFile> {
   };
 }
 
-export function downloadBackup(backup: BackupFile, fileName: string): void {
-  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  markBackupExported();
+export async function downloadBackup(backup: BackupFile, fileName: string): Promise<ExportedFile> {
+  const result = await exportText(JSON.stringify(backup, null, 2), fileName, "application/json;charset=utf-8");
+  if (result.saved) markBackupExported();
+  return result;
 }

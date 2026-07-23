@@ -1,16 +1,20 @@
 package io.github.shalloweryin.semesterschedule;
 
 import android.app.AlarmManager;
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
 
+import androidx.activity.result.ActivityResult;
 import androidx.core.app.NotificationManagerCompat;
 
 import com.getcapacitor.JSArray;
@@ -18,6 +22,7 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONObject;
@@ -31,6 +36,11 @@ public class ReminderSupportPlugin extends Plugin {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
+        // Android keeps channels across updates. Remove only channels created by older releases and
+        // Capacitor's unused default channel; the focus foreground-service channel remains intact.
+        manager.deleteNotificationChannel("reminders");
+        manager.deleteNotificationChannel("reminders-v2");
+        manager.deleteNotificationChannel("default");
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
             "日程提醒（响铃与振动）",
@@ -129,6 +139,44 @@ public class ReminderSupportPlugin extends Plugin {
         call.resolve(result);
     }
 
+    @PluginMethod
+    public void openChannelSettings(PluginCall call) {
+        Intent intent = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS);
+        intent.putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+        intent.putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_ID);
+        getActivity().startActivity(intent);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+        getActivity().startActivity(intent);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void requestBatteryExemption(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            call.resolve(systemStatus());
+            return;
+        }
+        PowerManager power = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+        if (power != null && power.isIgnoringBatteryOptimizations(getContext().getPackageName())) {
+            call.resolve(systemStatus());
+            return;
+        }
+        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+        intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+        startActivityForResult(call, intent, "batteryExemptionResult");
+    }
+
+    @ActivityCallback
+    private void batteryExemptionResult(PluginCall call, ActivityResult result) {
+        if (call != null) call.resolve(systemStatus());
+    }
+
     private JSObject systemStatus() {
         Context context = getContext();
         boolean exactAlarmAllowed = true;
@@ -162,8 +210,23 @@ public class ReminderSupportPlugin extends Plugin {
         result.put("channelSoundEnabled", soundEnabled);
         result.put("channelVibrationEnabled", vibrationEnabled);
         result.put("sdkInt", Build.VERSION.SDK_INT);
+        result.put("lastExitReason", lastExitReason(context));
         result.put("scheduledCount", ReminderAlarmReceiver.scheduledCount(context));
         result.put("nextTriggerAt", ReminderAlarmReceiver.nextTriggerAt(context));
         return result;
+    }
+
+    private String lastExitReason(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return "";
+        ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager == null) return "";
+        try {
+            java.util.List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(context.getPackageName(), 0, 1);
+            if (exits.isEmpty()) return "";
+            ApplicationExitInfo info = exits.get(0);
+            return info.getReason() + ":" + info.getDescription();
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 }

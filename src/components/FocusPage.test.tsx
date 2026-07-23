@@ -60,8 +60,8 @@ describe("专注记录管理", () => {
     fireEvent.click(manageButton);
     fireEvent.click(screen.getByRole("checkbox", { name: "全选" }));
     fireEvent.click(screen.getByRole("button", { name: "删除所选（2）" }));
+    await waitFor(() => expect(db.focusSessions.count()).resolves.toBe(0));
     await waitFor(() => expect(screen.getByText("还没有专注记录。")).toBeInTheDocument());
-    expect(await db.focusSessions.count()).toBe(0);
     expect(await db.syncQueue.where("table_name").equals("focusSessions").count()).toBe(2);
   });
 
@@ -81,6 +81,32 @@ describe("专注记录管理", () => {
       expect.any(Date),
       true
     );
+  });
+
+  it("显示完整番茄循环设置并为旧设置补足轮数", async () => {
+    await db.focusSettings.put({
+      id: crypto.randomUUID(),
+      user_id: "local",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      deleted_at: null,
+      version: 1,
+      device_id: "device-1",
+      pomodoro_minutes: 25,
+      short_break_minutes: 5,
+      long_break_minutes: 15,
+      long_break_interval: 4,
+      auto_start_break: true,
+      countdown_minutes: 30,
+      daily_goal_minutes: 120,
+      sound_enabled: true
+    } as never);
+    render(<FocusPage ownerId="local" />);
+    expect(await screen.findByLabelText("番茄个数")).toHaveValue(4);
+    expect(screen.getByLabelText("短休息分钟")).toHaveValue(5);
+    expect(screen.getByLabelText("长休息分钟")).toHaveValue(15);
+    expect(screen.getByLabelText("长休息间隔")).toHaveValue(4);
+    expect(screen.getByRole("checkbox", { name: /自动开始休息/ })).toBeChecked();
   });
 
   it("休息只写入休息记录，不计入专注记录", async () => {

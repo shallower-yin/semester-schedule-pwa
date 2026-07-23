@@ -16,6 +16,7 @@ import {
   type NotificationDiagnosticStep,
   type NotificationStatus
 } from "../lib/notifications";
+import { openNativeReminderAppSettings, openNativeReminderChannelSettings, requestNativeReminderBatteryExemption } from "../lib/nativeReminders";
 import { isNativeApp } from "../lib/nativeApp";
 import { scheduleNativeReminderTest } from "../lib/nativeReminders";
 import { getSyncHealth, type SyncResult } from "../lib/sync";
@@ -257,8 +258,12 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   }
 
   async function exportBackup() {
-    downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
-    showToast("备份文件已导出。", "success");
+    try {
+      const result = await downloadBackup(await createBackup(), `日程计划表备份-${new Date().toISOString().slice(0, 10)}.json`);
+      if (result.saved) showToast("备份文件已导出。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "备份文件导出失败。", "error");
+    }
   }
 
   const hasSyncProblem = Boolean(message && !/完成|重新拉取|已接管/.test(message)) || Boolean(syncHealth?.failed);
@@ -353,6 +358,23 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         </button>
       </div>
       {notificationMessage && <p className="auth-message">{notificationMessage}</p>}
+      {diagnosticSteps.length > 0 && (
+        <div className="notification-diagnostic-list" aria-label="提醒诊断">
+          {diagnosticSteps.map((step) => (
+            <article key={step.id} className={step.status}>
+              <strong>{step.label}</strong>
+              <span>{step.detail}</span>
+            </article>
+          ))}
+        </div>
+      )}
+      {isNativeApp() && (
+        <div className="account-test-actions">
+          <button className="button secondary compact" onClick={() => void openNativeReminderChannelSettings()}>通知渠道</button>
+          <button className="button secondary compact" onClick={() => void requestNativeReminderBatteryExemption().then(() => diagnoseNotifications().then(setDiagnosticSteps))}>电池不限制</button>
+          <button className="button secondary compact" onClick={() => void openNativeReminderAppSettings()}>应用详情</button>
+        </div>
+      )}
       <div className="account-test-actions">
         <button className="button secondary" disabled={enablingNotifications} onClick={() => void testNotification()}>
           <BellRing size={17} />发送测试通知

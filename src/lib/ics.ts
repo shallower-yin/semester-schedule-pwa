@@ -1,5 +1,6 @@
 import type { ClassPeriod, Course, CourseSchedule, EventItem, Semester } from "../types";
 import { addDays, eventOccursOn, parseLocalDate, toISODate } from "./date";
+import { exportText, type ExportedFile } from "./fileExport";
 
 interface BuildIcsInput {
   semester: Semester;
@@ -57,14 +58,8 @@ export function buildIcsCalendar(input: BuildIcsInput): string {
   return `${lines.join("\r\n")}\r\n`;
 }
 
-export function downloadIcs(filename: string, content: string): void {
-  const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+export function downloadIcs(filename: string, content: string): Promise<ExportedFile> {
+  return exportText(content, filename, "text/calendar;charset=utf-8");
 }
 
 function eventDates(eventItem: EventItem, horizonDays: number): Date[] {

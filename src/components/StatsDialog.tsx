@@ -4,6 +4,7 @@ import { addDays, eventOccursOn, startOfWeek, toISODate } from "../lib/date";
 import { eventCompletionForDate } from "../lib/eventCompletion";
 import { formatFocusDuration, totalFocusSeconds } from "../lib/focus";
 import { buildIcsCalendar, downloadIcs } from "../lib/ics";
+import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 
 interface StatsDialogProps {
@@ -68,9 +69,14 @@ export function StatsDialog(props: StatsDialogProps) {
   ).sort((left, right) => right[1] - left[1]).slice(0, 5);
   const heatmapDates = Array.from({ length: 28 }, (_, index) => addDays(addDays(today, -27), index));
 
-  function exportIcs() {
+  async function exportIcs() {
     const content = buildIcsCalendar(props);
-    downloadIcs(`日程计划表-${toISODate(today)}.ics`, content);
+    try {
+      const result = await downloadIcs(`日程计划表-${toISODate(today)}.ics`, content);
+      if (result.saved) showToast("日历文件已导出。", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "日历文件导出失败。", "error");
+    }
   }
 
   return (

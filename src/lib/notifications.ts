@@ -31,7 +31,7 @@ export type NotificationStatus =
 export type NotificationEnableResult = "enabled" | "local-only" | "denied" | "unsupported";
 export type NotificationSetupStage = "permission" | "service-worker" | "push-service" | "cloud";
 export interface NotificationDiagnosticStep {
-  id: NotificationSetupStage | "support" | "channel" | "exact-alarm" | "pending" | "delivery" | "battery";
+  id: NotificationSetupStage | "support" | "channel" | "exact-alarm" | "pending" | "delivery" | "battery" | "last-exit" | "native-trace";
   label: string;
   status: "ok" | "warning" | "error";
   detail: string;
@@ -240,6 +240,34 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
         ? "应用不受系统电池优化限制。"
         : "当前受电池优化限制；精确闹钟通常仍可触发，但部分国产系统建议同时允许自启动并设为“不限制”。"
     });
+    if (health?.lastExitReason) {
+      steps.push({
+        id: "last-exit",
+        label: "上次进程退出",
+        status: "warning",
+        detail: `Android 记录：${health.lastExitReason}`
+      });
+    }
+    const recentEvents = diagnostics?.events?.slice(0, 8) ?? [];
+    if (recentEvents.length) {
+      const stageLabels: Record<string, string> = {
+        scheduled: "已注册",
+        received: "接收器已唤醒",
+        notified: "通知已发布",
+        notify_denied: "发布被拒绝",
+        restored: "已恢复",
+        schedule_error: "注册失败",
+        restore_error: "恢复失败"
+      };
+      steps.push({
+        id: "native-trace",
+        label: "最近原生轨迹",
+        status: recentEvents.some((item) => /error|denied/.test(item.stage)) ? "warning" : "ok",
+        detail: recentEvents.map((item) =>
+          `${new Date(item.at).toLocaleTimeString("zh-CN", { hour12: false })} ${stageLabels[item.stage] ?? item.stage}${item.id ? ` #${item.id}` : ""}`
+        ).join("；")
+      });
+    }
     return steps;
   }
   if (!notificationsSupported()) {

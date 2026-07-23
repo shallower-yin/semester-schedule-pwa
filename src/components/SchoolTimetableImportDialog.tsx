@@ -13,6 +13,7 @@ import {
 import { hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { startOfWeek, toISODate } from "../lib/date";
+import { exportText } from "../lib/fileExport";
 import { deleteSemesterCascade, saveSemesterRecord } from "../lib/semesters";
 import { showToast } from "../lib/toast";
 import type { ClassPeriod, Course, CourseSchedule, Semester, Weekday } from "../types";
@@ -308,15 +309,18 @@ function TianjinTimetableImportDialog({ semester, onClose, onImported, onBack }:
     }
   }
 
-  function exportExtractedJson() {
+  async function exportExtractedJson() {
     if (!timetable) return;
-    const blob = new Blob([JSON.stringify(timetable, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${TIANJIN_UNIVERSITY_TIMETABLE_EXTRACTOR}-${new Date().toISOString().slice(0, 10)}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      const result = await exportText(
+        JSON.stringify(timetable, null, 2),
+        `${TIANJIN_UNIVERSITY_TIMETABLE_EXTRACTOR}-${new Date().toISOString().slice(0, 10)}.json`,
+        "application/json;charset=utf-8"
+      );
+      if (result.saved) showToast("课表提取 JSON 已保存。", "success");
+    } catch (exportError) {
+      showToast(exportError instanceof Error ? exportError.message : "课表提取 JSON 导出失败。", "error");
+    }
   }
 
   return (
@@ -444,7 +448,7 @@ function TianjinTimetableImportDialog({ semester, onClose, onImported, onBack }:
               ))}
               {timetable.schedules.length > 6 && <p>还有 {timetable.schedules.length - 6} 条安排，导入后可在课程管理里查看。</p>}
             </div>
-            <button type="button" className="button secondary compact" onClick={exportExtractedJson}>下载提取 JSON</button>
+            <button type="button" className="button secondary compact" onClick={() => void exportExtractedJson()}>下载提取 JSON</button>
             {timetable.warnings.map((warning) => <p className="auth-message error" key={warning}>{warning}</p>)}
           </section>
         )}

@@ -8,6 +8,7 @@ export interface ReminderSystemStatus {
   channelSoundEnabled: boolean;
   channelVibrationEnabled: boolean;
   sdkInt: number;
+  lastExitReason?: string;
   scheduledCount?: number;
   nextTriggerAt?: number;
 }
@@ -44,6 +45,9 @@ interface ReminderSupportPlugin {
   postNow(options: { id: number; title: string; body: string; key: string }): Promise<ReminderSystemStatus>;
   scheduleTest(options: { id: number; delaySeconds: number }): Promise<ReminderSystemStatus & { triggerAt: number }>;
   getDiagnostics(): Promise<ReminderDiagnostics>;
+  openChannelSettings(): Promise<void>;
+  openAppSettings(): Promise<void>;
+  requestBatteryExemption(): Promise<ReminderSystemStatus>;
 }
 
 export const ReminderSupport = registerPlugin<ReminderSupportPlugin>("ReminderSupport");
