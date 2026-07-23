@@ -11,7 +11,7 @@ const githubPagesBase = "https://shallower-yin.github.io/semester-schedule-pwa/"
  *
  * Browser navigation to *.html would otherwise show raw source with mojibake.
  * Document navigations get a UTF-8 plain-text landing with tappable APK/web links.
- * OTA asset fetch (Accept: */*, Sec-Fetch-Mode: cors) still receives the raw HTML
+ * OTA asset fetch (Accept: star/star, Sec-Fetch-Mode: cors) still receives the raw HTML
  * body so client cleanResponse() can restore Content-Type in Cache Storage.
  */
 Deno.serve(async (request) => {
@@ -245,7 +245,7 @@ function hostAllowsHtml(hostname: string): boolean {
 
 /**
  * Browser top-level navigation (or iframe) — not OTA asset fetch.
- * Offline updater uses fetch() with Accept: */* and Sec-Fetch-Mode: cors.
+ * Offline updater uses fetch() with Accept: star/star and Sec-Fetch-Mode: cors.
  */
 function isBrowserDocumentRequest(request: Request): boolean {
   const dest = (request.headers.get("sec-fetch-dest") || "").toLowerCase();
