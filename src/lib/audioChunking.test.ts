@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractMp3RangeForAsr, splitAudioForAsr } from "../../supabase/functions/_shared/audioChunking";
+import { estimateMp3BytesPerSecond, extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_DURATION_MS, splitAudioForAsr } from "../../supabase/functions/_shared/audioChunking";
 
 describe("audio chunking", () => {
   it("keeps small files intact", () => {
@@ -21,7 +21,7 @@ describe("audio chunking", () => {
     expect(chunks.reduce((sum, chunk) => sum + chunk.bytes.length, 0)).toBe(bytes.length);
   });
 
-  it("keeps long MP3 chunks within three minutes", () => {
+  it("keeps long MP3 chunks below the ASR output-safe duration", () => {
     const frameLength = 417;
     const frameCount = 15_000;
     const bytes = new Uint8Array(frameLength * frameCount);
@@ -30,7 +30,18 @@ describe("audio chunking", () => {
     }
     const chunks = splitAudioForAsr(bytes, "long-meeting.mp3", "audio/mpeg", 6_000_000);
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.every((chunk) => (chunk.durationMs ?? 0) <= 180_050)).toBe(true);
+    expect(chunks.every((chunk) => (chunk.durationMs ?? 0) <= MAX_ASR_AUDIO_CHUNK_DURATION_MS + 50)).toBe(true);
+  });
+
+  it("estimates MP3 payload rate from complete frames", () => {
+    const frameLength = 417;
+    const frameCount = 200;
+    const bytes = new Uint8Array(frameLength * frameCount);
+    for (let offset = 0; offset < bytes.length; offset += frameLength) {
+      bytes.set([0xff, 0xfb, 0x90, 0x00], offset);
+    }
+    expect(estimateMp3BytesPerSecond(bytes)).toBeGreaterThan(15_000);
+    expect(estimateMp3BytesPerSecond(bytes)).toBeLessThan(17_000);
   });
 
   it("assigns overlapping R2 ranges without duplicating MP3 frames", () => {

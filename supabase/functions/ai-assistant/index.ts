@@ -1,6 +1,6 @@
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "npm:@aws-sdk/client-s3@3.1089.0";
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
-import { extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
+import { estimateMp3BytesPerSecond, extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MAX_ASR_AUDIO_CHUNK_DURATION_MS, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 interface AiAssistantRequest {
@@ -2014,7 +2014,6 @@ async function planAudioTranscription(
   const audios = sanitizeUploadedAudios(body.audios, userId);
   if (!audios.length) throw new Error("请选择要转写的音频文件。");
   const resolvedLanguage: "auto" | "zh" | "en" = language === "zh" || language === "en" ? language : "auto";
-  const nominalChunkBytes = MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2;
   const tasks: Array<{
     fileIndex: number;
     fileName: string;
@@ -2034,6 +2033,22 @@ async function planAudioTranscription(
     const isLargeMp3 = audio.name.toLowerCase().endsWith(".mp3") && audio.size > MAX_ASR_AUDIO_CHUNK_BYTES;
     if (!isLargeMp3) continue;
     const objectSize = await headR2AudioObject(audio.objectKey);
+    let nominalChunkBytes = 512 * 1024;
+    try {
+      const sample = await downloadR2AudioRange(audio.objectKey, 0, Math.min(objectSize - 1, 1_500_000));
+      const bytesPerSecond = estimateMp3BytesPerSecond(sample);
+      // A 20% safety margin absorbs ordinary VBR variation while keeping the number of calls sane.
+      nominalChunkBytes = Math.floor(bytesPerSecond * (MAX_ASR_AUDIO_CHUNK_DURATION_MS / 1000) * 0.8);
+    } catch (error) {
+      console.warn("mp3_rate_estimate_failed", {
+        fileName: audio.name,
+        reason: error instanceof Error ? error.message : String(error)
+      });
+    }
+    nominalChunkBytes = Math.max(
+      128 * 1024,
+      Math.min(MAX_ASR_AUDIO_CHUNK_BYTES - MP3_RANGE_OVERLAP_BYTES * 2, nominalChunkBytes)
+    );
     const chunkCount = Math.max(1, Math.ceil(objectSize / nominalChunkBytes));
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
       const nominalStart = chunkIndex * nominalChunkBytes;
@@ -2359,7 +2374,8 @@ async function transcribeAudioChunk(
   fileName: string,
   chunkIndex: number,
   chunkCount: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  splitDepth = 0
 ): Promise<{ transcript: string; usage: AiAssistantUsage }> {
   const dataUrl = `data:${chunk.mimeType};base64,${bytesToBase64(chunk.bytes)}`;
   console.log("mimo_asr_request", {
@@ -2417,7 +2433,38 @@ async function transcribeAudioChunk(
     });
   }
   const choice = data.choices?.[0];
-  if (choice?.finish_reason === "length") throw new Error("转写文本达到输出长度上限，请将音频拆成多段后重试。");
+  if (choice?.finish_reason === "length") {
+    if (splitDepth >= 4 || chunk.bytes.length < 192 * 1024) {
+      throw new Error("转写文本达到输出长度上限，请将音频拆成多段后重试。");
+    }
+    const splitLimit = Math.max(96 * 1024, Math.floor(chunk.bytes.length / 2));
+    const children = splitAudioForAsr(chunk.bytes, fileName, chunk.mimeType, splitLimit);
+    if (children.length < 2) throw new Error("转写文本达到输出长度上限，请将音频拆成多段后重试。");
+    console.warn("mimo_asr_length_split", {
+      fileName,
+      chunk: chunkIndex + 1,
+      chunkCount,
+      splitDepth,
+      childCount: children.length
+    });
+    const childResults: Array<{ transcript: string; usage: AiAssistantUsage }> = [];
+    for (const child of children) {
+      childResults.push(await transcribeAudioChunk(
+        child,
+        language,
+        credentials,
+        fileName,
+        chunkIndex,
+        chunkCount,
+        signal,
+        splitDepth + 1
+      ));
+    }
+    return {
+      transcript: childResults.map((result) => result.transcript).join("\n").trim(),
+      usage: childResults.reduce((usage, result) => combineUsage(usage, result.usage), emptyUsage())
+    };
+  }
   const transcript = choice?.message?.content?.trim();
   if (!transcript) throw new Error("没有识别到有效语音内容。");
   return { transcript, usage: normalizeUsage(data.usage) };

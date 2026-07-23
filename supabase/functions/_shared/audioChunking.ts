@@ -6,9 +6,9 @@ export interface AudioChunk {
 
 // 7,000,000 raw bytes become about 9.33 MB after Base64, leaving room in MiMo's 10 MB JSON request body.
 export const MAX_ASR_AUDIO_CHUNK_BYTES = 7_000_000;
-// Keep every ASR request near three minutes. Byte-only caps make low-bitrate M4A chunks far too long
-// even when their payload is small, which increases provider timeouts and boundary errors.
-export const MAX_ASR_AUDIO_CHUNK_DURATION_MS = 3 * 60 * 1000;
+// Dense Mandarin speech can hit MiMo ASR's text-output ceiling well before the request-size ceiling.
+// Keep each request near 75 seconds; byte-only caps make low-bitrate recordings far too long.
+export const MAX_ASR_AUDIO_CHUNK_DURATION_MS = 75 * 1000;
 export const MP3_RANGE_OVERLAP_BYTES = 4_096;
 
 export function splitAudioForAsr(
@@ -75,6 +75,27 @@ export function extractMp3RangeForAsr(
   if (!frames.length) throw new Error("无法从 MP3 分段中识别有效音频帧，请转换为标准 MP3 后重试。");
   const total = frames.reduce((sum, frame) => sum + frame.end - frame.start, 0);
   return { bytes: copyFrames(bytes, frames, total), mimeType: "audio/mpeg", durationMs };
+}
+
+/** Estimate MP3 payload rate from a frame-aligned sample so R2 byte ranges also obey duration caps. */
+export function estimateMp3BytesPerSecond(bytes: Uint8Array): number {
+  let offset = id3v2End(bytes);
+  let framedBytes = 0;
+  let durationMs = 0;
+  while (offset + 4 <= bytes.length) {
+    const frame = mp3FrameInfo(bytes, offset);
+    if (!frame || offset + frame.length > bytes.length) {
+      offset += 1;
+      continue;
+    }
+    framedBytes += frame.length;
+    durationMs += frame.durationMs;
+    offset += frame.length;
+  }
+  if (durationMs < 1_000 || framedBytes < Math.min(64 * 1024, Math.max(1, bytes.length - id3v2End(bytes))) * 0.7) {
+    throw new Error("无法从 MP3 样本估算时长。");
+  }
+  return framedBytes * 1000 / durationMs;
 }
 
 function splitMp3(bytes: Uint8Array, maxBytes: number): Array<{ bytes: Uint8Array; durationMs: number }> {
