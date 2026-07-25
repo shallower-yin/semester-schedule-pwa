@@ -211,16 +211,14 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
     const channelReady = Boolean(
       health?.channelReady
       && (health?.channelImportance ?? 0) >= 4
-      && !health?.channelSoundEnabled
-      && !health?.channelVibrationEnabled
     );
     steps.push({
       id: "channel",
       label: "锁屏提醒渠道",
       status: channelReady ? "ok" : "warning",
       detail: channelReady
-        ? "高优先级、静音、不振动、锁屏可见渠道正常。"
-        : "提醒渠道被关闭、降级或改成了其他提示方式，请打开通知渠道检查。"
+        ? "高优先级提醒渠道正常；弹窗、声音、震动和锁屏展示会跟随系统通知设置。"
+        : "提醒渠道被关闭或降级，请在系统通知设置中允许弹窗、锁屏或声音/震动。"
     });
     steps.push({
       id: "exact-alarm",

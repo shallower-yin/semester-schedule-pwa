@@ -29,7 +29,7 @@ import org.json.JSONObject;
 /** Native exact-alarm scheduler plus durable diagnostics for Android reminders. */
 @CapacitorPlugin(name = "ReminderSupport")
 public class ReminderSupportPlugin extends Plugin {
-    public static final String CHANNEL_ID = "reminders-v5";
+    public static final String CHANNEL_ID = "reminders-v6";
     public static final int HEALTH_NOTIFICATION_ID = 2_147_483_645;
 
     public static void ensureChannel(Context context) {
@@ -42,19 +42,17 @@ public class ReminderSupportPlugin extends Plugin {
         manager.deleteNotificationChannel("reminders-v2");
         manager.deleteNotificationChannel("reminders-v3");
         manager.deleteNotificationChannel("reminders-v4");
+        manager.deleteNotificationChannel("reminders-v5");
         manager.deleteNotificationChannel("default");
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
             "重要日程提醒",
             NotificationManager.IMPORTANCE_HIGH
         );
-        channel.setDescription("事项、纪念日与健康活动的高优先级静音提醒");
+        channel.setDescription("事项、纪念日与健康活动的高优先级提醒，弹窗、声音、震动和锁屏展示由系统通知设置控制");
         channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         channel.enableLights(true);
         channel.setLightColor(0xff3157d5);
-        channel.enableVibration(false);
-        channel.setVibrationPattern(null);
-        channel.setSound(null, null);
         manager.createNotificationChannel(channel);
     }
 

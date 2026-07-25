@@ -1,6 +1,9 @@
 package io.github.shalloweryin.semesterschedule;
 
 import android.app.AlarmManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
@@ -19,9 +22,11 @@ import androidx.core.content.ContextCompat;
 /**
  * User-visible foreground guard for reminder reliability. Exact alarms remain authoritative; this
  * service raises process importance and keeps a durable heartbeat so OEM background kills are
- * observable. It deliberately shares the single high-priority silent reminder channel.
+ * observable. Its foreground-service notification is deliberately separated from the high-priority
+ * reminder channel so actual reminders can follow the user's system notification settings.
  */
 public class ReliableReminderService extends Service {
+    private static final String SERVICE_CHANNEL_ID = "reminder-service-v1";
     private static final String PREFS = "reliable_reminder_service_v1";
     private static final String ENABLED = "enabled";
     private static final String LAST_HEARTBEAT = "lastHeartbeatAt";
@@ -112,13 +117,14 @@ public class ReliableReminderService extends Service {
     }
 
     private android.app.Notification notification() {
+        ensureServiceChannel();
         Intent launch = new Intent(this, MainActivity.class)
             .setAction(Intent.ACTION_VIEW)
             .setData(Uri.parse("semesterschedule://notification"));
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
         PendingIntent content = PendingIntent.getActivity(this, NOTIFICATION_ID, launch, flags);
-        return new NotificationCompat.Builder(this, ReminderSupportPlugin.CHANNEL_ID)
+        return new NotificationCompat.Builder(this, SERVICE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("可靠提醒服务正在运行")
             .setContentText("日程与健康提醒已由安卓系统守护")
@@ -130,6 +136,22 @@ public class ReliableReminderService extends Service {
             .setOnlyAlertOnce(true)
             .setContentIntent(content)
             .build();
+    }
+
+    private void ensureServiceChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null || manager.getNotificationChannel(SERVICE_CHANNEL_ID) != null) return;
+        NotificationChannel channel = new NotificationChannel(
+            SERVICE_CHANNEL_ID,
+            "提醒守护服务",
+            NotificationManager.IMPORTANCE_LOW
+        );
+        channel.setDescription("保持提醒守护服务运行；真正的日程提醒使用“重要日程提醒”通道");
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+        channel.setSound(null, null);
+        channel.enableVibration(false);
+        manager.createNotificationChannel(channel);
     }
 
     private static void markHeartbeat(Context context) {
