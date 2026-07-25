@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
 import { AlertTriangle, BellRing, Camera, CheckCircle2, ClipboardCopy, Cloud, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { db, queueChange } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
 import { toISODate } from "../lib/date";
@@ -35,6 +35,16 @@ interface AccountDialogProps {
   onClose: () => void;
 }
 
+interface AvatarCropState {
+  file: File;
+  objectUrl: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  centerX: number;
+  centerY: number;
+  zoom: number;
+}
+
 export function AccountDialog({ user, pendingChanges, lastSync, syncing, message, onSync, onClose }: AccountDialogProps) {
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus | null>(null);
   const [notificationMessage, setNotificationMessage] = useState("");
@@ -50,7 +60,9 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   const [savingUsername, setSavingUsername] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(() => accountAvatarUrl(user));
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [avatarCrop, setAvatarCrop] = useState<AvatarCropState | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const avatarDragRef = useRef<{ pointerId: number; x: number; y: number; centerX: number; centerY: number } | null>(null);
   const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, message, healthRefreshKey]);
 
   useEffect(() => {
@@ -178,8 +190,9 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       };
       await db.events.put(record);
       await queueChange("events", record.id);
+      await runSync();
       setNotificationMessage(
-        `已创建 ${startTime} 的测试提醒。保持应用打开可测本地提醒，关闭应用可测后台提醒。`
+        `已创建并同步 ${startTime} 的测试提醒。现在可以关闭网页或 PWA，等待系统推送。`
       );
     } catch (error) {
       setNotificationMessage(error instanceof Error ? error.message : "创建测试提醒失败");
@@ -230,13 +243,39 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       showToast("请选择不超过 8 MB 的图片。", "error");
       return;
     }
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await loadAccountAvatarImage(objectUrl);
+      const naturalWidth = image.naturalWidth;
+      const naturalHeight = image.naturalHeight;
+      if (!naturalWidth || !naturalHeight) throw new Error("图片尺寸无效。");
+      if (avatarCrop) URL.revokeObjectURL(avatarCrop.objectUrl);
+      setAvatarCrop(clampAvatarCrop({
+        file,
+        objectUrl,
+        naturalWidth,
+        naturalHeight,
+        centerX: naturalWidth / 2,
+        centerY: naturalHeight / 2,
+        zoom: 1
+      }));
+    } catch (error) {
+      URL.revokeObjectURL(objectUrl);
+      showToast(error instanceof Error ? error.message : "无法读取这张图片。", "error");
+    } finally {
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
+
+  async function confirmAvatarCrop() {
+    if (!avatarCrop) return;
     setSavingAvatar(true);
     try {
-      const avatarBlob = await resizeAccountAvatar(file);
-      const avatarPath = `${user.id}/avatar.jpg`;
+      const avatarBlob = await cropAccountAvatar(avatarCrop);
+      const avatarPath = `${user.id}/avatar.png`;
       const { error: uploadError } = await supabase!.storage
         .from("account-avatars")
-        .upload(avatarPath, avatarBlob, { cacheControl: "3600", contentType: "image/jpeg", upsert: true });
+        .upload(avatarPath, avatarBlob, { cacheControl: "3600", contentType: "image/png", upsert: true });
       if (uploadError) throw uploadError;
       const publicUrl = supabase!.storage.from("account-avatars").getPublicUrl(avatarPath).data.publicUrl;
       const { error } = await supabase!.auth.updateUser({
@@ -244,13 +283,46 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       });
       if (error) throw error;
       setAvatarUrl(`${publicUrl}?v=${Date.now()}`);
+      URL.revokeObjectURL(avatarCrop.objectUrl);
+      setAvatarCrop(null);
       showToast("头像已更新。", "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "更新头像失败。", "error");
     } finally {
       setSavingAvatar(false);
-      if (avatarInputRef.current) avatarInputRef.current.value = "";
     }
+  }
+
+  function cancelAvatarCrop() {
+    if (avatarCrop) URL.revokeObjectURL(avatarCrop.objectUrl);
+    setAvatarCrop(null);
+  }
+
+  function startAvatarDrag(event: PointerEvent<HTMLDivElement>) {
+    if (!avatarCrop) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    avatarDragRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      centerX: avatarCrop.centerX,
+      centerY: avatarCrop.centerY
+    };
+  }
+
+  function moveAvatarDrag(event: PointerEvent<HTMLDivElement>) {
+    const drag = avatarDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !avatarCrop) return;
+    const scale = avatarCropPreviewScale(avatarCrop);
+    setAvatarCrop(clampAvatarCrop({
+      ...avatarCrop,
+      centerX: drag.centerX - (event.clientX - drag.x) / scale,
+      centerY: drag.centerY - (event.clientY - drag.y) / scale
+    }));
+  }
+
+  function stopAvatarDrag(event: PointerEvent<HTMLDivElement>) {
+    if (avatarDragRef.current?.pointerId === event.pointerId) avatarDragRef.current = null;
   }
 
   async function runSync() {
@@ -416,6 +488,44 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
           </div>
         </Modal>
       )}
+      {avatarCrop && (
+        <Modal title="裁剪头像" onClose={cancelAvatarCrop}>
+          <div className="avatar-crop-dialog">
+            <div
+              className="avatar-crop-frame"
+              onPointerDown={startAvatarDrag}
+              onPointerMove={moveAvatarDrag}
+              onPointerUp={stopAvatarDrag}
+              onPointerCancel={stopAvatarDrag}
+            >
+              <img
+                src={avatarCrop.objectUrl}
+                alt=""
+                draggable={false}
+                style={avatarCropImageStyle(avatarCrop)}
+              />
+            </div>
+            <label className="avatar-crop-zoom">
+              <span>缩放</span>
+              <input
+                aria-label="头像缩放"
+                type="range"
+                min={1}
+                max={3}
+                step={0.01}
+                value={avatarCrop.zoom}
+                onChange={(event) => setAvatarCrop((current) => current ? clampAvatarCrop({ ...current, zoom: Number(event.target.value) }) : current)}
+              />
+            </label>
+            <div className="form-actions">
+              <button type="button" className="button secondary" onClick={cancelAvatarCrop}>取消</button>
+              <button type="button" className="button primary" disabled={savingAvatar} onClick={() => void confirmAvatarCrop()}>
+                {savingAvatar ? "上传中…" : "保存头像"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -443,42 +553,58 @@ function accountAvatarUrl(user: User): string {
   return /^(?:https:\/\/|data:image\/(?:jpeg|png|webp);base64,)/i.test(value) ? value : "";
 }
 
-async function resizeAccountAvatar(file: File): Promise<Blob> {
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new Image();
-      element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error("无法读取这张图片。"));
-      element.src = objectUrl;
-    });
-    const side = Math.min(image.naturalWidth, image.naturalHeight);
-    if (!side) throw new Error("图片尺寸无效。");
-    const canvas = document.createElement("canvas");
-    canvas.width = 192;
-    canvas.height = 192;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("当前浏览器无法处理头像图片。");
-    context.fillStyle = "#f7f8fc";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(
-      image,
-      (image.naturalWidth - side) / 2,
-      (image.naturalHeight - side) / 2,
-      side,
-      side,
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error("头像图片压缩失败。"));
-      }, "image/jpeg", 0.82);
-    });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+const AVATAR_PREVIEW_SIZE = 240;
+const AVATAR_OUTPUT_SIZE = 256;
+
+function loadAccountAvatarImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    element.onerror = () => reject(new Error("无法读取这张图片。"));
+    element.src = src;
+  });
+}
+
+function avatarCropPreviewScale(crop: AvatarCropState): number {
+  return (AVATAR_PREVIEW_SIZE / Math.min(crop.naturalWidth, crop.naturalHeight)) * crop.zoom;
+}
+
+function clampAvatarCrop(crop: AvatarCropState): AvatarCropState {
+  const zoom = Math.max(1, Math.min(3, Number(crop.zoom) || 1));
+  const sourceSize = Math.min(crop.naturalWidth, crop.naturalHeight) / zoom;
+  const half = sourceSize / 2;
+  return {
+    ...crop,
+    zoom,
+    centerX: Math.max(half, Math.min(crop.naturalWidth - half, crop.centerX)),
+    centerY: Math.max(half, Math.min(crop.naturalHeight - half, crop.centerY))
+  };
+}
+
+function avatarCropImageStyle(crop: AvatarCropState): CSSProperties {
+  const scale = avatarCropPreviewScale(crop);
+  return {
+    width: crop.naturalWidth * scale,
+    height: crop.naturalHeight * scale,
+    transform: `translate(${AVATAR_PREVIEW_SIZE / 2 - crop.centerX * scale}px, ${AVATAR_PREVIEW_SIZE / 2 - crop.centerY * scale}px)`
+  };
+}
+
+async function cropAccountAvatar(crop: AvatarCropState): Promise<Blob> {
+  const image = await loadAccountAvatarImage(crop.objectUrl);
+  const sourceSize = Math.min(crop.naturalWidth, crop.naturalHeight) / crop.zoom;
+  const sourceX = Math.max(0, Math.min(crop.naturalWidth - sourceSize, crop.centerX - sourceSize / 2));
+  const sourceY = Math.max(0, Math.min(crop.naturalHeight - sourceSize, crop.centerY - sourceSize / 2));
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_OUTPUT_SIZE;
+  canvas.height = AVATAR_OUTPUT_SIZE;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("当前浏览器无法处理头像图片。");
+  context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE);
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("头像图片压缩失败。"));
+    }, "image/png");
+  });
 }

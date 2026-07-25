@@ -29,7 +29,7 @@ import org.json.JSONObject;
 /** Native exact-alarm scheduler plus durable diagnostics for Android reminders. */
 @CapacitorPlugin(name = "ReminderSupport")
 public class ReminderSupportPlugin extends Plugin {
-    public static final String CHANNEL_ID = "reminders-v4";
+    public static final String CHANNEL_ID = "reminders-v5";
     public static final int HEALTH_NOTIFICATION_ID = 2_147_483_645;
 
     public static void ensureChannel(Context context) {
@@ -41,6 +41,7 @@ public class ReminderSupportPlugin extends Plugin {
         manager.deleteNotificationChannel("reminders");
         manager.deleteNotificationChannel("reminders-v2");
         manager.deleteNotificationChannel("reminders-v3");
+        manager.deleteNotificationChannel("reminders-v4");
         manager.deleteNotificationChannel("default");
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,

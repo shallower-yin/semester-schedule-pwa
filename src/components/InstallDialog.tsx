@@ -88,22 +88,37 @@ export function InstallDialog({
             <header>
               <Smartphone size={22} />
               <div>
-                <h3>Android Edge / Chrome</h3>
-                <p>适合手机主屏幕使用，提醒和同步更顺手。</p>
+                <h3>Android 手机</h3>
+                <p>优先安装 APK；也可以继续用 Edge / Chrome 添加到主屏幕。</p>
               </div>
             </header>
             <div className="install-steps">
-              <article><span>1</span><Menu size={17} /><p>用 Edge 或 Chrome 普通窗口打开应用。</p></article>
-              <article><span>2</span><Download size={17} /><p>点击菜单里的“安装应用”或“添加到主屏幕”。</p></article>
+              <article><span>1</span><Download size={17} /><p>打开介绍与下载页，下载 Android APK。</p></article>
+              <article><span>2</span><Menu size={17} /><p>按系统提示允许本次安装或未知来源安装。</p></article>
               <article><span>3</span><Home size={17} /><p>安装后从手机桌面打开“日程计划表”。</p></article>
               <article><span>4</span><LogIn size={17} /><p>登录同一账号，让手机和电脑同步。</p></article>
             </div>
             <p className="install-note" style={{ marginTop: 12 }}>
-              也可以安装 Android APK：
               <a href={new URL("download.html", appInstallUrl).href} target="_blank" rel="noreferrer">打开介绍与下载页</a>
               {" · "}
               <a href={appMirrorApkUrl} target="_blank" rel="noreferrer">直接下载 APK</a>
             </p>
+          </section>
+
+          <section className="install-platform">
+            <header>
+              <Smartphone size={22} />
+              <div>
+                <h3>iPhone / iPad</h3>
+                <p>苹果端不安装 APK，按网页版 PWA 方式添加到主屏幕。</p>
+              </div>
+            </header>
+            <div className="install-steps">
+              <article><span>1</span><Menu size={17} /><p>用 Safari、Edge 或 Chrome 打开网页版。</p></article>
+              <article><span>2</span><Download size={17} /><p>在浏览器分享或菜单中选择“添加到主屏幕”。</p></article>
+              <article><span>3</span><Home size={17} /><p>从主屏幕图标打开应用。</p></article>
+              <article><span>4</span><LogIn size={17} /><p>登录同一账号同步数据。</p></article>
+            </div>
           </section>
         </div>
 

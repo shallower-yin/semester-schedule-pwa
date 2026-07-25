@@ -11,6 +11,9 @@ self.addEventListener("push", (event) => {
       icon: "app-icon-192.png",
       badge: "app-icon-192.png",
       tag: payload.tag || "schedule-reminder",
+      requireInteraction: true,
+      renotify: true,
+      timestamp: Date.now(),
       data: { url: payload.url || self.registration.scope }
     })
   );

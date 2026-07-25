@@ -291,17 +291,17 @@
     <section class="section" id="why">
       <p class="section-kicker">Why different</p>
       <h2>一个产品，两种打开方式</h2>
-      <p class="intro">浏览器可直接用、可安装为 PWA；安卓也可下载 APK。数据与 AI 能力走同一套后端，不再「网页一套、App 一套」。</p>
+      <p class="intro">浏览器可直接用、可安装为 PWA；Android 推荐 APK，iPhone / iPad 按网页版添加到主屏幕。数据与 AI 能力走同一套后端，不再「网页一套、App 一套」。</p>
       <div class="feature-grid">
         <article class="feature">
-          <span class="tag">网页版</span>
-          <h3>电脑 / 平板 / 手机浏览器</h3>
-          <p>Edge / Chrome 打开即可使用；支持安装到桌面或主屏幕。适合日常排课、改日程、查周视图。</p>
+          <span class="tag">网页版 / iPhone</span>
+          <h3>电脑 / iPhone / iPad 浏览器</h3>
+          <p>Edge / Chrome / Safari 打开即可使用；支持安装到桌面或添加到主屏幕。适合日常排课、改日程、查周视图。</p>
         </article>
         <article class="feature">
           <span class="tag">Android APK</span>
-          <h3>侧载安装包</h3>
-          <p>适合手机常开、需要系统级通知与更稳的前台体验。与网页登录同一账号即可同步。</p>
+          <h3>Android 侧载安装包</h3>
+          <p>适合 Android 手机常用、需要系统级通知与更稳的前台体验。与网页登录同一账号即可同步。</p>
         </article>
         <article class="feature">
           <span class="tag">同步</span>
@@ -363,8 +363,9 @@
         <div class="panel">
           <h3>建议用法</h3>
           <ol class="steps">
-            <li>电脑用网页版排课、改日程、装 PWA。</li>
-            <li>手机安装 APK 或添加主屏幕，登录<strong>同一账号</strong>。</li>
+            <li>电脑用网页版排课、改日程、安装 PWA。</li>
+            <li>Android 手机优先安装 APK，登录<strong>同一账号</strong>同步。</li>
+            <li>iPhone / iPad 继续用网页版，按浏览器菜单添加到主屏幕。</li>
             <li>在账号页执行同步；通知权限建议开启。</li>
             <li>有新版本时，APK 与网页都会弹出更新公告（说明一致）。</li>
           </ol>
@@ -372,8 +373,9 @@
         <div class="panel">
           <h3>安装提示</h3>
           <ol class="steps">
-            <li>APK 为侧载包：首次需允许「未知来源 / 本次安装」。</li>
+            <li>Android APK 为侧载包：首次需允许「未知来源 / 本次安装」。</li>
             <li>同签名覆盖安装可保留本地数据。</li>
+            <li>iPhone 不能安装 APK，使用“添加到主屏幕”即可。</li>
             <li>国内网络优先用镜像下载通道。</li>
             <li>SHA-256 可用于校验安装包完整性。</li>
           </ol>
@@ -421,7 +423,7 @@
           <button type="button" class="btn btn-ghost" id="copy-apk">复制 APK 链接</button>
         </div>
         <p class="hint">
-          适用：Android 8.0 及以上。下载后双击/点按安装即可。不确定网络时使用镜像通道下载 APK。
+          APK 适用 Android 8.0 及以上；苹果手机请点“打开网页版”，再从浏览器菜单添加到主屏幕。不确定网络时使用镜像通道下载 APK。
           无梯子镜像：<a id="mirror-link" href="#">app-hosting/download.html</a>
           （Supabase 无法直接渲染 HTML，镜像页会显示带 APK 链接的纯文本指引；本页为完整图文介绍。）
         </p>

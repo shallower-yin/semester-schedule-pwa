@@ -283,6 +283,22 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
   return record;
 }
 
+function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
+  const { server_updated_at: _serverUpdatedAt, ...payload } = record;
+  if (table !== "restSessions") return payload;
+  const restKind = payload.rest_kind;
+  return {
+    ...payload,
+    planned_seconds: Number(payload.planned_seconds ?? 0),
+    duration_seconds: Number(payload.duration_seconds ?? 0),
+    completed: Boolean(payload.completed),
+    interrupted: Boolean(payload.interrupted),
+    rest_kind: restKind === "pomodoro_short" || restKind === "pomodoro_long" ? restKind : "manual",
+    pomodoro_plan_id: payload.pomodoro_plan_id ?? null,
+    pomodoro_round: payload.pomodoro_round == null ? null : Number(payload.pomodoro_round)
+  };
+}
+
 function normalizeExerciseItems(value: unknown): string[] {
   if (!Array.isArray(value)) return ["俯卧撑", "仰卧起坐", "深蹲"];
   const items = value
@@ -634,7 +650,7 @@ async function runSync(userId: string): Promise<SyncResult> {
 
       const batchPayload: Record<string, unknown>[] = [];
       for (const { item, record } of validItems) {
-        const { server_updated_at: _serverUpdatedAt, ...payload } = record;
+        const payload = normalizeUploadPayload(config.local, record);
         const compositeKey = `${record.event_id}::${record.occurrence_date}`;
         batchPayload.push({ ...payload, id: existingMap.get(compositeKey) ?? record.id });
       }
@@ -656,10 +672,7 @@ async function runSync(userId: string): Promise<SyncResult> {
     }
 
     // All other tables: batch upsert in a single request (Supabase supports arrays natively).
-    const payloads = validItems.map(({ record }) => {
-      const { server_updated_at: _serverUpdatedAt, ...payload } = record;
-      return payload;
-    });
+    const payloads = validItems.map(({ record }) => normalizeUploadPayload(config.local, record));
     const { error } = await supabase.from(config.remote).upsert(payloads, { onConflict: "id" });
     if (error) {
       for (const { item } of validItems) {

@@ -231,11 +231,12 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
             .setContentTitle(title == null || title.isEmpty() ? "日程提醒" : title)
             .setContentText(body == null || body.isEmpty() ? "你有一条日程提醒" : body)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion)
             .setLights(0xff3157d5, 700, 1800)
+            .setDefaults(0)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .build();

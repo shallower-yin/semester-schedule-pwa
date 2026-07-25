@@ -47,6 +47,7 @@ describe("全局专注倒计时", () => {
     expect(await completeExpiredFocus("local", active, new Date("2026-07-15T08:05:05.000Z"))).toBe(true);
     expect(await db.focusSessions.count()).toBe(0);
     expect(await db.restSessions.count()).toBe(1);
+    expect((await db.restSessions.toArray())[0]).toMatchObject({ rest_kind: "manual" });
     expect(await db.syncQueue.where("table_name").equals("restSessions").count()).toBe(1);
   });
 });

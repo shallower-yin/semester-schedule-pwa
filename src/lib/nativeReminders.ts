@@ -8,7 +8,7 @@ import { ReminderSupport, type ReminderDiagnostics, type ReminderSystemStatus } 
 // (via @capacitor/local-notifications), which fire even when the app is closed. The plugin is imported
 // lazily so it never enters the web bundle or the jsdom test environment.
 
-const CHANNEL_ID = "reminders-v4";
+const CHANNEL_ID = "reminders-v5";
 // A native bridge call should return in milliseconds; anything longer is a stuck OEM implementation.
 // Bounding every call keeps the account panel from freezing on "正在检查…" the way it once did.
 const BRIDGE_TIMEOUT_MS = 8_000;

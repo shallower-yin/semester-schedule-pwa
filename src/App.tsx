@@ -1022,7 +1022,7 @@ export default function App() {
         ) : page === "focus" ? (
           <FocusPage ownerId={ownerId} />
         ) : page === "health" ? (
-          <HealthPage ownerId={ownerId} />
+          <HealthPage ownerId={ownerId} onSync={handleSync} />
         ) : page === "help" ? (
           <HelpPage />
         ) : page === "today" && todayOverview ? (
@@ -1157,11 +1157,9 @@ export default function App() {
                   <button className="setting-card" onClick={() => setShowFontSizeSettings(true)}>
                     <Type /><span><strong>字体大小</strong><small>{appFontSizeLabel(fontSize)} · APK、PWA 和网页独立保存</small></span><ChevronRight />
                   </button>
-                  {!isNativeApp() && (
-                    <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
-                      <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可从桌面或主屏幕打开" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
-                    </button>
-                  )}
+                  <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
+                    <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可查看 APK 与主屏幕安装方式" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
+                  </button>
                   <button className="setting-card" onClick={() => setShowFeedback(true)}>
                     <MessageSquareText /><span><strong>意见反馈</strong><small>向管理员提交文字、图片或文档</small></span><ChevronRight />
                   </button>

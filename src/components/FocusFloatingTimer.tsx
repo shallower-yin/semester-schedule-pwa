@@ -77,7 +77,10 @@ export async function completeExpiredFocus(ownerId: string, active: ActiveFocusS
       started_at: latest.started_at,
       ended_at: now.toISOString(),
       completed: true,
-      interrupted: false
+      interrupted: false,
+      rest_kind: latest.pomodoro_rest_kind ?? "manual",
+      pomodoro_plan_id: latest.pomodoro_plan_id ?? null,
+      pomodoro_round: latest.pomodoro_round ?? null
     };
     await db.restSessions.put(record);
     await queueChange("restSessions", record.id);

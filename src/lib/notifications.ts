@@ -166,13 +166,17 @@ export async function disableNotificationsForCurrentDevice(): Promise<void> {
 
 async function showReminder(title: string, body: string, tag: string) {
   const registration = await navigator.serviceWorker.ready;
-  await registration.showNotification(title, {
+  const options: NotificationOptions & { renotify?: boolean; timestamp?: number } = {
     body,
     tag,
     icon: `${import.meta.env.BASE_URL}app-icon-192.png`,
     badge: `${import.meta.env.BASE_URL}app-icon-192.png`,
+    requireInteraction: true,
+    renotify: true,
+    timestamp: Date.now(),
     data: { url: new URL(import.meta.env.BASE_URL, window.location.origin).toString() }
-  });
+  };
+  await registration.showNotification(title, options);
 }
 
 export async function showHealthMovementReminder(): Promise<void> {

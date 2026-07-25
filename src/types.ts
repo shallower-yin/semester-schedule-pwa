@@ -163,7 +163,7 @@ export interface RestSession extends SyncFields {
   ended_at: ISODateTime;
   completed: boolean;
   interrupted: boolean;
-  rest_kind?: "manual" | "pomodoro_short" | "pomodoro_long";
+  rest_kind: "manual" | "pomodoro_short" | "pomodoro_long";
   pomodoro_plan_id?: string | null;
   pomodoro_round?: number | null;
 }

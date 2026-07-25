@@ -11,6 +11,7 @@ import { Modal } from "./Modal";
 
 interface HealthPageProps {
   ownerId: string;
+  onSync?: () => Promise<unknown>;
 }
 
 const EXERCISE_PRESETS = {
@@ -20,7 +21,7 @@ const EXERCISE_PRESETS = {
 } as const;
 const EXERCISE_TONES = ["coral", "blue", "green"] as const;
 
-export function HealthPage({ ownerId }: HealthPageProps) {
+export function HealthPage({ ownerId, onSync }: HealthPageProps) {
   const storedProfile = useLiveQuery(
     () => db.healthProfiles.filter((item) => item.user_id === ownerId && !item.deleted_at).first(),
     [ownerId]
@@ -103,6 +104,7 @@ export function HealthPage({ ownerId }: HealthPageProps) {
     }
     await db.healthProfiles.put(next);
     await queueChange("healthProfiles", next.id);
+    if (next.movement_reminder_enabled) await onSync?.();
     void refreshHealthReminders();
     if (weight.trim()) {
       const nextWeight = clampOptional(Number(weight), 20, 500);
