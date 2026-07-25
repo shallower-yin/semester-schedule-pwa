@@ -108,7 +108,7 @@ import { appHistoryLayer, appHistoryPage, initializeAppHistory, navigateAppHisto
 import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { appMirrorApkUrl } from "./lib/appHosting";
-import { clearSkippedRelease, fetchLatestRelease, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
+import { apkDownloadUrlForRelease, clearSkippedRelease, fetchLatestRelease, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
@@ -635,8 +635,7 @@ export default function App() {
     if (isNativeApp()) {
       try {
         // Absolute HTTPS only — relative paths fail in the native downloader and look like "未配置".
-        const candidate = release.apkUrl?.trim() || "";
-        const apkUrl = /^https?:\/\//i.test(candidate) ? candidate : appMirrorApkUrl;
+        const apkUrl = apkDownloadUrlForRelease(release) || appMirrorApkUrl;
         if (!apkUrl || !/^https?:\/\//i.test(apkUrl)) {
           throw new Error("当前更新通道尚未配置 APK 下载地址，请稍后从分发页安装，或联系管理员。");
         }

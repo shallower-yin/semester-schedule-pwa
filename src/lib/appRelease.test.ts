@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { appMirrorApkUrl } from "./appHosting";
 import {
   clearSkippedRelease,
+  apkDownloadUrlForRelease,
   ensureAbsoluteApkUrl,
   shouldShowNativeRelease,
   shouldShowRelease,
@@ -84,5 +85,16 @@ describe("版本更新说明", () => {
       apkVersionCode: 11
     });
     expect(codeOnly?.apkUrl).toBe(appMirrorApkUrl);
+  });
+
+  it("APK 下载地址带版本、versionCode 和 sha 参数，避免命中旧安装包缓存", () => {
+    const url = apkDownloadUrlForRelease({
+      ...release,
+      apkSha256: "abcdef1234567890abcdef1234567890"
+    });
+    expect(url).toContain("https://example.com/app/app.apk?");
+    expect(url).toContain("v=2026.07.18.2");
+    expect(url).toContain("code=9");
+    expect(url).toContain("sha=abcdef1234567890");
   });
 });

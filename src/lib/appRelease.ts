@@ -110,6 +110,22 @@ export function ensureAbsoluteApkUrl(release: AppRelease | null): AppRelease | n
   return release;
 }
 
+export function apkDownloadUrlForRelease(release: AppRelease): string | undefined {
+  const rawUrl = release.apkUrl || (release.apkVersionCode ? appMirrorApkUrl : undefined);
+  const resolved = resolveReleaseApkUrl(rawUrl);
+  if (!resolved) return undefined;
+  try {
+    const url = new URL(resolved);
+    if (release.version) url.searchParams.set("v", release.version);
+    if (release.apkVersionCode) url.searchParams.set("code", String(release.apkVersionCode));
+    if (release.apkSha256) url.searchParams.set("sha", release.apkSha256.slice(0, 16));
+    url.searchParams.set("t", String(Date.now()));
+    return url.href;
+  } catch {
+    return resolved;
+  }
+}
+
 async function fetchRelease(url: string): Promise<AppRelease | null> {
   const controller = new AbortController();
   // Mobile networks to the asset mirror often need more than a few seconds.

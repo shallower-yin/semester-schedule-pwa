@@ -68,7 +68,7 @@ for (const absolutePath of files) {
   const objectPath = relative(sourceDir, absolutePath).split(sep).join("/");
   deployedPaths.add(objectPath);
   const content = await readFile(absolutePath);
-  const cacheControl = /^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(objectPath) ? "0" : "31536000";
+  const cacheControl = /^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(objectPath) || /\.apk$/i.test(objectPath) ? "0" : "31536000";
   const { error } = await client.storage.from(bucket).upload(objectPath, content, {
     upsert: true,
     cacheControl,

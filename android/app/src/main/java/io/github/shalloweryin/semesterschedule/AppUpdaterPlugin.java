@@ -168,6 +168,9 @@ public class AppUpdaterPlugin extends Plugin {
         connection.setConnectTimeout(20_000);
         connection.setReadTimeout(60_000);
         connection.setInstanceFollowRedirects(true);
+        connection.setUseCaches(false);
+        connection.setRequestProperty("Cache-Control", "no-store, no-cache, max-age=0");
+        connection.setRequestProperty("Pragma", "no-cache");
         connection.connect();
         int status = connection.getResponseCode();
         if (status < 200 || status >= 300) {
