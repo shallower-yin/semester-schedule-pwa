@@ -144,7 +144,7 @@ jobs:
           VITE_OUT_DIR: dist-mirror
           VITE_APK_VERSION_CODE: ${{ steps.apk.outputs.code }}
           VITE_APK_SHA256: ${{ steps.apk.outputs.sha }}
-          VITE_APK_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/android/semester-schedule.apk
+          VITE_APK_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/android/semester-schedule.apk?code=${{ steps.apk.outputs.code }}&sha=${{ steps.apk.outputs.sha }}
         run: |
           set -euo pipefail
           # Preserve staged APK across vite clean of outDir
