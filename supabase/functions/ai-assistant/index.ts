@@ -211,15 +211,22 @@ interface AiSettingsRow {
   ordinary_weekly_limit: number;
   member_daily_limit: number;
   member_weekly_limit: number;
-  provider: "deepseek" | "mimo";
+  provider: AiProvider;
   model: string;
   mimo_channel: "payg" | "token_plan";
+  audio_provider: AudioProvider;
+  audio_model: string;
   feature_quotas?: Partial<Record<AiFeatureKey, AiFeatureQuotaSettings>>;
 }
+
+type AiProvider = "deepseek" | "mimo" | "siliconflow" | "tju";
+type AudioProvider = "mimo" | "siliconflow";
 
 interface ProviderCredentials {
   apiKey: string;
   endpoint: string;
+  provider?: AiProvider | AudioProvider;
+  model?: string;
 }
 
 interface UploadedAudioInput {
@@ -251,7 +258,14 @@ class PublicHttpError extends Error {
 
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
+  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"],
+  siliconflow: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"],
+  tju: ["tju-llm"]
+} as const;
+
+const AUDIO_MODELS = {
+  mimo: ["mimo-v2.5-asr"],
+  siliconflow: ["TeleAI/TeleSpeechASR", "FunAudioLLM/SenseVoiceSmall"]
 } as const;
 
 const MAX_AI_ACTIONS = 20;
@@ -396,13 +410,15 @@ Deno.serve(async (request) => {
     const serviceRoleKey = serviceRoleSecret();
     const settings = serviceRoleKey ? await getAiSettings(serviceRoleKey) : null;
     if (body.action === "configuration") {
-      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+      const provider = configuredProvider(settings);
       return jsonResponse({
         provider,
         model: configuredModel(settings),
         mimoChannel: configuredMimoChannel(settings),
+        audioProvider: configuredAudioProvider(settings),
+        audioModel: configuredAudioModel(settings),
         supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
-        supportsAudioTranscription: Boolean(configuredMimoAudioCredentials(settings).apiKey),
+        supportsAudioTranscription: Boolean(configuredAudioCredentials(settings).apiKey),
         maxDocumentPages: configuredMaxDocumentPages()
       });
     }
@@ -418,7 +434,7 @@ Deno.serve(async (request) => {
       if (!constantTimeEqual(suppliedSignature, expectedSignature)) {
         return jsonResponse({ error: "音频分段签名无效，请重新开始转写。", code: "AUDIO_RANGE_SIGNATURE" }, 403);
       }
-      const credentials = configuredMimoAudioCredentials(settings);
+      const credentials = configuredAudioCredentials(settings);
       if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
       // Byte-range extract often fails on real-world MP3 (VBR/padding). Prefer full-object
       // frame scan for the nominal window — R2/API cost is acceptable for completion quality.
@@ -442,7 +458,7 @@ Deno.serve(async (request) => {
       if (!constantTimeEqual(suppliedSignature, expectedSignature)) {
         return jsonResponse({ error: "音频分段签名无效，请重新开始转写。", code: "AUDIO_PART_SIGNATURE" }, 403);
       }
-      const credentials = configuredMimoAudioCredentials(settings);
+      const credentials = configuredAudioCredentials(settings);
       if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
       const rawBytes = await downloadR2AudioObject(part.objectKey);
       if (rawBytes.length !== part.size || rawBytes.length > MAX_ASR_AUDIO_CHUNK_BYTES) {
@@ -454,7 +470,7 @@ Deno.serve(async (request) => {
       );
       return jsonResponse({
         transcript: results.map((result) => result.transcript).join("\n\n"),
-        model: "mimo-v2.5-asr-signed-part",
+        model: `${configuredAudioModel(settings)}-signed-part`,
         usage: results.reduce((usage, result) => combineUsage(usage, result.usage), emptyUsage())
       });
     }
@@ -472,7 +488,7 @@ Deno.serve(async (request) => {
       accessMethod = batchAccess.method ?? "";
       const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
       if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
-      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+      const provider = configuredProvider(settings);
       const model = configuredModel(settings);
       const credentials = configuredProviderCredentials(provider, settings);
       if (!credentials.apiKey) throw new Error("扫描 PDF 读取服务暂未配置。");
@@ -500,7 +516,7 @@ Deno.serve(async (request) => {
       accessMethod = batchAccess.method ?? "";
       const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
       if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
-      const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+      const provider = configuredProvider(settings);
       const model = configuredModel(settings);
       const credentials = configuredProviderCredentials(provider, settings);
       if (!credentials.apiKey) throw new Error("长文档整理服务暂未配置。");
@@ -732,7 +748,7 @@ Deno.serve(async (request) => {
     }
 
     const history = sanitizeHistory(body.history);
-    const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+    const provider = configuredProvider(settings);
     const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)), user.id);
     observedUsage = attachments.reduce((usage, attachment) => combineUsage(usage, attachment.processingUsage ?? emptyUsage()), emptyUsage());
     if (mode === "mind_map_followup") {
@@ -1058,7 +1074,7 @@ function beijingPeriodStart(period: "day" | "week"): { iso: string; time: number
 
 async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | null> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
-  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,feature_quotas");
+  url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,audio_provider,audio_model,feature_quotas");
   url.searchParams.set("id", "eq.true");
   url.searchParams.set("limit", "1");
   const response = await fetch(url, {
@@ -1141,7 +1157,7 @@ async function askConfiguredProvider(
   mindMapDepth: MindMapDepth,
   signal?: AbortSignal
 ): Promise<AiAssistantResponse> {
-  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const provider = configuredProvider(settings);
   const { apiKey, endpoint } = configuredProviderCredentials(provider, settings);
   if (!apiKey) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const model = configuredModel(settings);
@@ -1253,7 +1269,7 @@ async function askConfiguredProvider(
           content: userContent
         }
       ],
-      thinking: { type: "disabled" },
+      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
       temperature: mode === "mind_map" ? 0.3 : 0.2,
       ...(provider === "mimo" ? { max_completion_tokens: completionLimit } : { max_tokens: completionLimit }),
       ...(supportsJsonOutput ? { response_format: { type: "json_object" } } : {}),
@@ -1328,7 +1344,7 @@ async function askConfiguredProvider(
 async function resolveRemoteDocumentAttachments(
   attachments: AiAssistantAttachment[],
   providerConfig: {
-    provider: "deepseek" | "mimo";
+    provider: AiProvider;
     model: string;
     apiKey: string;
     endpoint: string;
@@ -1382,7 +1398,7 @@ async function extractRemoteDocumentBatch(
   documentName: string,
   pages: NonNullable<AiAssistantAttachment["remotePages"]>,
   providerConfig: {
-    provider: "deepseek" | "mimo";
+    provider: AiProvider;
     model: string;
     apiKey: string;
     endpoint: string;
@@ -1423,7 +1439,7 @@ async function extractRemoteDocumentBatch(
           ]
         }
       ],
-      thinking: { type: "disabled" },
+      ...(providerConfig.provider === "deepseek" || providerConfig.provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
       temperature: 0.1,
       ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
       stream: false
@@ -1484,7 +1500,7 @@ function sanitizeDocumentTextBatch(value: AiAssistantRequest["document"]): {
 async function summarizeDocumentTextBatch(
   batch: ReturnType<typeof sanitizeDocumentTextBatch>,
   providerConfig: {
-    provider: "deepseek" | "mimo";
+    provider: AiProvider;
     model: string;
     apiKey: string;
     endpoint: string;
@@ -1516,7 +1532,7 @@ async function summarizeDocumentTextBatch(
           content: `文档“${batch.name}”第 ${batch.startPage}-${batch.endPage} 页：\n\n${batch.text}`
         }
       ],
-      thinking: { type: "disabled" },
+      ...(providerConfig.provider === "deepseek" || providerConfig.provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
       temperature: 0.1,
       ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
       stream: false
@@ -1637,12 +1653,39 @@ function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
 }
 
 function configuredModel(settings: AiSettingsRow | null): string {
-  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const provider = configuredProvider(settings);
   const stored = settings?.model?.trim();
   if (stored && (AI_MODELS[provider] as readonly string[]).includes(stored)) return stored;
-  const secretModel = optionalSecret(provider === "mimo" ? "MIMO_MODEL" : "DEEPSEEK_MODEL");
+  const secretModel = optionalSecret(providerModelEnvName(provider));
   if (secretModel && (AI_MODELS[provider] as readonly string[]).includes(secretModel)) return secretModel;
-  return provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash";
+  if (provider === "mimo") return "mimo-v2.5";
+  if (provider === "siliconflow") return "Qwen/Qwen3-32B";
+  if (provider === "tju") return "tju-llm";
+  return "deepseek-v4-flash";
+}
+
+function configuredProvider(settings: AiSettingsRow | null): AiProvider {
+  return settings?.provider === "mimo" || settings?.provider === "siliconflow" || settings?.provider === "tju" ? settings.provider : "deepseek";
+}
+
+function providerModelEnvName(provider: AiProvider): string {
+  if (provider === "mimo") return "MIMO_MODEL";
+  if (provider === "siliconflow") return "SILICONFLOW_MODEL";
+  if (provider === "tju") return "TJU_AGENT2026_MODEL";
+  return "DEEPSEEK_MODEL";
+}
+
+function configuredAudioProvider(settings: AiSettingsRow | null): AudioProvider {
+  return settings?.audio_provider === "siliconflow" ? "siliconflow" : "mimo";
+}
+
+function configuredAudioModel(settings: AiSettingsRow | null): string {
+  const provider = configuredAudioProvider(settings);
+  const stored = settings?.audio_model?.trim();
+  if (stored && (AUDIO_MODELS[provider] as readonly string[]).includes(stored)) return stored;
+  const secretModel = optionalSecret(provider === "siliconflow" ? "SILICONFLOW_ASR_MODEL" : "MIMO_ASR_MODEL");
+  if (secretModel && (AUDIO_MODELS[provider] as readonly string[]).includes(secretModel)) return secretModel;
+  return provider === "siliconflow" ? "TeleAI/TeleSpeechASR" : "mimo-v2.5-asr";
 }
 
 function configuredMimoChannel(settings: AiSettingsRow | null): "payg" | "token_plan" {
@@ -1651,7 +1694,7 @@ function configuredMimoChannel(settings: AiSettingsRow | null): "payg" | "token_
 
 function configuredModelDisplayName(settings: AiSettingsRow | null): string {
   const model = configuredModel(settings);
-  if (settings?.provider !== "mimo") return model;
+  if (configuredProvider(settings) !== "mimo") return model;
   return `${model}（${configuredMimoChannel(settings) === "token_plan" ? "Token Plan" : "按量 API"}）`;
 }
 
@@ -1906,7 +1949,37 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
   if (uploadedAudios.length) return await transcribeUploadedAudios(uploadedAudios, body, settings, userId, authorization, signal);
 
   const audio = sanitizeTranscriptionAudio(body.audio);
-  const credentials = configuredMimoAudioCredentials(settings);
+  const credentials = configuredAudioCredentials(settings);
+  {
+    if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
+    const audioModelName = configuredAudioModel(settings);
+    const transcription = await transcribeAudioChunk(audioDataUrlToChunk(audio.dataUrl), body.audioLanguage, credentials, "audio", 0, 1, signal);
+    const transcript = transcription.transcript;
+    const transcriptionUsage = transcription.usage;
+    if (!body.summarizeAudio) {
+      return { transcript, summary: null, warning: null, model: audioModelName, usage: transcriptionUsage };
+    }
+    try {
+      const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
+      return {
+        transcript,
+        summary: summaryResponse.summary,
+        warning: null,
+        model: `${audioModelName} + ${summaryResponse.model}`,
+        usage: combineUsage(transcriptionUsage, summaryResponse.usage)
+      };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      console.error(error);
+      return {
+        transcript,
+        summary: null,
+        warning: "转写已完成，但摘要生成失败。",
+        model: audioModelName,
+        usage: transcriptionUsage
+      };
+    }
+  }
   if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
   const response = await fetch(credentials.endpoint, {
     method: "POST",
@@ -1917,7 +1990,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
     },
     signal,
     body: JSON.stringify({
-      model: "mimo-v2.5-asr",
+      model: credentials.model || "mimo-v2.5-asr",
       messages: [{
         role: "user",
         content: [{ type: "input_audio", input_audio: { data: audio.dataUrl } }]
@@ -1957,7 +2030,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
       transcript,
       summary: null,
       warning: "转写已完成，但摘要生成失败。",
-      model: "mimo-v2.5-asr",
+      model: credentials.model || "mimo-v2.5-asr",
       usage: transcriptionUsage
     };
   }
@@ -2128,8 +2201,9 @@ async function finalizeProgressiveAudioTranscription(
     parts.push(audios.length === 1 ? fileTranscript : `【第 ${index + 1} 个文件：${audio.name}】\n${fileTranscript}`);
   }
   const transcript = parts.join("\n\n");
+  const audioModelName = `${configuredAudioModel(settings)}-chunked`;
   if (!body.summarizeAudio) {
-    return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: emptyUsage() };
+    return { transcript, summary: null, warning: null, model: audioModelName, usage: emptyUsage() };
   }
   try {
     const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
@@ -2137,7 +2211,7 @@ async function finalizeProgressiveAudioTranscription(
       transcript,
       summary: summaryResponse.summary,
       warning: null,
-      model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
+      model: `${audioModelName} + ${summaryResponse.model}`,
       usage: summaryResponse.usage
     };
   } catch (error) {
@@ -2147,7 +2221,7 @@ async function finalizeProgressiveAudioTranscription(
       transcript,
       summary: null,
       warning: "转写已完成，但摘要生成失败。",
-      model: "mimo-v2.5-asr-chunked",
+      model: audioModelName,
       usage: emptyUsage()
     };
   }
@@ -2168,10 +2242,10 @@ async function transcribeUploadedAudios(
   usage: AiAssistantUsage;
 }> {
   // Keep objects until R2 lifecycle expires ai-audio/ (7 days). No immediate delete.
-  const credentials = configuredMimoAudioCredentials(settings);
+  const credentials = configuredAudioCredentials(settings);
   if (!credentials.apiKey) {
     throw new DiagnosticError("音频转写服务暂未配置，请联系管理员。", {
-      stage: "mimo_credentials_missing"
+      stage: "audio_credentials_missing"
     });
   }
   console.log("audio_transcription start", {
@@ -2179,8 +2253,8 @@ async function transcribeUploadedAudios(
     endpointHost: (() => {
       try { return new URL(credentials.endpoint).host; } catch { return "invalid"; }
     })(),
-    // Do not log the key; only whether payg secret is present on this function instance.
-    hasPaygKey: Boolean(credentials.apiKey)
+    audioProvider: configuredAudioProvider(settings),
+    hasAudioKey: Boolean(credentials.apiKey)
   });
   const parts: string[] = [];
   let transcriptionUsage = emptyUsage();
@@ -2215,8 +2289,7 @@ async function transcribeUploadedAudios(
     console.log("audio_transcription r2_ready", {
       fileName: audio.name,
       bytes: rawBytes.length,
-      // Next step is the first MiMo ASR HTTP call for this file.
-      next: "mimo_asr"
+      next: `${configuredAudioProvider(settings)}_asr`
     });
     const chunks = splitAudioForAsr(rawBytes, audio.name, audio.mimeType);
     // Long jobs use lower concurrency to reduce MiMo 429/5xx bursts; short jobs stay at 2.
@@ -2243,8 +2316,9 @@ async function transcribeUploadedAudios(
     transcriptionUsage = results.reduce((usage, result) => combineUsage(usage, result.usage), transcriptionUsage);
   }
   const transcript = parts.join("\n\n");
+  const audioModelName = `${configuredAudioModel(settings)}-chunked`;
   if (!body.summarizeAudio) {
-    return { transcript, summary: null, warning: null, model: "mimo-v2.5-asr-chunked", usage: transcriptionUsage };
+    return { transcript, summary: null, warning: null, model: audioModelName, usage: transcriptionUsage };
   }
   try {
     const summaryResponse = await summarizeAudioTranscript(transcript, settings, signal);
@@ -2252,7 +2326,7 @@ async function transcribeUploadedAudios(
       transcript,
       summary: summaryResponse.summary,
       warning: null,
-      model: `mimo-v2.5-asr-chunked + ${summaryResponse.model}`,
+      model: `${audioModelName} + ${summaryResponse.model}`,
       usage: combineUsage(transcriptionUsage, summaryResponse.usage)
     };
   } catch (error) {
@@ -2262,7 +2336,7 @@ async function transcribeUploadedAudios(
       transcript,
       summary: null,
       warning: "转写已完成，但摘要生成失败。",
-      model: "mimo-v2.5-asr-chunked",
+      model: audioModelName,
       usage: transcriptionUsage
     };
   }
@@ -2381,6 +2455,9 @@ async function transcribeAudioChunk(
   signal?: AbortSignal,
   splitDepth = 0
 ): Promise<{ transcript: string; usage: AiAssistantUsage }> {
+  if (credentials.provider === "siliconflow") {
+    return await transcribeAudioChunkWithSiliconFlow(chunk, language, credentials, fileName, chunkIndex, chunkCount, signal);
+  }
   const dataUrl = `data:${chunk.mimeType};base64,${bytesToBase64(chunk.bytes)}`;
   console.log("mimo_asr_request", {
     fileName,
@@ -2401,7 +2478,7 @@ async function transcribeAudioChunk(
     },
     signal,
     body: JSON.stringify({
-      model: "mimo-v2.5-asr",
+      model: credentials.model || "mimo-v2.5-asr",
       messages: [{ role: "user", content: [{ type: "input_audio", input_audio: { data: dataUrl } }] }],
       asr_options: { language: language === "zh" || language === "en" ? language : "auto" },
       stream: false
@@ -2472,6 +2549,83 @@ async function transcribeAudioChunk(
   const transcript = choice?.message?.content?.trim();
   if (!transcript) throw new Error("没有识别到有效语音内容。");
   return { transcript, usage: normalizeUsage(data.usage) };
+}
+
+async function transcribeAudioChunkWithSiliconFlow(
+  chunk: AudioChunk,
+  language: AiAssistantRequest["audioLanguage"],
+  credentials: ProviderCredentials,
+  fileName: string,
+  chunkIndex: number,
+  chunkCount: number,
+  signal?: AbortSignal
+): Promise<{ transcript: string; usage: AiAssistantUsage }> {
+  const model = credentials.model || "TeleAI/TeleSpeechASR";
+  console.log("siliconflow_asr_request", {
+    fileName,
+    chunk: chunkIndex + 1,
+    chunkCount,
+    chunkBytes: chunk.bytes.length,
+    model,
+    endpointHost: (() => {
+      try { return new URL(credentials.endpoint).host; } catch { return "invalid"; }
+    })()
+  });
+  const form = new FormData();
+  form.set("model", model);
+  if (language === "zh" || language === "en") form.set("language", language);
+  form.set("file", new Blob([chunk.bytes], { type: chunk.mimeType || "application/octet-stream" }), normalizedAudioFileName(fileName, chunk.mimeType));
+  const { ok, status, text } = await fetchTextWithTransientRetry(credentials.endpoint, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${credentials.apiKey}`
+    },
+    body: form,
+    signal
+  }, 5, signal);
+  if (!ok) {
+    throw new DiagnosticError(`音频“${fileName}”第 ${chunkIndex + 1}/${chunkCount} 段转写失败（HTTP ${status}），请稍后重试。`, {
+      stage: "siliconflow_asr",
+      providerStatus: status,
+      providerError: safeProviderError(text),
+      fileName,
+      chunk: chunkIndex + 1,
+      chunkCount,
+      chunkBytes: chunk.bytes.length,
+      chunkDurationMs: chunk.durationMs ?? null,
+      mimeType: chunk.mimeType
+    });
+  }
+  let data: {
+    text?: string;
+    transcript?: string;
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: Partial<AiAssistantUsage>;
+  };
+  try {
+    data = JSON.parse(text) as typeof data;
+  } catch {
+    throw new DiagnosticError("硅基流动音频服务返回了无法解析的结果，请联系管理员并提供诊断编号。", {
+      stage: "siliconflow_asr_parse",
+      fileName,
+      chunk: chunkIndex + 1,
+      chunkCount,
+      responsePreview: text.slice(0, 300)
+    });
+  }
+  const transcript = (data.text ?? data.transcript ?? data.choices?.[0]?.message?.content ?? "").trim();
+  if (!transcript) throw new Error("没有识别到有效语音内容。");
+  return { transcript, usage: normalizeUsage(data.usage) };
+}
+
+function normalizedAudioFileName(fileName: string, mimeType: string): string {
+  const safe = fileName.replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(0, 120) || "audio";
+  if (/\.[a-z0-9]{2,5}$/i.test(safe)) return safe;
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return `${safe}.mp3`;
+  if (mimeType.includes("wav")) return `${safe}.wav`;
+  if (mimeType.includes("aac")) return `${safe}.aac`;
+  if (mimeType.includes("mp4") || mimeType.includes("m4a")) return `${safe}.m4a`;
+  return `${safe}.bin`;
 }
 
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>, signal?: AbortSignal): Promise<R[]> {
@@ -2636,12 +2790,21 @@ function sanitizeTranscriptionAudio(value: AiAssistantRequest["audio"]): { dataU
   return { dataUrl };
 }
 
+function audioDataUrlToChunk(dataUrl: string): AudioChunk {
+  const match = dataUrl.match(/^data:(audio\/[^;]+);base64,([\s\S]+)$/i);
+  if (!match) throw new Error("音频编码无效，请重新选择文件。");
+  const binary = atob(match[2].replace(/\s+/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return { bytes, mimeType: match[1].toLowerCase() };
+}
+
 async function summarizeAudioTranscript(transcript: string, settings: AiSettingsRow | null, signal?: AbortSignal): Promise<{
   summary: string;
   model: string;
   usage: AiAssistantUsage;
 }> {
-  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const provider = configuredProvider(settings);
   const credentials = configuredProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("音频已转写，但摘要模型暂未配置。");
   const model = configuredModel(settings);
@@ -2659,7 +2822,7 @@ async function summarizeAudioTranscript(transcript: string, settings: AiSettings
         { role: "system", content: "你是录音整理助手。请忠于转写原文，用简洁中文输出主题、要点、结论和明确的待办；没有的信息不要补充。" },
         { role: "user", content: transcript.slice(0, 24_000) }
       ],
-      thinking: { type: "disabled" },
+      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
       temperature: 0.2,
       max_tokens: 1200,
       stream: false
@@ -2686,7 +2849,7 @@ async function answerAudioTranscript(
   settings: AiSettingsRow | null,
   signal?: AbortSignal
 ): Promise<{ answer: string; model: string; usage: AiAssistantUsage }> {
-  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const provider = configuredProvider(settings);
   const credentials = configuredProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("音频问答模型暂未配置，请稍后再试。");
   const model = configuredModel(settings);
@@ -2713,7 +2876,7 @@ async function answerAudioTranscript(
           content: `转写原文：\n${transcript.slice(0, 30_000)}\n\n最近问答：\n${historyText}\n\n当前问题：${question}`
         }
       ],
-      thinking: { type: "disabled" },
+      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
       temperature: 0.2,
       max_tokens: 1400,
       stream: false
@@ -2741,7 +2904,7 @@ async function answerMindMapFollowup(
   settings: AiSettingsRow | null,
   signal?: AbortSignal
 ): Promise<{ answer: string; model: string; usage: AiAssistantUsage }> {
-  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const provider = configuredProvider(settings);
   const credentials = configuredProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("思维导图问答模型暂未配置，请稍后再试。");
   const model = configuredModel(settings);
@@ -2796,7 +2959,7 @@ async function answerMindMapFollowup(
         },
         { role: "user", content: userContent }
       ],
-      thinking: { type: "disabled" },
+      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
       temperature: 0.45,
       ...(provider === "mimo" ? { max_completion_tokens: 1800 } : { max_tokens: 1800 }),
       stream: false
@@ -2837,15 +3000,35 @@ function combineUsage(left: AiAssistantUsage, right: AiAssistantUsage): AiAssist
   };
 }
 
-function configuredProviderCredentials(provider: "deepseek" | "mimo", settings: AiSettingsRow | null): ProviderCredentials {
+function configuredProviderCredentials(provider: AiProvider, settings: AiSettingsRow | null): ProviderCredentials {
   if (provider === "deepseek") {
     return {
       apiKey: optionalSecret("DEEPSEEK_API_KEY"),
-      endpoint: "https://api.deepseek.com/chat/completions"
+      endpoint: "https://api.deepseek.com/chat/completions",
+      provider,
+      model: configuredModel(settings)
     };
   }
 
-  return configuredMimoCredentials(settings);
+  if (provider === "mimo") return configuredMimoCredentials(settings);
+
+  if (provider === "siliconflow") {
+    const baseUrl = optionalSecret("SILICONFLOW_BASE_URL") || "https://api.siliconflow.cn/v1";
+    return {
+      apiKey: optionalSecret("SILICONFLOW_API_KEY"),
+      endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+      provider,
+      model: configuredModel(settings)
+    };
+  }
+
+  const baseUrl = optionalSecret("TJU_AGENT2026_BASE_URL") || "https://ai.tju.edu.cn/api/agent2026/gitlab-66-agent2026-semester-schedule";
+  return {
+    apiKey: optionalSecret("TJU_AGENT2026_API_KEY"),
+    endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+    provider,
+    model: configuredModel(settings)
+  };
 }
 
 function configuredMimoCredentials(settings: AiSettingsRow | null): ProviderCredentials {
@@ -2863,7 +3046,9 @@ function configuredMimoCredentials(settings: AiSettingsRow | null): ProviderCred
 
   return {
     apiKey,
-    endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`
+    endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+    provider: "mimo",
+    model: configuredModel(settings)
   };
 }
 
@@ -2873,7 +3058,22 @@ function configuredMimoAudioCredentials(_settings: AiSettingsRow | null): Provid
   const baseUrl = optionalSecret("MIMO_PAYG_BASE_URL") || "https://api.xiaomimimo.com/v1";
   return {
     apiKey: paygApiKey,
-    endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`
+    endpoint: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
+    provider: "mimo",
+    model: "mimo-v2.5-asr"
+  };
+}
+
+function configuredAudioCredentials(settings: AiSettingsRow | null): ProviderCredentials {
+  const provider = configuredAudioProvider(settings);
+  const model = configuredAudioModel(settings);
+  if (provider === "mimo") return { ...configuredMimoAudioCredentials(settings), provider, model };
+  const baseUrl = optionalSecret("SILICONFLOW_BASE_URL") || "https://api.siliconflow.cn/v1";
+  return {
+    apiKey: optionalSecret("SILICONFLOW_API_KEY"),
+    endpoint: `${baseUrl.replace(/\/+$/, "")}/audio/transcriptions`,
+    provider,
+    model
   };
 }
 
@@ -2885,7 +3085,7 @@ function isTokenPlanBaseUrl(value: string): boolean {
   }
 }
 
-function modelSupportsAttachments(provider: "deepseek" | "mimo", model: string): boolean {
+function modelSupportsAttachments(provider: AiProvider, model: string): boolean {
   return provider === "mimo" && model === "mimo-v2.5";
 }
 

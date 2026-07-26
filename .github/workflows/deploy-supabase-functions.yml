@@ -60,10 +60,29 @@ jobs:
             --header "Content-Type: application/json" \
             --data @/tmp/ai-call-records-query.json
 
+      - name: Apply AI provider and audio route migration
+        env:
+          MIGRATION_FILE: supabase/migrations/20260726_ai_provider_audio_routes.sql
+        run: |
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-provider-audio-routes-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/ai-provider-audio-routes-query.json
+
       - name: Configure function secrets
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
+          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+          SILICONFLOW_BASE_URL: ${{ vars.SILICONFLOW_BASE_URL || 'https://api.siliconflow.cn/v1' }}
+          SILICONFLOW_MODEL: ${{ vars.SILICONFLOW_MODEL || 'Qwen/Qwen3-32B' }}
+          SILICONFLOW_ASR_MODEL: ${{ vars.SILICONFLOW_ASR_MODEL || 'TeleAI/TeleSpeechASR' }}
+          TJU_AGENT2026_API_KEY: ${{ secrets.TJU_AGENT2026_API_KEY }}
+          TJU_AGENT2026_BASE_URL: ${{ vars.TJU_AGENT2026_BASE_URL || 'https://ai.tju.edu.cn/api/agent2026/gitlab-66-agent2026-semester-schedule' }}
+          TJU_AGENT2026_MODEL: ${{ vars.TJU_AGENT2026_MODEL || 'tju-llm' }}
           MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
           MIMO_BASE_URL: ${{ vars.MIMO_BASE_URL }}
           MIMO_PAYG_API_KEY: ${{ secrets.MIMO_PAYG_API_KEY }}
@@ -93,10 +112,21 @@ jobs:
             AI_ASSISTANT_MEMBER_WEEKLY_LIMIT="$AI_ASSISTANT_MEMBER_WEEKLY_LIMIT" \
             AI_MAX_DOCUMENT_PAGES="$AI_MAX_DOCUMENT_PAGES" \
             MIMO_PAYG_BASE_URL="$MIMO_PAYG_BASE_URL" \
-            MIMO_TOKEN_PLAN_BASE_URL="$MIMO_TOKEN_PLAN_BASE_URL"
+            MIMO_TOKEN_PLAN_BASE_URL="$MIMO_TOKEN_PLAN_BASE_URL" \
+            SILICONFLOW_BASE_URL="$SILICONFLOW_BASE_URL" \
+            SILICONFLOW_MODEL="$SILICONFLOW_MODEL" \
+            SILICONFLOW_ASR_MODEL="$SILICONFLOW_ASR_MODEL" \
+            TJU_AGENT2026_BASE_URL="$TJU_AGENT2026_BASE_URL" \
+            TJU_AGENT2026_MODEL="$TJU_AGENT2026_MODEL"
           supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
           if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY"
+          fi
+          if [ -n "${SILICONFLOW_API_KEY:-}" ]; then
+            supabase secrets set --project-ref "$PROJECT_REF" SILICONFLOW_API_KEY="$SILICONFLOW_API_KEY"
+          fi
+          if [ -n "${TJU_AGENT2026_API_KEY:-}" ]; then
+            supabase secrets set --project-ref "$PROJECT_REF" TJU_AGENT2026_API_KEY="$TJU_AGENT2026_API_KEY"
           fi
           if [ -n "${MIMO_API_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" MIMO_API_KEY="$MIMO_API_KEY"

@@ -17,7 +17,17 @@ import {
 import { Modal } from "./Modal";
 import { AdminFocusAudioManager } from "./AdminFocusAudioManager";
 import { AdminFeedbackInbox } from "./AdminFeedbackInbox";
-import { AI_MODEL_OPTIONS, defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "../lib/aiModels";
+import {
+  AI_MODEL_OPTIONS,
+  AUDIO_MODEL_OPTIONS,
+  defaultAiModel,
+  defaultAudioModel,
+  isSupportedAiModel,
+  isSupportedAudioModel,
+  type AiProvider,
+  type AudioProvider,
+  type MimoChannel
+} from "../lib/aiModels";
 import { AI_FEATURE_KEYS, AI_FEATURE_LABELS, defaultAiFeatureQuotas, type AiFeatureKey, type AiFeatureQuota } from "../lib/aiFeatures";
 
 interface AdminDialogProps {
@@ -42,6 +52,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [aiProvider, setAiProvider] = useState<AiProvider>("deepseek");
   const [aiModel, setAiModel] = useState("deepseek-v4-flash");
   const [mimoChannel, setMimoChannel] = useState<MimoChannel>("payg");
+  const [audioProvider, setAudioProvider] = useState<AudioProvider>("mimo");
+  const [audioModel, setAudioModel] = useState("mimo-v2.5-asr");
   const [savingSettings, setSavingSettings] = useState(false);
   const [cleanupRetentionDays, setCleanupRetentionDays] = useState(90);
   const [cleanupScope, setCleanupScope] = useState<"all" | "selected">("all");
@@ -71,6 +83,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setAiProvider(nextSummary.aiSettings.provider);
       setAiModel(nextSummary.aiSettings.model);
       setMimoChannel(nextSummary.aiSettings.mimo_channel);
+      setAudioProvider(nextSummary.aiSettings.audio_provider);
+      setAudioModel(nextSummary.aiSettings.audio_model);
       if (!selectedUserId && nextSummary.users[0]) setSelectedUserId(nextSummary.users[0].id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
@@ -166,6 +180,10 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setMessage("请选择当前 AI 提供商支持的模型。");
       return;
     }
+    if (!isSupportedAudioModel(audioProvider, audioModel)) {
+      setMessage("请选择当前音频转写通道支持的模型。");
+      return;
+    }
     const invalidFeature = AI_FEATURE_KEYS.find((feature) => {
       const quota = featureQuotas[feature];
       return quota.ordinary_weekly_limit < quota.ordinary_daily_limit
@@ -187,12 +205,16 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         provider: aiProvider,
         model: aiModel.trim(),
         mimo_channel: mimoChannel,
+        audio_provider: audioProvider,
+        audio_model: audioModel.trim(),
         feature_quotas: featureQuotas
       });
       setFeatureQuotas(settings.feature_quotas);
       setAiProvider(settings.provider);
       setAiModel(settings.model);
       setMimoChannel(settings.mimo_channel);
+      setAudioProvider(settings.audio_provider);
+      setAudioModel(settings.audio_model);
       setMessage("AI 模型与分项权限额度已保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
@@ -276,12 +298,15 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
             <label>
               AI 提供商
               <select value={aiProvider} onChange={(event) => {
-                const provider = event.target.value === "mimo" ? "mimo" : "deepseek";
+                const value = event.target.value;
+                const provider: AiProvider = value === "mimo" || value === "siliconflow" || value === "tju" ? value : "deepseek";
                 setAiProvider(provider);
                 setAiModel(defaultAiModel(provider));
               }}>
                 <option value="deepseek">DeepSeek</option>
                 <option value="mimo">Xiaomi MiMo</option>
+                <option value="siliconflow">硅基流动</option>
+                <option value="tju">学校 API</option>
               </select>
             </label>
             <label>
@@ -297,6 +322,23 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                 <option value="token_plan">Token Plan（tp，仅获授权后）</option>
               </select>
             </label>}
+            <label>
+              音频转写通道
+              <select value={audioProvider} onChange={(event) => {
+                const provider: AudioProvider = event.target.value === "siliconflow" ? "siliconflow" : "mimo";
+                setAudioProvider(provider);
+                setAudioModel(defaultAudioModel(provider));
+              }}>
+                <option value="mimo">Xiaomi MiMo</option>
+                <option value="siliconflow">硅基流动</option>
+              </select>
+            </label>
+            <label>
+              转写模型
+              <select value={audioModel} onChange={(event) => setAudioModel(event.target.value)}>
+                {AUDIO_MODEL_OPTIONS[audioProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+              </select>
+            </label>
             <button className="button primary" onClick={() => void saveGlobalSettings()} disabled={savingSettings}>
               <Save size={16} />保存 AI 设置
             </button>

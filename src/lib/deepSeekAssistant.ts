@@ -5,7 +5,7 @@ import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
 import type { AnniversaryKind, EventRecurrenceType } from "../types";
 import type { AiAssistantAttachment } from "./assistantAttachments";
-import { aiModelSupportsAttachments } from "./aiModels";
+import { aiModelSupportsAttachments, defaultAiModel, type AiProvider, type AudioProvider } from "./aiModels";
 
 export interface DeepSeekAssistantResult {
   answer: string;
@@ -17,9 +17,11 @@ export interface DeepSeekAssistantResult {
 }
 
 export interface AiAssistantConfiguration {
-  provider: "deepseek" | "mimo";
+  provider: AiProvider;
   model: string;
   supportsAttachments: boolean;
+  audioProvider?: AudioProvider;
+  audioModel?: string;
 }
 
 export interface DeepSeekAssistantQuotaStatus {
@@ -309,10 +311,16 @@ export async function getAiAssistantConfiguration(): Promise<AiAssistantConfigur
     }), 3);
   if (error || !data) return { provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false };
   return {
-    provider: data.provider === "mimo" ? "mimo" : "deepseek",
-    model: data.model || (data.provider === "mimo" ? "mimo-v2.5" : "deepseek-v4-flash"),
-    supportsAttachments: Boolean(data.supportsAttachments && aiModelSupportsAttachments(data.provider === "mimo" ? "mimo" : "deepseek", data.model))
+    provider: normalizeAiProvider(data.provider),
+    model: data.model || defaultAiModel(normalizeAiProvider(data.provider)),
+    supportsAttachments: Boolean(data.supportsAttachments && aiModelSupportsAttachments(normalizeAiProvider(data.provider), data.model)),
+    audioProvider: data.audioProvider === "siliconflow" ? "siliconflow" : "mimo",
+    audioModel: data.audioModel
   };
+}
+
+function normalizeAiProvider(value: unknown): AiProvider {
+  return value === "mimo" || value === "siliconflow" || value === "tju" ? value : "deepseek";
 }
 
 async function functionErrorMessage(error: unknown): Promise<string> {

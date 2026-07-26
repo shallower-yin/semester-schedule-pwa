@@ -1,5 +1,13 @@
 import { supabase } from "./supabase";
-import { defaultAiModel, isSupportedAiModel, type AiProvider, type MimoChannel } from "./aiModels";
+import {
+  defaultAiModel,
+  defaultAudioModel,
+  isSupportedAiModel,
+  isSupportedAudioModel,
+  type AiProvider,
+  type AudioProvider,
+  type MimoChannel
+} from "./aiModels";
 import { normalizeAiFeatureQuotas, type AiFeatureQuotas } from "./aiFeatures";
 
 export type AdminRole = "member" | "admin";
@@ -85,9 +93,11 @@ export interface AdminAiSettings {
   ordinary_weekly_limit: number;
   member_daily_limit: number;
   member_weekly_limit: number;
-  provider: "deepseek" | "mimo";
+  provider: AiProvider;
   model: string;
   mimo_channel: MimoChannel;
+  audio_provider: AudioProvider;
+  audio_model: string;
   feature_quotas: AiFeatureQuotas;
   updated_at: string | null;
 }
@@ -274,6 +284,8 @@ export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_
     p_provider: input.provider,
     p_model: input.model,
     p_mimo_channel: input.mimo_channel,
+    p_audio_provider: input.audio_provider,
+    p_audio_model: input.audio_model,
     p_feature_quotas: input.feature_quotas
   });
   if (error) throw new Error(formatAdminError(error.message));
@@ -282,8 +294,10 @@ export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_
 
 function normalizeAiSettings(value: unknown): AdminAiSettings {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const provider: AiProvider = row.provider === "mimo" ? "mimo" : "deepseek";
+  const provider: AiProvider = row.provider === "mimo" || row.provider === "siliconflow" || row.provider === "tju" ? row.provider : "deepseek";
+  const audioProvider: AudioProvider = row.audio_provider === "siliconflow" ? "siliconflow" : "mimo";
   const storedModel = typeof row.model === "string" ? row.model.trim() : "";
+  const storedAudioModel = typeof row.audio_model === "string" ? row.audio_model.trim() : "";
   const legacy = {
     enabled_for_all: Boolean(row.enabled_for_all),
     ordinary_daily_limit: Math.max(0, Number(row.ordinary_daily_limit ?? row.daily_limit ?? 20)),
@@ -301,6 +315,8 @@ function normalizeAiSettings(value: unknown): AdminAiSettings {
     provider,
     model: isSupportedAiModel(provider, storedModel) ? storedModel : defaultAiModel(provider),
     mimo_channel: row.mimo_channel === "token_plan" ? "token_plan" : "payg",
+    audio_provider: audioProvider,
+    audio_model: isSupportedAudioModel(audioProvider, storedAudioModel) ? storedAudioModel : defaultAudioModel(audioProvider),
     feature_quotas: featureQuotas,
     updated_at: typeof row.updated_at === "string" ? row.updated_at : null
   };

@@ -324,14 +324,25 @@ create table if not exists public.ai_assistant_settings (
   ordinary_weekly_limit integer not null default 100 check (ordinary_weekly_limit between ordinary_daily_limit and 1000000),
   member_daily_limit integer not null default 50 check (member_daily_limit between 0 and 100000),
   member_weekly_limit integer not null default 300 check (member_weekly_limit between member_daily_limit and 1000000),
-  provider text not null default 'deepseek' check (provider in ('deepseek', 'mimo')),
+  provider text not null default 'deepseek' check (provider in ('deepseek', 'mimo', 'siliconflow', 'tju')),
   model text not null default 'deepseek-v4-flash',
   mimo_channel text not null default 'payg' check (mimo_channel in ('payg', 'token_plan')),
+  audio_provider text not null default 'mimo' check (audio_provider in ('mimo', 'siliconflow')),
+  audio_model text not null default 'mimo-v2.5-asr',
   feature_quotas jsonb not null default '{}'::jsonb,
   constraint ai_assistant_settings_model_catalog_check check (
     (provider = 'deepseek' and model in ('deepseek-v4-flash', 'deepseek-v4-pro'))
     or
     (provider = 'mimo' and model in ('mimo-v2.5', 'mimo-v2.5-pro', 'mimo-v2.5-pro-ultraspeed'))
+    or
+    (provider = 'siliconflow' and model in ('Qwen/Qwen3-32B', 'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1'))
+    or
+    (provider = 'tju' and model = 'tju-llm')
+  ),
+  constraint ai_assistant_settings_audio_model_catalog_check check (
+    (audio_provider = 'mimo' and audio_model in ('mimo-v2.5-asr'))
+    or
+    (audio_provider = 'siliconflow' and audio_model in ('TeleAI/TeleSpeechASR', 'FunAudioLLM/SenseVoiceSmall'))
   ),
   updated_at timestamptz not null default now()
 );

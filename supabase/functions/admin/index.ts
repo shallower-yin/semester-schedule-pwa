@@ -17,9 +17,11 @@ interface AdminRequest {
     ordinaryWeeklyLimit?: number;
     memberDailyLimit?: number;
     memberWeeklyLimit?: number;
-    provider?: "deepseek" | "mimo";
+    provider?: "deepseek" | "mimo" | "siliconflow" | "tju";
     model?: string;
     mimoChannel?: "payg" | "token_plan";
+    audioProvider?: "mimo" | "siliconflow";
+    audioModel?: string;
     featureQuotas?: Record<string, {
       enabled_for_all?: boolean;
       ordinary_daily_limit?: number;
@@ -32,8 +34,19 @@ interface AdminRequest {
 
 const ADMIN_AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"]
+  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"],
+  siliconflow: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"],
+  tju: ["tju-llm"]
 } as const;
+
+const ADMIN_AUDIO_MODELS = {
+  mimo: ["mimo-v2.5-asr"],
+  siliconflow: ["TeleAI/TeleSpeechASR", "FunAudioLLM/SenseVoiceSmall"]
+} as const;
+
+function normalizeAdminAiProvider(value: unknown): keyof typeof ADMIN_AI_MODELS {
+  return value === "mimo" || value === "siliconflow" || value === "tju" ? value : "deepseek";
+}
 
 interface SupabaseUser {
   id: string;
@@ -522,7 +535,7 @@ async function setAiAccess(
 
 async function getAiSettings(serviceRoleKey: string) {
   const rows = await restGet<Record<string, unknown>>("ai_assistant_settings", serviceRoleKey, {
-    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,feature_quotas,updated_at",
+    select: "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,audio_provider,audio_model,feature_quotas,updated_at",
     id: "eq.true"
   }, 1);
   return rows[0] ?? {
@@ -534,6 +547,8 @@ async function getAiSettings(serviceRoleKey: string) {
     provider: "deepseek",
     model: "deepseek-v4-flash",
     mimo_channel: "payg",
+    audio_provider: "mimo",
+    audio_model: "mimo-v2.5-asr",
     updated_at: null
   };
 }
@@ -561,10 +576,13 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
   const ordinaryWeeklyLimit = featureQuotas.assistant.ordinary_weekly_limit;
   const memberDailyLimit = featureQuotas.assistant.member_daily_limit;
   const memberWeeklyLimit = featureQuotas.assistant.member_weekly_limit;
-  const provider = settings?.provider === "mimo" ? "mimo" : "deepseek";
+  const provider = normalizeAdminAiProvider(settings?.provider);
   const model = settings?.model?.trim() ?? "";
   const mimoChannel = settings?.mimoChannel === "token_plan" ? "token_plan" : "payg";
+  const audioProvider = settings?.audioProvider === "siliconflow" ? "siliconflow" : "mimo";
+  const audioModel = settings?.audioModel?.trim() ?? "";
   if (!(ADMIN_AI_MODELS[provider] as readonly string[]).includes(model)) throw new Error("请选择当前 AI 提供商支持的模型。");
+  if (!(ADMIN_AUDIO_MODELS[audioProvider] as readonly string[]).includes(audioModel)) throw new Error("请选择当前音频转写通道支持的模型。");
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
   url.searchParams.set("on_conflict", "id");
   const response = await fetch(url, {
@@ -585,6 +603,8 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
       provider,
       model,
       mimo_channel: mimoChannel,
+      audio_provider: audioProvider,
+      audio_model: audioModel,
       feature_quotas: featureQuotas,
       updated_at: new Date().toISOString()
     })
