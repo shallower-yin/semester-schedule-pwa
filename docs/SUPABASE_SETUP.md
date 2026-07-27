@@ -103,6 +103,16 @@ AI 助手权限需要执行：
 - MiMo 官方当前把 Token Plan 限定为编程工具用途，并禁止普通非编程应用后端调用。本项目只有在获得 Xiaomi MiMo 对该使用场景的明确授权后才能启用 Token Plan 通道；生产默认使用按量 API。
 - Variable `DEEPSEEK_MODEL` / Edge Function Secret `MIMO_MODEL` 只在数据库没有有效模型配置时作为兜底，不是日常切换入口。
 
+### Cloudflare R2 临时大文件
+
+长音频和长文档会使用 R2 保存临时分片。需要把运行时对象 token 和 CI 桶管理 token 分开配置：
+
+- Secret `R2_ENDPOINT`、`R2_BUCKET`：目标 R2 bucket 的 S3 endpoint 和 bucket 名。
+- Secret `R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`：Supabase Edge Function 运行时使用，建议只给目标 bucket 的 Object Read & Write 权限，用于上传、读取、删除临时对象。
+- Secret `R2_ADMIN_ACCESS_KEY_ID`、`R2_ADMIN_SECRET_ACCESS_KEY`：仅 GitHub Actions 的 CORS/lifecycle 配置步骤使用，需要目标 bucket 的 Admin Read & Write 权限；不要同步到 Supabase Edge Function。
+
+如果没有配置 `R2_ADMIN_*`，后端函数仍会部署，R2 对象读写也仍使用 `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`；但 GitHub Actions 会跳过自动配置 bucket CORS 和生命周期。此时需要在 Cloudflare 控制台手动配置 CORS，并给 `ai-audio/` 设置 7 天过期、`ai-documents/` 设置 1 天过期，避免 APK WebView 直传失败或临时对象堆积。
+
 给指定账号开通：
 
 ```sql

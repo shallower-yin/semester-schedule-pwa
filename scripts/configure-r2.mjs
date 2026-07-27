@@ -6,8 +6,8 @@ import {
 
 const endpoint = required("R2_ENDPOINT");
 const bucket = required("R2_BUCKET");
-const accessKeyId = required("R2_ACCESS_KEY_ID");
-const secretAccessKey = required("R2_SECRET_ACCESS_KEY");
+const accessKeyId = required("R2_ADMIN_ACCESS_KEY_ID");
+const secretAccessKey = required("R2_ADMIN_SECRET_ACCESS_KEY");
 
 const client = new S3Client({
   region: "auto",
@@ -64,12 +64,12 @@ await configure("lifecycle", new PutBucketLifecycleConfigurationCommand({
 if (failures.length) {
   throw new Error(
     `R2 bucket management failed: ${failures.join(", ")}. ` +
-    `If AccessDenied, use an R2 token with Admin Read & Write (bucket CORS/lifecycle), ` +
-    `or set ai-audio/ expiration to 7 days in the Cloudflare dashboard.`
+    `Use R2_ADMIN_ACCESS_KEY_ID/R2_ADMIN_SECRET_ACCESS_KEY from an R2 Admin Read & Write token, ` +
+    `or configure CORS and ai-audio/ + ai-documents/ lifecycle rules manually in the Cloudflare dashboard.`
   );
 }
 
-console.log(`R2 bucket "${bucket}" is reachable; browser + APK WebView CORS, 7-day ai-audio and 1-day ai-documents lifecycle cleanup are configured.`);
+console.log(`R2 bucket "${bucket}" management configuration succeeded using the CI-only admin token; browser + APK WebView CORS, 7-day ai-audio and 1-day ai-documents lifecycle cleanup are configured.`);
 
 function required(name) {
   const value = process.env[name]?.trim();
