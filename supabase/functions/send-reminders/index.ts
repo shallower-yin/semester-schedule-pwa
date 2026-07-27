@@ -150,7 +150,9 @@ function buildPayload(row: ReminderRow) {
       title: "起来活动一下",
       body: "喝口水，活动肩颈或走动几分钟。完成后可在健康页记录。",
       tag: "health-movement-reminder",
-      url: appUrl
+      url: appUrl,
+      sourceType: "health",
+      reminderAt: `${row.occurrence_date}T${String(row.start_time ?? "00:00:00").slice(0, 8)}+08:00`
     };
   }
   if (sourceType === "anniversary") {

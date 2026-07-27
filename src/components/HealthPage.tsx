@@ -94,7 +94,8 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
       movement_reminder_enabled: reminderEnabled ?? profile.movement_reminder_enabled,
       movement_interval_minutes: clamp(Math.round(numericOr(reminderInterval, profile.movement_interval_minutes) ?? 60), 15, 240),
       reminder_start_time: reminderStart || profile.reminder_start_time,
-      reminder_end_time: reminderEnd || profile.reminder_end_time
+      reminder_end_time: reminderEnd || profile.reminder_end_time,
+      last_movement_reminder_at: profile.last_movement_reminder_at ?? null
     };
     if (next.movement_reminder_enabled) {
       const result = await enableNotifications();

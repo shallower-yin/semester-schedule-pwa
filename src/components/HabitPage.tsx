@@ -1,7 +1,7 @@
 import { BarChart3, Bell, CalendarCheck, CheckCircle2, Flame, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { db, queueChange } from "../db";
-import { toISODate } from "../lib/date";
+import { differenceInCalendarDays, parseLocalDate, toISODate } from "../lib/date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { buildHabitStats, isHabit } from "../lib/habits";
 import type { EventItem, EventOccurrenceState } from "../types";
@@ -100,7 +100,7 @@ function HabitCard({ habit, stats, occurrenceStates, onEdit }: HabitCardProps) {
         </span>
         <div>
           <h2>{habit.title}</h2>
-          <p>{habit.start_date} 至 {habit.recurrence_type === "weekly" ? habit.recurrence_until ?? habit.end_date : habit.end_date}</p>
+          <p>{habitScheduleSummary(habit)}</p>
           <div className="habit-meta">
             <span>{habit.all_day ? "全天" : `${habit.start_time ?? "09:00"}–${habit.end_time ?? habit.start_time ?? "09:00"}`}</span>
             {habit.reminder_enabled && <span><Bell size={13} />提前 {habit.reminder_minutes_before} 分钟</span>}
@@ -122,4 +122,27 @@ function HabitCard({ habit, stats, occurrenceStates, onEdit }: HabitCardProps) {
       </button>
     </article>
   );
+}
+
+function habitScheduleSummary(habit: EventItem): string {
+  const until = habit.recurrence_type === "none"
+    ? habit.end_date
+    : habit.recurrence_until ?? habit.end_date;
+  if (habit.recurrence_type === "interval") {
+    return `${habit.start_date} 起，每 ${Math.max(1, habit.recurrence_interval ?? 1)} 天一次，持续 ${spanDays(habit.start_date, until)} 天`;
+  }
+  if (habit.recurrence_type === "none") return `${habit.start_date} 至 ${until}`;
+  const label: Record<string, string> = {
+    daily: "每天",
+    weekdays: "工作日",
+    weekly: "每周",
+    monthly: "每月同日"
+  };
+  return `${habit.start_date} 起，${label[habit.recurrence_type] ?? "重复"}，持续 ${spanDays(habit.start_date, until)} 天`;
+}
+
+function spanDays(startDate: string, endDate: string): number {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate < startDate ? startDate : endDate);
+  return Math.max(1, differenceInCalendarDays(end, start) + 1);
 }

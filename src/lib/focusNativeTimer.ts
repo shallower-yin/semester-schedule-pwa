@@ -21,6 +21,8 @@ export interface NativeTimerState {
   pomodoroLongBreakInterval: number;
   pomodoroAutoStartBreak: boolean;
   pomodoroRestKind: string;
+  pomodoroFocusSeconds: number;
+  pomodoroTaskTitle: string;
   lockTaskActive: boolean;
 }
 
@@ -57,6 +59,8 @@ interface FocusNativeTimerPlugin {
     pomodoroLongBreakInterval: number;
     pomodoroAutoStartBreak: boolean;
     pomodoroRestKind: string;
+    pomodoroFocusSeconds: number;
+    pomodoroTaskTitle: string;
     soundEnabled: boolean;
   }): Promise<NativeTimerState>;
   pause(): Promise<NativeTimerState>;
@@ -88,6 +92,8 @@ export async function startNativeFocusTimer(ownerId: string, active: ActiveFocus
     pomodoroLongBreakInterval: active.pomodoro_long_break_interval ?? 4,
     pomodoroAutoStartBreak: active.pomodoro_auto_start_break ?? false,
     pomodoroRestKind: active.pomodoro_rest_kind ?? "",
+    pomodoroFocusSeconds: active.pomodoro_focus_seconds ?? (active.mode === "pomodoro" ? active.planned_seconds ?? 0 : 0),
+    pomodoroTaskTitle: active.pomodoro_task_title ?? (active.mode === "pomodoro" ? active.task_title : ""),
     soundEnabled: active.sound_enabled ?? true
   });
   return state.elapsedSeconds;

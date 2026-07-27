@@ -231,7 +231,8 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       movement_reminder_enabled: Boolean(record.movement_reminder_enabled),
       movement_interval_minutes: Number(record.movement_interval_minutes ?? 60),
       reminder_start_time: String(record.reminder_start_time ?? "09:00").slice(0, 5),
-      reminder_end_time: String(record.reminder_end_time ?? "22:00").slice(0, 5)
+      reminder_end_time: String(record.reminder_end_time ?? "22:00").slice(0, 5),
+      last_movement_reminder_at: record.last_movement_reminder_at ?? null
     };
   }
   if (table === "healthLogs") {
@@ -285,6 +286,37 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
 
 function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
   const { server_updated_at: _serverUpdatedAt, ...payload } = record;
+  if (table === "healthProfiles") {
+    return {
+      ...payload,
+      height_cm: payload.height_cm == null ? null : Number(payload.height_cm),
+      daily_water_goal_ml: Number(payload.daily_water_goal_ml ?? 2000),
+      exercise_items: normalizeExerciseItems(payload.exercise_items),
+      movement_reminder_enabled: Boolean(payload.movement_reminder_enabled),
+      movement_interval_minutes: Number(payload.movement_interval_minutes ?? 60),
+      reminder_start_time: String(payload.reminder_start_time ?? "09:00").slice(0, 5),
+      reminder_end_time: String(payload.reminder_end_time ?? "22:00").slice(0, 5),
+      last_movement_reminder_at: payload.last_movement_reminder_at ?? null
+    };
+  }
+  if (table === "focusSessions") {
+    const mode = payload.mode;
+    const safeMode = mode === "stopwatch" || mode === "countdown" || mode === "pomodoro" || mode === "lock"
+      ? mode
+      : "pomodoro";
+    return {
+      ...payload,
+      mode: safeMode,
+      task_title: String(payload.task_title ?? ""),
+      linked_event_id: payload.linked_event_id ?? null,
+      planned_seconds: payload.planned_seconds == null ? null : Number(payload.planned_seconds),
+      duration_seconds: Number(payload.duration_seconds ?? 0),
+      completed: Boolean(payload.completed),
+      interrupted: Boolean(payload.interrupted),
+      pomodoro_plan_id: payload.pomodoro_plan_id ?? null,
+      pomodoro_round: payload.pomodoro_round == null ? null : Number(payload.pomodoro_round)
+    };
+  }
   if (table !== "restSessions") return payload;
   const restKind = payload.rest_kind;
   return {
@@ -634,6 +666,10 @@ async function runSync(userId: string): Promise<SyncResult> {
     }
     if (!validItems.length) continue;
 
+    if (config.local === "focusSessions") {
+      await releaseLocalMissingEventReferences(userId, validItems.map(({ record }) => record));
+    }
+
     // eventOccurrenceStates needs a per-record lookup to resolve ID conflicts — process them
     // individually but in a batch-friendly way: fetch all existing IDs in one query first.
     if (config.local === "eventOccurrenceStates") {
@@ -710,6 +746,31 @@ async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, use
     .filter((record) => !activeRemoteIds.has(String(record.id)) && !pendingIds.has(String(record.id)))
     .map((record) => String(record.id));
   if (staleIds.length) await db.table(tableName).bulkDelete(staleIds);
+}
+
+async function releaseLocalMissingEventReferences(userId: string, records: Record<string, unknown>[]): Promise<void> {
+  const linkedIds = [...new Set(records.map((record) => String(record.linked_event_id ?? "")).filter(Boolean))];
+  if (!linkedIds.length) return;
+  const events = await db.events.bulkGet(linkedIds);
+  const validEventIds = new Set(
+    events
+      .filter((event): event is NonNullable<typeof event> =>
+        Boolean(event && event.user_id === userId && !event.deleted_at)
+      )
+      .map((event) => event.id)
+  );
+  for (const record of records) {
+    const linkedId = String(record.linked_event_id ?? "");
+    if (!linkedId || validEventIds.has(linkedId)) continue;
+    const local = await db.focusSessions.get(String(record.id));
+    if (!local) {
+      record.linked_event_id = null;
+      continue;
+    }
+    const updated = { ...local, ...syncFields(local), linked_event_id: null };
+    await db.focusSessions.put(updated);
+    Object.assign(record, updated);
+  }
 }
 
 export async function pullRemoteNow(userId: string): Promise<SyncResult> {

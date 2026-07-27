@@ -4,7 +4,7 @@ import { eventOccursOn, toISODate } from "./date";
 import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
 import { reminderIsDue } from "./reminderTime";
 import { supabase } from "./supabase";
-import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
+import type { Anniversary, EventItem, EventOccurrenceState, HealthProfile } from "../types";
 import { isNativeApp } from "./nativeApp";
 import {
   cancelAllNativeReminders,
@@ -421,6 +421,27 @@ export async function resetSentRemindersForChangedEvent(
   return states.length;
 }
 
+async function applyNativeHealthReminderCooldown(ownerId: string, profile: HealthProfile): Promise<HealthProfile> {
+  const diagnostics = await getNativeReminderDiagnostics();
+  const nativeLastSentAt = diagnostics?.events.reduce((latest, event) => {
+    if (event.stage !== "notified" || event.id !== HEALTH_NOTIFICATION_ID) return latest;
+    return Math.max(latest, event.at || 0);
+  }, 0) ?? 0;
+  const profileLastSentAt = profile.last_movement_reminder_at
+    ? new Date(profile.last_movement_reminder_at).getTime()
+    : 0;
+  if (!nativeLastSentAt || nativeLastSentAt <= profileLastSentAt) return profile;
+  const updated: HealthProfile = {
+    ...profile,
+    ...syncFields(profile),
+    user_id: ownerId,
+    last_movement_reminder_at: new Date(nativeLastSentAt).toISOString()
+  };
+  await db.healthProfiles.put(updated);
+  await queueChange("healthProfiles", updated.id);
+  return updated;
+}
+
 // Loads the current user's reminder-eligible data and hands the computed schedule to the native OS.
 // Cancels/updates/adds OS notifications so they stay in sync with events and anniversaries.
 async function rescheduleNativeReminders(ownerId: string): Promise<number> {
@@ -437,8 +458,11 @@ async function rescheduleNativeReminders(ownerId: string): Promise<number> {
   ]);
   const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates });
   const scheduledCount = await syncNativeReminders(reminders);
-  const healthPlan = healthProfile
-    ? computeNextHealthReminder(healthProfile, movementLogs[0]?.logged_at ?? null)
+  const healthProfileWithNativeCooldown = healthProfile
+    ? await applyNativeHealthReminderCooldown(ownerId, healthProfile)
+    : null;
+  const healthPlan = healthProfileWithNativeCooldown
+    ? computeNextHealthReminder(healthProfileWithNativeCooldown, movementLogs[0]?.logged_at ?? null)
     : null;
   await syncNativeHealthReminder(healthPlan ? {
     enabled: true,

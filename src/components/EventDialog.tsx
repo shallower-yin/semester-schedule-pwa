@@ -4,7 +4,7 @@ import { useState } from "react";
 import { db, queueChange } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
 import { findEventConflicts, findEventCourseConflicts } from "../lib/conflicts";
-import { addDays, parseLocalDate, toISODate } from "../lib/date";
+import { addDays, differenceInCalendarDays, parseLocalDate, toISODate } from "../lib/date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { validateEventDraft } from "../lib/eventValidation";
 import { deleteEventTemplate, loadEventTemplates, saveEventTemplate } from "../lib/eventTemplates";
@@ -49,6 +49,9 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [recurrence, setRecurrence] = useState<EventRecurrenceType>(eventItem?.recurrence_type ?? "none");
   const [recurrenceUntil, setRecurrenceUntil] = useState(eventItem?.recurrence_until ?? eventItem?.start_date ?? initialDate);
   const [recurrenceInterval, setRecurrenceInterval] = useState(eventItem?.recurrence_interval ?? 1);
+  const [recurrenceDurationDays, setRecurrenceDurationDays] = useState(() =>
+    spanDays(eventItem?.start_date ?? initialDate, eventItem?.recurrence_until ?? eventItem?.end_date ?? initialDate)
+  );
   const [reminderEnabled, setReminderEnabled] = useState(eventItem?.reminder_enabled ?? false);
   const [reminderMinutes, setReminderMinutes] = useState(eventItem?.reminder_minutes_before ?? 10);
   const [reminderMessage, setReminderMessage] = useState("");
@@ -86,7 +89,31 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   function changeStartDate(nextDate: string) {
     setDate(nextDate);
     if (endDate < nextDate) setEndDate(nextDate);
-    if (recurrenceUntil < nextDate) setRecurrenceUntil(nextDate);
+    if (recurrence !== "none") {
+      const safeDays = clampInteger(recurrenceDurationDays, 1, 3660);
+      setRecurrenceDurationDays(safeDays);
+      setRecurrenceUntil(toISODate(addDays(parseLocalDate(nextDate), safeDays - 1)));
+    }
+  }
+
+  function changeRecurrence(next: EventRecurrenceType) {
+    setRecurrence(next);
+    if (next === "none") return;
+    const until = endDate > date ? endDate : recurrenceUntil >= date ? recurrenceUntil : date;
+    setRecurrenceUntil(until);
+    setRecurrenceDurationDays(spanDays(date, until));
+  }
+
+  function changeRecurrenceUntil(nextDate: string) {
+    const safeDate = nextDate < date ? date : nextDate;
+    setRecurrenceUntil(safeDate);
+    setRecurrenceDurationDays(spanDays(date, safeDate));
+  }
+
+  function changeRecurrenceDuration(days: number) {
+    const safeDays = clampInteger(days, 1, 3660);
+    setRecurrenceDurationDays(safeDays);
+    setRecurrenceUntil(toISODate(addDays(parseLocalDate(date), safeDays - 1)));
   }
 
   function applyTemplate(templateId: string) {
@@ -101,7 +128,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     setColor(template.color);
     setLocation(template.location ?? "");
     setNote(template.note);
-    setRecurrence(template.recurrence_type);
+    changeRecurrence(template.recurrence_type);
     setRecurrenceInterval(template.recurrence_interval);
     setReminderEnabled(template.reminder_enabled);
     setReminderMinutes(template.reminder_minutes_before);
@@ -372,7 +399,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           {recurrence === "none" ? (
             <label>结束日期<input required type="date" min={date} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
           ) : (
-            <label>重复截止日期<input required type="date" min={date} value={recurrenceUntil} onChange={(event) => setRecurrenceUntil(event.target.value)} /></label>
+            <label>重复截止日期<input required type="date" min={date} value={recurrenceUntil} onChange={(event) => changeRecurrenceUntil(event.target.value)} /></label>
           )}
         </div>
         <label className="checkbox-label"><input type="checkbox" checked={allDay} onChange={(event) => setAllDay(event.target.checked)} />全天{itemLabel}</label>
@@ -393,7 +420,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         </div>
         <label>地点<input value={location} placeholder="可不填" onChange={(event) => setLocation(event.target.value)} /></label>
         <label>重复
-          <select value={recurrence} onChange={(event) => setRecurrence(event.target.value as EventRecurrenceType)}>
+          <select value={recurrence} onChange={(event) => changeRecurrence(event.target.value as EventRecurrenceType)}>
             <option value="none">{eventType === "habit" ? "每天打卡" : "日期范围内每天"}</option>
             <option value="daily">每天重复</option>
             <option value="weekdays">工作日重复</option>
@@ -404,6 +431,9 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         </label>
         {recurrence === "interval" && (
           <label>间隔天数<input type="number" min={1} max={366} value={recurrenceInterval} onChange={(event) => setRecurrenceInterval(Number(event.target.value))} /></label>
+        )}
+        {recurrence !== "none" && (
+          <label>持续天数<input type="number" min={1} max={3660} value={recurrenceDurationDays} onChange={(event) => changeRecurrenceDuration(Number(event.target.value))} /></label>
         )}
         {eventItem && todayCompletion && (
           <section className="event-completion-editor">
@@ -521,4 +551,15 @@ function minutesOf(value: string): number {
 
 function formatMinutes(value: number): string {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+function spanDays(startDate: string, endDate: string): number {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate < startDate ? startDate : endDate);
+  return Math.max(1, differenceInCalendarDays(end, start) + 1);
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  const rounded = Math.round(Number.isFinite(value) ? value : min);
+  return Math.min(max, Math.max(min, rounded));
 }

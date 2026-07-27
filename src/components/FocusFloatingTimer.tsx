@@ -5,13 +5,19 @@ import {
   elapsedFocusSeconds,
   FOCUS_STATE_CHANGED_EVENT,
   loadActiveFocus,
+  loadPomodoroPlan,
   notifyFocusComplete,
+  pomodoroRestKind,
   remainingFocusSeconds,
+  saveActiveFocus,
+  savePomodoroPlan,
+  clearPomodoroPlan,
   type ActiveFocusState
 } from "../lib/focus";
 import { closeFocusSystemWindow, updateFocusSystemWindow } from "../lib/focusSystemWindow";
 import { stopNativeFocusTimer } from "../lib/focusNativeTimer";
 import { syncFields } from "../lib/identity";
+import { isNativeApp } from "../lib/nativeApp";
 import { showToast } from "../lib/toast";
 import type { FocusSession, RestSession } from "../types";
 
@@ -55,6 +61,7 @@ export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
 
   useEffect(() => {
     if (!active || active.pause_started_at || active.planned_seconds == null || remaining !== 0 || completingRef.current) return;
+    if (isNativeApp() && active.pomodoro_plan_id) return;
     completingRef.current = true;
     void completeExpiredFocus(ownerId, active, now).finally(() => {
       completingRef.current = false;
@@ -95,15 +102,120 @@ export async function completeExpiredFocus(ownerId: string, active: ActiveFocusS
       started_at: latest.started_at,
       ended_at: now.toISOString(),
       completed: true,
-      interrupted: false
+      interrupted: false,
+      pomodoro_plan_id: latest.pomodoro_plan_id ?? null,
+      pomodoro_round: latest.pomodoro_round ?? null
     };
     await db.focusSessions.put(record);
     await queueChange("focusSessions", record.id);
   }
-  await stopNativeFocusTimer(latest.mode === "lock");
-  clearActiveFocus(ownerId);
   const settings = await db.focusSettings.filter((item) => item.user_id === ownerId && !item.deleted_at).last();
+  const nextActive = nextPomodoroActiveAfterCompletion(ownerId, latest, now, {
+    pomodoroMinutes: settings?.pomodoro_minutes ?? 25,
+    shortBreakMinutes: settings?.short_break_minutes ?? 5,
+    longBreakMinutes: settings?.long_break_minutes ?? 15,
+    longBreakInterval: settings?.long_break_interval ?? 4,
+    pomodoroRounds: settings?.pomodoro_rounds ?? 4
+  });
+  if (nextActive) {
+    saveActiveFocus(ownerId, nextActive);
+  } else {
+    await stopNativeFocusTimer(latest.mode === "lock");
+    clearActiveFocus(ownerId);
+  }
   notifyFocusComplete(latest.task_title, settings?.sound_enabled ?? true);
-  showToast(latest.mode === "rest" ? "休息结束。" : `“${latest.task_title}”专注结束。`, "success");
+  showToast(
+    nextActive?.mode === "rest"
+      ? `“${latest.task_title}”专注结束，已自动开始${nextActive.task_title}。`
+      : nextActive?.mode === "pomodoro"
+        ? "休息结束，已自动开始下一轮番茄。"
+        : latest.mode === "rest" ? "休息结束。" : `“${latest.task_title}”专注结束。`,
+    "success"
+  );
   return true;
+}
+
+function nextPomodoroActiveAfterCompletion(
+  ownerId: string,
+  active: ActiveFocusState,
+  now: Date,
+  settings: {
+    pomodoroMinutes: number;
+    shortBreakMinutes: number;
+    longBreakMinutes: number;
+    longBreakInterval: number;
+    pomodoroRounds: number;
+  }
+): ActiveFocusState | null {
+  if (!active.pomodoro_plan_id) return null;
+  const plan = loadPomodoroPlan(ownerId);
+  if (active.mode === "pomodoro") {
+    const round = active.pomodoro_round ?? 1;
+    const total = active.pomodoro_total_rounds ?? settings.pomodoroRounds;
+    savePomodoroPlan(ownerId, {
+      id: active.pomodoro_plan_id,
+      task_title: active.pomodoro_task_title ?? active.task_title,
+      linked_event_id: active.linked_event_id,
+      total_rounds: total,
+      next_round: Math.min(total, round + 1),
+      completed_rounds: round
+    });
+    if (active.pomodoro_auto_start_break === false) return null;
+    const restKind = pomodoroRestKind({
+      ...active,
+      pomodoro_long_break_interval: active.pomodoro_long_break_interval ?? settings.longBreakInterval,
+      pomodoro_total_rounds: total
+    });
+    return {
+      ...active,
+      mode: "rest",
+      task_title: restKind === "pomodoro_long" ? "长休息" : "短休息",
+      linked_event_id: null,
+      planned_seconds: restKind === "pomodoro_long"
+        ? active.pomodoro_long_break_seconds ?? settings.longBreakMinutes * 60
+        : active.pomodoro_short_break_seconds ?? settings.shortBreakMinutes * 60,
+      started_at: now.toISOString(),
+      paused_seconds: 0,
+      pause_started_at: null,
+      pomodoro_total_rounds: total,
+      pomodoro_rest_kind: restKind,
+      pomodoro_task_title: active.pomodoro_task_title ?? active.task_title,
+      pomodoro_focus_seconds: active.pomodoro_focus_seconds ?? active.planned_seconds ?? settings.pomodoroMinutes * 60
+    };
+  }
+  if (active.mode === "rest") {
+    const round = active.pomodoro_round ?? 1;
+    const total = active.pomodoro_total_rounds ?? plan?.total_rounds ?? round;
+    if (round >= total) {
+      clearPomodoroPlan(ownerId);
+      return null;
+    }
+    const nextRound = round + 1;
+    const taskTitle = plan?.task_title ?? active.pomodoro_task_title ?? "番茄专注";
+    const linkedEventId = plan?.linked_event_id ?? null;
+    savePomodoroPlan(ownerId, {
+      id: active.pomodoro_plan_id,
+      task_title: taskTitle,
+      linked_event_id: linkedEventId,
+      total_rounds: total,
+      next_round: nextRound,
+      completed_rounds: round
+    });
+    return {
+      ...active,
+      mode: "pomodoro",
+      task_title: taskTitle,
+      linked_event_id: linkedEventId,
+      planned_seconds: active.pomodoro_focus_seconds ?? settings.pomodoroMinutes * 60,
+      started_at: now.toISOString(),
+      paused_seconds: 0,
+      pause_started_at: null,
+      pomodoro_round: nextRound,
+      pomodoro_total_rounds: total,
+      pomodoro_rest_kind: null,
+      pomodoro_task_title: taskTitle,
+      pomodoro_focus_seconds: active.pomodoro_focus_seconds ?? settings.pomodoroMinutes * 60
+    };
+  }
+  return null;
 }

@@ -1,5 +1,6 @@
-import { db } from "../db";
+import { db, queueChange } from "../db";
 import type { HealthProfile } from "../types";
+import { syncFields } from "./identity";
 import { isNativeApp } from "./nativeApp";
 import { ensureNativeReminderPermission } from "./nativeReminders";
 import { showHealthMovementReminder } from "./notifications";
@@ -13,7 +14,8 @@ export const DEFAULT_HEALTH_PROFILE = {
   movement_reminder_enabled: false,
   movement_interval_minutes: 60,
   reminder_start_time: "09:00",
-  reminder_end_time: "22:00"
+  reminder_end_time: "22:00",
+  last_movement_reminder_at: null
 } as const;
 
 const LAST_REMINDER_KEY = "semester-schedule-health-reminder";
@@ -41,12 +43,30 @@ export async function checkDueHealthReminder(ownerId: string, now = new Date()):
   const baseline = Math.max(
     new Date(profile.updated_at).getTime() || 0,
     lastMovement ? new Date(lastMovement).getTime() : 0,
+    profile.last_movement_reminder_at ? new Date(profile.last_movement_reminder_at).getTime() : 0,
     lastSent
   );
   if (now.getTime() - baseline < profile.movement_interval_minutes * 60_000) return false;
 
   await showHealthMovementReminder();
   localStorage.setItem(`${LAST_REMINDER_KEY}:${ownerId}`, String(now.getTime()));
+  await recordHealthMovementReminderSent(ownerId, now);
+  return true;
+}
+
+export async function recordHealthMovementReminderSent(ownerId: string, at: Date): Promise<boolean> {
+  const profile = await db.healthProfiles
+    .filter((item) => item.user_id === ownerId && !item.deleted_at)
+    .first();
+  if (!profile) return false;
+  const updated: HealthProfile = {
+    ...profile,
+    ...syncFields(profile),
+    last_movement_reminder_at: at.toISOString()
+  };
+  await db.healthProfiles.put(updated);
+  await queueChange("healthProfiles", updated.id);
+  localStorage.setItem(`${LAST_REMINDER_KEY}:${ownerId}`, String(at.getTime()));
   return true;
 }
 

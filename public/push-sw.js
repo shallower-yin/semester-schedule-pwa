@@ -5,8 +5,14 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = { title: "日程提醒", body: event.data ? event.data.text() : "" };
   }
-  event.waitUntil(
-    self.registration.showNotification(payload.title || "日程提醒", {
+  event.waitUntil((async () => {
+    if (payload.sourceType === "health") {
+      await notifyOpenClients({
+        type: "health-reminder-delivered",
+        reminderAt: payload.reminderAt || new Date().toISOString()
+      });
+    }
+    await self.registration.showNotification(payload.title || "日程提醒", {
       body: payload.body || "有一项日程即将开始",
       icon: "app-icon-192.png",
       badge: "app-icon-192.png",
@@ -15,8 +21,8 @@ self.addEventListener("push", (event) => {
       renotify: true,
       timestamp: Date.now(),
       data: { url: payload.url || self.registration.scope }
-    })
-  );
+    });
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -68,4 +74,14 @@ async function openOrFocusApp(targetUrl, appUrl) {
 
   const openedClient = await self.clients.openWindow(targetUrl);
   return openedClient ? openedClient.focus() : null;
+}
+
+async function notifyOpenClients(message) {
+  const windowClients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true
+  });
+  for (const client of windowClients) {
+    client.postMessage(message);
+  }
 }

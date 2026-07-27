@@ -107,8 +107,8 @@ public class FocusTimerService extends Service {
         if (planId.isEmpty()) return;
 
         appendTransition(prefs, mode, planned, endedAt);
+        int total = Math.max(round, prefs.getInt(FocusNativeTimerPlugin.TOTAL_ROUNDS, round));
         if ("pomodoro".equals(mode) && prefs.getBoolean(FocusNativeTimerPlugin.AUTO_BREAK, true)) {
-            int total = Math.max(round, prefs.getInt(FocusNativeTimerPlugin.TOTAL_ROUNDS, round));
             int interval = Math.max(1, prefs.getInt(FocusNativeTimerPlugin.LONG_INTERVAL, 4));
             boolean isLong = round % interval == 0 || round >= total;
             long breakSeconds = prefs.getLong(isLong ? FocusNativeTimerPlugin.LONG_BREAK : FocusNativeTimerPlugin.SHORT_BREAK, isLong ? 900 : 300);
@@ -125,6 +125,24 @@ public class FocusTimerService extends Service {
                 .putBoolean(FocusNativeTimerPlugin.PAUSED, false)
                 .apply();
             alert("专注完成，已自动开始" + (isLong ? "长休息" : "短休息"));
+        } else if ("rest".equals(mode) && round < total) {
+            int nextRound = round + 1;
+            long focusSeconds = Math.max(1, prefs.getLong(FocusNativeTimerPlugin.FOCUS_SECONDS, 1500));
+            String taskTitle = prefs.getString(FocusNativeTimerPlugin.TASK_TITLE, "番茄专注");
+            prefs.edit()
+                .putBoolean(FocusNativeTimerPlugin.ACTIVE, true)
+                .putString(FocusNativeTimerPlugin.MODE, "pomodoro")
+                .putString(FocusNativeTimerPlugin.TITLE, taskTitle == null || taskTitle.isEmpty() ? "番茄专注" : taskTitle)
+                .putString(FocusNativeTimerPlugin.REST_KIND, "")
+                .putInt(FocusNativeTimerPlugin.ROUND, nextRound)
+                .putLong(FocusNativeTimerPlugin.PLANNED, focusSeconds)
+                .putLong(FocusNativeTimerPlugin.ELAPSED_BASE, 0)
+                .putLong(FocusNativeTimerPlugin.ANCHOR_REALTIME, SystemClock.elapsedRealtime())
+                .putLong(FocusNativeTimerPlugin.ANCHOR_WALL, endedAt)
+                .putLong(FocusNativeTimerPlugin.ANCHOR_BOOT, FocusNativeTimerPlugin.bootCount(this))
+                .putBoolean(FocusNativeTimerPlugin.PAUSED, false)
+                .apply();
+            alert("休息结束，已自动开始下一轮专注");
         } else {
             prefs.edit().putBoolean(FocusNativeTimerPlugin.ACTIVE, false).apply();
             alert("rest".equals(mode) ? "休息结束，可以开始下一轮专注" : "专注结束");

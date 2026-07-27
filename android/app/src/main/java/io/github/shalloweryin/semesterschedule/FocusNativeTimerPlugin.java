@@ -46,6 +46,8 @@ public class FocusNativeTimerPlugin extends Plugin {
     static final String LONG_INTERVAL = "pomodoro-long-interval";
     static final String AUTO_BREAK = "pomodoro-auto-break";
     static final String REST_KIND = "pomodoro-rest-kind";
+    static final String FOCUS_SECONDS = "pomodoro-focus-seconds";
+    static final String TASK_TITLE = "pomodoro-task-title";
     static final String SOUND = "sound-enabled";
     static final String TRANSITIONS = "transitions";
     static final Object TRANSITION_LOCK = new Object();
@@ -77,6 +79,8 @@ public class FocusNativeTimerPlugin extends Plugin {
             .putInt(LONG_INTERVAL, call.getInt("pomodoroLongBreakInterval", 4))
             .putBoolean(AUTO_BREAK, call.getBoolean("pomodoroAutoStartBreak", true))
             .putString(REST_KIND, call.getString("pomodoroRestKind", ""))
+            .putLong(FOCUS_SECONDS, readLong(call, "pomodoroFocusSeconds", Math.max(0, readLong(call, "plannedSeconds", 0))))
+            .putString(TASK_TITLE, readTaskTitle(call))
             .putBoolean(SOUND, call.getBoolean("soundEnabled", true))
             .apply();
         if (!call.getString("pomodoroPlanId", "").isEmpty()) FocusTimerService.start(getContext());
@@ -232,8 +236,17 @@ public class FocusNativeTimerPlugin extends Plugin {
         state.put("pomodoroLongBreakInterval", current.getInt(LONG_INTERVAL, 4));
         state.put("pomodoroAutoStartBreak", current.getBoolean(AUTO_BREAK, true));
         state.put("pomodoroRestKind", current.getString(REST_KIND, ""));
+        state.put("pomodoroFocusSeconds", current.getLong(FOCUS_SECONDS, 0));
+        state.put("pomodoroTaskTitle", current.getString(TASK_TITLE, ""));
         state.put("lockTaskActive", isLockTaskActive());
         return state;
+    }
+
+    private String readTaskTitle(PluginCall call) {
+        String explicit = call.getString("pomodoroTaskTitle", "");
+        if (explicit != null && !explicit.isEmpty()) return explicit;
+        String mode = call.getString("mode", "pomodoro");
+        return "pomodoro".equals(mode) ? call.getString("title", "") : "";
     }
 
     private long currentElapsedSeconds(SharedPreferences current) {

@@ -101,6 +101,36 @@ describe("事项编辑弹窗", () => {
     });
   });
 
+  it("支持从开始日按间隔天数重复并用持续天数计算截止日期", async () => {
+    render(
+      <EventDialog
+        initialDate="2026-07-25"
+        initialEventType="habit"
+        ownerId="local"
+        occurrenceStates={[]}
+        onClose={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "吃药" } });
+    fireEvent.change(screen.getByLabelText("重复"), { target: { value: "interval" } });
+    fireEvent.change(screen.getByLabelText("间隔天数"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("持续天数"), { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存习惯" }));
+
+    await waitFor(async () => {
+      const saved = await db.events.filter((eventItem) => eventItem.title === "吃药").first();
+      expect(saved).toEqual(expect.objectContaining({
+        event_type: "habit",
+        start_date: "2026-07-25",
+        end_date: "2026-07-25",
+        recurrence_type: "interval",
+        recurrence_interval: 5,
+        recurrence_until: "2026-08-23"
+      }));
+    });
+  });
+
   it("提醒提前时间支持 3、5、7 天", () => {
     const eventItem = eventRecord();
     render(

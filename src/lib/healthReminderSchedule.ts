@@ -19,6 +19,7 @@ export function computeNextHealthReminder(
   const baseline = Math.max(
     validTime(profile.updated_at),
     validTime(lastMovementAt),
+    validTime(profile.last_movement_reminder_at),
     now.getTime() - intervalMinutes * 60_000
   );
   const candidate = new Date(Math.max(now.getTime() + 5_000, baseline + intervalMinutes * 60_000));

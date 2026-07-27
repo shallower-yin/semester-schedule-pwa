@@ -269,6 +269,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       pomodoro_long_break_interval: plan ? effectiveSettings.long_break_interval : null,
       pomodoro_auto_start_break: plan ? effectiveSettings.auto_start_break : false,
       pomodoro_rest_kind: null,
+      pomodoro_focus_seconds: plan ? plannedSeconds : null,
+      pomodoro_task_title: plan?.task_title ?? null,
       sound_enabled: effectiveSettings.sound_enabled
     };
     setActive(next);
@@ -415,6 +417,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           started_at: endedAt.toISOString(),
           paused_seconds: 0,
           pause_started_at: null,
+          pomodoro_task_title: active.pomodoro_task_title ?? active.task_title,
+          pomodoro_focus_seconds: active.pomodoro_focus_seconds ?? active.planned_seconds ?? effectiveSettings.pomodoro_minutes * 60,
           pomodoro_rest_kind: restKind
         };
       }
@@ -425,16 +429,32 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         clearPomodoroPlan(ownerId);
         setPomodoroPlan(null);
       } else {
+        const nextRound = round + 1;
         const updatedPlan: PomodoroPlanState = {
           id: active.pomodoro_plan_id,
-          task_title: pomodoroPlan?.task_title ?? "番茄专注",
+          task_title: pomodoroPlan?.task_title ?? active.pomodoro_task_title ?? "番茄专注",
           linked_event_id: pomodoroPlan?.linked_event_id ?? null,
           total_rounds: total,
-          next_round: round + 1,
+          next_round: nextRound,
           completed_rounds: round
         };
         savePomodoroPlan(ownerId, updatedPlan);
         setPomodoroPlan(updatedPlan);
+        nextActive = {
+          ...active,
+          mode: "pomodoro",
+          task_title: updatedPlan.task_title,
+          linked_event_id: updatedPlan.linked_event_id,
+          planned_seconds: active.pomodoro_focus_seconds ?? effectiveSettings.pomodoro_minutes * 60,
+          started_at: endedAt.toISOString(),
+          paused_seconds: 0,
+          pause_started_at: null,
+          pomodoro_round: nextRound,
+          pomodoro_total_rounds: total,
+          pomodoro_rest_kind: null,
+          pomodoro_task_title: updatedPlan.task_title,
+          pomodoro_focus_seconds: active.pomodoro_focus_seconds ?? effectiveSettings.pomodoro_minutes * 60
+        };
       }
     }
     if (nextActive) {
@@ -759,6 +779,8 @@ function activeFocusFromNativeState(current: ActiveFocusState, state: NativeTime
     pomodoro_long_break_seconds: state.pomodoroLongBreakSeconds || null,
     pomodoro_long_break_interval: state.pomodoroLongBreakInterval || null,
     pomodoro_auto_start_break: state.pomodoroAutoStartBreak,
+    pomodoro_focus_seconds: state.pomodoroFocusSeconds || current.pomodoro_focus_seconds || null,
+    pomodoro_task_title: state.pomodoroTaskTitle || current.pomodoro_task_title || null,
     pomodoro_rest_kind: state.pomodoroRestKind === "pomodoro_long"
       ? "pomodoro_long"
       : state.pomodoroRestKind === "pomodoro_short"

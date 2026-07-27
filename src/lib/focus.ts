@@ -17,6 +17,8 @@ export interface ActiveFocusState {
   pomodoro_long_break_interval?: number | null;
   pomodoro_auto_start_break?: boolean;
   pomodoro_rest_kind?: "pomodoro_short" | "pomodoro_long" | null;
+  pomodoro_focus_seconds?: number | null;
+  pomodoro_task_title?: string | null;
   sound_enabled?: boolean;
 }
 

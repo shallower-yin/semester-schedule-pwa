@@ -176,6 +176,7 @@ export interface HealthProfile extends SyncFields {
   movement_interval_minutes: number;
   reminder_start_time: string;
   reminder_end_time: string;
+  last_movement_reminder_at: ISODateTime | null;
 }
 
 export type HealthLogKind = "water" | "movement" | "exercise" | "weight";

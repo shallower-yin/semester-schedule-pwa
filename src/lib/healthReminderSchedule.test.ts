@@ -18,6 +18,7 @@ function profile(overrides: Partial<HealthProfile> = {}): HealthProfile {
     movement_interval_minutes: 60,
     reminder_start_time: "09:00",
     reminder_end_time: "22:00",
+    last_movement_reminder_at: null,
     ...overrides
   };
 }
@@ -49,5 +50,15 @@ describe("computeNextHealthReminder", () => {
 
   it("关闭活动提醒时不生成原生计划", () => {
     expect(computeNextHealthReminder(profile({ movement_reminder_enabled: false }), null)).toBeNull();
+  });
+
+  it("按上次已发送活动提醒推迟下一次提醒，避免跨端短间隔重复", () => {
+    const result = computeNextHealthReminder(
+      profile({ last_movement_reminder_at: new Date(2026, 6, 24, 10, 5).toISOString() }),
+      new Date(2026, 6, 24, 9, 15).toISOString(),
+      new Date(2026, 6, 24, 10, 20)
+    );
+    expect(result?.triggerAt.getHours()).toBe(11);
+    expect(result?.triggerAt.getMinutes()).toBe(5);
   });
 });

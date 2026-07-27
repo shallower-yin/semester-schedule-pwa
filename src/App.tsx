@@ -93,7 +93,7 @@ import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { deleteSemesterCascade } from "./lib/semesters";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
-import { checkDueHealthReminder } from "./lib/health";
+import { checkDueHealthReminder, recordHealthMovementReminderSent } from "./lib/health";
 import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { applyAppFontSize, appFontSizeLabel, loadAppFontSize, type AppFontSizeId } from "./lib/fontSizes";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
@@ -540,6 +540,19 @@ export default function App() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
+  }, [ownerId]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; reminderAt?: string } | undefined;
+      if (data?.type !== "health-reminder-delivered") return;
+      const reminderAt = data.reminderAt ? new Date(data.reminderAt) : new Date();
+      if (Number.isNaN(reminderAt.getTime())) return;
+      void recordHealthMovementReminderSent(ownerId, reminderAt);
+    };
+    navigator.serviceWorker.addEventListener("message", onServiceWorkerMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onServiceWorkerMessage);
   }, [ownerId]);
 
   useEffect(() => {
