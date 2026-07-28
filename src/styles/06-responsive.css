@@ -1339,6 +1339,20 @@
     grid-column: auto;
   }
 
+  .ai-assistant-capability {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .ai-assistant-capability small {
+    display: none;
+  }
+
+  .assistant-messages article.user .assistant-message-body,
+  .assistant-messages article.assistant .assistant-message-body,
+  .assistant-messages article.assistant > p {
+    width: 100%;
+  }
+
   .assistant-composer-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

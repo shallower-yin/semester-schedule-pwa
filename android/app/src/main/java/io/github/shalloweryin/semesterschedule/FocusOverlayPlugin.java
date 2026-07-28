@@ -184,6 +184,24 @@ public class FocusOverlayPlugin extends Plugin {
         call.resolve();
     }
 
+    @PluginMethod
+    public void setKeepAwake(PluginCall call) {
+        final Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("no-activity");
+            return;
+        }
+        final boolean enable = "true".equals(call.getString("enabled", "false"));
+        activity.runOnUiThread(() -> {
+            if (enable) {
+                activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+        });
+        call.resolve();
+    }
+
     private boolean canDraw() {
         return Settings.canDrawOverlays(getContext());
     }

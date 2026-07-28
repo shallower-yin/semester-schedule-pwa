@@ -190,6 +190,24 @@ describe("AI 助手消息编辑", () => {
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 1200 })));
   });
 
+  it("按当前问题构造时间范围上下文，并支持回车发送", async () => {
+    render(<DeepSeekAssistantDialog input={{ ...emptyInput, now: new Date("2026-07-17T02:00:00.000Z") }} ownerId="time-scope-user" onClose={vi.fn()} />);
+    const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
+    fireEvent.change(composer, { target: { value: "帮我梳理下周安排" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", shiftKey: false });
+
+    await waitFor(() => expect(askDeepSeekAssistantMock).toHaveBeenCalledTimes(1));
+    expect(askDeepSeekAssistantMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      requestedTimeScope: { label: "下周", startDate: "2026-07-20", endDate: "2026-07-26" }
+    }));
+  });
+
+  it("空对话提供常用问题入口", async () => {
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="new-user" onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "检查本周时间冲突" }));
+    expect(screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业")).toHaveValue("检查本周时间冲突");
+  });
+
   it("附件保存在本地上下文并自动用于后续问题", async () => {
     getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
     askDeepSeekAssistantMock

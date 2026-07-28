@@ -1,61 +1,64 @@
 package io.github.shalloweryin.semesterschedule;
 
 import android.app.AlarmManager;
-import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.net.Uri;
 import android.os.Build;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.Looper;
-
-import androidx.annotation.Nullable;
-import androidx.core.app.NotificationCompat;
-import androidx.core.content.ContextCompat;
 
 /**
- * User-visible foreground guard for reminder reliability. Exact alarms remain authoritative; this
- * service raises process importance and keeps a durable heartbeat so OEM background kills are
- * observable. Its foreground-service notification is deliberately separated from the high-priority
- * reminder channel so actual reminders can follow the user's system notification settings.
+ * Notification-free reminder watchdog. Actual reminder delivery is owned by persisted exact alarms;
+ * this lightweight heartbeat verifies that Android can still wake the application without keeping
+ * a foreground service notification in the user's notification shade.
+ *
+ * The class name is retained so upgrades keep the existing preferences and bridge contract.
  */
-public class ReliableReminderService extends Service {
-    private static final String SERVICE_CHANNEL_ID = "reminder-service-v1";
+public final class ReliableReminderService {
+    private static final String LEGACY_SERVICE_CHANNEL_ID = "reminder-service-v1";
     private static final String PREFS = "reliable_reminder_service_v1";
     private static final String ENABLED = "enabled";
     private static final String LAST_HEARTBEAT = "lastHeartbeatAt";
     private static final String START_COUNT = "startCount";
-    private static final String ACTION_RESTART = "io.github.shalloweryin.semesterschedule.RELIABLE_REMINDER_RESTART";
-    private static final int NOTIFICATION_ID = 31_010;
-    private static final int RESTART_REQUEST_ID = 31_011;
-    private static final long HEARTBEAT_MS = 60_000L;
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable heartbeat = new Runnable() {
-        @Override public void run() {
-            markHeartbeat(ReliableReminderService.this);
-            handler.postDelayed(this, HEARTBEAT_MS);
-        }
-    };
+    private static final String ACTION_HEARTBEAT = "io.github.shalloweryin.semesterschedule.RELIABLE_REMINDER_HEARTBEAT";
+    private static final int LEGACY_NOTIFICATION_ID = 31_010;
+    private static final int HEARTBEAT_REQUEST_ID = 31_011;
+    private static final long HEARTBEAT_MS = 15 * 60_000L;
+
+    private ReliableReminderService() {}
 
     public static void start(Context context) {
-        prefs(context).edit().putBoolean(ENABLED, true).apply();
-        ContextCompat.startForegroundService(context, new Intent(context, ReliableReminderService.class));
+        SharedPreferences state = prefs(context);
+        state.edit()
+            .putBoolean(ENABLED, true)
+            .putInt(START_COUNT, state.getInt(START_COUNT, 0) + 1)
+            .apply();
+        removeLegacyForegroundNotification(context);
+        markHeartbeat(context);
+        scheduleHeartbeat(context, HEARTBEAT_MS);
+        ReminderAlarmReceiver.recordDiagnostic(context, "service_started", 0, String.valueOf(startCount(context)));
     }
 
     public static void stop(Context context) {
         prefs(context).edit().putBoolean(ENABLED, false).apply();
-        cancelRestart(context);
-        context.stopService(new Intent(context, ReliableReminderService.class));
+        cancelHeartbeat(context);
+        removeLegacyForegroundNotification(context);
+        ReminderAlarmReceiver.recordDiagnostic(context, "service_stopped", 0, "");
     }
 
     public static void restoreIfEnabled(Context context) {
-        if (isEnabled(context)) scheduleRestart(context, 10_000L);
+        removeLegacyForegroundNotification(context);
+        if (isEnabled(context)) scheduleHeartbeat(context, 10_000L);
+    }
+
+    public static void onHeartbeat(Context context) {
+        if (!isEnabled(context)) {
+            cancelHeartbeat(context);
+            return;
+        }
+        markHeartbeat(context);
+        scheduleHeartbeat(context, HEARTBEAT_MS);
     }
 
     public static boolean isEnabled(Context context) {
@@ -63,8 +66,7 @@ public class ReliableReminderService extends Service {
     }
 
     public static boolean isRunning(Context context) {
-        long heartbeat = lastHeartbeatAt(context);
-        return isEnabled(context) && heartbeat > 0 && System.currentTimeMillis() - heartbeat < HEARTBEAT_MS * 3;
+        return isEnabled(context) && heartbeatIntent(context, PendingIntent.FLAG_NO_CREATE) != null;
     }
 
     public static long lastHeartbeatAt(Context context) {
@@ -75,120 +77,52 @@ public class ReliableReminderService extends Service {
         return prefs(context).getInt(START_COUNT, 0);
     }
 
-    @Override public void onCreate() {
-        super.onCreate();
-        ReminderSupportPlugin.ensureChannel(this);
-    }
-
-    @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (!isEnabled(this)) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        SharedPreferences state = prefs(this);
-        state.edit().putInt(START_COUNT, state.getInt(START_COUNT, 0) + 1).apply();
-        markHeartbeat(this);
-        startForeground(NOTIFICATION_ID, notification());
-        handler.removeCallbacks(heartbeat);
-        handler.postDelayed(heartbeat, HEARTBEAT_MS);
-        ReminderAlarmReceiver.recordDiagnostic(this, "service_started", 0, String.valueOf(startCount(this)));
-        return START_STICKY;
-    }
-
-    @Override public void onTaskRemoved(Intent rootIntent) {
-        if (isEnabled(this)) {
-            ReminderAlarmReceiver.recordDiagnostic(this, "task_removed", 0, "");
-            scheduleRestart(this, 2_000L);
-        }
-        super.onTaskRemoved(rootIntent);
-    }
-
-    @Override public void onDestroy() {
-        handler.removeCallbacks(heartbeat);
-        if (isEnabled(this)) {
-            ReminderAlarmReceiver.recordDiagnostic(this, "service_destroyed", 0, "");
-            scheduleRestart(this, 5_000L);
-        }
-        super.onDestroy();
-    }
-
-    @Nullable @Override public IBinder onBind(Intent intent) {
-        return null;
-    }
-
-    private android.app.Notification notification() {
-        ensureServiceChannel();
-        Intent launch = new Intent(this, MainActivity.class)
-            .setAction(Intent.ACTION_VIEW)
-            .setData(Uri.parse("semesterschedule://notification"));
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
-        PendingIntent content = PendingIntent.getActivity(this, NOTIFICATION_ID, launch, flags);
-        return new NotificationCompat.Builder(this, SERVICE_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("可靠提醒服务正在运行")
-            .setContentText("日程与健康提醒已由安卓系统守护")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setSilent(true)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setContentIntent(content)
-            .build();
-    }
-
-    private void ensureServiceChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager == null || manager.getNotificationChannel(SERVICE_CHANNEL_ID) != null) return;
-        NotificationChannel channel = new NotificationChannel(
-            SERVICE_CHANNEL_ID,
-            "提醒守护服务",
-            NotificationManager.IMPORTANCE_LOW
-        );
-        channel.setDescription("保持提醒守护服务运行；真正的日程提醒使用“重要日程提醒”通道");
-        channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
-        channel.setSound(null, null);
-        channel.enableVibration(false);
-        manager.createNotificationChannel(channel);
-    }
-
     private static void markHeartbeat(Context context) {
         prefs(context).edit().putLong(LAST_HEARTBEAT, System.currentTimeMillis()).apply();
     }
 
-    private static void scheduleRestart(Context context, long delayMs) {
+    private static void scheduleHeartbeat(Context context, long delayMs) {
+        AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (manager == null) return;
+        PendingIntent pending = heartbeatIntent(context, PendingIntent.FLAG_UPDATE_CURRENT);
+        long triggerAt = System.currentTimeMillis() + Math.max(5_000L, delayMs);
         try {
-            AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-            if (manager == null) return;
-            PendingIntent pending = restartIntent(context, PendingIntent.FLAG_UPDATE_CURRENT);
-            long triggerAt = System.currentTimeMillis() + Math.max(2_000L, delayMs);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending);
             } else {
                 manager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pending);
             }
-        } catch (Exception error) {
-            ReminderAlarmReceiver.recordDiagnostic(context, "service_restart_error", 0, error.getClass().getSimpleName());
+        } catch (SecurityException denied) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending);
+            } else {
+                manager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending);
+            }
+            ReminderAlarmReceiver.recordDiagnostic(context, "service_heartbeat_inexact", 0, denied.getClass().getSimpleName());
         }
     }
 
-    private static void cancelRestart(Context context) {
+    private static void cancelHeartbeat(Context context) {
         AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        PendingIntent pending = restartIntent(context, PendingIntent.FLAG_NO_CREATE);
+        PendingIntent pending = heartbeatIntent(context, PendingIntent.FLAG_NO_CREATE);
         if (manager != null && pending != null) manager.cancel(pending);
         if (pending != null) pending.cancel();
     }
 
-    private static PendingIntent restartIntent(Context context, int baseFlags) {
-        Intent intent = new Intent(context, ReliableReminderService.class).setAction(ACTION_RESTART);
+    private static PendingIntent heartbeatIntent(Context context, int baseFlags) {
+        Intent intent = new Intent(context, ReliableReminderReceiver.class).setAction(ACTION_HEARTBEAT);
         int flags = baseFlags;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+        return PendingIntent.getBroadcast(context, HEARTBEAT_REQUEST_ID, intent, flags);
+    }
+
+    private static void removeLegacyForegroundNotification(Context context) {
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) return;
+        manager.cancel(LEGACY_NOTIFICATION_ID);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            return PendingIntent.getForegroundService(context, RESTART_REQUEST_ID, intent, flags);
+            manager.deleteNotificationChannel(LEGACY_SERVICE_CHANNEL_ID);
         }
-        return PendingIntent.getService(context, RESTART_REQUEST_ID, intent, flags);
     }
 
     private static SharedPreferences prefs(Context context) {

@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Maximize2, Pause, PictureInPicture2, Play, RotateCcw, Settings, Square, Target, Trash2 } from "lucide-react";
+import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Maximize2, Pause, PictureInPicture2, Play, RotateCcw, Settings, Square, Sun, Target, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, queueChange } from "../db";
 import {
@@ -38,6 +38,7 @@ import {
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { isNativeApp } from "../lib/nativeApp";
+import { disableFocusScreenWakeLock, enableFocusScreenWakeLock, focusScreenWakeLockSupported } from "../lib/focusScreenWakeLock";
 import { showToast } from "../lib/toast";
 import type { EventItem, FocusMode, FocusSession, FocusSettings, FocusTimerMode, RestSession } from "../types";
 import { Modal } from "./Modal";
@@ -59,6 +60,8 @@ const DEFAULT_SETTINGS = {
   daily_goal_minutes: 120,
   sound_enabled: true
 };
+
+const FOCUS_SCREEN_WAKE_LOCK_KEY = "focus-screen-awake-enabled-v1";
 
 export function FocusPage({ ownerId }: FocusPageProps) {
   const storedSettings = useLiveQuery(
@@ -95,6 +98,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [systemWindowOpen, setSystemWindowOpen] = useState(false);
   const [nativeElapsed, setNativeElapsed] = useState<number | null>(null);
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>("week");
+  const [keepScreenAwake, setKeepScreenAwake] = useState(loadFocusScreenWakeLockPreference);
 
   const effectiveSettings = useMemo(
     () => ({
@@ -164,6 +168,43 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(FOCUS_SCREEN_WAKE_LOCK_KEY, keepScreenAwake ? "true" : "false");
+  }, [keepScreenAwake]);
+
+  useEffect(() => {
+    if (!active || !keepScreenAwake) {
+      void disableFocusScreenWakeLock();
+      return;
+    }
+    let disposed = false;
+    const acquire = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const enabled = await enableFocusScreenWakeLock();
+        if (!enabled && !disposed) {
+          setKeepScreenAwake(false);
+          showToast("当前设备不支持屏幕常亮。", "error");
+        }
+      } catch {
+        if (!disposed) {
+          setKeepScreenAwake(false);
+          showToast("无法开启屏幕常亮，请检查系统省电设置。", "error");
+        }
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void acquire();
+    };
+    void acquire();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      void disableFocusScreenWakeLock();
+    };
+  }, [active?.started_at, keepScreenAwake]);
 
   useEffect(() => {
     if (!active) {
@@ -609,6 +650,17 @@ export function FocusPage({ ownerId }: FocusPageProps) {
               <button className="button danger-button" onClick={discardFocus}><Square size={16} />放弃</button>
             </div>
           )}
+          <label className={`focus-keep-awake ${keepScreenAwake ? "enabled" : ""}`} title="开启后，专注进行时保持当前应用屏幕常亮">
+            <input
+              type="checkbox"
+              checked={keepScreenAwake}
+              disabled={!focusScreenWakeLockSupported()}
+              onChange={(event) => setKeepScreenAwake(event.target.checked)}
+            />
+            <Sun size={17} />
+            <span>屏幕常亮</span>
+            <small>{!focusScreenWakeLockSupported() ? "当前环境不支持" : active && keepScreenAwake ? "运行中" : "专注开始后生效"}</small>
+          </label>
           {message && <p className="status-message">{message}</p>}
         </section>
 
@@ -928,6 +980,10 @@ function plannedSecondsForMode(mode: FocusTimerMode, settings: typeof DEFAULT_SE
   if (mode === "rest") return settings.short_break_minutes * 60;
   if (mode === "countdown") return settings.countdown_minutes * 60;
   return 0;
+}
+
+function loadFocusScreenWakeLockPreference(): boolean {
+  return localStorage.getItem(FOCUS_SCREEN_WAKE_LOCK_KEY) === "true";
 }
 
 

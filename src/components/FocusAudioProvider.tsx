@@ -60,7 +60,12 @@ export function FocusAudioProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState("");
   const visibleTracks = useMemo(() => tracks.filter((track) => track.kind === kind), [kind, tracks]);
   const currentTrack = tracks.find((track) => track.id === currentTrackId) ?? null;
-  const queue = useMemo(() => tracks.filter((track) => playlistIds.has(track.id)), [playlistIds, tracks]);
+  // A playlist is selected independently inside each category. Transport controls must never jump
+  // from music to white noise (or vice versa), including shuffle and automatic next-track playback.
+  const queue = useMemo(
+    () => visibleTracks.filter((track) => playlistIds.has(track.id)),
+    [playlistIds, visibleTracks]
+  );
 
   useEffect(() => {
     let active = true;
@@ -126,7 +131,7 @@ export function FocusAudioProvider({ children }: { children: ReactNode }) {
   }
 
   function moveTrack(direction: -1 | 1, forcePlay = false) {
-    const activeQueue = queue.length ? queue : tracks;
+    const activeQueue = queue.length ? queue : visibleTracks;
     if (!activeQueue.length) return;
     if (playbackMode === "shuffle" && activeQueue.length > 1) {
       const candidates = activeQueue.filter((track) => track.id !== currentTrackId);
@@ -171,7 +176,8 @@ export function FocusAudioProvider({ children }: { children: ReactNode }) {
     setPlaylistIds((current) => {
       const next = new Set(current);
       if (next.has(trackId)) {
-        if (next.size === 1) return current;
+        const selectedInCategory = visibleTracks.filter((track) => current.has(track.id));
+        if (selectedInCategory.length === 1 && selectedInCategory[0]?.id === trackId) return current;
         next.delete(trackId);
       } else {
         next.add(trackId);

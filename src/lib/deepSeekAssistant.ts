@@ -292,7 +292,7 @@ export async function askDeepSeekAssistant(
         question,
         scheduleContext: context,
         accessCode: accessCode || undefined,
-        history: history?.slice(-6),
+        history: history?.slice(-10),
         attachments: attachments?.slice(0, 3)
       }
     }), 2);

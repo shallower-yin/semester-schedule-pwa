@@ -67,16 +67,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-started Pomodoro timer and automatic break transition" />
         </service>
-        <service
-            android:name=".ReliableReminderService"
+        <receiver
+            android:name=".ReliableReminderReceiver"
             android:enabled="true"
-            android:exported="false"
-            android:stopWithTask="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-enabled reliable schedule and health reminder guard" />
-        </service>
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

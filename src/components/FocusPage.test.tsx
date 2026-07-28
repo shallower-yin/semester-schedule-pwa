@@ -5,6 +5,7 @@ import { setCurrentUserId } from "../lib/identity";
 import type { FocusSession } from "../types";
 import { FocusPage } from "./FocusPage";
 import { openFocusSystemWindow } from "../lib/focusSystemWindow";
+import { enableFocusScreenWakeLock } from "../lib/focusScreenWakeLock";
 
 vi.mock("../lib/focusSystemWindow", () => ({
   closeFocusSystemWindow: vi.fn(),
@@ -15,6 +16,12 @@ vi.mock("../lib/focusSystemWindow", () => ({
 
 vi.mock("./FocusAudioPlayer", () => ({
   FocusAudioPlayer: () => <div data-testid="focus-audio-player" />
+}));
+
+vi.mock("../lib/focusScreenWakeLock", () => ({
+  disableFocusScreenWakeLock: vi.fn().mockResolvedValue(undefined),
+  enableFocusScreenWakeLock: vi.fn().mockResolvedValue(true),
+  focusScreenWakeLockSupported: () => true
 }));
 
 function session(id: string): FocusSession {
@@ -81,6 +88,19 @@ describe("专注记录管理", () => {
       expect.any(Date),
       true
     );
+  });
+
+  it("可在专注界面开启屏幕常亮，并在专注开始后生效", async () => {
+    vi.mocked(enableFocusScreenWakeLock).mockClear();
+    render(<FocusPage ownerId="local" />);
+    const keepAwake = await screen.findByRole("checkbox", { name: /屏幕常亮/ });
+    fireEvent.click(keepAwake);
+    expect(keepAwake).toBeChecked();
+    expect(enableFocusScreenWakeLock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /开始专注/ }));
+    await waitFor(() => expect(enableFocusScreenWakeLock).toHaveBeenCalled());
+    expect(screen.getByText("运行中")).toBeInTheDocument();
   });
 
   it("显示完整番茄循环设置并为旧设置补足轮数", async () => {

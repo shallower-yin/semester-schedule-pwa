@@ -23,6 +23,8 @@ export interface FocusOverlayPlugin {
   setImmersive(options: { enabled: string }): Promise<void>;
   /** Lock screen orientation: "landscape" | "portrait" | "auto". */
   setOrientation(options: { mode: string }): Promise<void>;
+  /** Keep the app screen awake while the user explicitly enables it for an active focus. */
+  setKeepAwake(options: { enabled: string }): Promise<void>;
 }
 
 export const FocusOverlay = registerPlugin<FocusOverlayPlugin>("FocusOverlay");

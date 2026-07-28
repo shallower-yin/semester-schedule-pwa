@@ -201,7 +201,7 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
   if (isNativeApp()) {
     const [health, diagnostics] = await Promise.all([getNativeReminderHealth(), getNativeReminderDiagnostics()]);
     const granted = Boolean(health?.permissionGranted && health.notificationsEnabled);
-    steps.push({ id: "support", label: "提醒方式", status: "ok", detail: "使用安卓本地精确闹钟，并由前台常驻服务增强进程存活，不依赖 TPNS。" });
+    steps.push({ id: "support", label: "提醒方式", status: "ok", detail: "使用安卓本地精确闹钟，并由无通知守护心跳检查唤醒能力，不依赖 TPNS。" });
     steps.push({
       id: "permission",
       label: "通知权限",
@@ -261,8 +261,8 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
       label: "可靠提醒服务",
       status: health?.reliableServiceRunning ? "ok" : "warning",
       detail: health?.reliableServiceRunning
-        ? `前台常驻服务运行中，最近心跳 ${serviceHeartbeat}，累计启动 ${health.reliableServiceStartCount ?? 0} 次。`
-        : `前台常驻服务当前未运行，最近心跳 ${serviceHeartbeat}；重新启用提醒可尝试恢复。`
+        ? `可靠提醒服务正在运行（无常驻通知），最近心跳 ${serviceHeartbeat}，累计启动 ${health.reliableServiceStartCount ?? 0} 次。`
+        : `可靠提醒服务当前未运行，最近心跳 ${serviceHeartbeat}；重新启用提醒可尝试恢复。`
     });
     if (health?.lastExitReason) {
       steps.push({
@@ -281,7 +281,10 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
         notify_denied: "发布被拒绝",
         restored: "已恢复",
         schedule_error: "注册失败",
-        restore_error: "恢复失败"
+        restore_error: "恢复失败",
+        service_started: "可靠提醒服务已启动",
+        service_stopped: "可靠提醒服务已停止",
+        service_heartbeat_inexact: "守护心跳已降级"
       };
       steps.push({
         id: "native-trace",

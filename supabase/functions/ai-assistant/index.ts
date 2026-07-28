@@ -1171,7 +1171,7 @@ async function askConfiguredProvider(
   const resolvedAttachments = resolvedDocuments.attachments;
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
   const historyText = history.length
-    ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 3_000)
+    ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 6_000)
     : "无";
   const quotaText = JSON.stringify(quotaStatus);
   const mindMapConfig = mindMapDepthConfig(mindMapDepth);
@@ -1203,7 +1203,7 @@ async function askConfiguredProvider(
       { type: "text", text: userText }
     ]
     : userText;
-  const completionLimit = mode === "mind_map" ? mindMapConfig.maxTokens : 900;
+  const completionLimit = mode === "mind_map" ? mindMapConfig.maxTokens : 1400;
   const supportsJsonOutput = provider === "deepseek" || model === "mimo-v2.5" || model === "mimo-v2.5-pro";
   const response = await fetch(endpoint, {
     method: "POST",
@@ -1233,6 +1233,7 @@ async function askConfiguredProvider(
             "JSON 格式：{\"answer\":\"一句简短说明\",\"mindMap\":{\"label\":\"中心主题\",\"children\":[{\"label\":\"主要分支\",\"children\":[]}]},\"actions\":[]}。"
           ].join("\n") : [
             "你是日程计划表的 AI 助手。",
+            "你首先是一名通用智能助手。普通知识、学习、写作、分析或生活问题可以直接回答；只有用户的问题确实涉及个人安排时才使用日程上下文，不要把所有问题都强行改写成日程建议。",
             `当前北京时间：${beijingNow}。所有“今天、明天、今年、下周”等相对时间都必须按北京时间理解。`,
             "你可以根据当前用户提供的数据回答安排、冲突、未完成、专注统计、纪念日和备忘录，也可以准确回答本工具的公开功能、权限和额度规则。",
             `公开产品规则（可以告诉用户）：\n- ${PUBLIC_PRODUCT_RULES.join("\n- ")}`,
@@ -1244,7 +1245,9 @@ async function askConfiguredProvider(
             "涉及今天、本周、下周、本月等时间问题时，requestedTimeScope 和 calendarDays 是唯一权威时间数据；courseTemplates 只是重复模板，不能证明具体日期有课，也不得加入范围外记录。",
             "只根据用户提供的日程上下文回答，不要编造不存在的课程、事项、纪念日、备忘录或专注记录。",
             "最近对话只用于理解指代，不要把它当成新的日程数据。",
-            "回答要简洁、具体、可执行。涉及日期时使用明确日期。无法确定时直接说明。",
+            "回答前先在内部核对：用户真实意图、相对时间对应的明确日期、上下文证据、可能的时间冲突，以及每个 action 的必填字段。不要输出这段内部核对过程。",
+            "后续追问中的‘它、那个、改成这样、继续’等指代要结合最近对话理解；证据不足时只追问一个最关键的问题，不要自行补造细节。",
+            "回答要简洁、具体、可执行。涉及日期时使用明确日期；比较方案时说明关键取舍并给出清晰建议。无法确定时直接说明。",
             "不要输出用户隐私无关内容，也不要声称自己能访问未提供的数据。",
             "你必须只返回 JSON 对象，不要使用 Markdown，不要输出额外解释。",
             "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
@@ -1646,10 +1649,10 @@ function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
     if (!item || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
     const role = record.role === "user" || record.role === "assistant" ? record.role : null;
-    const content = typeof record.content === "string" ? record.content.trim().slice(0, 500) : "";
+    const content = typeof record.content === "string" ? record.content.trim().slice(0, 800) : "";
     if (role && content) result.push({ role, content });
   }
-  return result.slice(-6);
+  return result.slice(-10);
 }
 
 function configuredModel(settings: AiSettingsRow | null): string {
@@ -2008,7 +2011,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
     choices?: Array<{ message?: { content?: string } }>;
     usage?: Partial<AiAssistantUsage>;
   };
-  const transcript = data.choices?.[0]?.message?.content?.trim();
+  const transcript = data.choices?.[0]?.message?.content?.trim() ?? "";
   if (!transcript) throw new Error("没有识别到有效语音内容。");
   const transcriptionUsage = normalizeUsage(data.usage);
   if (!body.summarizeAudio) {
@@ -2574,7 +2577,8 @@ async function transcribeAudioChunkWithSiliconFlow(
   const form = new FormData();
   form.set("model", model);
   if (language === "zh" || language === "en") form.set("language", language);
-  form.set("file", new Blob([chunk.bytes], { type: chunk.mimeType || "application/octet-stream" }), normalizedAudioFileName(fileName, chunk.mimeType));
+  const audioBytes = Uint8Array.from(chunk.bytes);
+  form.set("file", new Blob([audioBytes], { type: chunk.mimeType || "application/octet-stream" }), normalizedAudioFileName(fileName, chunk.mimeType));
   const { ok, status, text } = await fetchTextWithTransientRetry(credentials.endpoint, {
     method: "POST",
     headers: {

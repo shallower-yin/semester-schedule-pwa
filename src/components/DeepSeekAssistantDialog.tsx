@@ -1,8 +1,8 @@
-import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
+import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Sparkles, Square, Trash2, UserRound, X } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { db, queueChange } from "../db";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
-import { getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
+import { cancelAiTask, getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { extractClipboardFiles } from "../lib/clipboardFiles";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
 import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
@@ -25,8 +25,9 @@ interface DeepSeekAssistantDialogProps {
 }
 
 const HISTORY_LIMIT = 30;
-const CONTEXT_LIMIT = 6;
+const CONTEXT_LIMIT = 10;
 const ATTACHMENT_CONTEXT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const QUICK_PROMPTS = ["看看我今天的安排", "检查本周时间冲突", "帮我规划这周重点", "这个应用怎么用"];
 
 function aiAssistantHistoryKey(ownerId: string) {
   return `semester-schedule-ai-assistant-history:${ownerId}`;
@@ -45,7 +46,6 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [attachmentProgress, setAttachmentProgress] = useState("");
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const editingRef = useRef<HTMLTextAreaElement | null>(null);
-  const context = useMemo(() => buildDeepSeekScheduleContext(input), [input]);
   const task = useSyncExternalStore(subscribeAiTasks, () => getAiTaskSnapshot("assistant"), () => getAiTaskSnapshot("assistant"));
   const loading = task.status === "running";
 
@@ -95,6 +95,9 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     const trimmed = text.trim() || (effectiveAttachments.length ? "请识别附件中的日程信息，并创建对应事项。" : "");
     if (!trimmed || loading) return;
     const history = messagesToHistory(baseMessages);
+    // Build context with the current question so relative-time scopes such as “本周” and “明天”
+    // actually constrain the records sent to the model.
+    const requestContext = buildDeepSeekScheduleContext(input, trimmed);
     setQuestion("");
     const attachmentLabel = requestAttachments.length ? `\n附件：${requestAttachments.map((item) => item.name).join("、")}` : "";
     const messagesWithQuestion = [...baseMessages, { id: userMessageId, role: "user" as const, content: `${trimmed}${attachmentLabel}` }];
@@ -114,7 +117,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       label: "AI 助手正在回答",
       successMessage: "AI 助手已回答，点击可查看当前对话。",
       run: async () => {
-        const result = await askDeepSeekAssistant(trimmed, context, accessCode.trim(), history, effectiveAttachments);
+        const result = await askDeepSeekAssistant(trimmed, requestContext, accessCode.trim(), history, effectiveAttachments);
         const created = await createRecordsFromActions(result.actions ?? [], trimmed, ownerId);
         return {
           access: result.access,
@@ -259,8 +262,22 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       )}
     >
       <div className="assistant-dialog ai-assistant-dialog" onPaste={pasteAttachments}>
-        <p className="ai-assistant-capability">可查询安排、冲突、未完成、专注和使用方法；可创建事项、习惯、纪念日、生日、节日和备忘录，时间按北京时间处理。</p>
+        <div className="ai-assistant-capability">
+          <Sparkles size={16} />
+          <span>能正常聊天，也能结合你的日程查安排、找冲突和创建记录；相对时间按北京时间理解。</span>
+          <small>{configuration.supportsAttachments ? "支持图片与文档" : "智能问答已就绪"}</small>
+        </div>
         <div ref={messagesRef} className="assistant-messages" role="log" aria-label="AI 助手对话">
+          {!messages.length && !loading && (
+            <div className="assistant-empty-state">
+              <span className="assistant-empty-icon"><BrainCircuit size={24} /></span>
+              <strong>今天想先处理什么？</strong>
+              <p>直接提问，或从下面选一个开始。</p>
+              <div className="assistant-quick-prompts">
+                {QUICK_PROMPTS.map((prompt) => <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>)}
+              </div>
+            </div>
+          )}
           {messages.map((message) => (
             <article key={message.id} className={message.role}>
               {message.role === "assistant" ? <BrainCircuit size={18} /> : <UserRound size={18} />}
@@ -308,7 +325,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           {loading && (
             <article className="assistant">
               <BrainCircuit size={18} />
-              <p>正在分析日程...</p>
+              <p className="assistant-thinking">正在理解问题并核对时间与日程<span aria-hidden="true">···</span></p>
             </article>
           )}
         </div>
@@ -343,11 +360,18 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
               ))}
             </div>
           )}
-          <input
+          <textarea
+            className="assistant-composer-textarea"
             value={question}
             disabled={loading || Boolean(editingMessageId)}
             placeholder="例如：创建端午节，或明天 9:00 添加交作业"
+            rows={2}
             onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              void ask();
+            }}
           />
           {configuration.supportsAttachments && <p className="attachment-paste-hint">电脑端可按 Ctrl+V 粘贴截图或文件</p>}
           <div className="assistant-composer-actions">
@@ -363,7 +387,14 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
                 onFiles={addAttachments}
               />
             )}
-            <button className="button primary assistant-send-button" disabled={loading || Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
+            {loading ? (
+              <button type="button" className="button secondary assistant-send-button" onClick={() => {
+                cancelAiTask("assistant");
+                showToast("已停止生成，可继续修改或发送新问题。", "success");
+              }}><Square size={14} />停止</button>
+            ) : (
+              <button className="button primary assistant-send-button" disabled={Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
+            )}
           </div>
         </form>
       </div>
@@ -436,7 +467,7 @@ function replaceProcessedAttachments(current: AiAssistantAttachment[], processed
 function messagesToHistory(messages: Message[]): DeepSeekAssistantHistoryMessage[] {
   return messages
     .slice(-CONTEXT_LIMIT)
-    .map((message) => ({ role: message.role, content: message.content.slice(0, 500) }));
+    .map((message) => ({ role: message.role, content: message.content.slice(0, 800) }));
 }
 
 function copyTextFallback(content: string) {

@@ -117,4 +117,32 @@ describe("全局专注音频", () => {
     expect(engine.currentTime).toBe(35);
     expect(screen.getByText("音乐仅供个人专注播放，请勿传播或用于商业用途。")).toBeInTheDocument();
   });
+
+  it("随机播放只在当前分类的播放列表内换曲", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    render(<FocusAudioProvider><FocusAudioPlayer /></FocusAudioProvider>);
+    const selector = await screen.findByRole("combobox", { name: "选择专注音频" });
+    fireEvent.click(screen.getByRole("button", { name: "音乐" }));
+    await waitFor(() => expect(selector).toHaveValue("music-1"));
+
+    fireEvent.click(screen.getByRole("button", { name: "随机播放" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一首" }));
+
+    await waitFor(() => expect(selector).toHaveValue("music-2"));
+    expect(selector).not.toHaveValue("noise-1");
+  });
+
+  it("每个分类的播放列表至少保留一首", async () => {
+    render(<FocusAudioProvider><FocusAudioPlayer /></FocusAudioProvider>);
+    await screen.findByRole("combobox", { name: "选择专注音频" });
+    fireEvent.click(screen.getByRole("button", { name: "音乐" }));
+    fireEvent.click(screen.getByText(/播放列表/));
+    const musicOne = screen.getByRole("checkbox", { name: "音乐一" });
+    const musicTwo = screen.getByRole("checkbox", { name: "音乐二" });
+    fireEvent.click(musicTwo);
+    fireEvent.click(musicOne);
+
+    expect(musicOne).toBeChecked();
+    expect(musicTwo).not.toBeChecked();
+  });
 });
