@@ -3562,21 +3562,22 @@ async function logAiAssistantUsage(input: {
   const serviceRoleKey = serviceRoleSecret();
   if (!serviceRoleKey) return;
   try {
+    const minimalTranslationLog = input.featureKey === "translation";
     const payload = {
       user_id: input.userId,
       status: input.status,
       access_method: input.accessMethod,
       feature_key: input.featureKey,
-      model: input.model,
-      prompt_tokens: input.usage.prompt_tokens,
-      completion_tokens: input.usage.completion_tokens,
-      total_tokens: input.usage.total_tokens,
-      estimated_cost_cny: input.usage.estimated_cost_cny,
+      model: minimalTranslationLog ? "" : input.model,
+      prompt_tokens: minimalTranslationLog ? 0 : input.usage.prompt_tokens,
+      completion_tokens: minimalTranslationLog ? 0 : input.usage.completion_tokens,
+      total_tokens: minimalTranslationLog ? 0 : input.usage.total_tokens,
+      estimated_cost_cny: minimalTranslationLog ? null : input.usage.estimated_cost_cny,
       latency_ms: input.latencyMs,
-      question_chars: input.questionChars,
-      error: input.error ? input.error.slice(0, 500) : null,
+      question_chars: minimalTranslationLog ? null : input.questionChars,
+      error: minimalTranslationLog ? null : input.error ? input.error.slice(0, 500) : null,
       diagnostic_id: input.diagnosticId ?? null,
-      diagnostic_details: input.diagnosticDetails ?? {}
+      diagnostic_details: minimalTranslationLog ? {} : input.diagnosticDetails ?? {}
     };
     const usageUrl = new URL(`${supabaseUrl}/rest/v1/ai_assistant_usage`);
     if (input.diagnosticId) usageUrl.searchParams.set("on_conflict", "diagnostic_id");

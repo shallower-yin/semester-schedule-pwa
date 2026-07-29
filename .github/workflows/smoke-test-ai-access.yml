@@ -199,14 +199,16 @@ jobs:
             assert(typeof result.payload?.translation === "string" && result.payload.translation.trim(), `${user.label} should receive a translation`);
             assert(result.payload.translation.includes("2026"), `${user.label} translation should preserve numbers`);
             assert(result.payload?.access === expectedAccess, `${user.label} translation access should be ${expectedAccess}, got ${result.payload?.access}`);
-            const usageResponse = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage?select=feature_key,status,question_chars,latency_ms&user_id=eq.${encodeURIComponent(user.id)}&feature_key=eq.translation&order=requested_at.desc&limit=1`, {
+            const usageResponse = await fetch(`${supabaseUrl}/rest/v1/ai_assistant_usage?select=feature_key,status,question_chars,latency_ms,model,prompt_tokens,completion_tokens,total_tokens,diagnostic_details&user_id=eq.${encodeURIComponent(user.id)}&feature_key=eq.translation&order=requested_at.desc&limit=1`, {
               headers: serviceHeaders()
             });
             const usagePayload = await readJson(usageResponse);
             const usage = Array.isArray(usagePayload) ? usagePayload[0] : null;
             assert(usageResponse.ok && usage?.feature_key === "translation" && usage?.status === "success", `${user.label} translation usage should be recorded without content`);
-            assert(Number(usage.question_chars) === source.length, `${user.label} translation usage should only record source length`);
+            assert(usage.question_chars === null, `${user.label} translation usage should not record source length`);
             assert(Number(usage.latency_ms) >= 0, `${user.label} translation usage should record latency`);
+            assert(usage.model === "" && Number(usage.prompt_tokens) === 0 && Number(usage.completion_tokens) === 0 && Number(usage.total_tokens) === 0, `${user.label} translation usage should not retain model or token details`);
+            assert(usage.diagnostic_details && Object.keys(usage.diagnostic_details).length === 0, `${user.label} translation usage should not retain diagnostics`);
             console.log(`PASS ${user.label}: translation allowed as ${expectedAccess}`);
           }
 
