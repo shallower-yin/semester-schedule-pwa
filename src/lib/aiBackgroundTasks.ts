@@ -1,4 +1,4 @@
-export type AiTaskFeature = "assistant" | "mind_map" | "audio_transcription";
+export type AiTaskFeature = "assistant" | "translation" | "mind_map" | "audio_transcription";
 export type AiTaskStatus = "idle" | "running" | "success" | "error";
 
 export interface AiTaskSnapshot {
@@ -23,12 +23,14 @@ export const AI_TASK_OPEN_EVENT = "semester-schedule-open-ai-task";
 
 const FEATURE_LABELS: Record<AiTaskFeature, string> = {
   assistant: "AI 助手",
+  translation: "翻译助手",
   mind_map: "AI 思维导图",
   audio_transcription: "AI 音频转写"
 };
 
 const idleSnapshots: Record<AiTaskFeature, AiTaskSnapshot> = {
   assistant: idleSnapshot("assistant"),
+  translation: idleSnapshot("translation"),
   mind_map: idleSnapshot("mind_map"),
   audio_transcription: idleSnapshot("audio_transcription")
 };
@@ -184,7 +186,7 @@ function updateTask(task: AiTaskSnapshot): void {
 }
 
 function emit(): void {
-  taskListSnapshot = (["assistant", "mind_map", "audio_transcription"] as const)
+  taskListSnapshot = (["assistant", "translation", "mind_map", "audio_transcription"] as const)
     .map((feature) => getAiTaskSnapshot(feature))
     .filter((task) => task.status !== "idle" && !openDialogs.has(task.feature));
   listeners.forEach((listener) => listener());

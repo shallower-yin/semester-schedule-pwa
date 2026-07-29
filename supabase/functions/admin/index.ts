@@ -563,6 +563,13 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
   };
   const featureQuotas = {
     assistant: normalizeAdminFeatureQuota(settings?.featureQuotas?.assistant, legacyQuota),
+    translation: normalizeAdminFeatureQuota(settings?.featureQuotas?.translation, {
+      enabled_for_all: true,
+      ordinary_daily_limit: 50,
+      ordinary_weekly_limit: 300,
+      member_daily_limit: 150,
+      member_weekly_limit: 900
+    }),
     mind_map: normalizeAdminFeatureQuota(settings?.featureQuotas?.mind_map, legacyQuota),
     audio_transcription: normalizeAdminFeatureQuota(settings?.featureQuotas?.audio_transcription, {
       enabled_for_all: false,

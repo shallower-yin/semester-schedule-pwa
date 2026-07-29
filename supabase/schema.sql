@@ -329,7 +329,7 @@ create table if not exists public.ai_assistant_settings (
   mimo_channel text not null default 'payg' check (mimo_channel in ('payg', 'token_plan')),
   audio_provider text not null default 'mimo' check (audio_provider in ('mimo', 'siliconflow')),
   audio_model text not null default 'mimo-v2.5-asr',
-  feature_quotas jsonb not null default '{}'::jsonb,
+  feature_quotas jsonb not null default '{"assistant":{"enabled_for_all":true,"ordinary_daily_limit":20,"ordinary_weekly_limit":100,"member_daily_limit":50,"member_weekly_limit":300},"translation":{"enabled_for_all":true,"ordinary_daily_limit":50,"ordinary_weekly_limit":300,"member_daily_limit":150,"member_weekly_limit":900},"mind_map":{"enabled_for_all":true,"ordinary_daily_limit":20,"ordinary_weekly_limit":100,"member_daily_limit":50,"member_weekly_limit":300},"audio_transcription":{"enabled_for_all":false,"ordinary_daily_limit":0,"ordinary_weekly_limit":0,"member_daily_limit":5,"member_weekly_limit":20}}'::jsonb,
   constraint ai_assistant_settings_model_catalog_check check (
     (provider = 'deepseek' and model in ('deepseek-v4-flash', 'deepseek-v4-pro'))
     or

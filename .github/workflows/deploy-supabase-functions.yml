@@ -72,6 +72,18 @@ jobs:
             --header "Content-Type: application/json" \
             --data @/tmp/ai-provider-audio-routes-query.json
 
+      - name: Apply translation assistant migration
+        env:
+          MIGRATION_FILE: supabase/migrations/20260729_translation_assistant.sql
+        run: |
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/translation-assistant-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/translation-assistant-query.json
+
       - name: Configure function secrets
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

@@ -1037,6 +1037,255 @@
   touch-action: none;
 }
 
+.translation-modal {
+  width: min(100%, 1120px);
+  height: min(92vh, 860px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.translation-modal .modal-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 12px 16px 16px;
+  overflow: auto;
+}
+
+.translation-workbench {
+  display: grid;
+  gap: 12px;
+}
+
+.translation-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+
+.translation-toolbar > label {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.translation-direction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 150px;
+  min-height: 38px;
+  padding: 5px 7px 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #f8faff;
+}
+
+.translation-toolbar > .button {
+  margin-left: auto;
+}
+
+.translation-toolbar > .button.active {
+  color: var(--primary);
+  border-color: #b9c9ff;
+  background: #eef3ff;
+}
+
+.translation-terms {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fbfcff;
+}
+
+.translation-terms summary {
+  padding: 9px 11px;
+  cursor: pointer;
+  color: #46546b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.translation-terms > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 11px 11px;
+}
+
+.translation-terms label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.translation-terms textarea {
+  min-height: 58px;
+  resize: vertical;
+}
+
+.translation-editors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.translation-editors > article {
+  display: grid;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  overflow: hidden;
+  background: white;
+}
+
+.translation-editors > article > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border);
+  background: #f8faff;
+}
+
+.translation-editors > article > header span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.translation-editors > article > textarea {
+  min-height: 280px;
+  padding: 13px;
+  border: 0;
+  border-radius: 0;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.65;
+}
+
+.translation-editors > article > textarea:focus {
+  box-shadow: inset 0 0 0 2px rgb(67 97 238 / 18%);
+}
+
+.translation-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.translation-mobile-submit {
+  display: none;
+}
+
+.translation-comparison {
+  display: grid;
+  gap: 7px;
+  max-height: 430px;
+  overflow: auto;
+}
+
+.translation-comparison article {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.translation-comparison p {
+  min-width: 0;
+  margin: 0;
+  padding: 11px 13px;
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.translation-comparison p + p {
+  border-left: 1px solid var(--border);
+  background: #f8faff;
+}
+
+.translation-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.translation-primary-actions > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.translation-primary-actions > p {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.translation-history {
+  display: grid;
+  gap: 7px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.translation-history > header,
+.translation-history > header > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.translation-history > header {
+  justify-content: space-between;
+}
+
+.translation-history > header small {
+  color: var(--muted);
+}
+
+.translation-history > article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.translation-history > article > button:first-child {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 2px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.translation-history > article span {
+  overflow: hidden;
+  color: #46546b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.translation-history > article small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .ai-task-drag-handle,
 .ai-task-collapsed-handle {
   display: grid;

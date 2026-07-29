@@ -1661,6 +1661,68 @@
   }
 }
 
+@media (max-width: 900px) {
+  .translation-modal {
+    height: min(96dvh, calc(100dvh - 10px));
+    max-height: min(96dvh, calc(100dvh - 10px));
+  }
+
+  .translation-modal .modal-body {
+    padding: 10px 12px calc(14px + var(--safe-bottom));
+  }
+
+  .translation-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: end;
+  }
+
+  .translation-toolbar > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .translation-direction,
+  .translation-toolbar > label {
+    min-width: 0;
+  }
+
+  .translation-terms > div,
+  .translation-editors,
+  .translation-comparison article {
+    grid-template-columns: 1fr;
+  }
+
+  .translation-editors > article > textarea {
+    min-height: 190px;
+  }
+
+  .translation-mobile-submit {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .translation-comparison p + p {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .translation-primary-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .translation-primary-actions > .button {
+    width: 100%;
+  }
+
+  .translation-history > article > button:first-child {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
 @media (min-width: 581px) and (max-width: 900px) {
   .mind-map-result-toolbar {
     align-items: stretch;

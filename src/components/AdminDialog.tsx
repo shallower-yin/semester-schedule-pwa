@@ -413,7 +413,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
           <section className="admin-access-editor admin-ai-error-logs">
             <div className="section-heading">
-              <div><h3><Database size={18} /> AI 调用记录</h3><p>显示最近 50 条思维导图与音频转写调用，成功和失败都会记录；AI 助手不显示。列表每 15 秒自动刷新。</p></div>
+              <div><h3><Database size={18} /> AI 调用记录</h3><p>显示最近 50 条翻译、思维导图与音频转写调用，成功和失败都会记录；AI 助手不显示。列表每 15 秒自动刷新。</p></div>
               <button className="button secondary compact" type="button" onClick={() => void refreshAiCallLogs()}><RefreshCw size={15} />刷新记录</button>
             </div>
             <div className="admin-ai-error-log-list">
@@ -429,7 +429,7 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                   <small>{diagnosticDetailsText(log.details)}{log.latencyMs != null ? ` · ${log.latencyMs} ms` : ""}</small>
                 </article>
               ))}
-              {summary && !(summary.aiCallLogs ?? []).length && <p className="muted-note">暂无思维导图或音频转写调用记录。</p>}
+              {summary && !(summary.aiCallLogs ?? []).length && <p className="muted-note">暂无翻译、思维导图或音频转写调用记录。</p>}
             </div>
           </section>
         </>}
@@ -599,6 +599,7 @@ function AiUsageCard({ title, requests, tokens, cost }: { title: string; request
 }
 
 function aiFeatureName(value: string): string {
+  if (value === "translation") return "翻译助手";
   if (value === "mind_map") return "AI 思维导图";
   if (value === "audio_transcription") return "AI 音频转写";
   return "AI 助手";

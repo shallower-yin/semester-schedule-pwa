@@ -24,6 +24,13 @@ vi.mock("./MindMapDialog", () => ({
     </div>
   )
 }));
+vi.mock("./TranslationDialog", () => ({
+  TranslationDialog: ({ ownerId, onClose }: { ownerId: string; onClose: () => void }) => (
+    <div data-testid="translation" data-owner={ownerId}>
+      <button onClick={onClose}>close</button>
+    </div>
+  )
+}));
 vi.mock("./AudioTranscriptionDialog", () => ({
   AudioTranscriptionDialog: ({ ownerId, onClose }: { ownerId: string; onClose: () => void }) => (
     <div data-testid="audio" data-owner={ownerId}>
@@ -32,11 +39,12 @@ vi.mock("./AudioTranscriptionDialog", () => ({
   )
 }));
 vi.mock("./AiToolboxDialog", () => ({
-  AiToolboxDialog: ({ onOpenAssistant, onOpenMindMap, onOpenAudioTranscription, onClose }: {
-    onOpenAssistant: () => void; onOpenMindMap: () => void; onOpenAudioTranscription: () => void; onClose: () => void;
+  AiToolboxDialog: ({ onOpenAssistant, onOpenTranslation, onOpenMindMap, onOpenAudioTranscription, onClose }: {
+    onOpenAssistant: () => void; onOpenTranslation: () => void; onOpenMindMap: () => void; onOpenAudioTranscription: () => void; onClose: () => void;
   }) => (
     <div data-testid="toolbox">
       <button onClick={onOpenAssistant}>open-assistant</button>
+      <button onClick={onOpenTranslation}>open-translation</button>
       <button onClick={onOpenMindMap}>open-mindmap</button>
       <button onClick={onOpenAudioTranscription}>open-audio</button>
       <button onClick={onClose}>close</button>
@@ -50,6 +58,7 @@ function setup(overrides: Record<string, unknown> = {}) {
   const setters = {
     setShowScheduleAssistant: vi.fn(),
     setShowDeepSeekAssistant: vi.fn(),
+    setShowTranslation: vi.fn(),
     setShowMindMap: vi.fn(),
     setShowAudioTranscription: vi.fn(),
     setShowAiToolbox: vi.fn()
@@ -61,6 +70,7 @@ function setup(overrides: Record<string, unknown> = {}) {
       userEmail="a@b.c"
       showScheduleAssistant={false}
       showDeepSeekAssistant={false}
+      showTranslation={false}
       showMindMap={false}
       showAudioTranscription={false}
       showAiToolbox={false}
@@ -78,6 +88,7 @@ describe("AssistantDialogs 编排", () => {
     setup();
     expect(screen.queryByTestId("schedule-assistant")).not.toBeInTheDocument();
     expect(screen.queryByTestId("deepseek")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("translation")).not.toBeInTheDocument();
     expect(screen.queryByTestId("mindmap")).not.toBeInTheDocument();
     expect(screen.queryByTestId("audio")).not.toBeInTheDocument();
     expect(screen.queryByTestId("toolbox")).not.toBeInTheDocument();
@@ -105,6 +116,11 @@ describe("AssistantDialogs 编排", () => {
     expect(node).toHaveAttribute("data-owner", "local");
   });
 
+  it("翻译助手：转发 ownerId", async () => {
+    setup({ showTranslation: true });
+    expect(await screen.findByTestId("translation")).toHaveAttribute("data-owner", "local");
+  });
+
   it("音频转写：转发 ownerId", async () => {
     setup({ showAudioTranscription: true });
     const node = await screen.findByTestId("audio");
@@ -116,6 +132,8 @@ describe("AssistantDialogs 编排", () => {
     expect(screen.getByTestId("toolbox")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "open-assistant" }));
     expect(setters.setShowDeepSeekAssistant).toHaveBeenCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: "open-translation" }));
+    expect(setters.setShowTranslation).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "open-mindmap" }));
     expect(setters.setShowMindMap).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByRole("button", { name: "open-audio" }));

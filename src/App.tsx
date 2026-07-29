@@ -19,6 +19,7 @@ import {
   GraduationCap,
   HeartPulse,
   LogIn,
+  Languages,
   Menu,
   MessageSquareText,
   Network,
@@ -179,6 +180,7 @@ export default function App() {
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [showScheduleAssistant, setShowScheduleAssistant] = useState(false);
   const [showDeepSeekAssistant, setShowDeepSeekAssistant] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
   const [showMindMap, setShowMindMap] = useState(false);
   const [showAudioTranscription, setShowAudioTranscription] = useState(false);
   const [showAiToolbox, setShowAiToolbox] = useState(false);
@@ -239,13 +241,14 @@ export default function App() {
   useEffect(() => {
     const openFeature = (feature: AiTaskFeature) => {
       if (feature === "assistant") setShowDeepSeekAssistant(true);
+      if (feature === "translation") setShowTranslation(true);
       if (feature === "mind_map") setShowMindMap(true);
       if (feature === "audio_transcription") setShowAudioTranscription(true);
     };
     const consumeFeatureFromUrl = () => {
       const url = new URL(window.location.href);
       const feature = url.searchParams.get("ai");
-      if (feature !== "assistant" && feature !== "mind_map" && feature !== "audio_transcription") return;
+      if (feature !== "assistant" && feature !== "translation" && feature !== "mind_map" && feature !== "audio_transcription") return;
       openFeature(feature);
       url.searchParams.delete("ai");
       window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
@@ -937,6 +940,11 @@ export default function App() {
       node: <button className="icon-button header-search-button" onClick={() => setShowDeepSeekAssistant(true)} aria-label="AI 助手"><BrainCircuit size={18} /></button>
     },
     {
+      id: "translation",
+      label: "翻译助手",
+      node: <button className="icon-button header-search-button" onClick={() => setShowTranslation(true)} aria-label="翻译助手"><Languages size={18} /></button>
+    },
+    {
       id: "mindMap",
       label: "AI 思维导图",
       node: <button className="icon-button header-search-button" onClick={() => setShowMindMap(true)} aria-label="AI 思维导图"><Network size={18} /></button>
@@ -961,7 +969,7 @@ export default function App() {
     .filter((item) => headerToolItems.includes(item.id))
     .sort((left, right) => headerToolItems.indexOf(left.id) - headerToolItems.indexOf(right.id));
   const mobileHeaderTools = selectedHeaderTools;
-  const desktopHeaderTools = headerTools;
+  const desktopHeaderTools = headerTools.filter((tool) => tool.id !== "translation" || headerToolItems.includes("translation"));
 
   function renderSettingsSection(title: string, description: string, children: ReactNode) {
     return (
@@ -1205,7 +1213,7 @@ export default function App() {
                     <SlidersHorizontal /><span><strong>底部按钮设置</strong><small>自定义手机底部显示哪几个入口和顺序</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowHeaderToolSettings(true)}>
-                    <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义手机顶部工具；电脑端完整显示</small></span><ChevronRight />
+                    <SlidersHorizontal /><span><strong>顶部按钮设置</strong><small>自定义手机顶部工具；翻译快捷按钮可选</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => void hardReloadApp()} disabled={updatingApp}>
                     <RefreshCw /><span><strong>清缓存重载</strong><small>手机 PWA 更新没生效时使用，会重新获取最新资源</small></span><ChevronRight />
@@ -1294,11 +1302,13 @@ export default function App() {
         userEmail={user?.email}
         showScheduleAssistant={showScheduleAssistant}
         showDeepSeekAssistant={showDeepSeekAssistant}
+        showTranslation={showTranslation}
         showMindMap={showMindMap}
         showAudioTranscription={showAudioTranscription}
         showAiToolbox={showAiToolbox}
         setShowScheduleAssistant={setShowScheduleAssistant}
         setShowDeepSeekAssistant={setShowDeepSeekAssistant}
+        setShowTranslation={setShowTranslation}
         setShowMindMap={setShowMindMap}
         setShowAudioTranscription={setShowAudioTranscription}
         setShowAiToolbox={setShowAiToolbox}

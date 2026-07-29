@@ -4,6 +4,7 @@ import { cancelAiTask, dismissAiTask, getAiTaskSnapshot, startAiTask, updateAiTa
 describe("AI 后台任务", () => {
   beforeEach(() => {
     dismissAiTask("assistant");
+    dismissAiTask("translation");
     dismissAiTask("mind_map");
     dismissAiTask("audio_transcription");
   });

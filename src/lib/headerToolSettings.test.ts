@@ -34,4 +34,10 @@ describe("顶部按钮设置", () => {
     expect(saveHeaderToolSettings(["account", "mindMap", "audioTranscription"])).toEqual(["account", "mindMap", "audioTranscription"]);
     expect(loadHeaderToolSettings()).toEqual(["account", "mindMap", "audioTranscription"]);
   });
+
+  it("翻译助手默认不占顶部位置，但允许主动勾选", () => {
+    expect(DEFAULT_HEADER_TOOLS).not.toContain("translation");
+    expect(saveHeaderToolSettings(["account", "translation"])).toEqual(["account", "translation"]);
+    expect(loadHeaderToolSettings()).toEqual(["account", "translation"]);
+  });
 });

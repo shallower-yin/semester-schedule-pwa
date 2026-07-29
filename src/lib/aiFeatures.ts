@@ -1,4 +1,4 @@
-export const AI_FEATURE_KEYS = ["assistant", "mind_map", "audio_transcription"] as const;
+export const AI_FEATURE_KEYS = ["assistant", "translation", "mind_map", "audio_transcription"] as const;
 
 export type AiFeatureKey = typeof AI_FEATURE_KEYS[number];
 
@@ -14,6 +14,7 @@ export type AiFeatureQuotas = Record<AiFeatureKey, AiFeatureQuota>;
 
 export const AI_FEATURE_LABELS: Record<AiFeatureKey, string> = {
   assistant: "AI 助手",
+  translation: "翻译助手",
   mind_map: "AI 思维导图",
   audio_transcription: "音频转写"
 };
@@ -21,6 +22,7 @@ export const AI_FEATURE_LABELS: Record<AiFeatureKey, string> = {
 export function defaultAiFeatureQuotas(): AiFeatureQuotas {
   return {
     assistant: featureQuota(true, 20, 100, 50, 300),
+    translation: featureQuota(true, 50, 300, 150, 900),
     mind_map: featureQuota(true, 20, 100, 50, 300),
     audio_transcription: featureQuota(false, 0, 0, 5, 20)
   };
@@ -41,6 +43,7 @@ export function normalizeAiFeatureQuotas(
   );
   return {
     assistant: normalizeFeatureQuota(source.assistant, legacy ? legacyQuota : defaults.assistant),
+    translation: normalizeFeatureQuota(source.translation, defaults.translation),
     mind_map: normalizeFeatureQuota(source.mind_map, legacy ? legacyQuota : defaults.mind_map),
     audio_transcription: normalizeFeatureQuota(source.audio_transcription, defaults.audio_transcription)
   };

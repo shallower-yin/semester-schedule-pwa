@@ -41,6 +41,7 @@ describe("管理后台 AI 模型选择", () => {
         audio_model: "TeleAI/TeleSpeechASR",
         feature_quotas: {
           assistant: { enabled_for_all: true, ordinary_daily_limit: 2, ordinary_weekly_limit: 100, member_daily_limit: 30, member_weekly_limit: 210 },
+          translation: { enabled_for_all: true, ordinary_daily_limit: 50, ordinary_weekly_limit: 300, member_daily_limit: 150, member_weekly_limit: 900 },
           mind_map: { enabled_for_all: true, ordinary_daily_limit: 1, ordinary_weekly_limit: 5, member_daily_limit: 10, member_weekly_limit: 50 },
           audio_transcription: { enabled_for_all: false, ordinary_daily_limit: 0, ordinary_weekly_limit: 0, member_daily_limit: 3, member_weekly_limit: 10 }
         },
