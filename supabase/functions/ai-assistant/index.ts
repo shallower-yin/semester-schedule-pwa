@@ -195,6 +195,7 @@ interface AiQuotaLimits {
 interface AiQuotaCheck {
   allowed: boolean;
   reason?: string;
+  rateLimited?: boolean;
   today?: AiQuotaSnapshot;
   week?: AiQuotaSnapshot;
   limits: AiQuotaLimits;
@@ -246,6 +247,11 @@ interface SignedAudioPart extends UploadedAudioInput {
   language: "auto" | "zh" | "en";
   partIndex: number;
   partCount: number;
+}
+
+interface PaidTaskToken {
+  expiresAt: string;
+  nonce: string;
 }
 
 class DiagnosticError extends Error {
@@ -340,7 +346,14 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-async function hmacAudioRange(userId: string, range: NonNullable<AiAssistantRequest["audioRange"]>): Promise<string> {
+const PAID_TASK_TTL_MS = 15 * 60 * 1000;
+
+async function hmacAudioRange(
+  userId: string,
+  range: NonNullable<AiAssistantRequest["audioRange"]>,
+  expiresAt: string,
+  nonce: string
+): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(serviceRoleSecret()),
@@ -358,13 +371,15 @@ async function hmacAudioRange(userId: string, range: NonNullable<AiAssistantRequ
     range.nominalStart,
     range.nominalEnd,
     range.fetchStart,
-    range.fetchEnd
+    range.fetchEnd,
+    expiresAt,
+    nonce
   ].join("|");
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function hmacAudioPart(userId: string, part: SignedAudioPart): Promise<string> {
+async function hmacAudioPart(userId: string, part: SignedAudioPart, expiresAt: string, nonce: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(serviceRoleSecret()),
@@ -380,10 +395,109 @@ async function hmacAudioPart(userId: string, part: SignedAudioPart): Promise<str
     part.size,
     part.language,
     part.partIndex,
-    part.partCount
+    part.partCount,
+    expiresAt,
+    nonce
   ].join("|");
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function signAudioRange(userId: string, range: NonNullable<AiAssistantRequest["audioRange"]>): Promise<string> {
+  return createPaidTaskToken((expiresAt, nonce) => hmacAudioRange(userId, range, expiresAt, nonce));
+}
+
+async function signAudioPart(userId: string, part: SignedAudioPart): Promise<string> {
+  return createPaidTaskToken((expiresAt, nonce) => hmacAudioPart(userId, part, expiresAt, nonce));
+}
+
+async function createPaidTaskToken(
+  signer: (expiresAt: string, nonce: string) => Promise<string>
+): Promise<string> {
+  const expiresAt = new Date(Date.now() + PAID_TASK_TTL_MS).toISOString();
+  const nonce = crypto.randomUUID();
+  return `${Date.parse(expiresAt)}.${nonce}.${await signer(expiresAt, nonce)}`;
+}
+
+async function verifyAudioRangeToken(
+  userId: string,
+  range: NonNullable<AiAssistantRequest["audioRange"]>,
+  token: string
+): Promise<PaidTaskToken | null> {
+  return verifyPaidTaskToken(token, (expiresAt, nonce) => hmacAudioRange(userId, range, expiresAt, nonce));
+}
+
+async function verifyAudioPartToken(userId: string, part: SignedAudioPart, token: string): Promise<PaidTaskToken | null> {
+  return verifyPaidTaskToken(token, (expiresAt, nonce) => hmacAudioPart(userId, part, expiresAt, nonce));
+}
+
+async function verifyPaidTaskToken(
+  token: string,
+  signer: (expiresAt: string, nonce: string) => Promise<string>
+): Promise<PaidTaskToken | null> {
+  const [expiresRaw, nonce, suppliedDigest, ...extra] = token.split(".");
+  const expiresMs = Number(expiresRaw);
+  if (extra.length || !Number.isFinite(expiresMs) || !nonce || !suppliedDigest) return null;
+  if (expiresMs <= Date.now() || expiresMs > Date.now() + PAID_TASK_TTL_MS + 60_000) return null;
+  const expiresAt = new Date(expiresMs).toISOString();
+  const expectedDigest = await signer(expiresAt, nonce);
+  return constantTimeEqual(suppliedDigest, expectedDigest) ? { expiresAt, nonce } : null;
+}
+
+async function executeReplaySafePaidTask<T extends Record<string, unknown>>(
+  userId: string,
+  task: PaidTaskToken,
+  serviceRoleKey: string,
+  execute: () => Promise<T>
+): Promise<T> {
+  const started = await callServiceRoleRpc<{ state?: string; result?: T }>(
+    "begin_ai_paid_task",
+    { p_user_id: userId, p_nonce: task.nonce, p_expires_at: task.expiresAt },
+    serviceRoleKey
+  );
+  if (started.state === "success" && started.result) return started.result;
+  if (started.state === "expired") throw new PublicHttpError("音频分段任务已过期，请重新开始转写。", 403);
+  if (started.state !== "new") throw new PublicHttpError("该音频分段正在处理中，请稍后重试。", 409);
+
+  try {
+    const result = await execute();
+    await callServiceRoleRpc<null>(
+      "complete_ai_paid_task",
+      { p_user_id: userId, p_nonce: task.nonce, p_result: result },
+      serviceRoleKey
+    );
+    return result;
+  } catch (error) {
+    await callServiceRoleRpc<null>(
+      "fail_ai_paid_task",
+      { p_user_id: userId, p_nonce: task.nonce },
+      serviceRoleKey
+    ).catch((cleanupError) => console.error("Failed to release paid AI task nonce", String(cleanupError)));
+    throw error;
+  }
+}
+
+async function callServiceRoleRpc<T>(
+  name: string,
+  body: Record<string, unknown>,
+  serviceRoleKey: string
+): Promise<T> {
+  if (!serviceRoleKey) throw new PublicHttpError("AI 任务服务暂时不可用，请稍后重试。", 503);
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    console.error(`${name} failed: HTTP ${response.status} ${text.slice(0, 300)}`);
+    throw new PublicHttpError("AI 任务服务暂时不可用，请稍后重试。", 503);
+  }
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
@@ -432,53 +546,100 @@ Deno.serve(async (request) => {
     currentUser = user;
     if (body.action === "transcribe_audio_range") {
       const range = sanitizeInternalAudioRange(body.audioRange, user.id);
-      const expectedSignature = await hmacAudioRange(user.id, range);
       // Prefer header; body field is a fallback for runtimes that drop custom invoke headers.
       const suppliedSignature = (request.headers.get("x-audio-range-signature")
         ?? (typeof body.audioRangeSignature === "string" ? body.audioRangeSignature : "")
         ?? "").trim();
-      if (!constantTimeEqual(suppliedSignature, expectedSignature)) {
-        return jsonResponse({ error: "音频分段签名无效，请重新开始转写。", code: "AUDIO_RANGE_SIGNATURE" }, 403);
+      const paidTask = await verifyAudioRangeToken(user.id, range, suppliedSignature);
+      if (!paidTask) {
+        return jsonResponse({ error: "音频分段签名无效或已过期，请重新开始转写。", code: "AUDIO_RANGE_SIGNATURE" }, 403);
       }
-      const credentials = configuredAudioCredentials(settings);
-      if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
-      // Byte-range extract often fails on real-world MP3 (VBR/padding). Prefer full-object
-      // frame scan for the nominal window — R2/API cost is acceptable for completion quality.
-      const chunk = await loadMp3ChunkForAsrRange(range.objectKey!, range.nominalStart!, range.nominalEnd!, range.fetchStart!, range.fetchEnd!);
-      return jsonResponse(await transcribeAudioChunk(
-        chunk,
-        range.language,
-        credentials,
-        range.fileName!,
-        range.chunkIndex!,
-        range.chunkCount!,
-        request.signal
-      ));
+      featureKey = "audio_transcription";
+      const rangeAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!rangeAccess.allowed) return jsonResponse({ error: rangeAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = rangeAccess.method ?? "";
+      const responseBody = await executeReplaySafePaidTask(user.id, paidTask, serviceRoleKey, async () => {
+        const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_range");
+        if (!quota.allowed) throw new PublicHttpError(quota.reason ?? "音频转写额度已用完。", 429);
+        const credentials = configuredAudioCredentials(settings);
+        if (!credentials.apiKey) throw new PublicHttpError("音频转写服务暂未配置。", 503);
+        // Byte-range extract often fails on real-world MP3 (VBR/padding). Prefer full-object
+        // frame scan for the nominal window — R2/API cost is acceptable for completion quality.
+        const chunk = await loadMp3ChunkForAsrRange(range.objectKey!, range.nominalStart!, range.nominalEnd!, range.fetchStart!, range.fetchEnd!);
+        const result = await transcribeAudioChunk(
+          chunk,
+          range.language,
+          credentials,
+          range.fileName!,
+          range.chunkIndex!,
+          range.chunkCount!,
+          request.signal
+        );
+        observedUsage = result.usage;
+        await logAiAssistantUsage({
+          userId: user.id,
+          status: "success",
+          accessMethod,
+          featureKey,
+          model: configuredAudioModel(settings),
+          usage: result.usage,
+          latencyMs: Date.now() - startedAt,
+          questionChars: 0,
+          diagnosticId,
+          diagnosticDetails: { stage: "audio_range", chunkIndex: range.chunkIndex, chunkCount: range.chunkCount }
+        });
+        return result as unknown as Record<string, unknown>;
+      });
+      return jsonResponse(responseBody);
     }
     if (body.action === "transcribe_audio_part") {
       const part = sanitizeInternalAudioPart(body.audioPart, user.id);
-      const expectedSignature = await hmacAudioPart(user.id, part);
       const suppliedSignature = (request.headers.get("x-audio-part-signature")
         ?? (typeof body.audioPartSignature === "string" ? body.audioPartSignature : "")
         ?? "").trim();
-      if (!constantTimeEqual(suppliedSignature, expectedSignature)) {
-        return jsonResponse({ error: "音频分段签名无效，请重新开始转写。", code: "AUDIO_PART_SIGNATURE" }, 403);
+      const paidTask = await verifyAudioPartToken(user.id, part, suppliedSignature);
+      if (!paidTask) {
+        return jsonResponse({ error: "音频分段签名无效或已过期，请重新开始转写。", code: "AUDIO_PART_SIGNATURE" }, 403);
       }
-      const credentials = configuredAudioCredentials(settings);
-      if (!credentials.apiKey) return jsonResponse({ error: "音频转写服务暂未配置。" }, 503);
-      const rawBytes = await downloadR2AudioObject(part.objectKey);
-      if (rawBytes.length !== part.size || rawBytes.length > MAX_ASR_AUDIO_CHUNK_BYTES) {
-        return jsonResponse({ error: "音频分段大小无效，请重新开始转写。", code: "AUDIO_PART_SIZE" }, 400);
-      }
-      const chunks = splitAudioForAsr(rawBytes, part.name, part.mimeType);
-      const results = await mapWithRetryIsolation(chunks, 1, (chunk, chunkIndex) =>
-        transcribeAudioChunk(chunk, part.language, credentials, part.name, chunkIndex, chunks.length, request.signal), request.signal
-      );
-      return jsonResponse({
-        transcript: results.map((result) => result.transcript).join("\n\n"),
-        model: `${configuredAudioModel(settings)}-signed-part`,
-        usage: results.reduce((usage, result) => combineUsage(usage, result.usage), emptyUsage())
+      featureKey = "audio_transcription";
+      const partAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
+      if (!partAccess.allowed) return jsonResponse({ error: partAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+      accessMethod = partAccess.method ?? "";
+      const responseBody = await executeReplaySafePaidTask(user.id, paidTask, serviceRoleKey, async () => {
+        const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_part");
+        if (!quota.allowed) throw new PublicHttpError(quota.reason ?? "音频转写额度已用完。", 429);
+        const credentials = configuredAudioCredentials(settings);
+        if (!credentials.apiKey) throw new PublicHttpError("音频转写服务暂未配置。", 503);
+        const rawBytes = await downloadR2AudioObject(part.objectKey);
+        if (rawBytes.length !== part.size || rawBytes.length > MAX_ASR_AUDIO_CHUNK_BYTES) {
+          throw new PublicHttpError("音频分段大小无效，请重新开始转写。", 400);
+        }
+        const chunks = splitAudioForAsr(rawBytes, part.name, part.mimeType);
+        const results = await mapWithRetryIsolation(chunks, 1, (chunk, chunkIndex) =>
+          transcribeAudioChunk(chunk, part.language, credentials, part.name, chunkIndex, chunks.length, request.signal), request.signal
+        );
+        const usage = results.reduce((combined, result) => combineUsage(combined, result.usage), emptyUsage());
+        observedUsage = usage;
+        const result = {
+          transcript: results.map((item) => item.transcript).join("\n\n"),
+          model: `${configuredAudioModel(settings)}-signed-part`,
+          usage
+        };
+        await logAiAssistantUsage({
+          userId: user.id,
+          status: "success",
+          accessMethod,
+          featureKey,
+          model: result.model,
+          usage,
+          latencyMs: Date.now() - startedAt,
+          questionChars: 0,
+          diagnosticId,
+          diagnosticDetails: { stage: "audio_part", partIndex: part.partIndex, partCount: part.partCount }
+        });
+        return result;
       });
+      return jsonResponse(responseBody);
     }
     if (body.action === "create_document_page_uploads") {
       featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
@@ -492,7 +653,7 @@ Deno.serve(async (request) => {
       const batchAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
       if (!batchAccess.allowed) return jsonResponse({ error: batchAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
       accessMethod = batchAccess.method ?? "";
-      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
+      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "document_extract");
       if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
       const provider = configuredProvider(settings);
       const model = configuredModel(settings);
@@ -510,6 +671,18 @@ Deno.serve(async (request) => {
         signal: request.signal
       });
       observedUsage = result.usage;
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod,
+        featureKey,
+        model,
+        usage: result.usage,
+        latencyMs: Date.now() - startedAt,
+        questionChars: 0,
+        diagnosticId,
+        diagnosticDetails: { stage: "document_extract", processedPageCount: pages.length }
+      });
       await deleteR2DocumentPageObjects(user.id, pages.map((page) => page.objectKey!)).catch((error) => {
         console.error("Failed to delete extracted PDF pages", { diagnosticId, error: String(error) });
       });
@@ -520,7 +693,7 @@ Deno.serve(async (request) => {
       const batchAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
       if (!batchAccess.allowed) return jsonResponse({ error: batchAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
       accessMethod = batchAccess.method ?? "";
-      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
+      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "document_summarize");
       if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
       const provider = configuredProvider(settings);
       const model = configuredModel(settings);
@@ -535,6 +708,18 @@ Deno.serve(async (request) => {
         signal: request.signal
       });
       observedUsage = result.usage;
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod,
+        featureKey,
+        model,
+        usage: result.usage,
+        latencyMs: Date.now() - startedAt,
+        questionChars: batch.text.length,
+        diagnosticId,
+        diagnosticDetails: { stage: "document_summarize", startPage: batch.startPage, endPage: batch.endPage }
+      });
       return jsonResponse({ text: result.text, usage: result.usage, processedPageCount: batch.endPage - batch.startPage + 1, model });
     }
     if (body.action === "delete_document_uploads") {
@@ -571,7 +756,7 @@ Deno.serve(async (request) => {
       const finalizeAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
       if (!finalizeAccess.allowed) return jsonResponse({ error: finalizeAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
       accessMethod = finalizeAccess.method ?? "";
-      const finalizeQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
+      const finalizeQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_finalize");
       if (!finalizeQuota.allowed) {
         return jsonResponse({ error: finalizeQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
       }
@@ -617,11 +802,26 @@ Deno.serve(async (request) => {
       const summaryAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
       if (!summaryAccess.allowed) return jsonResponse({ error: summaryAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
       accessMethod = summaryAccess.method ?? "";
+      const summaryQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_summary");
+      if (!summaryQuota.allowed) return jsonResponse({ error: summaryQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
       const transcript = String(body.audioTranscript ?? "").trim();
       if (!transcript) return jsonResponse({ error: "没有可摘要的转写正文。" }, 400);
       questionChars = transcript.length;
       try {
         const summaryResponse = await summarizeAudioTranscript(transcript, settings, request.signal);
+        observedUsage = summaryResponse.usage;
+        await logAiAssistantUsage({
+          userId: user.id,
+          status: "success",
+          accessMethod,
+          featureKey,
+          model: summaryResponse.model,
+          usage: summaryResponse.usage,
+          latencyMs: Date.now() - startedAt,
+          questionChars,
+          diagnosticId,
+          diagnosticDetails: { stage: "audio_summary" }
+        });
         return jsonResponse({
           transcript,
           summary: summaryResponse.summary,
@@ -632,6 +832,19 @@ Deno.serve(async (request) => {
       } catch (error) {
         if (request.signal?.aborted) throw error;
         console.error(error);
+        await logAiAssistantUsage({
+          userId: user.id,
+          status: "error",
+          accessMethod,
+          featureKey,
+          model: configuredModel(settings),
+          usage: emptyUsage(),
+          latencyMs: Date.now() - startedAt,
+          questionChars,
+          error: error instanceof Error ? error.message : String(error),
+          diagnosticId,
+          diagnosticDetails: { stage: "audio_summary" }
+        });
         return jsonResponse({
           transcript,
           summary: null,
@@ -672,7 +885,7 @@ Deno.serve(async (request) => {
     }, 403);
     accessMethod = access.method ?? "";
 
-    const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey);
+    const quota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, mode);
     if (!quota.allowed) {
       await logAiAssistantUsage({
         userId: user.id,
@@ -931,28 +1144,62 @@ async function checkAiQuota(
   method: string,
   serviceRoleKey: string,
   settings: AiSettingsRow | null,
-  featureKey: AiFeatureKey
+  featureKey: AiFeatureKey,
+  diagnosticId: string,
+  stage = "request"
 ): Promise<AiQuotaCheck> {
   const accessMethod = method === "admin" || method === "member" || method === "ordinary" || method === "access-code" ? method : "access-code";
   const limits = quotaLimitsFor(accessMethod, settings, featureKey);
-  if (limits.daily === Number.POSITIVE_INFINITY && limits.weekly === Number.POSITIVE_INFINITY) {
-    return { allowed: true, limits, usageKnown: true };
-  }
   if (!serviceRoleKey) {
-    console.warn("AI quota check skipped: service role key is not configured.");
-    return { allowed: true, limits, usageKnown: false };
+    throw new PublicHttpError("AI 配额服务暂时不可用，请稍后重试。", 503);
   }
-
-  const weekStart = beijingPeriodStart("week");
-  const todayStart = beijingPeriodStart("day");
-  const [todayRequests, weekRequests] = await Promise.all([
-    getSuccessfulAiUsageCount(userId, featureKey, todayStart.iso, serviceRoleKey),
-    getSuccessfulAiUsageCount(userId, featureKey, weekStart.iso, serviceRoleKey)
-  ]);
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/reserve_ai_usage`, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      p_user_id: userId,
+      p_feature_key: featureKey,
+      p_access_method: accessMethod,
+      p_model: configuredModel(settings),
+      p_daily_limit: Number.isFinite(limits.daily) ? limits.daily : null,
+      p_weekly_limit: Number.isFinite(limits.weekly) ? limits.weekly : null,
+      p_diagnostic_id: diagnosticId,
+      p_stage: stage
+    })
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    console.error(`AI quota reservation failed: HTTP ${response.status} ${detail}`);
+    throw new PublicHttpError("AI 配额服务暂时不可用，请稍后重试。", 503);
+  }
+  const reservation = await response.json() as {
+    allowed?: boolean;
+    rateLimited?: boolean;
+    todayRequests?: number;
+    weekRequests?: number;
+  };
+  const todayRequests = Math.max(0, Number(reservation.todayRequests) || 0);
+  const weekRequests = Math.max(0, Number(reservation.weekRequests) || 0);
   const today = quotaSnapshot(todayRequests);
   const week = quotaSnapshot(weekRequests);
 
-  if (today.requests >= limits.daily) {
+  if (reservation.rateLimited) {
+    return {
+      allowed: false,
+      rateLimited: true,
+      today,
+      week,
+      limits,
+      usageKnown: true,
+      reason: "请求过于频繁，请稍后再试。"
+    };
+  }
+
+  if (!reservation.allowed && today.requests >= limits.daily) {
     return {
       allowed: false,
       today,
@@ -964,7 +1211,7 @@ async function checkAiQuota(
         : `${aiFeatureLabel(featureKey)}今日可用次数已用完（${today.requests}/${limits.daily}），明天可继续使用。`
     };
   }
-  if (week.requests >= limits.weekly) {
+  if (!reservation.allowed && week.requests >= limits.weekly) {
     return {
       allowed: false,
       today,
@@ -975,6 +1222,9 @@ async function checkAiQuota(
         ? `${aiFeatureLabel(featureKey)}暂未向当前角色开放。`
         : `${aiFeatureLabel(featureKey)}本周可用次数已用完（${week.requests}/${limits.weekly}），下周可继续使用。`
     };
+  }
+  if (!reservation.allowed) {
+    return { allowed: false, today, week, limits, usageKnown: true, reason: "AI 配额暂时不可用，请稍后重试。" };
   }
   return { allowed: true, today, week, limits, usageKnown: true };
 }
@@ -1091,26 +1341,6 @@ function readQuotaLimit(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-function beijingPeriodStart(period: "day" | "week"): { iso: string; time: number } {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(now);
-  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
-  const month = parts.find((part) => part.type === "month")?.value ?? "01";
-  const day = parts.find((part) => part.type === "day")?.value ?? "01";
-  const date = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
-  if (period === "week") {
-    const noon = new Date(`${year}-${month}-${day}T12:00:00+08:00`);
-    const isoWeekday = noon.getUTCDay() || 7;
-    date.setUTCDate(date.getUTCDate() - (isoWeekday - 1));
-  }
-  return { iso: date.toISOString(), time: date.getTime() };
-}
-
 async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | null> {
   const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_settings`);
   url.searchParams.set("select", "enabled_for_all,ordinary_daily_limit,ordinary_weekly_limit,member_daily_limit,member_weekly_limit,provider,model,mimo_channel,audio_provider,audio_model,feature_quotas");
@@ -1125,30 +1355,6 @@ async function getAiSettings(serviceRoleKey: string): Promise<AiSettingsRow | nu
   }
   const rows = await response.json() as AiSettingsRow[];
   return rows[0] ?? null;
-}
-
-async function getSuccessfulAiUsageCount(userId: string, featureKey: AiFeatureKey, sinceIso: string, serviceRoleKey: string): Promise<number> {
-  const url = new URL(`${supabaseUrl}/rest/v1/ai_assistant_usage`);
-  url.searchParams.set("select", "id");
-  url.searchParams.set("user_id", `eq.${userId}`);
-  url.searchParams.set("feature_key", `eq.${featureKey}`);
-  url.searchParams.set("requested_at", `gte.${sinceIso}`);
-  url.searchParams.set("status", "eq.success");
-  const response = await fetch(url, {
-    headers: {
-      apikey: serviceRoleKey,
-      authorization: `Bearer ${serviceRoleKey}`,
-      prefer: "count=exact",
-      range: "0-0"
-    }
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    console.warn(`AI quota query failed: HTTP ${response.status} ${text.slice(0, 200)}`);
-    return 0;
-  }
-  const total = response.headers.get("content-range")?.split("/").pop();
-  return total && total !== "*" ? Math.max(0, Number(total) || 0) : 0;
 }
 
 function quotaSnapshot(requests: number): AiQuotaSnapshot {
@@ -2257,7 +2463,7 @@ async function planAudioParts(
       ...part,
       fileIndex,
       fileName: audio.name,
-      signature: await hmacAudioPart(userId, part)
+      signature: await signAudioPart(userId, part)
     });
   }
   return { tasks };
@@ -2337,7 +2543,7 @@ async function planAudioTranscription(
         fetchStart: Math.max(0, nominalStart - MP3_RANGE_OVERLAP_BYTES),
         fetchEnd: Math.min(objectSize - 1, nominalEnd + MP3_RANGE_OVERLAP_BYTES)
       };
-      const signature = await hmacAudioRange(userId, range);
+      const signature = await signAudioRange(userId, range);
       tasks.push({
         fileIndex,
         fileName: audio.name,
@@ -2602,7 +2808,7 @@ async function transcribeRemoteAudioRange(
     fetchStart: task.fetchStart,
     fetchEnd: task.fetchEnd
   };
-  const signature = await hmacAudioRange(userId, audioRange);
+  const signature = await signAudioRange(userId, audioRange);
   // The leaf ASR call already retries transient provider errors; this second, smaller retry covers
   // transient failures of the self-invocation itself (cold start, transport), each attempt getting a
   // fresh worker instance and re-fetching the byte range.

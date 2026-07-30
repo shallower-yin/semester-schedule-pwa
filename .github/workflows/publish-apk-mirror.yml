@@ -52,6 +52,7 @@ jobs:
 
       - name: Build Android web assets
         env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
@@ -62,9 +63,10 @@ jobs:
       - name: Capacitor sync
         run: npx cap sync android
 
-      # Must match the debug keystore already on phones (Studio AndroidUser cert 98e610ed…).
+      # The certificate must match phones already in use. The APK itself is a
+      # release build; the legacy secret name is retained to avoid breaking CI.
       # CI's default ~/.android/debug.keystore is a different key → INSTALL_FAILED_UPDATE_INCOMPATIBLE.
-      - name: Restore fixed debug keystore
+      - name: Restore fixed OTA signing keystore
         env:
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
@@ -78,39 +80,41 @@ jobs:
           test -s "$HOME/.android/debug.keystore"
           echo "Restored debug.keystore ($(wc -c < "$HOME/.android/debug.keystore") bytes)"
 
-      - name: Assemble debug APK
+      - name: Read currently published APK version
+        id: published
+        run: |
+          set -euo pipefail
+          RELEASE_URL="https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/release.json"
+          PUBLISHED_CODE="$(curl --fail --silent --show-error "$RELEASE_URL" | python3 -c 'import json,sys; value=int(json.load(sys.stdin).get("apkVersionCode") or 0); assert value > 0, value; print(value)')"
+          echo "code=$PUBLISHED_CODE" >> "$GITHUB_OUTPUT"
+          echo "Published APK versionCode=$PUBLISHED_CODE"
+
+      - name: Assemble signed release APK
         working-directory: android
         env:
-          # Explicit path used by android/app/build.gradle signingConfigs.debug
-          SEMESTER_DEBUG_KEYSTORE: ${{ runner.temp }}/semester-debug.keystore
+          SEMESTER_RELEASE_KEYSTORE: ${{ runner.temp }}/semester-ota.keystore
+          SEMESTER_RELEASE_KEYSTORE_PASSWORD: android
+          SEMESTER_RELEASE_KEYSTORE_ALIAS: androiddebugkey
         run: |
           set -euo pipefail
           test -s "$HOME/.android/debug.keystore"
-          cp "$HOME/.android/debug.keystore" "$SEMESTER_DEBUG_KEYSTORE"
+          cp "$HOME/.android/debug.keystore" "$SEMESTER_RELEASE_KEYSTORE"
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --console=plain
+          ./gradlew assembleRelease --no-daemon --console=plain
 
       - name: Stage APK and checksum
         id: apk
         env:
-          SEMESTER_DEBUG_KEYSTORE: ${{ runner.temp }}/semester-debug.keystore
+          PUBLISHED_APK_CODE: ${{ steps.published.outputs.code }}
         run: |
           set -euo pipefail
-          SRC="android/app/build/outputs/apk/debug/app-debug.apk"
+          SRC="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$SRC"
-          test -s "$SEMESTER_DEBUG_KEYSTORE"
-          # Force-sign with the project debug key so OTA matches phones (Gradle default may still use another keystore).
           APKSIGNER="$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
           test -x "$APKSIGNER"
           mkdir -p dist-mirror/android
           OUT="dist-mirror/android/semester-schedule.apk"
-          "$APKSIGNER" sign \
-            --ks "$SEMESTER_DEBUG_KEYSTORE" \
-            --ks-key-alias androiddebugkey \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --out "$OUT" \
-            "$SRC"
+          cp "$SRC" "$OUT"
           "$APKSIGNER" verify --print-certs "$OUT" | tee /tmp/apk-certs.txt
           # Phone installs use Studio AndroidUser debug cert 98e610ed…
           EXPECTED_CERT_SHA256="98e610edcfa3d9e4f34752da158ea48e48592f08481543ad0ac26f85294a3e24"
@@ -120,20 +124,28 @@ jobs:
             exit 1
           fi
           echo "APK signing cert OK ($EXPECTED_CERT_SHA256)"
+          APKANALYZER="$(find "$ANDROID_HOME" -type f -name apkanalyzer | sort -V | tail -1)"
+          test -x "$APKANALYZER"
+          "$APKANALYZER" manifest print "$OUT" > /tmp/apk-manifest.xml
+          if grep -q 'android:debuggable="true"' /tmp/apk-manifest.xml; then
+            echo "::error::Release APK is debuggable. Refusing to publish."
+            exit 1
+          fi
+          CODE="$("$APKANALYZER" manifest version-code "$OUT" | tr -d '[:space:]')"
+          test -n "$CODE"
+          if [ "$CODE" -le "${PUBLISHED_APK_CODE:-0}" ]; then
+            echo "::error::APK versionCode $CODE must be greater than published versionCode ${PUBLISHED_APK_CODE:-0}."
+            exit 1
+          fi
+          echo "Release manifest OK (debuggable=false, versionCode=$CODE)"
           SHA=$(sha256sum "$OUT" | awk '{print tolower($1)}')
-          CODE=$(python3 - <<'PY'
-          import re
-          text=open("android/app/build.gradle",encoding="utf-8").read()
-          m=re.search(r"versionCode\s+(\d+)", text)
-          print(m.group(1) if m else "")
-          PY
-          )
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "APK versionCode=$CODE sha256=$SHA size=$(wc -c < "$OUT")"
 
       - name: Build mirror web package with APK metadata
         env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
@@ -175,6 +187,8 @@ jobs:
         run: node scripts/deploy-static-mirror.mjs
 
       - name: Verify published APK
+        env:
+          EXPECTED_APK_CODE: ${{ steps.apk.outputs.code }}
         run: |
           set -euo pipefail
           URL="https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/android/semester-schedule.apk"
@@ -182,4 +196,4 @@ jobs:
           echo "APK HEAD status=$code"
           test "$code" = "200"
           rel=$(curl -sS "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/release.json")
-          echo "$rel" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert int(d.get("apkVersionCode") or 0)>=13, d; print("release ok", d.get("version"), d.get("apkVersionCode"))'
+          echo "$rel" | python3 -c 'import os,sys,json; d=json.load(sys.stdin); assert int(d.get("apkVersionCode") or 0)==int(os.environ["EXPECTED_APK_CODE"]), d; print("release ok", d.get("version"), d.get("apkVersionCode"))'

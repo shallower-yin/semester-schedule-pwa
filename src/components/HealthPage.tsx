@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Activity, Bell, ChevronDown, ChevronUp, Clock3, Dumbbell, Footprints, GlassWater, HeartPulse, History, ListPlus, Plus, RotateCcw, Save, Scale, Trash2, Undo2 } from "lucide-react";
 import { useMemo, useState, type CSSProperties } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { DEFAULT_EXERCISE_ITEMS, DEFAULT_HEALTH_PROFILE } from "../lib/health";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, refreshNativeReminderSchedule } from "../lib/notifications";
@@ -65,8 +65,7 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
 
   async function addLog(kind: HealthLogKind, amount: number, unit: HealthLog["unit"], activity: string | null = null) {
     const record: HealthLog = { ...syncFields(), kind, logged_at: new Date().toISOString(), amount, unit, activity, note: "" };
-    await db.healthLogs.add(record);
-    await queueChange("healthLogs", record.id);
+    await putRecordAndQueue("healthLogs", record);
     if (kind === "movement") void refreshHealthReminders();
     showToast(`${logLabel(record)}，已记录。`, "success");
   }
@@ -74,8 +73,7 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
   async function removeLog(record: HealthLog | null) {
     if (!record) return;
     const deleted = { ...record, ...syncFields(record), deleted_at: new Date().toISOString() };
-    await db.healthLogs.put(deleted);
-    await queueChange("healthLogs", deleted.id, "delete");
+    await putRecordAndQueue("healthLogs", deleted, "delete");
     if (record.kind === "movement") void refreshHealthReminders();
     showToast(`已撤销：${logLabel(record)}。`, "success");
   }
@@ -103,8 +101,7 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
         showToast("系统通知未启用，活动提醒暂时无法显示。", "error");
       }
     }
-    await db.healthProfiles.put(next);
-    await queueChange("healthProfiles", next.id);
+    await putRecordAndQueue("healthProfiles", next);
     if (next.movement_reminder_enabled) await onSync?.();
     void refreshHealthReminders();
     if (weight.trim()) {

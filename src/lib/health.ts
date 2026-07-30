@@ -1,4 +1,4 @@
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import type { HealthProfile } from "../types";
 import { syncFields } from "./identity";
 import { isNativeApp } from "./nativeApp";
@@ -64,8 +64,7 @@ export async function recordHealthMovementReminderSent(ownerId: string, at: Date
     ...syncFields(profile),
     last_movement_reminder_at: at.toISOString()
   };
-  await db.healthProfiles.put(updated);
-  await queueChange("healthProfiles", updated.id);
+  await putRecordAndQueue("healthProfiles", updated);
   localStorage.setItem(`${LAST_REMINDER_KEY}:${ownerId}`, String(at.getTime()));
   return true;
 }

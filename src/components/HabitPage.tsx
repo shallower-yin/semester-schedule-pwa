@@ -1,6 +1,6 @@
 import { BarChart3, Bell, CalendarCheck, CheckCircle2, Flame, Plus } from "lucide-react";
 import { useMemo } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { differenceInCalendarDays, parseLocalDate, toISODate } from "../lib/date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "../lib/eventCompletion";
 import { buildHabitStats, isHabit } from "../lib/habits";
@@ -88,8 +88,7 @@ function HabitCard({ habit, stats, occurrenceStates, onEdit }: HabitCardProps) {
     if (!stats.todayOccurs) return;
     const completion = eventCompletionForDate(habit, occurrenceStates, new Date());
     const record = buildEventCompletionRecord(habit, completion.occurrenceDate, !completion.completed, completion.state);
-    await db.eventOccurrenceStates.put(record);
-    await queueChange("eventOccurrenceStates", record.id);
+    await putRecordAndQueue("eventOccurrenceStates", record);
   }
 
   return (

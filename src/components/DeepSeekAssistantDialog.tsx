@@ -1,6 +1,6 @@
 import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Sparkles, Square, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { extractClipboardFiles } from "../lib/clipboardFiles";
@@ -484,10 +484,7 @@ function copyTextFallback(content: string) {
 async function createRecordsFromActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string): Promise<AiCreatedRecord[]> {
   const created = recordsFromAiActions(actions, sourceText, ownerId);
   for (const item of created) {
-    if (item.table === "events") await db.events.put(item.record);
-    if (item.table === "anniversaries") await db.anniversaries.put(item.record);
-    if (item.table === "memos") await db.memos.put(item.record);
-    await queueChange(item.table, item.record.id);
+    await putRecordAndQueue(item.table, item.record);
   }
   return created;
 }

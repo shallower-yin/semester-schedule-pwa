@@ -1,4 +1,4 @@
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { hardDeleteLocalRecord } from "./hardDelete";
 import { syncFields } from "./identity";
 import type { Category } from "../types";
@@ -51,8 +51,7 @@ export async function deduplicateCategories(userId: string): Promise<number> {
             user_id: userId,
             category_id: keeper.id
           };
-          await db.events.put(updated);
-          await queueChange("events", updated.id);
+          await putRecordAndQueue("events", updated);
         }
         await hardDeleteLocalRecord("categories", duplicate.id);
         removed += 1;

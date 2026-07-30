@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { findCourseEventConflicts, findCourseScheduleConflicts } from "../lib/conflicts";
 import { hardDeleteCoursesCascade, hardDeleteLocalRecords } from "../lib/hardDelete";
@@ -153,8 +153,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
       }
     }
     await db.transaction("rw", db.courses, db.courseSchedules, db.courseCancellations, db.syncQueue, async () => {
-      await db.courses.put(courseRecord);
-      await queueChange("courses", courseRecord.id);
+      await putRecordAndQueue("courses", courseRecord);
       const oldSchedules = course ? await db.courseSchedules.where("course_id").equals(course.id).toArray() : [];
       const retainedIds = new Set(schedules.flatMap((item) => (item.id ? [item.id] : [])));
       const removedScheduleIds = oldSchedules.filter((item) => !retainedIds.has(item.id)).map((item) => item.id);
@@ -176,8 +175,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
           end_period: item.end_period,
           weeks: item.weeks
         };
-        await db.courseSchedules.put(record);
-        await queueChange("courseSchedules", record.id);
+        await putRecordAndQueue("courseSchedules", record);
       }
     });
     setSaving(false);

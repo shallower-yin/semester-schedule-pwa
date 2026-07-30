@@ -78,7 +78,7 @@ import { TodayPage } from "./components/TodayPage";
 import { ToastHost } from "./components/ToastHost";
 import { UpdateNotesDialog } from "./components/UpdateNotesDialog";
 import { WeekCalendar } from "./components/WeekCalendar";
-import { db, queueChange } from "./db";
+import { db, putRecordAndQueue, queueChange } from "./db";
 import {
   addDays,
   formatWeekRange,
@@ -95,7 +95,7 @@ import { setCurrentUserId, syncFields } from "./lib/identity";
 import { deleteSemesterCascade } from "./lib/semesters";
 import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
 import { checkDueHealthReminder, recordHealthMovementReminderSent } from "./lib/health";
-import { loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
+import { DESKTOP_HEADER_TOOLS, loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { applyAppFontSize, appFontSizeLabel, loadAppFontSize, type AppFontSizeId } from "./lib/fontSizes";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
 import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
@@ -670,7 +670,6 @@ export default function App() {
           url: apkUrl,
           sha256: release.apkSha256
         });
-        skipReleaseVersion(release.version, release.apkVersionCode);
         setUpdateMessage("已打开系统安装界面，确认后即可覆盖更新。");
         showToast("请在系统安装界面确认更新（无需卸载）。", "success", 6000);
       } catch (error) {
@@ -869,8 +868,7 @@ export default function App() {
         const shouldBeCurrent = item.id === target.id;
         if (item.is_current === shouldBeCurrent) continue;
         const updated = { ...item, ...syncFields(item), is_current: shouldBeCurrent };
-        await db.semesters.put(updated);
-        await queueChange("semesters", updated.id);
+        await putRecordAndQueue("semesters", updated);
       }
     });
     navigate("calendar");
@@ -969,7 +967,7 @@ export default function App() {
     .filter((item) => headerToolItems.includes(item.id))
     .sort((left, right) => headerToolItems.indexOf(left.id) - headerToolItems.indexOf(right.id));
   const mobileHeaderTools = selectedHeaderTools;
-  const desktopHeaderTools = headerTools.filter((tool) => tool.id !== "translation" || headerToolItems.includes("translation"));
+  const desktopHeaderTools = headerTools.filter((tool) => DESKTOP_HEADER_TOOLS.includes(tool.id));
 
   function renderSettingsSection(title: string, description: string, children: ReactNode) {
     return (
@@ -1255,7 +1253,7 @@ export default function App() {
         )}
       </main>
 
-      <nav className="mobile-bottom-nav" aria-label="手机底部导航" style={{ gridTemplateColumns: `repeat(${Math.max(1, selectedMobileNavItems.length)}, minmax(0, 1fr))` }}>
+      <nav className="mobile-bottom-nav" aria-label="手机底部导航" style={{ gridTemplateColumns: `repeat(${Math.max(1, selectedMobileNavItems.length)}, minmax(var(--control-min-size), 1fr))` }}>
         {renderNavigation(selectedMobileNavItems)}
       </nav>
       {page === "calendar" && (

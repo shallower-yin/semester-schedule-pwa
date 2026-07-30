@@ -5,6 +5,7 @@ const LEGACY_STORAGE_KEY = "semester-schedule-header-tools";
 
 export const DEFAULT_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "quickEntry", "search"];
 export const AVAILABLE_HEADER_TOOLS: HeaderToolId[] = ["account", "scheduleAssistant", "aiAssistant", "translation", "mindMap", "audioTranscription", "quickEntry", "search"];
+export const DESKTOP_HEADER_TOOLS: readonly HeaderToolId[] = AVAILABLE_HEADER_TOOLS;
 
 export function loadHeaderToolSettings(): HeaderToolId[] {
   try {

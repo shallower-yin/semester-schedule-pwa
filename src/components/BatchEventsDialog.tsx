@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { eventOccursOn, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
 import { hardDeleteEventsCascade } from "../lib/hardDelete";
@@ -48,8 +48,7 @@ export function BatchEventsDialog({ events, categories, occurrenceStates, onClos
     await db.transaction("rw", db.events, db.syncQueue, async () => {
       for (const eventItem of selectedEvents) {
         const updated = { ...eventItem, ...syncFields(eventItem), category_id: categoryId || null };
-        await db.events.put(updated);
-        await queueChange("events", updated.id);
+        await putRecordAndQueue("events", updated);
       }
     });
     setMessage(`已更新 ${selectedEvents.length} 个事项/习惯的分类。`);

@@ -1,4 +1,4 @@
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { dueAnniversaryOccurrence, formatAnniversaryReminderBody } from "./anniversaries";
 import { eventOccursOn, toISODate } from "./date";
 import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
@@ -418,8 +418,7 @@ export async function resetSentRemindersForChangedEvent(
       completed: state.completed,
       reminder_sent_at: null
     };
-    await db.eventOccurrenceStates.put(updated);
-    await queueChange("eventOccurrenceStates", updated.id);
+    await putRecordAndQueue("eventOccurrenceStates", updated);
   }
   return states.length;
 }
@@ -440,8 +439,7 @@ async function applyNativeHealthReminderCooldown(ownerId: string, profile: Healt
     user_id: ownerId,
     last_movement_reminder_at: new Date(nativeLastSentAt).toISOString()
   };
-  await db.healthProfiles.put(updated);
-  await queueChange("healthProfiles", updated.id);
+  await putRecordAndQueue("healthProfiles", updated);
   return updated;
 }
 
@@ -520,8 +518,7 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
         completed: existing?.completed ?? false,
         reminder_sent_at: new Date().toISOString()
       };
-      await db.eventOccurrenceStates.put(state);
-      await queueChange("eventOccurrenceStates", state.id);
+      await putRecordAndQueue("eventOccurrenceStates", state);
       sent += 1;
     }
   }
@@ -545,8 +542,7 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
       ...syncFields(anniversary),
       reminder_sent_for: occurrenceDate
     };
-    await db.anniversaries.put(updated);
-    await queueChange("anniversaries", updated.id);
+    await putRecordAndQueue("anniversaries", updated);
     sent += 1;
   }
   return sent;

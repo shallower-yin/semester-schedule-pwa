@@ -1,0 +1,38 @@
+:root {
+  /* Neutral/theme axis */
+  --color-text: #172033;
+  --color-text-muted: #697386;
+  --color-canvas: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-surface-soft: #f1f3f8;
+  --color-border: #dfe4ee;
+  --color-focus-ring: rgb(49 87 213 / 58%);
+
+  /* Brand/skin axis */
+  --brand-primary: #3157d5;
+  --brand-primary-hover: #2649bd;
+  --brand-primary-rgb: 49 87 213;
+  --brand-accent-soft: #edf2ff;
+
+  /* Stable scales used by later UI migration stages */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --control-min-size: 44px;
+
+  /* One explicit stacking contract */
+  --z-header: 30;
+  --z-backdrop: 100;
+  --z-modal: 110;
+  --z-fullscreen: 200;
+  --z-preview: 2200;
+  --z-task-center: 2300;
+  --z-toast: 3000;
+}

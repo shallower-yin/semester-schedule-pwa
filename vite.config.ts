@@ -190,6 +190,12 @@ function loadReleaseNotes(): { title: string; notes: string[] } {
 function assertReleaseNotesMatchCurrentCommit() {
   if (!process.env.GITHUB_ACTIONS) return;
   const currentCommit = (process.env.GITHUB_SHA || runGit(["rev-parse", "HEAD"])).trim();
+  const pushBase = (process.env.GITHUB_EVENT_BEFORE || "").trim();
+  if (/^[0-9a-f]{40}$/i.test(pushBase) && !/^0+$/.test(pushBase)) {
+    const changedInPush = runGit(["diff", "--name-only", pushBase, currentCommit, "--", "release-notes.json"]).trim();
+    if (changedInPush === "release-notes.json") return;
+    throw new Error("release-notes.json 未包含在本次发布提交范围内，已停止发布。");
+  }
   const releaseNotesCommit = runGit(["log", "-1", "--format=%H", "--", "release-notes.json"]);
   if (!currentCommit || currentCommit === releaseNotesCommit) return;
   throw new Error("release-notes.json 未随当前版本更新，已停止发布，避免向用户展示旧版更新说明。");

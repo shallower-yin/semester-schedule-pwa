@@ -1242,7 +1242,7 @@
 
 .toast-host {
   position: fixed;
-  z-index: 120;
+  z-index: var(--z-toast);
   right: 18px;
   bottom: 18px;
   display: grid;
@@ -1887,7 +1887,7 @@
 .focus-fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: var(--z-fullscreen);
   display: flex;
   flex-direction: column;
   color: #fff;

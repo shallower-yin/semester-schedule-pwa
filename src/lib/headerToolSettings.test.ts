@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_HEADER_TOOLS, loadHeaderToolSettings, saveHeaderToolSettings } from "./headerToolSettings";
+import { DEFAULT_HEADER_TOOLS, DESKTOP_HEADER_TOOLS, loadHeaderToolSettings, saveHeaderToolSettings } from "./headerToolSettings";
 
 describe("顶部按钮设置", () => {
   beforeEach(() => {
@@ -39,5 +39,9 @@ describe("顶部按钮设置", () => {
     expect(DEFAULT_HEADER_TOOLS).not.toContain("translation");
     expect(saveHeaderToolSettings(["account", "translation"])).toEqual(["account", "translation"]);
     expect(loadHeaderToolSettings()).toEqual(["account", "translation"]);
+  });
+
+  it("网页端固定显示翻译助手入口，不受手机顶部设置影响", () => {
+    expect(DESKTOP_HEADER_TOOLS).toContain("translation");
   });
 });

@@ -1,4 +1,4 @@
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue, queueChange } from "../db";
 import type { SyncTableName } from "../types";
 import { syncFields } from "./identity";
 
@@ -32,8 +32,7 @@ export async function hardDeleteEventsCascade(eventIds: string[]): Promise<void>
       .toArray();
     for (const session of linkedSessions) {
       const updated = { ...session, ...syncFields(session), linked_event_id: null };
-      await db.focusSessions.put(updated);
-      await queueChange("focusSessions", updated.id);
+      await putRecordAndQueue("focusSessions", updated);
     }
     await hardDeleteLocalRecords("eventOccurrenceStates", stateIds);
     await hardDeleteLocalRecords("events", ids);

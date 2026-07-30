@@ -355,7 +355,7 @@ create table if not exists public.ai_assistant_usage (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   requested_at timestamptz not null default now(),
-  status text not null default 'success' check (status in ('success', 'error')),
+  status text not null default 'success' check (status in ('running', 'success', 'error')),
   access_method text not null default '',
   feature_key text not null default 'assistant',
   model text not null default '',

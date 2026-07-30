@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import {
   clearActiveFocus,
   elapsedFocusSeconds,
@@ -89,8 +89,7 @@ export async function completeExpiredFocus(ownerId: string, active: ActiveFocusS
       pomodoro_plan_id: latest.pomodoro_plan_id ?? null,
       pomodoro_round: latest.pomodoro_round ?? null
     };
-    await db.restSessions.put(record);
-    await queueChange("restSessions", record.id);
+    await putRecordAndQueue("restSessions", record);
   } else {
     const record: FocusSession = {
       ...syncFields(),
@@ -106,8 +105,7 @@ export async function completeExpiredFocus(ownerId: string, active: ActiveFocusS
       pomodoro_plan_id: latest.pomodoro_plan_id ?? null,
       pomodoro_round: latest.pomodoro_round ?? null
     };
-    await db.focusSessions.put(record);
-    await queueChange("focusSessions", record.id);
+    await putRecordAndQueue("focusSessions", record);
   }
   const settings = await db.focusSettings.filter((item) => item.user_id === ownerId && !item.deleted_at).last();
   const nextActive = nextPomodoroActiveAfterCompletion(ownerId, latest, now, {

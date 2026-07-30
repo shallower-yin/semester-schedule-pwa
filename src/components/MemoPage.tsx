@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { CalendarPlus, Copy, FileText, Folder, Grid3X3, Image as ImageIcon, List, ListChecks, ListOrdered, Pin, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
@@ -106,8 +106,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
       name: name.trim(),
       sort_order: folders.length + 1
     };
-    await db.memoFolders.put(folder);
-    await queueChange("memoFolders", folder.id);
+    await putRecordAndQueue("memoFolders", folder);
     selectFilter(folder.id);
   }
 
@@ -117,8 +116,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
       const folderMemos = await db.memos.where("folder_id").equals(folder.id).filter((memo) => memo.user_id === ownerId && !memo.deleted_at).toArray();
       for (const memo of folderMemos) {
         const updated = { ...memo, ...syncFields(memo), deleted_at: memo.deleted_at, folder_id: null };
-        await db.memos.put(updated);
-        await queueChange("memos", updated.id);
+        await putRecordAndQueue("memos", updated);
       }
       await hardDeleteLocalRecord("memoFolders", folder.id);
     });
@@ -130,8 +128,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     const name = window.prompt("新的文件夹名称", folder.name);
     if (!name?.trim() || name.trim() === folder.name) return;
     const updated = { ...folder, ...syncFields(folder), name: name.trim() };
-    await db.memoFolders.put(updated);
-    await queueChange("memoFolders", updated.id);
+    await putRecordAndQueue("memoFolders", updated);
     setMessage(`已重命名文件夹为“${updated.name}”。`);
   }
 
@@ -155,10 +152,9 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
       recurrence_interval: 1,
       reminder_enabled: false,
       reminder_minutes_before: 10,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+      timezone: "Asia/Shanghai"
     };
-    await db.events.put(eventItem);
-    await queueChange("events", eventItem.id);
+    await putRecordAndQueue("events", eventItem);
     setMessage(`已从“${memo.title}”创建今天事项。`);
     showToast("已创建今天事项。", "success");
   }
@@ -437,8 +433,7 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
       is_pinned: isPinned,
       images
     };
-    await db.memos.put(record);
-    await queueChange("memos", record.id);
+    await putRecordAndQueue("memos", record);
     savedRef.current = true;
     const retainedPaths = new Set(images.map((image) => image.path));
     newImagePathsRef.current = newImagePathsRef.current.filter((path) => !retainedPaths.has(path));

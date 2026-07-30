@@ -37,6 +37,7 @@ jobs:
 
       - name: Build PWA
         env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
@@ -54,6 +55,7 @@ jobs:
 
       - name: Build no-proxy mirror
         env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}

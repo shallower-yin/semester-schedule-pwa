@@ -2,7 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
 import { AlertTriangle, BellRing, Camera, CheckCircle2, ClipboardCopy, Cloud, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
 import { toISODate } from "../lib/date";
 import { syncFields } from "../lib/identity";
@@ -186,10 +186,9 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         recurrence_interval: 1,
         reminder_enabled: true,
         reminder_minutes_before: 0,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+        timezone: "Asia/Shanghai"
       };
-      await db.events.put(record);
-      await queueChange("events", record.id);
+      await putRecordAndQueue("events", record);
       await runSync();
       setNotificationMessage(
         `已创建并同步 ${startTime} 的测试提醒。现在可以关闭网页或 PWA，等待系统推送。`

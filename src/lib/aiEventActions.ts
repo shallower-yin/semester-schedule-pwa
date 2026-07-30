@@ -45,7 +45,7 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
     recurrence_interval: recurrenceType === "interval" ? clampNumber(action.recurrenceInterval, 1, 366, 1) : 1,
     reminder_enabled: Boolean(action.reminderEnabled) && !(now && eventStartHasPassed(action.startDate, startTime, now)),
     reminder_minutes_before: clampReminder(action.reminderMinutesBefore),
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+    timezone: "Asia/Shanghai"
   };
 }
 

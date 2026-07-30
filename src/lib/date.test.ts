@@ -57,6 +57,17 @@ describe("周日期计算", () => {
     expect(semesterWeekForDate(semester, new Date(2026, 1, 28))).toBeNull();
     expect(semesterWeekForDate(semester, new Date(2026, 6, 6))).toBeNull();
   });
+
+  it("开学日不是周一时仍按自然教学周切换周次", () => {
+    const midweekSemester = { ...semester, start_date: "2026-09-02" };
+    const mondaySchedule = { ...schedule, weeks: [1, 2] };
+
+    expect(semesterWeekForDate(midweekSemester, new Date(2026, 8, 2))).toBe(1);
+    expect(semesterWeekForDate(midweekSemester, new Date(2026, 8, 6))).toBe(1);
+    expect(semesterWeekForDate(midweekSemester, new Date(2026, 8, 7))).toBe(2);
+    expect(courseScheduleOccursOn(mondaySchedule, midweekSemester, new Date(2026, 7, 31))).toBe(false);
+    expect(courseScheduleOccursOn(mondaySchedule, midweekSemester, new Date(2026, 8, 7))).toBe(true);
+  });
 });
 
 describe("课程任意周数", () => {

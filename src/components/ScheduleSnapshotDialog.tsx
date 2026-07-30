@@ -1,6 +1,6 @@
 import { CalendarDays, Download } from "lucide-react";
 import { useMemo, useState } from "react";
-import { addDays, formatMonthDay, parseLocalDate, startOfWeek, toISODate, weekDates } from "../lib/date";
+import { addDays, formatMonthDay, parseLocalDate, semesterWeekForDate, semesterWeekStart, toISODate, weekDates } from "../lib/date";
 import { buildSnapshotDays, exportScheduleSnapshot, type ScheduleSnapshotInput } from "../lib/scheduleSnapshot";
 import type { ThemeSkinId } from "../lib/themeSkins";
 import { Modal } from "./Modal";
@@ -20,7 +20,9 @@ export function ScheduleSnapshotDialog({ mode, input, skinId, onClose }: Schedul
   const [dayChoice, setDayChoice] = useState<DayChoice>("today");
   const [weekChoice, setWeekChoice] = useState<WeekChoice>("current");
   const [specificDate, setSpecificDate] = useState(toISODate(today));
-  const currentSemesterWeek = input.semester ? Math.max(1, Math.min(input.semester.total_weeks, Math.floor((startOfWeek(today).getTime() - parseLocalDate(input.semester.start_date).getTime()) / 604800000) + 1)) : 1;
+  const currentSemesterWeek = input.semester
+    ? semesterWeekForDate(input.semester, today) ?? 1
+    : 1;
   const [semesterWeek, setSemesterWeek] = useState(currentSemesterWeek);
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -32,7 +34,7 @@ export function ScheduleSnapshotDialog({ mode, input, skinId, onClose }: Schedul
       return [today];
     }
     if (weekChoice === "next") return weekDates(addDays(today, 7));
-    if (weekChoice === "semester" && input.semester) return weekDates(addDays(parseLocalDate(input.semester.start_date), (semesterWeek - 1) * 7));
+    if (weekChoice === "semester" && input.semester) return weekDates(addDays(semesterWeekStart(input.semester), (semesterWeek - 1) * 7));
     return weekDates(today);
   }
 

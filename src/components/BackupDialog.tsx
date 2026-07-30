@@ -1,7 +1,13 @@
 import { useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, queueChange } from "../db";
-import { BACKUP_TABLES, createBackup, downloadBackup, OPTIONAL_TABLES_IN_OLD_BACKUPS } from "../lib/backup";
+import {
+  BACKUP_TABLES,
+  createBackup,
+  downloadBackup,
+  OPTIONAL_TABLES_IN_OLD_BACKUPS,
+  prepareBackupRecordsForRestore
+} from "../lib/backup";
 import { createLocalBackupSnapshot, getLatestLocalBackupSnapshot } from "../lib/autoBackup";
 import { getCurrentUserId } from "../lib/identity";
 import { SYNC_TABLE_LABELS } from "../lib/sync";
@@ -119,20 +125,20 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
         return;
       }
       const currentUserId = getCurrentUserId();
+      const restoreStartedAt = new Date();
 
       await db.transaction("rw", [...BACKUP_TABLES.map((name) => db.table(name)), db.syncQueue], async () => {
         for (const tableName of BACKUP_TABLES) {
-          const records = (preview.backup.data[tableName] as Array<Record<string, unknown>>).map((record) => {
-            if (record.user_id === "local" && currentUserId !== "local") {
-              return {
-                ...record,
-                user_id: currentUserId,
-                version: Number(record.version ?? 0) + 1,
-                updated_at: new Date().toISOString()
-              };
-            }
-            return record;
-          });
+          const incomingRecords = preview.backup.data[tableName] as Array<Record<string, unknown>>;
+          const existingRecords = await db.table(tableName).bulkGet(
+            incomingRecords.map((record) => String(record.id))
+          ) as Array<Record<string, unknown> | undefined>;
+          const records = prepareBackupRecordsForRestore(
+            incomingRecords,
+            existingRecords,
+            currentUserId,
+            restoreStartedAt
+          );
           await db.table(tableName).bulkPut(records);
           for (const record of records) {
             if (record.user_id === currentUserId || record.user_id === "local") {

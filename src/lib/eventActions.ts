@@ -1,4 +1,4 @@
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import type { EventItem, EventOccurrenceState } from "../types";
 import { addDays, differenceInCalendarDays, parseLocalDate, toISODate } from "./date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "./eventCompletion";
@@ -14,8 +14,7 @@ export async function setEventCompletedForDate(
   const completion = eventCompletionForDate(eventItem, occurrenceStates, date);
   if (!completion.occurs) return;
   const record = buildEventCompletionRecord(eventItem, completion.occurrenceDate, completed, completion.state);
-  await db.eventOccurrenceStates.put(record);
-  await queueChange("eventOccurrenceStates", record.id);
+  await putRecordAndQueue("eventOccurrenceStates", record);
 }
 
 export async function postponeEventToDate(eventItem: EventItem, targetDate: string): Promise<EventItem> {
@@ -27,8 +26,7 @@ export async function postponeEventToDate(eventItem: EventItem, targetDate: stri
     end_date: toISODate(addDays(parseLocalDate(eventItem.end_date), days)),
     recurrence_until: eventItem.recurrence_until ? toISODate(addDays(parseLocalDate(eventItem.recurrence_until), days)) : null
   };
-  await db.events.put(next);
-  await queueChange("events", next.id);
+  await putRecordAndQueue("events", next);
   await resetSentRemindersForChangedEvent(eventItem, next);
   return next;
 }

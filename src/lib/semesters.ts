@@ -1,4 +1,4 @@
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue, queueChange } from "../db";
 import { defaultPeriodsForWeekday } from "../data/defaults";
 import type { Semester, Weekday } from "../types";
 import { syncFields } from "./identity";
@@ -26,11 +26,9 @@ export async function saveSemesterRecord(input: SaveSemesterInput): Promise<Seme
     for (const semester of semesters) {
       if (!semester.is_current || semester.id === record.id) continue;
       const updated = { ...semester, ...syncFields(semester), is_current: false };
-      await db.semesters.put(updated);
-      await queueChange("semesters", updated.id);
+      await putRecordAndQueue("semesters", updated);
     }
-    await db.semesters.put(record);
-    await queueChange("semesters", record.id);
+    await putRecordAndQueue("semesters", record);
     if (createPeriods) {
       const periods = ([1, 2, 3, 4, 5, 6, 7] as Weekday[]).flatMap((weekday) =>
         defaultPeriodsForWeekday(weekday).map((period) => ({ ...syncFields(), semester_id: record.id, ...period }))

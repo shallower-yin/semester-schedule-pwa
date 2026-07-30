@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { BarChart3, Bell, CheckCircle2, Edit3, ListChecks, Link2, Maximize2, Pause, PictureInPicture2, Play, RotateCcw, Settings, Square, Sun, Target, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import {
   elapsedFocusSeconds,
   clearActiveFocus,
@@ -409,8 +409,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         pomodoro_plan_id: active.pomodoro_plan_id ?? null,
         pomodoro_round: active.pomodoro_round ?? null
       };
-      await db.restSessions.put(record);
-      await queueChange("restSessions", record.id);
+      await putRecordAndQueue("restSessions", record);
     } else {
       const record: FocusSession = {
         ...syncFields(),
@@ -426,8 +425,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         pomodoro_plan_id: active.pomodoro_plan_id ?? null,
         pomodoro_round: active.pomodoro_round ?? null
       };
-      await db.focusSessions.put(record);
-      await queueChange("focusSessions", record.id);
+      await putRecordAndQueue("focusSessions", record);
     }
     await stopNativeFocusTimer(active.mode === "lock");
     let nextActive: ActiveFocusState | null = null;
@@ -546,8 +544,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       ...syncFields(storedSettings),
       ...settingsDraft
     };
-    await db.focusSettings.put(record);
-    await queueChange("focusSettings", record.id);
+    await putRecordAndQueue("focusSettings", record);
     setMessage("专注设置已保存。");
     showToast("专注设置已保存。", "success");
   }
@@ -876,8 +873,7 @@ async function persistNativeTransitions(
         ...common,
         rest_kind: transition.restKind || "manual"
       };
-      await db.restSessions.put(record);
-      await queueChange("restSessions", record.id);
+      await putRecordAndQueue("restSessions", record);
     } else {
       const record: FocusSession = {
         ...common,
@@ -885,8 +881,7 @@ async function persistNativeTransitions(
         task_title: transition.title || plan?.task_title || "番茄专注",
         linked_event_id: transition.linkedEventId || null
       };
-      await db.focusSessions.put(record);
-      await queueChange("focusSessions", record.id);
+      await putRecordAndQueue("focusSessions", record);
     }
 
     const round = Math.max(1, transition.pomodoroRound || 1);
@@ -1021,8 +1016,7 @@ function FocusSessionDialog({ session, events, onClose, onSaved }: FocusSessionD
       completed,
       interrupted
     };
-    await db.focusSessions.put(updated);
-    await queueChange("focusSessions", updated.id);
+    await putRecordAndQueue("focusSessions", updated);
     onSaved("专注记录已更新。");
   }
 

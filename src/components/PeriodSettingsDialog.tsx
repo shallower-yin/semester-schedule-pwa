@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowDown, ArrowUp, Coffee, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
@@ -138,8 +138,7 @@ export function PeriodSettingsDialog({ semester, onClose }: PeriodSettingsDialog
             sort_order: index + 1,
             name: block.name.trim()
           };
-          await db.classPeriods.put(record);
-          await queueChange("classPeriods", record.id);
+          await putRecordAndQueue("classPeriods", record);
         }
       }
       await hardDeleteLocalRecords("classPeriods", removedIds);

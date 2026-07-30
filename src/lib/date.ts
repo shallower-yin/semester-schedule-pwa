@@ -1,6 +1,7 @@
 import type { CourseSchedule, Semester, Weekday } from "../types";
 
 const DAY_MS = 86_400_000;
+export const PRODUCT_TIME_ZONE = "Asia/Shanghai";
 
 export function parseLocalDate(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
@@ -39,10 +40,13 @@ export function differenceInCalendarDays(left: Date, right: Date): number {
 }
 
 export function semesterWeekForDate(semester: Semester, date: Date): number | null {
-  const start = parseLocalDate(semester.start_date);
-  const difference = differenceInCalendarDays(date, start);
+  const difference = differenceInCalendarDays(date, semesterWeekStart(semester));
   const week = Math.floor(difference / 7) + 1;
   return week >= 1 && week <= semester.total_weeks ? week : null;
+}
+
+export function semesterWeekStart(semester: Pick<Semester, "start_date">): Date {
+  return startOfWeek(parseLocalDate(semester.start_date));
 }
 
 export function weekdayOf(date: Date): Weekday {
@@ -98,6 +102,7 @@ export function eventOccursOn(
 
 export function courseScheduleOccursOn(schedule: CourseSchedule, semester: Semester, date: Date): boolean {
   if (schedule.deleted_at || schedule.weekday !== weekdayOf(date)) return false;
+  if (toISODate(date) < semester.start_date) return false;
   const week = semesterWeekForDate(semester, date);
   return week !== null && schedule.weeks.includes(week);
 }

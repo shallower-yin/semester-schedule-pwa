@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { BellRing, CalendarCheck, Copy, FileText } from "lucide-react";
 import { useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
 import { findEventConflicts, findEventCourseConflicts } from "../lib/conflicts";
 import { addDays, differenceInCalendarDays, parseLocalDate, toISODate } from "../lib/date";
@@ -244,7 +244,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       recurrence_interval: recurrence === "interval" ? Math.max(1, recurrenceInterval) : 1,
       reminder_enabled: reminderEnabled,
       reminder_minutes_before: reminderMinutes,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+      timezone: "Asia/Shanghai",
       completed_at: entireCompletedAt
     };
     const existingEvents = await db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray();
@@ -262,8 +262,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         return;
       }
     }
-    await db.events.put(record);
-    await queueChange("events", record.id);
+    await putRecordAndQueue("events", record);
     await resetSentRemindersForChangedEvent(eventItem, record);
     setSaving(false);
     onClose();
@@ -331,8 +330,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       title: `${eventItem.title} 副本`,
       deleted_at: null
     };
-    await db.events.put(record);
-    await queueChange("events", record.id);
+    await putRecordAndQueue("events", record);
     showToast(`已复制${itemLabel}。`, "success");
     onClose();
   }
@@ -340,8 +338,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   async function setTodayCompleted(completed: boolean) {
     if (!eventItem || !todayCompletion?.occurs) return;
     const record = buildEventCompletionRecord(eventItem, todayCompletion.occurrenceDate, completed, todayCompletion.state);
-    await db.eventOccurrenceStates.put(record);
-    await queueChange("eventOccurrenceStates", record.id);
+    await putRecordAndQueue("eventOccurrenceStates", record);
     setCompletionMessage(completed ? "已标记今天完成。" : "已标记今天未完成。");
     showToast(completed ? "已标记今天完成。" : "已标记今天未完成。", "success");
   }
@@ -354,8 +351,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       ...syncFields(eventItem),
       completed_at: completedAt
     };
-    await db.events.put(updated);
-    await queueChange("events", updated.id);
+    await putRecordAndQueue("events", updated);
     setEntireCompletedAt(completedAt);
     setCompletionMessage(completed ? "已完成整个事项，全部日期均标记为完成。" : "已恢复整个事项，可继续按日期完成。");
     showToast(completed ? "已完成整个事项。" : "已恢复整个事项。", "success");
@@ -374,8 +370,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       ].filter(Boolean).join("\n"),
       is_pinned: false
     };
-    await db.memos.put(record);
-    await queueChange("memos", record.id);
+    await putRecordAndQueue("memos", record);
     setCompletionMessage("已转为备忘录。");
     showToast("已转为备忘录。", "success");
   }

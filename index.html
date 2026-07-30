@@ -69,14 +69,13 @@
           var target = event && event.target;
           if (target && (target.tagName === "SCRIPT" || target.tagName === "LINK")) recover(false);
         }, true);
-        // Faster first check — offline-update white screens should not wait 10s.
+        // An empty root can be normal on a slow phone. Never erase offline
+        // assets merely because React has not rendered within a fixed timeout.
         window.setTimeout(function () {
           var root = document.getElementById("root");
-          if (root && !root.childElementCount) recover(false);
-        }, 3500);
-        window.setTimeout(function () {
-          var root = document.getElementById("root");
-          if (root && !root.childElementCount) recover(true);
+          if (root && !root.childElementCount) {
+            showBanner("应用仍在加载。网络较慢时请稍候；若长时间无响应，可在设置中使用“清缓存重载”。");
+          }
         }, 12000);
         // Successful boot: reset counter so future updates can recover again.
         window.addEventListener("load", function () {

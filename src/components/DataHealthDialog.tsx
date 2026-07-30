@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import { deduplicateCategories } from "../lib/categories";
 import { getSyncHealth, type SyncHealth } from "../lib/sync";
 import { syncFields } from "../lib/identity";
@@ -48,8 +48,7 @@ export function DataHealthDialog({ ownerId, onClose }: DataHealthDialogProps) {
     const events = await db.events.filter((event) => event.user_id === ownerId && !event.deleted_at && typeof event.recurrence_interval !== "number").toArray();
     for (const event of events) {
       const updated = { ...event, ...syncFields(event), recurrence_interval: 1 };
-      await db.events.put(updated);
-      await queueChange("events", updated.id);
+      await putRecordAndQueue("events", updated);
     }
     setMessage(`修复完成：合并 ${removedCategories} 个重复分类，补齐 ${events.length} 个事项字段。`);
     await inspect();

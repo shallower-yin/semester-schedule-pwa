@@ -48,8 +48,21 @@ begin
       ) as source_reminder_at
     from public.events as event
     cross join lateral generate_series(
-      event.start_date::timestamp,
-      (case when event.recurrence_type = 'none' then event.end_date else coalesce(event.recurrence_until, event.start_date) end)::timestamp,
+      (
+        case
+          when event.recurrence_type = 'none' then event.start_date
+          else greatest(event.start_date, (now() at time zone 'Asia/Shanghai')::date - 1)
+        end
+      )::timestamp,
+      (
+        case
+          when event.recurrence_type = 'none' then event.end_date
+          else least(
+            coalesce(event.recurrence_until, (now() at time zone 'Asia/Shanghai')::date + 1),
+            (now() at time zone 'Asia/Shanghai')::date + 1
+          )
+        end
+      )::timestamp,
       interval '1 day'
     ) as occurrence(value)
     where event.reminder_enabled

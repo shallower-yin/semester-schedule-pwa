@@ -195,7 +195,7 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       reminder_enabled: Boolean(record.reminder_enabled),
       reminder_minutes_before: Number(record.reminder_minutes_before ?? 10),
       recurrence_interval: Number(record.recurrence_interval ?? 1),
-      timezone: String(record.timezone ?? "Asia/Shanghai")
+      timezone: "Asia/Shanghai"
     };
   }
   if (table === "eventOccurrenceStates") {
@@ -211,7 +211,7 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       reminder_days_before: Number(record.reminder_days_before ?? 0),
       reminder_time: String(record.reminder_time ?? "09:00").slice(0, 5),
       reminder_sent_for: record.reminder_sent_for ?? null,
-      timezone: String(record.timezone ?? "Asia/Shanghai")
+      timezone: "Asia/Shanghai"
     };
   }
   if (table === "memos") {
@@ -286,6 +286,9 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
 
 function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
   const { server_updated_at: _serverUpdatedAt, ...payload } = record;
+  if (table === "events" || table === "anniversaries") {
+    return { ...payload, timezone: "Asia/Shanghai" };
+  }
   if (table === "healthProfiles") {
     return {
       ...payload,
@@ -493,6 +496,27 @@ export async function purgeLocalSoftDeletedRecords(userId: string): Promise<numb
 }
 
 const REMOTE_PAGE_SIZE = 1000;
+const OCCURRENCE_LOOKUP_BATCH_SIZE = 100;
+
+export function occurrenceLookupFilters(
+  pairs: Array<{ event_id: unknown; occurrence_date: unknown }>,
+  batchSize = OCCURRENCE_LOOKUP_BATCH_SIZE
+): string[] {
+  const uniquePairs = [...new Map(
+    pairs.map((pair) => [
+      `${String(pair.event_id)}::${String(pair.occurrence_date)}`,
+      { event_id: String(pair.event_id), occurrence_date: String(pair.occurrence_date) }
+    ])
+  ).values()];
+  const filters: string[] = [];
+  for (let index = 0; index < uniquePairs.length; index += Math.max(1, batchSize)) {
+    filters.push(uniquePairs
+      .slice(index, index + Math.max(1, batchSize))
+      .map((pair) => `and(event_id.eq.${pair.event_id},occurrence_date.eq.${pair.occurrence_date})`)
+      .join(","));
+  }
+  return filters;
+}
 
 interface RemoteTableFetch {
   rows: Record<string, unknown>[];
@@ -554,36 +578,36 @@ async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
     const activeRecords = recordsFor(recordsByTable, config.local).filter((record) => !record.deleted_at && !deletedIds.has(String(record.id)));
     const activeRemoteIds = new Set(activeRecords.map((record) => String(record.id)));
     // 保护本地未上传的编辑：待传队列中的记录、以及本地 updated_at 更晚的记录，下载时不被云端覆盖。
-    // 服务端触发器已按 updated_at 做上传侧后写覆盖保护；这里补齐下载/拉取侧，避免纯拉取或同步中途的本地编辑被静默冲掉。
-    const pendingIds = await pendingUpsertIds(config.local);
-    if (activeRecords.length) {
-      if (config.local === "eventOccurrenceStates") {
+    // 队列复查、云端合并和镜像删除必须与本地“写记录+入队”争用同一组
+    // Dexie 表事务；这样用户在下载期间编辑时，要么先被本事务看到，要么在
+    // 本事务之后写回更新，不会落入读取旧队列后再覆盖新编辑的窗口。
+    await db.transaction("rw", db.table(config.local), db.syncQueue, async () => {
+      const pendingIds = await pendingUpsertIds(config.local);
+      if (activeRecords.length && config.local === "eventOccurrenceStates") {
         const occurrenceRecords = activeRecords as unknown as EventOccurrenceState[];
-        await db.transaction("rw", db.eventOccurrenceStates, db.syncQueue, async () => {
-          for (const record of occurrenceRecords) {
-            const localMatches = await db.eventOccurrenceStates
-              .where("[event_id+occurrence_date]")
-              .equals([record.event_id, record.occurrence_date])
-              .filter((state) => state.user_id === userId)
-              .toArray();
-            if (pendingIds.has(String(record.id)) || localMatches.some((state) => pendingIds.has(String(state.id)))) {
-              kept += 1;
-              continue;
-            }
-            for (const local of localMatches) {
-              if (local.id === record.id) continue;
-              const pending = await db.syncQueue
-                .where("table_name")
-                .equals("eventOccurrenceStates")
-                .and((queuedItem) => queuedItem.record_id === local.id)
-                .first();
-              if (!pending) await db.eventOccurrenceStates.delete(local.id);
-            }
-            await db.eventOccurrenceStates.put(record);
-            downloaded += 1;
+        for (const record of occurrenceRecords) {
+          const localMatches = await db.eventOccurrenceStates
+            .where("[event_id+occurrence_date]")
+            .equals([record.event_id, record.occurrence_date])
+            .filter((state) => state.user_id === userId)
+            .toArray();
+          if (pendingIds.has(String(record.id)) || localMatches.some((state) => pendingIds.has(String(state.id)))) {
+            kept += 1;
+            continue;
           }
-        });
-      } else {
+          for (const local of localMatches) {
+            if (local.id === record.id) continue;
+            const pending = await db.syncQueue
+              .where("table_name")
+              .equals("eventOccurrenceStates")
+              .and((queuedItem) => queuedItem.record_id === local.id)
+              .first();
+            if (!pending) await db.eventOccurrenceStates.delete(local.id);
+          }
+          await db.eventOccurrenceStates.put(record);
+          downloaded += 1;
+        }
+      } else if (activeRecords.length) {
         const localRecords = await db.table(config.local).filter((record) => record.user_id === userId).toArray();
         const localById = new Map(localRecords.map((record) => [String(record.id), record]));
         const applyRecords = activeRecords.filter((record) => {
@@ -597,11 +621,11 @@ async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
         if (applyRecords.length) await db.table(config.local).bulkPut(applyRecords);
         downloaded += applyRecords.length;
       }
-    }
-    // 拉取不完整时跳过镜像删除，避免把云端仍存在的记录误删本地
-    if (!incompleteTables.has(config.local)) {
-      await deleteLocalRecordsMissingFromRemote(config.local, userId, activeRemoteIds);
-    }
+      // 拉取不完整时跳过镜像删除，避免把云端仍存在的记录误删本地。
+      if (!incompleteTables.has(config.local)) {
+        await deleteLocalRecordsMissingFromRemote(config.local, userId, activeRemoteIds);
+      }
+    });
   }
 
   await deduplicateCategories(userId);
@@ -671,17 +695,26 @@ async function runSync(userId: string): Promise<SyncResult> {
     }
 
     // eventOccurrenceStates needs a per-record lookup to resolve ID conflicts — process them
-    // individually but in a batch-friendly way: fetch all existing IDs in one query first.
+    // in bounded exact-pair batches so PostgREST cannot turn the lookup into a broad
+    // event/date cross-product or truncate the canonical row at its response limit.
     if (config.local === "eventOccurrenceStates") {
       const pairs = validItems.map(({ record }) => ({ event_id: record.event_id, occurrence_date: record.occurrence_date }));
-      const { data: existingRows } = await supabase
-        .from(config.remote)
-        .select("id, event_id, occurrence_date")
-        .eq("user_id", userId)
-        .or(pairs.map((p) => `event_id.eq.${p.event_id},occurrence_date.eq.${p.occurrence_date}`).join(","));
       const existingMap = new Map<string, string>();
-      for (const row of existingRows ?? []) {
-        existingMap.set(`${row.event_id}::${row.occurrence_date}`, row.id);
+      for (const filter of occurrenceLookupFilters(pairs)) {
+        const { data: existingRows, error: lookupError } = await supabase
+          .from(config.remote)
+          .select("id, event_id, occurrence_date")
+          .eq("user_id", userId)
+          .or(filter);
+        if (lookupError) {
+          for (const { item } of validItems) {
+            await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: lookupError.message });
+          }
+          throw new Error(`${config.remote} 查重失败：${lookupError.message}`);
+        }
+        for (const row of existingRows ?? []) {
+          existingMap.set(`${row.event_id}::${row.occurrence_date}`, row.id);
+        }
       }
 
       const batchPayload: Record<string, unknown>[] = [];

@@ -36,6 +36,19 @@ jobs:
         with:
           version: latest
 
+      - name: Prepare private reminder credential
+        env:
+          CONFIGURED_REMINDER_DISPATCHER_TOKEN: ${{ secrets.REMINDER_DISPATCHER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CONFIGURED_REMINDER_DISPATCHER_TOKEN:-}" ]; then
+            reminder_token="$CONFIGURED_REMINDER_DISPATCHER_TOKEN"
+          else
+            reminder_token="$(printf 'schedule-dispatcher:%s' "$SUPABASE_ACCESS_TOKEN" | sha256sum | cut -d' ' -f1)"
+          fi
+          echo "::add-mask::$reminder_token"
+          echo "REMINDER_DISPATCHER_TOKEN=$reminder_token" >> "$GITHUB_ENV"
+
       - name: Apply AI feature quota migration
         env:
           MIGRATION_FILE: supabase/migrations/20260717_ai_feature_quotas.sql
@@ -82,7 +95,19 @@ jobs:
             --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
-            --data @/tmp/translation-assistant-query.json
+              --data @/tmp/translation-assistant-query.json
+
+      - name: Apply AI quota and paid-task hardening migration
+        env:
+          MIGRATION_FILE: supabase/migrations/20260731_security_and_consistency_hardening.sql
+        run: |
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-security-hardening-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/ai-security-hardening-query.json
 
       - name: Configure function secrets
         env:
@@ -114,7 +139,7 @@ jobs:
           AI_MAX_DOCUMENT_PAGES: ${{ vars.AI_MAX_DOCUMENT_PAGES || '120' }}
         run: |
           supabase secrets set --project-ref "$PROJECT_REF" \
-            REMINDER_DISPATCHER_TOKEN="${{ secrets.REMINDER_DISPATCHER_TOKEN }}" \
+            REMINDER_DISPATCHER_TOKEN="$REMINDER_DISPATCHER_TOKEN" \
             VAPID_PUBLIC_KEY="${{ vars.VITE_VAPID_PUBLIC_KEY }}" \
             VAPID_PRIVATE_KEY="${{ secrets.VAPID_PRIVATE_KEY }}" \
             APP_URL="https://shallower-yin.github.io/semester-schedule-pwa/" \
@@ -175,6 +200,51 @@ jobs:
           if [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
             supabase secrets set --project-ref "$PROJECT_REF" SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
           fi
+
+      - name: Configure private reminder cron credential
+        run: |
+          set -euo pipefail
+          test -n "${REMINDER_DISPATCHER_TOKEN:-}"
+          TOKEN_B64="$(printf '%s' "$REMINDER_DISPATCHER_TOKEN" | base64 -w0)"
+          python3 - "$TOKEN_B64" <<'PY'
+          import json, sys
+          token_b64 = sys.argv[1]
+          query = f"""
+          do $$
+          declare secret_id uuid;
+          declare secret_value text := convert_from(decode('{token_b64}', 'base64'), 'UTF8');
+          begin
+            select id into secret_id from vault.secrets where name = 'schedule_dispatcher_token' limit 1;
+            if secret_id is null then
+              perform vault.create_secret(secret_value, 'schedule_dispatcher_token', 'Private cron credential for send-reminders');
+            else
+              perform vault.update_secret(secret_id, secret_value);
+            end if;
+          end
+          $$;
+          """
+          with open("/tmp/reminder-vault-secret.json", "w", encoding="utf-8") as handle:
+              json.dump({"query": query}, handle)
+          PY
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/reminder-vault-secret.json
+
+      - name: Switch reminder cron to private credential
+        env:
+          MIGRATION_FILE: supabase/migrations/20260706_schedule_reminder_edge_function.sql
+        run: |
+          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/reminder-secure-cron-query.json
+          curl --fail-with-body \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/reminder-secure-cron-query.json
+
       - name: Deploy reminder function
         run: supabase functions deploy send-reminders --project-ref "$PROJECT_REF" --no-verify-jwt
 
@@ -222,9 +292,9 @@ jobs:
             --header "Content-Type: application/json" \
             --data @/tmp/reminder-cron-query.json
 
-      - name: Apply reminder retry migration
+      - name: Apply current reminder claim migration
         env:
-          MIGRATION_FILE: supabase/migrations/20260713_reminder_retry.sql
+          MIGRATION_FILE: supabase/migrations/20260715_event_entire_completion.sql
         run: |
           jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/reminder-retry-query.json
           curl --fail-with-body \
@@ -240,6 +310,7 @@ jobs:
             --request POST \
             --url "https://$PROJECT_REF.supabase.co/functions/v1/send-reminders" \
             --header "apikey: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}" \
+            --header "x-reminder-dispatcher-token: $REMINDER_DISPATCHER_TOKEN" \
             --header "Content-Type: application/json" \
             --data '{"source":"deployment-check"}')"
           echo "$response"

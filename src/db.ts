@@ -456,3 +456,14 @@ export async function queueChange(table_name: SyncTableName, record_id: string, 
     last_error: null
   });
 }
+
+export async function putRecordAndQueue<T extends { id: string }>(
+  tableName: SyncTableName,
+  record: T,
+  operation: "upsert" | "delete" = "upsert"
+): Promise<void> {
+  await db.transaction("rw", db.table(tableName), db.syncQueue, async () => {
+    await db.table(tableName).put(record);
+    await queueChange(tableName, record.id, operation);
+  });
+}

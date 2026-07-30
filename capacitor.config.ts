@@ -5,7 +5,8 @@ const config: CapacitorConfig = {
   appName: "日程计划表",
   webDir: "dist",
   android: {
-    backgroundColor: "#f7f8fc"
+    backgroundColor: "#f7f8fc",
+    webContentsDebuggingEnabled: false
   }
 };
 

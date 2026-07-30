@@ -67,7 +67,7 @@ async function callRpc<T>(name: string, body: Record<string, unknown>): Promise<
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
-  if (request.headers.get("apikey") !== publishableKey) {
+  if (!constantTimeEqual(request.headers.get("x-reminder-dispatcher-token") ?? "", dispatcherToken)) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
@@ -141,6 +141,15 @@ Deno.serve(async (request) => {
     }, 500);
   }
 });
+
+function constantTimeEqual(left: string, right: string): boolean {
+  if (!left || left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
+}
 
 function buildPayload(row: ReminderRow) {
   const sourceType = row.source_type ?? "event";

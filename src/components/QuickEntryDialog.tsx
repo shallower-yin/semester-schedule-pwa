@@ -1,6 +1,6 @@
 import { CalendarPlus, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { db, queueChange } from "../db";
+import { putRecordAndQueue } from "../db";
 import { parseQuickEntry, QUICK_ENTRY_EXAMPLES } from "../lib/quickEntry";
 import { syncFields } from "../lib/identity";
 import { showToast } from "../lib/toast";
@@ -45,10 +45,9 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
       recurrence_interval: 1,
       reminder_enabled: false,
       reminder_minutes_before: 10,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+      timezone: "Asia/Shanghai"
     };
-    await db.events.put(record);
-    await queueChange("events", record.id);
+    await putRecordAndQueue("events", record);
     setSaving(false);
     showToast("事项已创建。", "success");
     onCreated(record);

@@ -672,7 +672,7 @@
 
 .mind-map-preview-backdrop {
   position: fixed;
-  z-index: 2200;
+  z-index: var(--z-preview);
   inset: 0;
   display: grid;
   place-items: center;
@@ -1027,7 +1027,7 @@
 
 .ai-task-center {
   position: fixed;
-  z-index: 2300;
+  z-index: var(--z-task-center);
   right: 16px;
   bottom: 18px;
   display: grid;

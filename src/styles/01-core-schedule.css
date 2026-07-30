@@ -1,18 +1,19 @@
 :root {
-  color: #172033;
-  background: #f5f7fb;
+  color: var(--color-text);
+  background: var(--color-canvas);
   font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --primary: #3157d5;
-  --primary-hover: #2649bd;
-  --primary-rgb: 49 87 213;
-  --border: #dfe4ee;
-  --muted: #697386;
-  --surface: #ffffff;
-  --surface-soft: #f1f3f8;
-  --app-bg: #f5f7fb;
-  --accent-soft: #edf2ff;
+  --primary: var(--brand-primary);
+  --primary-hover: var(--brand-primary-hover);
+  --primary-rgb: var(--brand-primary-rgb);
+  --border: var(--color-border);
+  --muted: var(--color-text-muted);
+  --surface: var(--color-surface);
+  --surface-soft: var(--color-surface-soft);
+  --app-bg: var(--color-canvas);
+  --accent-soft: var(--brand-accent-soft);
+  --text: var(--color-text);
   --shadow: 0 12px 36px rgb(30 48 88 / 12%);
   --safe-top: max(env(safe-area-inset-top, 0px), var(--android-safe-top, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--android-safe-bottom, 0px));
@@ -21,9 +22,9 @@
 }
 
 .app-shell[data-skin="cake"] {
-  --primary: #e85d9a;
-  --primary-hover: #d94d8b;
-  --primary-rgb: 232 93 154;
+  --primary: #b83275;
+  --primary-hover: #9f2863;
+  --primary-rgb: 184 50 117;
   --border: #ead7eb;
   --muted: #806b82;
   --surface: #fff9fc;
@@ -33,9 +34,9 @@
 }
 
 .app-shell[data-skin="linen"] {
-  --primary: #6c9a67;
-  --primary-hover: #5d8959;
-  --primary-rgb: 108 154 103;
+  --primary: #477342;
+  --primary-hover: #395f35;
+  --primary-rgb: 71 115 66;
   --border: #e6dcc9;
   --muted: #756f61;
   --surface: #fffdf7;
@@ -57,9 +58,9 @@
 }
 
 .app-shell[data-skin="cherry"] {
-  --primary: #e76484;
-  --primary-hover: #d85475;
-  --primary-rgb: 231 100 132;
+  --primary: #b43d60;
+  --primary-hover: #9b3151;
+  --primary-rgb: 180 61 96;
   --border: #efd2dc;
   --muted: #7c6770;
   --surface: #fff9fb;
@@ -112,8 +113,8 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid rgb(var(--primary-rgb) / 22%);
-  outline-offset: 1px;
+  outline: 3px solid rgb(var(--primary-rgb) / 58%);
+  outline-offset: 2px;
 }
 
 .app-shell {
@@ -123,7 +124,7 @@ textarea:focus-visible {
 
 .app-header {
   position: sticky;
-  z-index: 30;
+  z-index: var(--z-header);
   top: 0;
   display: grid;
   grid-template-columns: minmax(250px, 1fr) auto minmax(250px, 1fr);
@@ -226,6 +227,8 @@ textarea:focus-visible {
 
 .sync-status {
   display: flex;
+  min-width: var(--control-min-size);
+  min-height: var(--control-min-size);
   align-items: center;
   gap: 7px;
   padding: 8px 11px;
@@ -244,12 +247,15 @@ textarea:focus-visible {
 }
 
 .header-search-button {
-  width: 42px;
-  height: 42px;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
+  flex: 0 0 var(--control-min-size);
 }
 
 .mobile-menu-button {
   display: none;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
   padding: 6px;
   border: 0;
   background: transparent;
@@ -940,7 +946,7 @@ main {
 
 .button {
   display: inline-flex;
-  min-height: 40px;
+  min-height: var(--control-min-size);
   align-items: center;
   justify-content: center;
   gap: 7px;
@@ -982,7 +988,7 @@ main {
 }
 
 .button.compact {
-  min-height: 36px;
+  min-height: var(--control-min-size);
   padding: 7px 11px;
   font-size: 13px;
 }
@@ -1646,4 +1652,3 @@ main {
   border-bottom: 1px solid #e9edf3;
   background: white;
 }
-

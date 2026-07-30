@@ -2,7 +2,7 @@ import { Ban, BookOpen, CheckCircle2, Circle } from "lucide-react";
 import type { CSSProperties, PointerEvent, TouchEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { WEEKDAY_NAMES } from "../data/defaults";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import {
   courseScheduleOccursOn,
   dateIsToday,
@@ -107,8 +107,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
       occurrence_date: occurrenceDate,
       reason: ""
     };
-    await db.courseCancellations.add(cancellation);
-    await queueChange("courseCancellations", cancellation.id);
+    await putRecordAndQueue("courseCancellations", cancellation);
   }
 
   function clearQuickAddTimer() {

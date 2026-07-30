@@ -1301,10 +1301,10 @@
 
 @media (max-width: 1500px) and (min-width: 901px) {
   .sync-status {
-    width: 38px;
-    height: 38px;
+    width: var(--control-min-size);
+    height: var(--control-min-size);
     justify-content: center;
-    flex: 0 0 38px;
+    flex: 0 0 var(--control-min-size);
     padding: 0;
   }
 
@@ -1648,4 +1648,3 @@
 .focus-playlist-picker label:hover {
   background: var(--surface-soft);
 }
-

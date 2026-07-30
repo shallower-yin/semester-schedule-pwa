@@ -1,5 +1,5 @@
 import type { ClassPeriod, Course, CourseSchedule, EventItem, Semester } from "../types";
-import { addDays, eventOccursOn, parseLocalDate, toISODate } from "./date";
+import { addDays, eventOccursOn, parseLocalDate, semesterWeekStart, toISODate } from "./date";
 import { exportText, type ExportedFile } from "./fileExport";
 
 interface BuildIcsInput {
@@ -41,7 +41,8 @@ export function buildIcsCalendar(input: BuildIcsInput): string {
     const endPeriod = periodMap.get(`${schedule.weekday}-${schedule.end_period}`);
     if (!startPeriod || !endPeriod) continue;
     for (const week of schedule.weeks) {
-      const date = addDays(parseLocalDate(input.semester.start_date), (week - 1) * 7 + schedule.weekday - 1);
+      const date = addDays(semesterWeekStart(input.semester), (week - 1) * 7 + schedule.weekday - 1);
+      if (toISODate(date) < input.semester.start_date) continue;
       lines.push(...icsEvent({
         uid: `${schedule.id}-${week}@semester-schedule-pwa`,
         stamp: nowStamp,

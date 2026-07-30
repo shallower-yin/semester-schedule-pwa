@@ -38,7 +38,7 @@ describe("管理端反馈渠道", () => {
     render(<AdminFeedbackInbox />);
 
     const input = await screen.findByLabelText("推荐反馈渠道");
-    expect(input).toHaveValue("QQ邮箱 old@example.com");
+    await waitFor(() => expect(input).toHaveValue("QQ邮箱 old@example.com"));
     fireEvent.change(input, { target: { value: "QQ邮箱 3301469532@qq.com" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 

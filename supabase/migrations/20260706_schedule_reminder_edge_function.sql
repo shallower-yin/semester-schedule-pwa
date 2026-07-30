@@ -49,6 +49,11 @@ begin
             select decrypted_secret
             from vault.decrypted_secrets
             where name = 'schedule_publishable_key'
+          ),
+          'x-reminder-dispatcher-token', (
+            select decrypted_secret
+            from vault.decrypted_secrets
+            where name = 'schedule_dispatcher_token'
           )
         ),
         body := jsonb_build_object('scheduled_at', now()),

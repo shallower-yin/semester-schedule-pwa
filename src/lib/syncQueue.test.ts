@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue, queueChange } from "../db";
 import type { EventItem, SyncFields } from "../types";
 import { hardDeleteLocalRecord } from "./hardDelete";
 import { setCurrentUserId } from "./identity";
@@ -79,5 +79,14 @@ describe("sync queue compaction", () => {
     const queued = await db.syncQueue.where("record_id").equals("event-1").toArray();
     expect(queued).toHaveLength(1);
     expect(queued[0]).toMatchObject({ table_name: "events", record_id: "event-1", operation: "delete", attempts: 0, last_error: null });
+  });
+
+  it("记录写入与同步入队在同一事务中完成", async () => {
+    const eventItem = eventRecord("event-atomic");
+
+    await putRecordAndQueue("events", eventItem);
+
+    expect(await db.events.get(eventItem.id)).toEqual(eventItem);
+    expect(await db.syncQueue.where("record_id").equals(eventItem.id).count()).toBe(1);
   });
 });

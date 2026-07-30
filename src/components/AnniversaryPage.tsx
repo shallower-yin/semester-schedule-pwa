@@ -2,7 +2,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { BellRing, Cake, CalendarHeart, Gift, Heart, PartyPopper, Plus, Search, Trash2 } from "lucide-react";
 import type { ComponentType, CSSProperties, FormEvent, SVGProps } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue } from "../db";
 import {
   ANNIVERSARY_KIND_META,
   ANNIVERSARY_KINDS,
@@ -229,7 +229,7 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
     reminder_days_before: reminderDaysBefore,
     reminder_time: reminderTime,
     reminder_sent_for: anniversary?.reminder_sent_for ?? null,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+    timezone: "Asia/Shanghai"
   };
   const reminderSummary = reminderEnabled
     ? `${formatAnniversaryReminderLead(reminderDaysBefore)} ${reminderTime} 提醒，预计 ${reminderPreviewText(previewDraft)} 触发。`
@@ -309,13 +309,12 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
       reminder_days_before: reminderDaysBefore,
       reminder_time: reminderTime,
       reminder_sent_for: anniversary?.reminder_sent_for ?? null,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai"
+      timezone: "Asia/Shanghai"
     };
     if (anniversaryScheduleChanged(anniversary, record)) {
       record.reminder_sent_for = null;
     }
-    await db.anniversaries.put(record);
-    await queueChange("anniversaries", record.id);
+    await putRecordAndQueue("anniversaries", record);
     setSaving(false);
     onClose();
   }
