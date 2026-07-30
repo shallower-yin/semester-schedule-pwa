@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
+import { dateAtProductTime, productDateTimeParts } from "./date";
 import {
   computeScheduledReminders,
   MAX_SCHEDULED_REMINDERS,
@@ -75,7 +76,7 @@ function occurrenceState(overrides: Partial<EventOccurrenceState>): EventOccurre
   };
 }
 
-const NOW = new Date(2026, 6, 5, 8, 0, 0);
+const NOW = dateAtProductTime("2026-07-05", "08:00");
 
 describe("computeScheduledReminders", () => {
   it("为未来事项生成带确定性 id 的提醒", () => {
@@ -85,8 +86,7 @@ describe("computeScheduledReminders", () => {
     expect(result[0].key).toBe(key);
     expect(result[0].id).toBe(reminderNotificationId(key));
     expect(result[0].title).toBe("开会");
-    expect(result[0].at.getHours()).toBe(8);
-    expect(result[0].at.getMinutes()).toBe(50);
+    expect(productDateTimeParts(result[0].at)).toMatchObject({ hour: 8, minute: 50 });
   });
 
   it("跳过关闭提醒、已完成、已删除的事项", () => {
@@ -96,7 +96,7 @@ describe("computeScheduledReminders", () => {
   });
 
   it("跳过已经过去的提醒时间", () => {
-    const result = computeScheduledReminders({ events: [event()], anniversaries: [], occurrenceStates: [], now: new Date(2026, 6, 5, 9, 30) });
+    const result = computeScheduledReminders({ events: [event()], anniversaries: [], occurrenceStates: [], now: dateAtProductTime("2026-07-05", "09:30") });
     expect(result).toHaveLength(0);
   });
 
@@ -122,7 +122,7 @@ describe("computeScheduledReminders", () => {
     for (let index = 1; index < result.length; index += 1) {
       expect(result[index].at.getTime()).toBeGreaterThanOrEqual(result[index - 1].at.getTime());
     }
-    expect(result[0].at.getTime()).toBe(new Date(2026, 6, 5, 8, 50).getTime());
+    expect(result[0].at.getTime()).toBe(dateAtProductTime("2026-07-05", "08:50").getTime());
   });
 
   it("为启用的纪念日生成提醒，跳过关闭的", () => {
@@ -130,7 +130,7 @@ describe("computeScheduledReminders", () => {
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0].key).toBe("anniversary:anniversary-1:2026-07-10");
     expect(scheduled[0].title).toBe("生日");
-    expect(scheduled[0].at.getHours()).toBe(9);
+    expect(productDateTimeParts(scheduled[0].at)).toMatchObject({ hour: 9, minute: 0 });
 
     expect(computeScheduledReminders({ events: [], anniversaries: [anniversary({ reminder_enabled: false })], occurrenceStates: [], now: NOW })).toHaveLength(0);
   });

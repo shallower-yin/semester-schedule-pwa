@@ -248,7 +248,7 @@ describe("今日页面下一项", () => {
 
   it("移动端长按今天页空白区域时带入今天日期和当前时间新增事项", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 6, 8, 9, 10));
+    vi.setSystemTime(new Date("2026-07-08T09:10:00+08:00"));
     const onAddEvent = vi.fn();
 
     render(

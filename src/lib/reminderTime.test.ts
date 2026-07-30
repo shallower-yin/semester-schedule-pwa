@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventItem } from "../types";
+import { dateAtProductTime, parseLocalDate, productDateTimeParts } from "./date";
 import { reminderIsDue, reminderTimeForOccurrence } from "./reminderTime";
 
 function event(overrides: Partial<EventItem> = {}): EventItem {
@@ -33,26 +34,24 @@ function event(overrides: Partial<EventItem> = {}): EventItem {
 
 describe("事项提醒时间", () => {
   it("按提前分钟数计算", () => {
-    const result = reminderTimeForOccurrence(event(), new Date(2026, 6, 5));
-    expect(result.getHours()).toBe(8);
-    expect(result.getMinutes()).toBe(50);
+    const result = reminderTimeForOccurrence(event(), parseLocalDate("2026-07-05"));
+    expect(productDateTimeParts(result)).toMatchObject({ hour: 8, minute: 50 });
   });
 
   it("全天事项以当天 09:00 为基准", () => {
     const result = reminderTimeForOccurrence(
       event({ all_day: true, start_time: null, end_time: null, reminder_minutes_before: 60 }),
-      new Date(2026, 6, 5)
+      parseLocalDate("2026-07-05")
     );
-    expect(result.getHours()).toBe(8);
-    expect(result.getMinutes()).toBe(0);
+    expect(productDateTimeParts(result)).toMatchObject({ hour: 8, minute: 0 });
   });
 
   it("只在到期后的十五分钟补发窗口内触发", () => {
     const item = event();
-    const date = new Date(2026, 6, 5);
-    expect(reminderIsDue(item, date, new Date(2026, 6, 5, 8, 49))).toBe(false);
-    expect(reminderIsDue(item, date, new Date(2026, 6, 5, 8, 50))).toBe(true);
-    expect(reminderIsDue(item, date, new Date(2026, 6, 5, 9, 5))).toBe(true);
-    expect(reminderIsDue(item, date, new Date(2026, 6, 5, 9, 6))).toBe(false);
+    const date = parseLocalDate("2026-07-05");
+    expect(reminderIsDue(item, date, dateAtProductTime("2026-07-05", "08:49"))).toBe(false);
+    expect(reminderIsDue(item, date, dateAtProductTime("2026-07-05", "08:50"))).toBe(true);
+    expect(reminderIsDue(item, date, dateAtProductTime("2026-07-05", "09:05"))).toBe(true);
+    expect(reminderIsDue(item, date, dateAtProductTime("2026-07-05", "09:06"))).toBe(false);
   });
 });

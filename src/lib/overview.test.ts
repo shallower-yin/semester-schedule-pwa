@@ -10,6 +10,7 @@ import type {
   FocusSession,
   Semester
 } from "../types";
+import { dateAtProductTime } from "./date";
 import { buildScheduleOverview, selectNextOverviewItem, type ScheduleOverviewItem } from "./overview";
 
 const baseFields = {
@@ -84,7 +85,7 @@ describe("首页日程概览", () => {
 
     const overview = buildScheduleOverview(
       { semester: null, courses: [], schedules: [], cancellations: [], events: [eventItem], categories: [], occurrenceStates: [], periods: [], focusSessions: [] },
-      new Date(2026, 6, 23, 12, 0)
+      dateAtProductTime("2026-07-23", "12:00")
     );
 
     expect(overview.todayCompletedEventCount).toBe(1);
@@ -118,7 +119,7 @@ describe("首页日程概览", () => {
 
     const overview = buildScheduleOverview(
       { semester: null, courses: [], schedules: [], cancellations: [], events, categories: [], occurrenceStates: [], periods: [], focusSessions: [] },
-      new Date(2026, 2, 2, 8, 0)
+      dateAtProductTime("2026-03-02", "08:00")
     );
 
     expect(overview.todayItemCount).toBe(1);
@@ -240,7 +241,7 @@ describe("首页日程概览", () => {
 
     const overview = buildScheduleOverview(
       { semester, courses, schedules, cancellations, events, categories, occurrenceStates, periods, focusSessions },
-      new Date(2026, 2, 2, 9, 0)
+      dateAtProductTime("2026-03-02", "09:00")
     );
 
     expect(overview.todayItemCount).toBe(3);
@@ -330,7 +331,7 @@ describe("首页日程概览", () => {
 
     const overview = buildScheduleOverview(
       { semester, courses: [], schedules: [], cancellations: [], events, categories: [], occurrenceStates, periods, focusSessions: [] },
-      new Date(2026, 2, 6, 9, 0)
+      dateAtProductTime("2026-03-06", "09:00")
     );
 
     expect(overview.overdueIncompleteItems.map((item) => item.title)).toEqual(["补交材料"]);
@@ -362,7 +363,7 @@ describe("今日下一项选择", () => {
     const selected = selectNextOverviewItem([
       item({ id: "past", title: "整理课设文档", sortTime: "09:00", endTime: "10:00" }),
       item({ id: "future", title: "课设比赛", sortTime: "14:00", endTime: "16:00", timeLabel: "14:00–16:00" })
-    ], new Date(2026, 6, 16, 12, 30));
+    ], dateAtProductTime("2026-07-16", "12:30"));
 
     expect(selected?.title).toBe("课设比赛");
   });
@@ -372,16 +373,16 @@ describe("今日下一项选择", () => {
     expect(selectNextOverviewItem([
       allDay,
       item({ id: "future", title: "晚间会议", sortTime: "20:00", endTime: "21:00", timeLabel: "20:00–21:00" })
-    ], new Date(2026, 6, 16, 18, 0))?.title).toBe("晚间会议");
+    ], dateAtProductTime("2026-07-16", "18:00"))?.title).toBe("晚间会议");
     expect(selectNextOverviewItem([
       allDay,
       item({ id: "past", title: "早间会议", sortTime: "08:00", endTime: "09:00", timeLabel: "08:00–09:00" })
-    ], new Date(2026, 6, 16, 18, 0))?.title).toBe("全天整理资料");
+    ], dateAtProductTime("2026-07-16", "18:00"))?.title).toBe("全天整理资料");
   });
 
   it("只有已过时间事项时返回休息状态", () => {
     expect(selectNextOverviewItem([
       item({ id: "past", title: "十二点半前睡觉", sortTime: "00:00", endTime: "00:30", timeLabel: "00:00–00:30" })
-    ], new Date(2026, 6, 16, 12, 30))).toBeNull();
+    ], dateAtProductTime("2026-07-16", "12:30"))).toBeNull();
   });
 });
