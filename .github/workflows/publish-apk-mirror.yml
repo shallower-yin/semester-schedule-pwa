@@ -116,22 +116,22 @@ jobs:
           OUT="dist-mirror/android/semester-schedule.apk"
           cp "$SRC" "$OUT"
           "$APKSIGNER" verify --print-certs "$OUT" | tee /tmp/apk-certs.txt
-          # Phone installs use Studio AndroidUser debug cert 98e610ed…
+          # Preserve the certificate already trusted by existing installations.
           EXPECTED_CERT_SHA256="98e610edcfa3d9e4f34752da158ea48e48592f08481543ad0ac26f85294a3e24"
           if ! tr 'A-F' 'a-f' < /tmp/apk-certs.txt | tr -d ' :' | grep -q "$EXPECTED_CERT_SHA256"; then
-            echo "::error::APK signing cert does not match expected Studio debug cert ($EXPECTED_CERT_SHA256). Refusing to publish."
+            echo "::error::APK signing cert does not match the existing OTA cert ($EXPECTED_CERT_SHA256). Refusing to publish."
             cat /tmp/apk-certs.txt
             exit 1
           fi
           echo "APK signing cert OK ($EXPECTED_CERT_SHA256)"
-          APKANALYZER="$(find "$ANDROID_HOME" -type f -name apkanalyzer | sort -V | tail -1)"
-          test -x "$APKANALYZER"
-          "$APKANALYZER" manifest print "$OUT" > /tmp/apk-manifest.xml
-          if grep -q 'android:debuggable="true"' /tmp/apk-manifest.xml; then
+          AAPT2="$(ls -1 "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)"
+          test -x "$AAPT2"
+          "$AAPT2" dump badging "$OUT" > /tmp/apk-badging.txt
+          if grep -q '^application-debuggable' /tmp/apk-badging.txt; then
             echo "::error::Release APK is debuggable. Refusing to publish."
             exit 1
           fi
-          CODE="$("$APKANALYZER" manifest version-code "$OUT" | tr -d '[:space:]')"
+          CODE="$(sed -n "s/^package:.* versionCode='\([0-9][0-9]*\)'.*/\1/p" /tmp/apk-badging.txt)"
           test -n "$CODE"
           if [ "$CODE" -le "${PUBLISHED_APK_CODE:-0}" ]; then
             echo "::error::APK versionCode $CODE must be greater than published versionCode ${PUBLISHED_APK_CODE:-0}."

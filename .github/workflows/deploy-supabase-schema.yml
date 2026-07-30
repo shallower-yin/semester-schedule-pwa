@@ -33,6 +33,11 @@ jobs:
             echo "Running $file"
             jq -Rs '{query: .}' "$file" > /tmp/supabase-migration.json
             curl --fail-with-body \
+              --retry 5 \
+              --retry-all-errors \
+              --retry-delay 3 \
+              --connect-timeout 15 \
+              --max-time 180 \
               --request POST \
               --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
