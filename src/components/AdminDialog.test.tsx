@@ -12,6 +12,9 @@ vi.mock("../lib/admin", () => ({
   getAdminAiCallLogs: getAdminAiCallLogsMock,
   cleanupAdminTransientData: cleanupAdminTransientDataMock,
   getAdminUserDetails: vi.fn(),
+  deleteAdminAiRelay: vi.fn(),
+  saveAdminAiRelay: vi.fn(),
+  testAdminAiRelay: vi.fn(),
   saveAdminAiAccess: vi.fn(),
   saveAdminAiSettings: vi.fn(),
   setAdminAccountBan: vi.fn()
@@ -28,6 +31,7 @@ describe("管理后台 AI 模型选择", () => {
       passwordVisible: false,
       users: [],
       aiCallLogs: [],
+      aiRelays: [],
       aiSettings: {
         enabled_for_all: true,
         ordinary_daily_limit: 2,
@@ -39,6 +43,8 @@ describe("管理后台 AI 模型选择", () => {
         mimo_channel: "token_plan",
         audio_provider: "siliconflow",
         audio_model: "TeleAI/TeleSpeechASR",
+        text_relay_id: null,
+        audio_relay_id: null,
         feature_quotas: {
           assistant: { enabled_for_all: true, ordinary_daily_limit: 2, ordinary_weekly_limit: 100, member_daily_limit: 30, member_weekly_limit: 210 },
           translation: { enabled_for_all: true, ordinary_daily_limit: 50, ordinary_weekly_limit: 300, member_daily_limit: 150, member_weekly_limit: 900 },
@@ -55,39 +61,53 @@ describe("管理后台 AI 模型选择", () => {
   it("使用内置主 AI 和音频转写模型下拉框", async () => {
     render(<AdminDialog onClose={vi.fn()} />);
 
-    const selects = () => Array.from(document.querySelectorAll(".admin-ai-provider-row select")) as HTMLSelectElement[];
-    await waitFor(() => expect(selects().map((select) => select.value)).toEqual([
-      "mimo",
-      "mimo-v2.5",
-      "token_plan",
-      "siliconflow",
-      "TeleAI/TeleSpeechASR"
-    ]));
+    await waitFor(() => expect(screen.getByLabelText("内置提供商")).toHaveValue("mimo"));
+    expect(screen.getByLabelText("模型")).toHaveValue("mimo-v2.5");
+    expect(screen.getByLabelText("MiMo 通道")).toHaveValue("token_plan");
+    expect(screen.getByLabelText("内置转写通道")).toHaveValue("siliconflow");
+    expect(screen.getByLabelText("转写模型")).toHaveValue("TeleAI/TeleSpeechASR");
     expect(screen.getByRole("option", { name: "MiMo V2.5（支持附件）" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "SiliconFlow TeleAI/TeleSpeechASR" })).toBeInTheDocument();
 
-    fireEvent.change(selects()[0], { target: { value: "siliconflow" } });
+    fireEvent.change(screen.getByLabelText("内置提供商"), { target: { value: "siliconflow" } });
     await waitFor(() => expect(screen.getByRole("option", { name: "SiliconFlow Qwen3-32B" })).toBeInTheDocument());
-    expect(selects()[0]).toHaveValue("siliconflow");
-    expect(selects()[1]).toHaveValue("Qwen/Qwen3-32B");
-    expect(selects().some((select) => select.value === "token_plan")).toBe(false);
+    expect(screen.getByLabelText("内置提供商")).toHaveValue("siliconflow");
+    expect(screen.getByLabelText("模型")).toHaveValue("Qwen/Qwen3-32B");
+    expect(screen.queryByLabelText("MiMo 通道")).not.toBeInTheDocument();
 
-    fireEvent.change(selects()[0], { target: { value: "tju" } });
+    fireEvent.change(screen.getByLabelText("内置提供商"), { target: { value: "tju" } });
     await waitFor(() => expect(screen.getByRole("option", { name: "TJU Agent2026 tju-llm" })).toBeInTheDocument());
-    expect(selects()[1]).toHaveValue("tju-llm");
+    expect(screen.getByLabelText("模型")).toHaveValue("tju-llm");
   });
 
   it("保留音频转写独立通道，不跟随主 AI 供应商切换", async () => {
     render(<AdminDialog onClose={vi.fn()} />);
 
-    const selects = () => Array.from(document.querySelectorAll(".admin-ai-provider-row select")) as HTMLSelectElement[];
-    await waitFor(() => expect(selects().at(-1)).toHaveValue("TeleAI/TeleSpeechASR"));
-    fireEvent.change(selects()[0], { target: { value: "deepseek" } });
-    expect(selects().at(-2)).toHaveValue("siliconflow");
-    expect(selects().at(-1)).toHaveValue("TeleAI/TeleSpeechASR");
+    await waitFor(() => expect(screen.getByLabelText("转写模型")).toHaveValue("TeleAI/TeleSpeechASR"));
+    fireEvent.change(screen.getByLabelText("内置提供商"), { target: { value: "deepseek" } });
+    expect(screen.getByLabelText("内置转写通道")).toHaveValue("siliconflow");
+    expect(screen.getByLabelText("转写模型")).toHaveValue("TeleAI/TeleSpeechASR");
 
-    fireEvent.change(selects().at(-2)!, { target: { value: "mimo" } });
-    expect(selects().at(-2)).toHaveValue("mimo");
-    expect(selects().at(-1)).toHaveValue("mimo-v2.5-asr");
+    fireEvent.change(screen.getByLabelText("内置转写通道"), { target: { value: "mimo" } });
+    expect(screen.getByLabelText("内置转写通道")).toHaveValue("mimo");
+    expect(screen.getByLabelText("转写模型")).toHaveValue("mimo-v2.5-asr");
+  });
+
+  it("新增中转站时分开配置文本与音频能力", async () => {
+    render(<AdminDialog onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "新增中转站" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "新增中转站" }));
+    expect(screen.getByLabelText("接口协议")).toHaveValue("openai_compatible");
+    expect(screen.getByLabelText("启用文本 AI")).toBeChecked();
+    expect(screen.getByLabelText("启用音频转写")).not.toBeChecked();
+
+    fireEvent.change(screen.getByLabelText("接口协议"), { target: { value: "mimo" } });
+    expect(screen.getByLabelText("API 基础地址")).toHaveValue("https://api.xiaomimimo.com/v1");
+    expect(screen.getByLabelText("文本模型 ID")).toHaveValue("mimo-v2.5");
+
+    fireEvent.change(screen.getByLabelText("接口协议"), { target: { value: "deepseek" } });
+    expect(screen.getByLabelText("启用音频转写")).toBeDisabled();
+    expect(screen.getByLabelText("音频模型 ID")).toBeDisabled();
   });
 });

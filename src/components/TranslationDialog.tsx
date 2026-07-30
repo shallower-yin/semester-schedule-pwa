@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  BookOpen,
   Clipboard,
   ClipboardPaste,
   Columns2,
@@ -8,6 +9,7 @@ import {
   KeyRound,
   Languages,
   RotateCcw,
+  Sparkles,
   Square,
   Trash2
 } from "lucide-react";
@@ -24,16 +26,25 @@ import { exportText } from "../lib/fileExport";
 import { showToast } from "../lib/toast";
 import {
   TRANSLATION_DIRECTION_LABELS,
+  TRANSLATION_HISTORY_LIMIT,
   TRANSLATION_SOURCE_MAX_LENGTH,
   TRANSLATION_STYLE_LABELS,
+  TRANSLATION_SUMMARY_FOCUS_LABELS,
+  TRANSLATION_SUMMARY_MIN_HISTORY,
   bilingualParagraphs,
+  clearTranslationLearningSummary,
   clearTranslationHistory,
   deleteTranslationHistoryItem,
+  loadTranslationLearningSummary,
   loadTranslationHistory,
   prependTranslationHistory,
+  saveTranslationLearningSummary,
+  summarizeTranslationHistory,
   translateText,
   type TranslationDirection,
   type TranslationHistoryItem,
+  type TranslationLearningSummary,
+  type TranslationSummaryFocus,
   type TranslationStyle
 } from "../lib/translation";
 import { Modal } from "./Modal";
@@ -54,11 +65,17 @@ export function TranslationDialog({ ownerId, onClose }: TranslationDialogProps) 
   const [accessCode, setAccessCode] = useState("");
   const [comparison, setComparison] = useState(false);
   const [history, setHistory] = useState<TranslationHistoryItem[]>(() => loadTranslationHistory(ownerId));
+  const [summaryFocus, setSummaryFocus] = useState<TranslationSummaryFocus>("comprehensive");
+  const [summaryTheme, setSummaryTheme] = useState("");
+  const [learningSummary, setLearningSummary] = useState<TranslationLearningSummary | null>(() => loadTranslationLearningSummary(ownerId));
   const running = task.status === "running";
+  const summarizing = running && task.label.includes("学习总结");
+  const translating = running && !summarizing;
   const paragraphs = useMemo(() => bilingualParagraphs(sourceText, translation), [sourceText, translation]);
 
   useEffect(() => {
     setHistory(loadTranslationHistory(ownerId));
+    setLearningSummary(loadTranslationLearningSummary(ownerId));
   }, [ownerId]);
 
   useEffect(() => {
@@ -107,6 +124,31 @@ export function TranslationDialog({ ownerId, onClose }: TranslationDialogProps) 
       }
     });
     if (!started) showToast("已有翻译任务正在处理。", "error");
+  }
+
+  function startLearningSummary() {
+    if (history.length < TRANSLATION_SUMMARY_MIN_HISTORY) {
+      showToast(`至少积累 ${TRANSLATION_SUMMARY_MIN_HISTORY} 条翻译记录后才能生成学习总结。`, "error");
+      return;
+    }
+    const request = {
+      history: [...history],
+      focus: summaryFocus,
+      theme: summaryTheme.trim(),
+      accessCode: accessCode.trim()
+    };
+    const started = startAiTask({
+      feature: "translation",
+      label: "正在生成翻译学习总结",
+      successMessage: "翻译学习总结已完成，点击可查看。",
+      run: (signal) => summarizeTranslationHistory({ ...request, signal }),
+      onSuccess: (summary) => {
+        saveTranslationLearningSummary(ownerId, summary);
+        setLearningSummary(summary);
+        if (request.accessCode) setAccessCode("");
+      }
+    });
+    if (!started) showToast("已有翻译或总结任务正在处理。", "error");
   }
 
   function swapDirection() {
@@ -165,6 +207,38 @@ export function TranslationDialog({ ownerId, onClose }: TranslationDialogProps) 
     if (!translation) return;
     await exportText(translation, `翻译-${new Date().toISOString().slice(0, 10)}.txt`);
     showToast("译文 TXT 已保存。", "success");
+  }
+
+  async function copyLearningSummary() {
+    if (!learningSummary) return;
+    const content = [
+      learningSummary.title,
+      learningSummary.overview,
+      learningSummary.themes.length
+        ? `\n主题\n${learningSummary.themes.map((item) => `- ${item.name}：${item.summary}`).join("\n")}`
+        : "",
+      learningSummary.sentencePatterns.length
+        ? `\n常用句式\n${learningSummary.sentencePatterns.map((item) => `- ${item.pattern}\n  ${item.meaning}\n  ${item.example}`).join("\n")}`
+        : "",
+      learningSummary.vocabulary.length
+        ? `\n词汇搭配\n${learningSummary.vocabulary.map((item) => `- ${item.term}：${item.meaning}\n  ${item.usage}\n  ${item.example}`).join("\n")}`
+        : "",
+      learningSummary.practice.length
+        ? `\n练习建议\n${learningSummary.practice.map((item) => `- ${item}`).join("\n")}`
+        : ""
+    ].filter(Boolean).join("\n");
+    try {
+      await navigator.clipboard.writeText(content);
+      showToast("学习总结已复制。", "success");
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = content;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+      showToast("学习总结已复制。", "success");
+    }
   }
 
   return (
@@ -228,16 +302,16 @@ export function TranslationDialog({ ownerId, onClose }: TranslationDialogProps) 
               <div className="translation-editor-actions">
                 <button type="button" className="button secondary compact" disabled={running} onClick={() => void pasteFromClipboard()}><ClipboardPaste size={15} />粘贴</button>
                 <button type="button" className="button secondary compact" disabled={!sourceText || running} onClick={() => { setSourceText(""); setTranslation(""); }}><Trash2 size={15} />清空</button>
-                {running ? (
+                {translating ? (
                   <button type="button" className="button secondary compact translation-mobile-submit" onClick={() => { cancelAiTask("translation"); showToast("已停止翻译。", "success"); }}><Square size={14} />停止</button>
                 ) : (
-                  <button type="button" className="button primary compact translation-mobile-submit" disabled={!sourceText.trim()} onClick={startTranslation}><Languages size={15} />{translation ? "重新翻译" : "开始翻译"}</button>
+                  <button type="button" className="button primary compact translation-mobile-submit" disabled={running || !sourceText.trim()} onClick={startTranslation}><Languages size={15} />{translation ? "重新翻译" : "开始翻译"}</button>
                 )}
               </div>
             </article>
             <article>
               <header><strong>译文</strong><span>{TRANSLATION_STYLE_LABELS[style]}</span></header>
-              <textarea aria-label="翻译译文" value={translation} readOnly placeholder={running ? "正在翻译…" : "译文会显示在这里"} />
+              <textarea aria-label="翻译译文" value={translation} readOnly placeholder={translating ? "正在翻译…" : "译文会显示在这里"} />
               <div className="translation-editor-actions">
                 <button type="button" className="button secondary compact" disabled={!translation} onClick={() => void copyTranslation()}><Clipboard size={15} />复制</button>
                 <button type="button" className="button secondary compact" disabled={!translation} onClick={() => void downloadTranslation()}><Download size={15} />TXT</button>
@@ -251,17 +325,136 @@ export function TranslationDialog({ ownerId, onClose }: TranslationDialogProps) 
           {task.status === "error" && <p role="alert">{task.message}</p>}
           <span>语义、语气、数字、专名和段落结构会尽量忠实保留；当前版本不复刻文档版式。</span>
           {task.status === "error" && <button type="button" className="button secondary" onClick={() => retryAiTask("translation")}><RotateCcw size={16} />失败重试</button>}
-          {running ? (
+          {translating ? (
             <button type="button" className="button secondary" onClick={() => { cancelAiTask("translation"); showToast("已停止翻译。", "success"); }}><Square size={15} />停止</button>
           ) : (
-            <button type="button" className="button primary" disabled={!sourceText.trim()} onClick={startTranslation}><Languages size={17} />{translation ? "重新翻译" : "开始翻译"}</button>
+            <button type="button" className="button primary" disabled={running || !sourceText.trim()} onClick={startTranslation}><Languages size={17} />{translation ? "重新翻译" : "开始翻译"}</button>
           )}
         </div>
 
+        <section className="translation-learning" aria-label="翻译学习总结">
+          <header>
+            <div>
+              <BookOpen size={18} />
+              <span>
+                <strong>学习总结</strong>
+                <small>把翻译历史变成可复用的口语句式和词汇</small>
+              </span>
+            </div>
+            {learningSummary && (
+              <div className="translation-summary-header-actions">
+                <button type="button" className="button secondary compact" onClick={() => void copyLearningSummary()}><Clipboard size={14} />复制</button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="删除学习总结"
+                  disabled={running}
+                  onClick={() => {
+                    clearTranslationLearningSummary(ownerId);
+                    setLearningSummary(null);
+                  }}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            )}
+          </header>
+          <div className="translation-summary-controls">
+            <label>
+              复盘重点
+              <select aria-label="学习总结重点" value={summaryFocus} disabled={running} onChange={(event) => setSummaryFocus(event.target.value as TranslationSummaryFocus)}>
+                {Object.entries(TRANSLATION_SUMMARY_FOCUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label className="translation-summary-theme">
+              限定主题（可选）
+              <input
+                value={summaryTheme}
+                maxLength={40}
+                disabled={running}
+                placeholder="例如：旅行、课堂、日常寒暄"
+                onChange={(event) => setSummaryTheme(event.target.value)}
+              />
+            </label>
+            {summarizing ? (
+              <button type="button" className="button secondary" onClick={() => { cancelAiTask("translation"); showToast("已停止生成学习总结。", "success"); }}><Square size={15} />停止总结</button>
+            ) : (
+              <button type="button" className="button primary" disabled={running || history.length < TRANSLATION_SUMMARY_MIN_HISTORY} onClick={startLearningSummary}><Sparkles size={16} />生成总结</button>
+            )}
+          </div>
+          <p className="translation-summary-note">
+            {history.length < TRANSLATION_SUMMARY_MIN_HISTORY
+              ? `再完成 ${TRANSLATION_SUMMARY_MIN_HISTORY - history.length} 条翻译即可总结。`
+              : `将分析最近 ${history.length} 条记录；点击后仅发送每条中英文本的精简片段，并计入翻译助手额度。`}
+          </p>
+          {learningSummary && (
+            <div className="translation-summary-result">
+              <header>
+                <div>
+                  <strong>{learningSummary.title}</strong>
+                  <small>
+                    {learningSummary.sampleCount} 条记录 · {TRANSLATION_SUMMARY_FOCUS_LABELS[learningSummary.focus]}
+                    {learningSummary.theme ? ` · ${learningSummary.theme}` : ""}
+                    {" · "}{new Date(learningSummary.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                  </small>
+                </div>
+              </header>
+              <p className="translation-summary-overview">{learningSummary.overview}</p>
+              {learningSummary.themes.length > 0 && (
+                <section>
+                  <h4>高频主题</h4>
+                  <div className="translation-summary-themes">
+                    {learningSummary.themes.map((item) => (
+                      <button type="button" key={item.name} title="设为下一次总结主题" onClick={() => setSummaryTheme(item.name)}>
+                        <strong>{item.name}</strong>
+                        <span>{item.summary}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {learningSummary.sentencePatterns.length > 0 && (
+                <section>
+                  <h4>常用句式</h4>
+                  <div className="translation-summary-grid">
+                    {learningSummary.sentencePatterns.map((item, index) => (
+                      <article key={`${item.pattern}-${index}`}>
+                        <strong>{item.pattern}</strong>
+                        <p>{item.meaning}</p>
+                        <small>{item.example}</small>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {learningSummary.vocabulary.length > 0 && (
+                <section>
+                  <h4>词汇与搭配</h4>
+                  <div className="translation-summary-grid">
+                    {learningSummary.vocabulary.map((item, index) => (
+                      <article key={`${item.term}-${index}`}>
+                        <strong>{item.term}<span>{item.meaning}</span></strong>
+                        <p>{item.usage}</p>
+                        <small>{item.example}</small>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {learningSummary.practice.length > 0 && (
+                <section>
+                  <h4>下一步练习</h4>
+                  <ol>{learningSummary.practice.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ol>
+                </section>
+              )}
+            </div>
+          )}
+        </section>
+
         <section className="translation-history" aria-label="翻译历史">
           <header>
-            <div><History size={17} /><strong>最近记录</strong><small>仅保存在当前设备</small></div>
-            <button type="button" className="button secondary compact" disabled={!history.length || running} onClick={() => { clearTranslationHistory(ownerId); setHistory([]); }}><Trash2 size={14} />全部删除</button>
+            <div><History size={17} /><strong>最近记录</strong><small>仅保存在当前设备 · {history.length}/{TRANSLATION_HISTORY_LIMIT}</small></div>
+            <button type="button" className="button secondary compact" disabled={!history.length || running} onClick={() => { clearTranslationHistory(ownerId); setHistory([]); setLearningSummary(null); }}><Trash2 size={14} />全部删除</button>
           </header>
           {history.length ? history.map((item) => (
             <article key={item.id}>
@@ -272,7 +465,7 @@ export function TranslationDialog({ ownerId, onClose }: TranslationDialogProps) 
               </button>
               <button type="button" className="icon-button" aria-label={`删除翻译记录 ${item.id}`} disabled={running} onClick={() => setHistory(deleteTranslationHistoryItem(ownerId, item.id))}><Trash2 size={15} /></button>
             </article>
-          )) : <p className="muted-note">完成翻译后，最近 30 条记录会保存在这台设备。</p>}
+          )) : <p className="muted-note">完成翻译后，最近 {TRANSLATION_HISTORY_LIMIT} 条记录会保存在这台设备。</p>}
         </section>
       </div>
     </Modal>

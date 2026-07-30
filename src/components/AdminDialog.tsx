@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, CheckCircle2, Database, Eye, EyeOff, KeyRound, RefreshCw, Save, ShieldCheck, Trash2, UsersRound } from "lucide-react";
+import { Activity, Ban, CheckCircle2, Copy, Database, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Save, ShieldCheck, Trash2, UsersRound, X } from "lucide-react";
 import {
   cleanupAdminTransientData,
+  deleteAdminAiRelay,
   getAdminAiCallLogs,
   getAdminSummary,
   getAdminUserDetails,
+  saveAdminAiRelay,
   saveAdminAiAccess,
   saveAdminAiSettings,
   setAdminAccountBan,
+  testAdminAiRelay,
   type AdminAiAccess,
+  type AdminAiRelay,
+  type AdminAiRelayProtocol,
   type AdminRole,
   type AdminSummary,
   type AdminUserDetails,
@@ -34,6 +39,18 @@ interface AdminDialogProps {
   onClose: () => void;
 }
 
+interface AiRelayDraft {
+  id?: string;
+  name: string;
+  protocol: AdminAiRelayProtocol;
+  baseUrl: string;
+  apiKey: string;
+  supportsText: boolean;
+  textModel: string;
+  supportsAudio: boolean;
+  audioModel: string;
+}
+
 export function AdminDialog({ onClose }: AdminDialogProps) {
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -54,6 +71,12 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [mimoChannel, setMimoChannel] = useState<MimoChannel>("payg");
   const [audioProvider, setAudioProvider] = useState<AudioProvider>("mimo");
   const [audioModel, setAudioModel] = useState("mimo-v2.5-asr");
+  const [textRelayId, setTextRelayId] = useState("");
+  const [audioRelayId, setAudioRelayId] = useState("");
+  const [relayDraft, setRelayDraft] = useState<AiRelayDraft | null>(null);
+  const [savingRelay, setSavingRelay] = useState(false);
+  const [testingRelay, setTestingRelay] = useState("");
+  const [deletingRelay, setDeletingRelay] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
   const [cleanupRetentionDays, setCleanupRetentionDays] = useState(90);
   const [cleanupScope, setCleanupScope] = useState<"all" | "selected">("all");
@@ -85,6 +108,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setMimoChannel(nextSummary.aiSettings.mimo_channel);
       setAudioProvider(nextSummary.aiSettings.audio_provider);
       setAudioModel(nextSummary.aiSettings.audio_model);
+      setTextRelayId(nextSummary.aiSettings.text_relay_id ?? "");
+      setAudioRelayId(nextSummary.aiSettings.audio_relay_id ?? "");
       if (!selectedUserId && nextSummary.users[0]) setSelectedUserId(nextSummary.users[0].id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
@@ -176,11 +201,11 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }
 
   async function saveGlobalSettings() {
-    if (!isSupportedAiModel(aiProvider, aiModel)) {
+    if (!textRelayId && !isSupportedAiModel(aiProvider, aiModel)) {
       setMessage("请选择当前 AI 提供商支持的模型。");
       return;
     }
-    if (!isSupportedAudioModel(audioProvider, audioModel)) {
+    if (!audioRelayId && !isSupportedAudioModel(audioProvider, audioModel)) {
       setMessage("请选择当前音频转写通道支持的模型。");
       return;
     }
@@ -207,6 +232,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         mimo_channel: mimoChannel,
         audio_provider: audioProvider,
         audio_model: audioModel.trim(),
+        text_relay_id: textRelayId || null,
+        audio_relay_id: audioRelayId || null,
         feature_quotas: featureQuotas
       });
       setFeatureQuotas(settings.feature_quotas);
@@ -215,11 +242,109 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       setMimoChannel(settings.mimo_channel);
       setAudioProvider(settings.audio_provider);
       setAudioModel(settings.audio_model);
+      setTextRelayId(settings.text_relay_id ?? "");
+      setAudioRelayId(settings.audio_relay_id ?? "");
       setMessage("AI 模型与分项权限额度已保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
     } finally {
       setSavingSettings(false);
+    }
+  }
+
+  function beginNewRelay(protocol: AdminAiRelayProtocol = "openai_compatible") {
+    setRelayDraft(defaultRelayDraft(protocol));
+  }
+
+  function beginEditRelay(relay: AdminAiRelay) {
+    setRelayDraft({
+      id: relay.id,
+      name: relay.name,
+      protocol: relay.protocol,
+      baseUrl: relay.baseUrl,
+      apiKey: "",
+      supportsText: relay.supportsText,
+      textModel: relay.textModel ?? "",
+      supportsAudio: relay.supportsAudio,
+      audioModel: relay.audioModel ?? ""
+    });
+  }
+
+  function beginCopyRelay(relay: AdminAiRelay) {
+    setRelayDraft({
+      name: `${relay.name} 副本`,
+      protocol: relay.protocol,
+      baseUrl: relay.baseUrl,
+      apiKey: "",
+      supportsText: relay.supportsText,
+      textModel: relay.textModel ?? "",
+      supportsAudio: relay.supportsAudio,
+      audioModel: relay.audioModel ?? ""
+    });
+  }
+
+  function changeRelayProtocol(protocol: AdminAiRelayProtocol) {
+    setRelayDraft((current) => {
+      if (!current) return current;
+      const defaults = defaultRelayDraft(protocol);
+      return {
+        ...current,
+        protocol,
+        baseUrl: current.id ? current.baseUrl : defaults.baseUrl,
+        textModel: current.id ? current.textModel : defaults.textModel,
+        supportsAudio: protocol === "deepseek" ? false : current.supportsAudio,
+        audioModel: protocol === "deepseek" ? "" : current.audioModel || defaults.audioModel
+      };
+    });
+  }
+
+  async function persistRelay() {
+    if (!relayDraft) return;
+    if (!relayDraft.id && !relayDraft.apiKey.trim()) {
+      setMessage("新增或复制中转站时必须填写 API Key；系统不会读取已有中转站的明文密钥。");
+      return;
+    }
+    setSavingRelay(true);
+    setMessage("");
+    try {
+      const saved = await saveAdminAiRelay(relayDraft);
+      setRelayDraft(null);
+      await loadSummary();
+      setMessage(`中转站“${saved.name}”已保存。密钥已写入服务端保险库。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存中转站失败。");
+    } finally {
+      setSavingRelay(false);
+    }
+  }
+
+  async function testRelay(relay: AdminAiRelay, kind: "text" | "audio") {
+    setTestingRelay(`${relay.id}:${kind}`);
+    setMessage("");
+    try {
+      const result = await testAdminAiRelay(relay.id, kind);
+      await loadSummary();
+      setMessage(`${relay.name}：${result.message}，耗时 ${result.latencyMs} ms。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "测试中转站失败。");
+    } finally {
+      setTestingRelay("");
+    }
+  }
+
+  async function removeRelay(relay: AdminAiRelay) {
+    if (!window.confirm(`删除中转站“${relay.name}”及其服务端密钥？引用它的文本或音频路由会自动回退到内置通道。`)) return;
+    setDeletingRelay(relay.id);
+    setMessage("");
+    try {
+      await deleteAdminAiRelay(relay.id);
+      if (relayDraft?.id === relay.id) setRelayDraft(null);
+      await loadSummary();
+      setMessage(`中转站“${relay.name}”已删除，密钥也已从服务端保险库移除。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除中转站失败。");
+    } finally {
+      setDeletingRelay("");
     }
   }
 
@@ -294,60 +419,182 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
           <div className="section-heading">
             <div><h3><KeyRound size={18} /> AI 模型、权限与分项额度</h3><p>各功能独立计次；额度填 0 表示该角色不可用，管理员不限额。</p></div>
           </div>
-          <div className="admin-ai-provider-row">
-            <label>
-              AI 提供商
-              <select value={aiProvider} onChange={(event) => {
-                const value = event.target.value;
-                const provider: AiProvider = value === "mimo" || value === "siliconflow" || value === "tju" ? value : "deepseek";
-                setAiProvider(provider);
-                setAiModel(defaultAiModel(provider));
-              }}>
-                <option value="deepseek">DeepSeek</option>
-                <option value="mimo">Xiaomi MiMo</option>
-                <option value="siliconflow">硅基流动</option>
-                <option value="tju">学校 API</option>
-              </select>
-            </label>
-            <label>
-              模型
-              <select value={aiModel} onChange={(event) => setAiModel(event.target.value)}>
-                {AI_MODEL_OPTIONS[aiProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-              </select>
-            </label>
-            {aiProvider === "mimo" && <label>
-              MiMo 通道
-              <select value={mimoChannel} onChange={(event) => setMimoChannel(event.target.value === "token_plan" ? "token_plan" : "payg")}>
-                <option value="payg">按量 API（sk）</option>
-                <option value="token_plan">Token Plan（tp，仅获授权后）</option>
-              </select>
-            </label>}
-            <label>
-              音频转写通道
-              <select value={audioProvider} onChange={(event) => {
-                const provider: AudioProvider = event.target.value === "siliconflow" ? "siliconflow" : "mimo";
-                setAudioProvider(provider);
-                setAudioModel(defaultAudioModel(provider));
-              }}>
-                <option value="mimo">Xiaomi MiMo</option>
-                <option value="siliconflow">硅基流动</option>
-              </select>
-            </label>
-            <label>
-              转写模型
-              <select value={audioModel} onChange={(event) => setAudioModel(event.target.value)}>
-                {AUDIO_MODEL_OPTIONS[audioProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-              </select>
-            </label>
+          <div className="admin-ai-route-grid">
+            <article className="admin-ai-route-card">
+              <h4>普通 AI / 翻译 / 思维导图</h4>
+              <label>
+                文本路由
+                <select value={textRelayId} onChange={(event) => setTextRelayId(event.target.value)}>
+                  <option value="">内置服务商</option>
+                  {(summary?.aiRelays ?? []).filter((relay) => relay.supportsText).map((relay) => (
+                    <option value={relay.id} key={relay.id}>{relay.name} · {relay.textModel}</option>
+                  ))}
+                </select>
+              </label>
+              {!textRelayId && <>
+                <label>
+                  内置提供商
+                  <select value={aiProvider} onChange={(event) => {
+                    const value = event.target.value;
+                    const provider: AiProvider = value === "mimo" || value === "siliconflow" || value === "tju" ? value : "deepseek";
+                    setAiProvider(provider);
+                    setAiModel(defaultAiModel(provider));
+                  }}>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="mimo">Xiaomi MiMo</option>
+                    <option value="siliconflow">硅基流动</option>
+                    <option value="tju">学校 API</option>
+                  </select>
+                </label>
+                <label>
+                  模型
+                  <select value={aiModel} onChange={(event) => setAiModel(event.target.value)}>
+                    {AI_MODEL_OPTIONS[aiProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                  </select>
+                </label>
+                {aiProvider === "mimo" && <label>
+                  MiMo 通道
+                  <select value={mimoChannel} onChange={(event) => setMimoChannel(event.target.value === "token_plan" ? "token_plan" : "payg")}>
+                    <option value="payg">按量 API（sk）</option>
+                    <option value="token_plan">Token Plan（tp，仅获授权后）</option>
+                  </select>
+                </label>}
+              </>}
+            </article>
+            <article className="admin-ai-route-card">
+              <h4>音频助手 / 转写</h4>
+              <label>
+                音频路由
+                <select value={audioRelayId} onChange={(event) => setAudioRelayId(event.target.value)}>
+                  <option value="">内置服务商</option>
+                  {(summary?.aiRelays ?? []).filter((relay) => relay.supportsAudio).map((relay) => (
+                    <option value={relay.id} key={relay.id}>{relay.name} · {relay.audioModel}</option>
+                  ))}
+                </select>
+              </label>
+              {!audioRelayId && <>
+                <label>
+                  内置转写通道
+                  <select value={audioProvider} onChange={(event) => {
+                    const provider: AudioProvider = event.target.value === "siliconflow" ? "siliconflow" : "mimo";
+                    setAudioProvider(provider);
+                    setAudioModel(defaultAudioModel(provider));
+                  }}>
+                    <option value="mimo">Xiaomi MiMo</option>
+                    <option value="siliconflow">硅基流动</option>
+                  </select>
+                </label>
+                <label>
+                  转写模型
+                  <select value={audioModel} onChange={(event) => setAudioModel(event.target.value)}>
+                    {AUDIO_MODEL_OPTIONS[audioProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                  </select>
+                </label>
+              </>}
+            </article>
+          </div>
+          <div className="admin-ai-settings-actions">
+            <p>路由配置保存在服务端；网页和 APK 会同时生效，客户端不会获得 API Key。</p>
             <button className="button primary" onClick={() => void saveGlobalSettings()} disabled={savingSettings}>
               <Save size={16} />保存 AI 设置
             </button>
           </div>
-          {aiProvider === "mimo" && (
+          {!textRelayId && aiProvider === "mimo" && (
             <p className="admin-channel-note">
               音频转写固定使用按量 API；此处通道只控制主模型。MiMo Token Plan 官方仅授权 AI 编程工具，普通应用调用请选按量 API。
             </p>
           )}
+          <section className="admin-ai-relay-manager" aria-labelledby="admin-ai-relay-heading">
+            <div className="section-heading">
+              <div>
+                <h4 id="admin-ai-relay-heading"><Database size={17} /> 自定义中转站</h4>
+                <p>支持 OpenAI 兼容、DeepSeek 和 MiMo。保存不调用上游；测试按钮会发送一次极小请求，可能产生少量费用。</p>
+              </div>
+              <button className="button secondary compact" type="button" onClick={() => beginNewRelay()}>
+                <Plus size={15} />新增中转站
+              </button>
+            </div>
+            {relayDraft && (
+              <div className="admin-ai-relay-editor">
+                <div className="admin-ai-relay-editor-heading">
+                  <strong>{relayDraft.id ? "编辑中转站" : "新增中转站"}</strong>
+                  <button className="icon-button" type="button" aria-label="关闭中转站编辑" onClick={() => setRelayDraft(null)}><X size={17} /></button>
+                </div>
+                <div className="admin-ai-relay-form">
+                  <label>
+                    名称
+                    <input value={relayDraft.name} maxLength={80} placeholder="例如：主力 OpenAI 中转" onChange={(event) => setRelayDraft({ ...relayDraft, name: event.target.value })} />
+                  </label>
+                  <label>
+                    接口协议
+                    <select value={relayDraft.protocol} onChange={(event) => changeRelayProtocol(event.target.value as AdminAiRelayProtocol)}>
+                      <option value="openai_compatible">OpenAI 兼容</option>
+                      <option value="deepseek">DeepSeek 直连</option>
+                      <option value="mimo">Xiaomi MiMo 直连</option>
+                    </select>
+                  </label>
+                  <label className="admin-ai-relay-url">
+                    API 基础地址
+                    <input type="url" value={relayDraft.baseUrl} placeholder="https://example.com/v1" onChange={(event) => setRelayDraft({ ...relayDraft, baseUrl: event.target.value })} />
+                  </label>
+                  <label>
+                    API Key
+                    <input type="password" autoComplete="new-password" value={relayDraft.apiKey} placeholder={relayDraft.id ? "留空保留原密钥" : "新增时必填"} onChange={(event) => setRelayDraft({ ...relayDraft, apiKey: event.target.value })} />
+                  </label>
+                  <label className="admin-ai-relay-capability">
+                    <input type="checkbox" checked={relayDraft.supportsText} onChange={(event) => setRelayDraft({ ...relayDraft, supportsText: event.target.checked })} />
+                    启用文本 AI
+                  </label>
+                  <label>
+                    文本模型 ID
+                    <input value={relayDraft.textModel} disabled={!relayDraft.supportsText} placeholder="例如：deepseek-chat" onChange={(event) => setRelayDraft({ ...relayDraft, textModel: event.target.value })} />
+                  </label>
+                  <label className="admin-ai-relay-capability">
+                    <input type="checkbox" checked={relayDraft.supportsAudio} disabled={relayDraft.protocol === "deepseek"} onChange={(event) => setRelayDraft({ ...relayDraft, supportsAudio: event.target.checked })} />
+                    启用音频转写
+                  </label>
+                  <label>
+                    音频模型 ID
+                    <input value={relayDraft.audioModel} disabled={!relayDraft.supportsAudio} placeholder="例如：whisper-1" onChange={(event) => setRelayDraft({ ...relayDraft, audioModel: event.target.value })} />
+                  </label>
+                </div>
+                <p className="admin-channel-note">基础地址请包含服务商要求的版本前缀（常见为 /v1）；系统会自动追加 /chat/completions 或 /audio/transcriptions。</p>
+                <button className="button primary" type="button" onClick={() => void persistRelay()} disabled={savingRelay}>
+                  <Save size={15} />{savingRelay ? "保存中…" : "安全保存"}
+                </button>
+              </div>
+            )}
+            <div className="admin-ai-relay-list">
+              {(summary?.aiRelays ?? []).map((relay) => (
+                <article className="admin-ai-relay-card" key={relay.id}>
+                  <div className="admin-ai-relay-card-main">
+                    <div>
+                      <strong>{relay.name}</strong>
+                      <span>{relayProtocolLabel(relay.protocol)} · {safeRelayHost(relay.baseUrl)}</span>
+                    </div>
+                    <span className={`admin-ai-relay-status ${relay.lastTestStatus ?? "untested"}`}>
+                      {relay.lastTestStatus === "success" ? "连通" : relay.lastTestStatus === "error" ? "失败" : "未测试"}
+                    </span>
+                  </div>
+                  <p>
+                    {relay.supportsText ? `文本：${relay.textModel}` : "文本：未启用"}
+                    {" · "}
+                    {relay.supportsAudio ? `音频：${relay.audioModel}` : "音频：未启用"}
+                    {" · 密钥已加密保存"}
+                  </p>
+                  {relay.lastTestMessage && <small>{relay.lastTestMessage}{relay.lastTestLatencyMs != null ? ` · ${relay.lastTestLatencyMs} ms` : ""}</small>}
+                  <div className="admin-ai-relay-actions">
+                    {relay.supportsText && <button className="button secondary compact" type="button" disabled={Boolean(testingRelay)} onClick={() => void testRelay(relay, "text")}><Activity size={14} />{testingRelay === `${relay.id}:text` ? "测试中…" : "测文本"}</button>}
+                    {relay.supportsAudio && <button className="button secondary compact" type="button" disabled={Boolean(testingRelay)} onClick={() => void testRelay(relay, "audio")}><Activity size={14} />{testingRelay === `${relay.id}:audio` ? "测试中…" : "测音频"}</button>}
+                    <button className="button secondary compact" type="button" onClick={() => beginEditRelay(relay)}><Pencil size={14} />编辑</button>
+                    <button className="button secondary compact" type="button" onClick={() => beginCopyRelay(relay)}><Copy size={14} />复制</button>
+                    <button className="button danger compact" type="button" disabled={deletingRelay === relay.id} onClick={() => void removeRelay(relay)}><Trash2 size={14} />删除</button>
+                  </div>
+                </article>
+              ))}
+              {!summary?.aiRelays.length && !relayDraft && <p className="admin-ai-relay-empty">还没有自定义中转站。内置服务商仍会正常工作。</p>}
+            </div>
+          </section>
           <div className="admin-feature-quota-table">
             <div className="admin-feature-quota-header" aria-hidden="true">
               <span>功能</span><span>全员开放</span><span>普通 / 日</span><span>普通 / 周</span><span>会员 / 日</span><span>会员 / 周</span><span>管理员</span>
@@ -586,6 +833,57 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       </div>
     </Modal>
   );
+}
+
+function defaultRelayDraft(protocol: AdminAiRelayProtocol): AiRelayDraft {
+  if (protocol === "deepseek") {
+    return {
+      name: "",
+      protocol,
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "",
+      supportsText: true,
+      textModel: "deepseek-chat",
+      supportsAudio: false,
+      audioModel: ""
+    };
+  }
+  if (protocol === "mimo") {
+    return {
+      name: "",
+      protocol,
+      baseUrl: "https://api.xiaomimimo.com/v1",
+      apiKey: "",
+      supportsText: true,
+      textModel: "mimo-v2.5",
+      supportsAudio: true,
+      audioModel: "mimo-v2.5-asr"
+    };
+  }
+  return {
+    name: "",
+    protocol,
+    baseUrl: "",
+    apiKey: "",
+    supportsText: true,
+    textModel: "",
+    supportsAudio: false,
+    audioModel: ""
+  };
+}
+
+function relayProtocolLabel(protocol: AdminAiRelayProtocol): string {
+  if (protocol === "deepseek") return "DeepSeek";
+  if (protocol === "mimo") return "Xiaomi MiMo";
+  return "OpenAI 兼容";
+}
+
+function safeRelayHost(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return "地址无效";
+  }
 }
 
 function AiUsageCard({ title, requests, tokens, cost }: { title: string; requests: number; tokens: number; cost: number | null }) {

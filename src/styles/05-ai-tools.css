@@ -42,7 +42,7 @@
 .assistant-messages p {
   position: relative;
   margin: 0;
-  padding: 9px 66px 9px 10px;
+  padding: 9px 10px;
   border-radius: 9px;
   white-space: pre-wrap;
   line-height: 1.55;
@@ -101,12 +101,13 @@
 }
 
 .assistant-inline-actions {
-  position: absolute;
-  right: 6px;
-  bottom: 5px;
+  position: static;
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  margin-inline-start: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
   opacity: 0.76;
 }
 
@@ -1226,6 +1227,193 @@
   margin: 0;
   color: var(--danger);
   font-size: 0.75rem;
+}
+
+.translation-learning {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #cfd9f5;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #f8faff 0%, #f4fbf7 100%);
+}
+
+.translation-learning > header,
+.translation-learning > header > div,
+.translation-summary-header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.translation-learning > header {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.translation-learning > header > div:first-child {
+  gap: 8px;
+}
+
+.translation-learning > header > div:first-child > svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.translation-learning > header span {
+  display: grid;
+  gap: 2px;
+}
+
+.translation-learning > header small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.translation-summary-header-actions {
+  gap: 6px;
+}
+
+.translation-summary-controls {
+  display: grid;
+  grid-template-columns: 180px minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 9px;
+}
+
+.translation-summary-controls label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.translation-summary-controls .button {
+  min-height: 38px;
+}
+
+.translation-summary-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.translation-summary-result {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 88%);
+}
+
+.translation-summary-result > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.translation-summary-result > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.translation-summary-result > header strong {
+  font-size: 1rem;
+}
+
+.translation-summary-result > header small {
+  color: var(--muted);
+}
+
+.translation-summary-overview {
+  margin: 0;
+  color: #344258;
+  line-height: 1.7;
+}
+
+.translation-summary-result > section {
+  display: grid;
+  gap: 7px;
+}
+
+.translation-summary-result h4 {
+  margin: 0;
+  color: #344258;
+  font-size: 0.82rem;
+}
+
+.translation-summary-themes,
+.translation-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.translation-summary-themes > button,
+.translation-summary-grid > article {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: white;
+}
+
+.translation-summary-themes > button {
+  display: grid;
+  gap: 3px;
+  min-height: 44px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.translation-summary-themes > button:hover {
+  border-color: #aebff0;
+  background: #f5f8ff;
+}
+
+.translation-summary-themes span,
+.translation-summary-grid p,
+.translation-summary-grid small {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.translation-summary-grid > article {
+  display: grid;
+  gap: 4px;
+}
+
+.translation-summary-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.translation-summary-grid strong > span {
+  margin-left: 7px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.translation-summary-grid p {
+  margin: 0;
+}
+
+.translation-summary-grid small {
+  color: #405b9a;
+  overflow-wrap: anywhere;
+}
+
+.translation-summary-result ol {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 22px;
+  color: #344258;
+  line-height: 1.55;
 }
 
 .translation-history {

@@ -70,6 +70,7 @@ export interface AdminSummary {
   passwordVisible: false;
   users: AdminUserSummary[];
   aiSettings: AdminAiSettings;
+  aiRelays: AdminAiRelay[];
   aiCallLogs: AdminAiCallLog[];
 }
 
@@ -98,8 +99,51 @@ export interface AdminAiSettings {
   mimo_channel: MimoChannel;
   audio_provider: AudioProvider;
   audio_model: string;
+  text_relay_id: string | null;
+  audio_relay_id: string | null;
   feature_quotas: AiFeatureQuotas;
   updated_at: string | null;
+}
+
+export type AdminAiRelayProtocol = "openai_compatible" | "deepseek" | "mimo";
+export type AdminAiRelayTestKind = "text" | "audio";
+
+export interface AdminAiRelay {
+  id: string;
+  name: string;
+  protocol: AdminAiRelayProtocol;
+  baseUrl: string;
+  keyConfigured: boolean;
+  supportsText: boolean;
+  textModel: string | null;
+  supportsAudio: boolean;
+  audioModel: string | null;
+  lastTestedAt: string | null;
+  lastTestStatus: "success" | "error" | null;
+  lastTestMessage: string | null;
+  lastTestLatencyMs: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface SaveAdminAiRelayInput {
+  id?: string;
+  name: string;
+  protocol: AdminAiRelayProtocol;
+  baseUrl: string;
+  apiKey: string;
+  supportsText: boolean;
+  textModel: string;
+  supportsAudio: boolean;
+  audioModel: string;
+}
+
+export interface AdminAiRelayTestResult {
+  ok: boolean;
+  kind: AdminAiRelayTestKind;
+  status: number | null;
+  latencyMs: number;
+  message: string;
 }
 
 export interface AdminStatus {
@@ -197,11 +241,12 @@ type AiAccessRpcRow = {
 
 export async function getAdminSummary(): Promise<AdminSummary> {
   if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
-  const [{ data, error }, settingsResult, profilesResult, callLogsResult] = await Promise.all([
+  const [{ data, error }, settingsResult, profilesResult, callLogsResult, aiRelays] = await Promise.all([
     supabase.rpc("admin_list_users"),
     supabase.rpc("admin_get_ai_settings"),
     supabase.rpc("admin_list_account_profiles"),
-    supabase.rpc("admin_list_ai_call_logs", { p_limit: 50 })
+    supabase.rpc("admin_list_ai_call_logs", { p_limit: 50 }),
+    listAdminAiRelays()
   ]);
   if (error) throw new Error(formatAdminError(error.message));
   if (settingsResult.error) throw new Error(formatAdminError(settingsResult.error.message));
@@ -214,6 +259,7 @@ export async function getAdminSummary(): Promise<AdminSummary> {
   return {
     passwordVisible: false,
     aiSettings: normalizeAiSettings(settingsResult.data),
+    aiRelays,
     aiCallLogs: normalizeAiCallLogs(callLogsResult.error ? [] : callLogsResult.data),
     users: rows.map((row) => ({
       id: row.id,
@@ -274,21 +320,24 @@ function isSmokeTestAccount(email: string | null | undefined): boolean {
 }
 
 export async function saveAdminAiSettings(input: Omit<AdminAiSettings, "updated_at">): Promise<AdminAiSettings> {
-  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
-  const { data, error } = await supabase.rpc("admin_set_ai_settings", {
-    p_enabled_for_all: input.enabled_for_all,
-    p_ordinary_daily_limit: input.ordinary_daily_limit,
-    p_ordinary_weekly_limit: input.ordinary_weekly_limit,
-    p_member_daily_limit: input.member_daily_limit,
-    p_member_weekly_limit: input.member_weekly_limit,
-    p_provider: input.provider,
-    p_model: input.model,
-    p_mimo_channel: input.mimo_channel,
-    p_audio_provider: input.audio_provider,
-    p_audio_model: input.audio_model,
-    p_feature_quotas: input.feature_quotas
+  const data = await invokeAdminFunction<Record<string, unknown>>({
+    action: "set-ai-settings",
+    settings: {
+      enabledForAll: input.enabled_for_all,
+      ordinaryDailyLimit: input.ordinary_daily_limit,
+      ordinaryWeeklyLimit: input.ordinary_weekly_limit,
+      memberDailyLimit: input.member_daily_limit,
+      memberWeeklyLimit: input.member_weekly_limit,
+      provider: input.provider,
+      model: input.model,
+      mimoChannel: input.mimo_channel,
+      audioProvider: input.audio_provider,
+      audioModel: input.audio_model,
+      textRelayId: input.text_relay_id,
+      audioRelayId: input.audio_relay_id,
+      featureQuotas: input.feature_quotas
+    }
   });
-  if (error) throw new Error(formatAdminError(error.message));
   return normalizeAiSettings(data);
 }
 
@@ -317,9 +366,93 @@ function normalizeAiSettings(value: unknown): AdminAiSettings {
     mimo_channel: row.mimo_channel === "token_plan" ? "token_plan" : "payg",
     audio_provider: audioProvider,
     audio_model: isSupportedAudioModel(audioProvider, storedAudioModel) ? storedAudioModel : defaultAudioModel(audioProvider),
+    text_relay_id: typeof row.text_relay_id === "string" ? row.text_relay_id : null,
+    audio_relay_id: typeof row.audio_relay_id === "string" ? row.audio_relay_id : null,
     feature_quotas: featureQuotas,
     updated_at: typeof row.updated_at === "string" ? row.updated_at : null
   };
+}
+
+export async function listAdminAiRelays(): Promise<AdminAiRelay[]> {
+  const data = await invokeAdminFunction<{ relays?: unknown[] }>({ action: "list-ai-relays" });
+  return Array.isArray(data.relays) ? data.relays.map(normalizeAdminAiRelay) : [];
+}
+
+export async function saveAdminAiRelay(input: SaveAdminAiRelayInput): Promise<AdminAiRelay> {
+  const data = await invokeAdminFunction<{ relay?: unknown }>({
+    action: "save-ai-relay",
+    relay: input
+  });
+  if (!data.relay) throw new Error("中转站保存成功但未返回配置，请刷新后台。");
+  return normalizeAdminAiRelay(data.relay);
+}
+
+export async function deleteAdminAiRelay(relayId: string): Promise<void> {
+  await invokeAdminFunction({ action: "delete-ai-relay", relayId });
+}
+
+export async function testAdminAiRelay(
+  relayId: string,
+  kind: AdminAiRelayTestKind
+): Promise<AdminAiRelayTestResult> {
+  const data = await invokeAdminFunction<Record<string, unknown>>({
+    action: "test-ai-relay",
+    relayId,
+    relayTestKind: kind
+  });
+  return {
+    ok: Boolean(data.ok),
+    kind: data.kind === "audio" ? "audio" : "text",
+    status: data.status != null && Number.isFinite(Number(data.status)) ? Number(data.status) : null,
+    latencyMs: Math.max(0, Number(data.latencyMs ?? 0)),
+    message: typeof data.message === "string" ? data.message : "测试完成。"
+  };
+}
+
+function normalizeAdminAiRelay(value: unknown): AdminAiRelay {
+  const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return {
+    id: typeof row.id === "string" ? row.id : "",
+    name: typeof row.name === "string" ? row.name : "未命名中转站",
+    protocol: row.protocol === "deepseek" || row.protocol === "mimo" ? row.protocol : "openai_compatible",
+    baseUrl: typeof row.base_url === "string" ? row.base_url : typeof row.baseUrl === "string" ? row.baseUrl : "",
+    keyConfigured: row.key_configured !== false,
+    supportsText: Boolean(row.supports_text ?? row.supportsText),
+    textModel: typeof (row.text_model ?? row.textModel) === "string" ? String(row.text_model ?? row.textModel) : null,
+    supportsAudio: Boolean(row.supports_audio ?? row.supportsAudio),
+    audioModel: typeof (row.audio_model ?? row.audioModel) === "string" ? String(row.audio_model ?? row.audioModel) : null,
+    lastTestedAt: typeof (row.last_tested_at ?? row.lastTestedAt) === "string" ? String(row.last_tested_at ?? row.lastTestedAt) : null,
+    lastTestStatus: row.last_test_status === "success" || row.lastTestStatus === "success"
+      ? "success"
+      : row.last_test_status === "error" || row.lastTestStatus === "error" ? "error" : null,
+    lastTestMessage: typeof (row.last_test_message ?? row.lastTestMessage) === "string" ? String(row.last_test_message ?? row.lastTestMessage) : null,
+    lastTestLatencyMs: (row.last_test_latency_ms ?? row.lastTestLatencyMs) != null
+      && Number.isFinite(Number(row.last_test_latency_ms ?? row.lastTestLatencyMs))
+      ? Number(row.last_test_latency_ms ?? row.lastTestLatencyMs)
+      : null,
+    createdAt: typeof (row.created_at ?? row.createdAt) === "string" ? String(row.created_at ?? row.createdAt) : null,
+    updatedAt: typeof (row.updated_at ?? row.updatedAt) === "string" ? String(row.updated_at ?? row.updatedAt) : null
+  };
+}
+
+async function invokeAdminFunction<T = Record<string, unknown>>(body: Record<string, unknown>): Promise<T> {
+  if (!supabase) throw new Error("云端服务未配置，无法使用管理后台。");
+  const { data, error } = await supabase.functions.invoke("admin", { body });
+  if (error) {
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      const payload = await context.clone().json().catch(() => null) as { error?: unknown } | null;
+      if (typeof payload?.error === "string" && payload.error.trim()) throw new Error(payload.error.trim());
+    }
+    const message = error.message || "";
+    if (/failed to send a request|fetch failed/i.test(message)) {
+      throw new Error("无法连接管理服务，请检查网络或 VPN 后重试。");
+    }
+    throw new Error(formatAdminError(message || "管理后台请求失败。"));
+  }
+  const result = data as T & { error?: unknown };
+  if (result && typeof result === "object" && typeof result.error === "string") throw new Error(result.error);
+  return result;
 }
 
 export async function getAdminStatus(): Promise<AdminStatus> {

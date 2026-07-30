@@ -1614,6 +1614,14 @@
     width: 100%;
   }
 
+  .admin-ai-route-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-ai-relay-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .admin-feature-quota-header {
     display: none;
   }
@@ -1770,6 +1778,15 @@
     width: 100%;
   }
 
+  .translation-summary-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .translation-summary-controls > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
   .translation-history > article > button:first-child {
     grid-template-columns: 1fr;
     gap: 2px;
@@ -1789,6 +1806,34 @@
 }
 
 @media (max-width: 580px) {
+  .translation-learning {
+    padding: 11px;
+  }
+
+  .translation-learning > header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .translation-summary-header-actions {
+    margin-left: auto;
+  }
+
+  .translation-summary-controls,
+  .translation-summary-themes,
+  .translation-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .translation-summary-controls > .button {
+    grid-column: auto;
+    min-height: 44px;
+  }
+
+  .translation-summary-result {
+    padding: 10px;
+  }
+
   .health-heading > svg {
     display: none;
   }
@@ -1823,6 +1868,30 @@
 
   .admin-ai-provider-row {
     grid-template-columns: 1fr;
+  }
+
+  .admin-ai-route-card,
+  .admin-ai-relay-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-ai-settings-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-ai-settings-actions .button,
+  .admin-ai-relay-manager > .section-heading .button {
+    width: 100%;
+  }
+
+  .admin-ai-relay-manager > .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-ai-relay-actions .button {
+    min-height: 44px;
   }
 
   .form-stack .memo-meta-row {

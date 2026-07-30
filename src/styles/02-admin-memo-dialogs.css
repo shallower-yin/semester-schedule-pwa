@@ -1005,6 +1005,200 @@ textarea {
   white-space: nowrap;
 }
 
+.admin-ai-route-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.admin-ai-route-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.admin-ai-route-card h4 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.admin-ai-route-card label,
+.admin-ai-relay-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.admin-ai-route-card input,
+.admin-ai-route-card select,
+.admin-ai-relay-form input,
+.admin-ai-relay-form select {
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 9px;
+}
+
+.admin-ai-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.admin-ai-settings-actions p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.admin-ai-settings-actions .button {
+  flex: 0 0 auto;
+}
+
+.admin-ai-relay-manager {
+  margin: 12px 0;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent-soft));
+}
+
+.admin-ai-relay-manager > .section-heading {
+  align-items: flex-start;
+  margin-bottom: 9px;
+}
+
+.admin-ai-relay-manager .section-heading h4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.admin-ai-relay-manager .section-heading p {
+  margin: 3px 0 0;
+}
+
+.admin-ai-relay-editor {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--border));
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.admin-ai-relay-editor-heading,
+.admin-ai-relay-card-main,
+.admin-ai-relay-actions {
+  display: flex;
+  align-items: center;
+}
+
+.admin-ai-relay-editor-heading,
+.admin-ai-relay-card-main {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-ai-relay-form {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(150px, 0.9fr) minmax(220px, 1.4fr) minmax(180px, 1fr);
+  align-items: end;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.admin-ai-relay-capability {
+  display: flex !important;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px !important;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text) !important;
+}
+
+.admin-ai-relay-capability input {
+  min-height: auto;
+}
+
+.admin-ai-relay-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-ai-relay-card {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.admin-ai-relay-card-main > div {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-ai-relay-card-main span,
+.admin-ai-relay-card p,
+.admin-ai-relay-card small,
+.admin-ai-relay-empty {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.admin-ai-relay-card p {
+  margin: 7px 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.admin-ai-relay-card small {
+  display: block;
+  margin-bottom: 7px;
+}
+
+.admin-ai-relay-status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+.admin-ai-relay-status.success {
+  color: #16794a;
+  background: color-mix(in srgb, #16794a 12%, var(--surface));
+}
+
+.admin-ai-relay-status.error {
+  color: #b42318;
+  background: color-mix(in srgb, #b42318 11%, var(--surface));
+}
+
+.admin-ai-relay-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-ai-relay-actions .button {
+  min-height: 34px;
+}
+
+.admin-ai-relay-empty {
+  margin: 4px 0;
+  text-align: center;
+}
+
 .admin-feature-quota-table {
   overflow: hidden;
   border: 1px solid var(--border);

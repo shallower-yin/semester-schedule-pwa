@@ -28,6 +28,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect reminder deployment changes
+        id: reminder_changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ -z "${BEFORE_SHA:-}" ] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_files="$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")"
+          if grep -Eq '^(supabase/functions/send-reminders/|supabase/migrations/[^/]*reminder|supabase/migrations/20260706_schedule_reminder_edge_function\.sql)' <<<"$changed_files"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No reminder code/schema changes; skip cron mutation and production reminder smoke verification."
+          fi
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
@@ -147,6 +168,7 @@ jobs:
           fi
 
       - name: Configure private reminder cron credential
+        if: steps.reminder_changes.outputs.changed == 'true'
         run: |
           set -euo pipefail
           test -n "${REMINDER_DISPATCHER_TOKEN:-}"
@@ -171,7 +193,7 @@ jobs:
           with open("/tmp/reminder-vault-secret.json", "w", encoding="utf-8") as handle:
               json.dump({"query": query}, handle)
           PY
-          curl --fail-with-body \
+          curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
             --request POST \
             --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
@@ -214,11 +236,12 @@ jobs:
         run: supabase functions deploy app-hosting --project-ref "$PROJECT_REF" --no-verify-jwt
 
       - name: Configure database cron
+        if: steps.reminder_changes.outputs.changed == 'true'
         env:
           MIGRATION_FILE: supabase/migrations/20260706_schedule_reminder_edge_function.sql
         run: |
           jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/reminder-cron-query.json
-          curl --fail-with-body \
+          curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
             --request POST \
             --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
@@ -226,6 +249,7 @@ jobs:
             --data @/tmp/reminder-cron-query.json
 
       - name: Verify function responds
+        if: steps.reminder_changes.outputs.changed == 'true'
         run: |
           response="$(curl --fail-with-body \
             --request POST \
@@ -237,6 +261,7 @@ jobs:
           echo "$response"
 
       - name: Verify cron runs automatically
+        if: steps.reminder_changes.outputs.changed == 'true'
         run: |
           sleep 70
           query="select job.jobname, job.schedule, job.active, run.status, run.return_message, run.start_time, run.end_time,
@@ -257,7 +282,7 @@ jobs:
           ) as response on true
           where job.jobname = 'dispatch-schedule-reminders';"
           jq -n --arg query "$query" '{query: $query}' > /tmp/reminder-cron-status.json
-          response="$(curl --fail-with-body \
+          response="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
             --request POST \
             --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
