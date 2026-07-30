@@ -2,12 +2,26 @@ name: Smoke test AI access
 
 on:
   workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Select RUN_PAID_AI_SMOKE to permit real provider calls
+        required: true
+        default: CANCEL
+        type: choice
+        options:
+          - CANCEL
+          - RUN_PAID_AI_SMOKE
 
 permissions:
   contents: read
 
+concurrency:
+  group: production-ai-access-smoke
+  cancel-in-progress: false
+
 jobs:
   smoke:
+    if: ${{ inputs.confirmation == 'RUN_PAID_AI_SMOKE' }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
@@ -15,7 +29,14 @@ jobs:
       SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       AI_ASSISTANT_ACCESS_CODE: ${{ secrets.AI_ASSISTANT_ACCESS_CODE }}
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Preflight production configuration
+        id: preflight
+        env:
+          SMOKE_KIND: ai-access
+        run: node scripts/preflight-production-smoke.mjs
       - name: Verify AI access roles
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
         run: |
           node <<'NODE'
           const crypto = require("node:crypto");

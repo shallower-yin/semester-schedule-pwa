@@ -10,9 +10,6 @@ on:
       - "supabase/config.toml"
       - "scripts/configure-r2.mjs"
       - "scripts/r2-cors.json"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy-supabase-functions.yml"
 
 permissions:
   contents: read

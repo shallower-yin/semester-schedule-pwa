@@ -3,16 +3,30 @@ name: Smoke test long scanned PDF
 on:
   workflow_dispatch:
     inputs:
+      confirmation:
+        description: Select RUN_PAID_PDF_SMOKE to permit real OCR and model calls
+        required: true
+        default: CANCEL
+        type: choice
+        options:
+          - CANCEL
+          - RUN_PAID_PDF_SMOKE
       page_count:
         description: Number of scanned PDF pages to verify
         required: false
         default: "25"
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: production-long-pdf-smoke
+  cancel-in-progress: false
+
 jobs:
   smoke:
+    if: ${{ inputs.confirmation == 'RUN_PAID_PDF_SMOKE' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -26,10 +40,18 @@ jobs:
       SMOKE_PAGE_COUNT: ${{ inputs.page_count || '25' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Preflight production configuration
+        id: preflight
+        env:
+          SMOKE_KIND: long-pdf
+        run: node scripts/preflight-production-smoke.mjs
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - if: ${{ steps.preflight.outputs.ready == 'true' }}
+        run: npm ci
       - name: Read and clean a configurable scanned PDF
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
         run: node scripts/smoke-long-scanned-pdf.mjs

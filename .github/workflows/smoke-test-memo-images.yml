@@ -2,19 +2,40 @@ name: Smoke test memo images
 
 on:
   workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Select RUN_PRODUCTION_MEMO_SMOKE to permit temporary production writes
+        required: true
+        default: CANCEL
+        type: choice
+        options:
+          - CANCEL
+          - RUN_PRODUCTION_MEMO_SMOKE
 
 permissions:
   contents: read
 
+concurrency:
+  group: production-memo-images-smoke
+  cancel-in-progress: false
+
 jobs:
   smoke:
+    if: ${{ inputs.confirmation == 'RUN_PRODUCTION_MEMO_SMOKE' }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
       PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Preflight production configuration
+        id: preflight
+        env:
+          SMOKE_KIND: memo-images
+        run: node scripts/preflight-production-smoke.mjs
       - name: Verify private memo image flow
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
         run: |
           node <<'NODE'
           const crypto = require("node:crypto");

@@ -3,18 +3,33 @@ name: Smoke test audio transcription
 on:
   workflow_dispatch:
     inputs:
+      confirmation:
+        description: Select RUN_PAID_AUDIO_SMOKE only after both fresh files have been uploaded
+        required: true
+        default: CANCEL
+        type: choice
+        options:
+          - CANCEL
+          - RUN_PAID_AUDIO_SMOKE
       source_key_1:
         description: First temporary R2 source object key
         required: true
+        type: string
       source_key_2:
         description: Second temporary R2 source object key
         required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: production-audio-smoke
+  cancel-in-progress: false
+
 jobs:
   smoke:
+    if: ${{ inputs.confirmation == 'RUN_PAID_AUDIO_SMOKE' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -29,12 +44,21 @@ jobs:
       SOURCE_KEY_2: ${{ inputs.source_key_2 }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Preflight fresh sources and production configuration
+        id: preflight
+        env:
+          SMOKE_KIND: audio
+        run: node scripts/preflight-production-smoke.mjs
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - if: ${{ steps.preflight.outputs.ready == 'true' }}
+        run: npm ci
       - name: Ensure ffmpeg is available for the M4A-to-WAV parity conversion
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
         run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
       - name: Transcribe both exact real audio files in strict order
+        if: ${{ steps.preflight.outputs.ready == 'true' }}
         run: node scripts/smoke-audio-transcription.mjs

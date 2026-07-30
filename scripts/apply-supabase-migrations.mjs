@@ -62,26 +62,60 @@ for (const name of files) {
 }
 
 async function execute(query, timeoutMs = 60_000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({ query }),
-      signal: controller.signal
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`Supabase migration query failed (${response.status}): ${text.slice(0, 2000)}`);
+  const maximumAttempts = 4;
+  let lastError = null;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ query }),
+        signal: controller.signal
+      });
+      const text = await response.text();
+      if (response.ok) return text ? JSON.parse(text) : [];
+
+      const error = new Error(`Supabase migration query failed (${response.status}): ${text.slice(0, 2000)}`);
+      if (!isRetryableStatus(response.status) || attempt === maximumAttempts) throw error;
+      lastError = error;
+      const delayMs = retryDelayMs(response.headers.get("retry-after"), attempt);
+      console.warn(`Supabase Management API returned HTTP ${response.status}; retrying attempt ${attempt + 1}/${maximumAttempts} in ${delayMs}ms.`);
+      await delay(delayMs);
+    } catch (error) {
+      if (!isRetryableNetworkError(error) || attempt === maximumAttempts) throw error;
+      lastError = error;
+      const delayMs = retryDelayMs("", attempt);
+      console.warn(`Supabase Management API request was interrupted; retrying attempt ${attempt + 1}/${maximumAttempts} in ${delayMs}ms.`);
+      await delay(delayMs);
+    } finally {
+      clearTimeout(timer);
     }
-    return text ? JSON.parse(text) : [];
-  } finally {
-    clearTimeout(timer);
   }
+  throw lastError ?? new Error("Supabase migration query failed after retries");
+}
+
+function isRetryableStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status === 500
+    || status === 502 || status === 503 || status === 504;
+}
+
+function isRetryableNetworkError(error) {
+  return error?.name === "AbortError" || error instanceof TypeError;
+}
+
+function retryDelayMs(retryAfter, attempt) {
+  const seconds = Number.parseFloat(retryAfter || "");
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30_000);
+  return [2_000, 5_000, 10_000][Math.min(attempt - 1, 2)];
+}
+
+function delay(milliseconds) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
 function sqlLiteral(value) {

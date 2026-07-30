@@ -3,6 +3,18 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "!src/**/*.test.ts"
+      - "!src/**/*.test.tsx"
+      - "!src/test/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "vite.config.ts"
+      - "release-notes.json"
   workflow_dispatch:
 
 permissions:
