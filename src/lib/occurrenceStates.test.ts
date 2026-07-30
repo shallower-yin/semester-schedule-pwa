@@ -39,6 +39,7 @@ describe("事项状态自然键去重", () => {
     await db.eventOccurrenceStates.bulkPut([older, newer]);
     await db.syncQueue.put({
       id: "66666666-6666-4666-8666-666666666666",
+      owner_id: userId,
       table_name: "eventOccurrenceStates",
       record_id: older.id,
       operation: "upsert",

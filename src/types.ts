@@ -192,6 +192,7 @@ export interface HealthLog extends SyncFields {
 
 export interface SyncQueueItem {
   id: string;
+  owner_id: string;
   table_name: SyncTableName;
   record_id: string;
   operation: "upsert" | "delete";
@@ -221,12 +222,14 @@ export type SyncTableName =
 export interface BackupFile {
   format: "semester-schedule-backup";
   schema_version: 1;
+  owner_id?: string;
   exported_at: ISODateTime;
   data: Record<SyncTableName, unknown[]>;
 }
 
 export interface LocalBackupSnapshot {
   id: string;
+  owner_id: string;
   created_at: ISODateTime;
   reason: "scheduled" | "manual";
   record_count: number;

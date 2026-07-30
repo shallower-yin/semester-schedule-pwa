@@ -9,7 +9,6 @@ export interface AppFontSizeOption {
 
 const STORAGE_KEY = "semester-schedule-font-size-v1";
 const CSS_BASE_FONT_SIZE = 16;
-const originalRuleFontSizes = new WeakMap<CSSStyleDeclaration, number>();
 
 export const APP_FONT_SIZES: AppFontSizeOption[] = [
   { id: "compact", name: "偏小", description: "信息更紧凑，适合系统字体已经调大的设备", scale: 0.88 },
@@ -56,7 +55,6 @@ export function applyAppFontSize(id: AppFontSizeId, root = document.documentElem
   root.style.fontSize = `${Number((CSS_BASE_FONT_SIZE * option.scale).toFixed(2))}px`;
   root.style.setProperty("-webkit-text-size-adjust", percentage);
   root.style.setProperty("text-size-adjust", percentage);
-  applyStylesheetFontScale(option.scale);
   return normalized;
 }
 
@@ -68,35 +66,4 @@ export function initializeAppFontSize(): AppFontSizeId {
 
 function isAppFontSizeId(value: unknown): value is AppFontSizeId {
   return typeof value === "string" && APP_FONT_SIZES.some((option) => option.id === value);
-}
-
-function applyStylesheetFontScale(scale: number) {
-  for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      continue;
-    }
-    applyRuleListFontScale(rules, scale);
-  }
-}
-
-function applyRuleListFontScale(rules: CSSRuleList, scale: number) {
-  for (const rule of Array.from(rules)) {
-    const style = "style" in rule ? (rule as CSSStyleRule).style : null;
-    if (style) {
-      const current = style.getPropertyValue("font-size").trim();
-      const numeric = /^(-?\d+(?:\.\d+)?)px$/.exec(current);
-      const base = originalRuleFontSizes.get(style) ?? (numeric ? Number(numeric[1]) : null);
-      if (base !== null && Number.isFinite(base)) {
-        originalRuleFontSizes.set(style, base);
-        style.setProperty("font-size", `${Number((base * scale).toFixed(3))}px`);
-      }
-    }
-
-    if ("cssRules" in rule) {
-      applyRuleListFontScale((rule as CSSMediaRule).cssRules, scale);
-    }
-  }
 }

@@ -78,7 +78,7 @@ describe("账号与同步布局", () => {
   });
 
   it("只保留一处同步摘要并横向展示实时通知诊断", async () => {
-    const { container } = render(
+    render(
       <AccountDialog
         user={user}
         pendingChanges={0}
@@ -90,12 +90,12 @@ describe("账号与同步布局", () => {
       />
     );
 
-    await waitFor(() => expect(container.querySelector(".account-summary")).toHaveTextContent("账户类型：管理员"));
+    await waitFor(() => expect(document.querySelector(".account-summary")).toHaveTextContent("账户类型：管理员"));
     expect(screen.getAllByText("3301469532@qq.com")).toHaveLength(1);
     expect(screen.getByText("已同步")).toBeInTheDocument();
     expect(screen.getByText(/上次同步/)).not.toHaveTextContent("3301469532@qq.com");
-    expect(container.querySelector(".sync-detail-card")).not.toBeInTheDocument();
-    expect(container.querySelector(".sync-health-card")).not.toBeInTheDocument();
+    expect(document.querySelector(".sync-detail-card")).not.toBeInTheDocument();
+    expect(document.querySelector(".sync-health-card")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重新拉取云端" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "立即同步" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();

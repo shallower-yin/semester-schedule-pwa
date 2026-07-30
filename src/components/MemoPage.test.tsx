@@ -98,12 +98,12 @@ describe("备忘录视图", () => {
 
   it("登录用户可以插入图片并把私有路径随备忘录保存", async () => {
     setCurrentUserId("user-1");
-    const { container } = render(<MemoPage ownerId="user-1" />);
+    render(<MemoPage ownerId="user-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "标题" }), { target: { value: "实验记录" } });
     const file = new File(["png"], "课堂板书.png", { type: "image/png" });
-    const fileInput = container.querySelector('input[aria-label="从电脑选择文件"]') as HTMLInputElement;
+    const fileInput = document.querySelector('input[aria-label="从电脑选择文件"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [file] } });
 
     await waitFor(() => expect(uploadMemoImageMock).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", file })));

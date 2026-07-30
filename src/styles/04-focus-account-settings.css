@@ -7,7 +7,7 @@
 .focus-music-disclaimer {
   margin: 10px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .focus-record-manage-actions {
@@ -85,7 +85,7 @@
 .focus-stats small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .focus-panel {
@@ -190,7 +190,7 @@
   border-radius: 999px;
   color: #536174;
   background: #f8fafc;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 750;
   cursor: pointer;
 }
@@ -210,7 +210,7 @@
 
 .focus-keep-awake small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -234,7 +234,7 @@
   align-items: center;
   gap: 8px;
   margin: 0 0 12px;
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .focus-period-heading {
@@ -263,7 +263,7 @@
   border-radius: 999px;
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
   cursor: pointer;
 }
@@ -297,13 +297,13 @@
 
 .focus-period-stats small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .focus-period-stats strong {
   overflow: hidden;
   color: #26334d;
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
 }
@@ -320,7 +320,7 @@
   align-items: center;
   gap: 5px;
   color: #4a5364;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -333,7 +333,7 @@
 
 .focus-settings-grid small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -377,7 +377,7 @@
   overflow: hidden;
   max-width: 100%;
   color: #647085;
-  font-size: 11px;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -397,7 +397,7 @@
 
 .focus-breakdown-list > strong {
   color: #334155;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .focus-breakdown-list article {
@@ -412,7 +412,7 @@
 .focus-breakdown-list span {
   overflow: hidden;
   color: #1f2937;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -422,7 +422,7 @@
 .focus-breakdown-list p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .focus-record-list {
@@ -446,7 +446,7 @@
 .focus-record-list p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -472,7 +472,7 @@
   display: grid;
   gap: 4px;
   color: #536174;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -550,7 +550,7 @@
 .admin-audio-upload-queue article small,
 .admin-audio-upload-queue article label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .admin-audio-upload-queue article.error small {
@@ -587,14 +587,14 @@
 
 .admin-audio-list small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .admin-audio-category-select {
   min-width: 0;
   min-height: 34px;
   padding: 5px 24px 5px 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .admin-audio-kind {
@@ -632,7 +632,7 @@
 
 .admin-feedback-channel-editor label > span {
   color: #394355;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 750;
   white-space: nowrap;
 }
@@ -648,7 +648,7 @@
   border-radius: 7px;
   color: var(--muted);
   background: white;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -753,7 +753,7 @@
 .focus-lock-minimal > .button {
   min-width: 144px;
   min-height: 48px;
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .auth-links button {
@@ -761,7 +761,7 @@
   border: 0;
   color: var(--primary);
   background: transparent;
-  font-size: 13px;
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 
@@ -790,7 +790,7 @@
   color: var(--primary);
   border: 1px solid rgb(49 87 213 / 16%);
   background: #f7f8fc;
-  font-size: 19px;
+  font-size: 1.1875rem;
   font-weight: 750;
   cursor: pointer;
   overflow: visible;
@@ -867,7 +867,7 @@
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
@@ -913,7 +913,7 @@
   gap: 5px;
   margin-top: 5px;
   color: #52705f;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .account-username-button {
@@ -990,7 +990,7 @@
 .account-sync-state-copy span {
   overflow: hidden;
   color: inherit;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
   opacity: 0.82;
   text-overflow: ellipsis;
@@ -1028,12 +1028,12 @@
 
 .notification-status-card span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .notification-status-card strong {
   margin-top: 3px;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .install-guide {
@@ -1064,7 +1064,7 @@
   border-radius: 10px;
   color: var(--primary);
   background: var(--accent-soft);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 750;
 }
 
@@ -1075,7 +1075,7 @@
   border-radius: 10px;
   color: #4a5568;
   background: #f4f6fb;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.55;
 }
 
@@ -1114,13 +1114,13 @@
 
 .install-platform h3 {
   margin: 0 0 7px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .install-platform p {
   margin: 0;
   color: #586174;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -1149,7 +1149,7 @@
   border-radius: 999px;
   color: white;
   background: var(--primary);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -1160,7 +1160,7 @@
 }
 
 .update-notes-backdrop {
-  z-index: 140;
+  z-index: var(--z-fullscreen);
 }
 
 .update-notes-dialog {
@@ -1199,7 +1199,7 @@
 .update-notes-dialog header p {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .update-notes-body {
@@ -1207,7 +1207,7 @@
 }
 
 .update-notes-body h3 {
-  font-size: 17px;
+  font-size: 1.0625rem;
 }
 
 .update-notes-body ul {
@@ -1228,7 +1228,7 @@
   border-radius: 7px;
   color: #234088;
   background: var(--accent-soft);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -1262,7 +1262,7 @@
   background: white;
   box-shadow: var(--shadow);
   color: var(--text);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 750;
   pointer-events: auto;
 }
@@ -1313,7 +1313,7 @@
   border-radius: 8px;
   color: #4b5568;
   background: #f8fafc;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -1343,7 +1343,7 @@
 .mobile-nav-settings p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.55;
 }
 
@@ -1377,7 +1377,7 @@
   align-items: center;
   gap: 8px;
   margin: 0 0 10px;
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .help-card ul {
@@ -1386,7 +1386,7 @@
   margin: 0;
   padding-left: 18px;
   color: #4b5568;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.55;
 }
 
@@ -1416,7 +1416,7 @@
 
 .help-footer-note span {
   color: #3f7c56;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .mobile-nav-option-list,
@@ -1512,7 +1512,7 @@
 .notification-diagnostic-list span,
 .stats-list small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -1527,7 +1527,7 @@
   min-width: 0;
   justify-content: center;
   padding-inline: 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -1542,7 +1542,7 @@
   min-width: 0;
   justify-content: center;
   padding-inline: 6px;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -1561,6 +1561,44 @@
 .account-sync-actions .button {
   width: 100%;
   justify-content: center;
+}
+
+.account-danger-zone {
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid #f1c7c7;
+  border-radius: 11px;
+  background: #fffafa;
+}
+
+.account-danger-zone summary {
+  color: #8f2929;
+  font-size: 0.8125rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.account-danger-zone p {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.account-danger-zone > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button.danger {
+  border-color: #dc3f3f;
+  color: #fff;
+  background: #c93535;
+}
+
+.button.danger:hover {
+  background: #a92525;
 }
 
 .theme-skin-dialog {
@@ -1807,7 +1845,7 @@
 .next-action-panel span,
 .next-action-panel small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .stats-section {
@@ -1818,7 +1856,7 @@
 
 .stats-section h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 
 .stats-list b {
@@ -1878,7 +1916,7 @@
   border-radius: 8px;
   color: #4b5568;
   background: #f8fafc;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -1947,7 +1985,7 @@
   padding: 5px 16px;
   border-radius: 999px;
   background: rgb(255 255 255 / 16%);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -1977,7 +2015,7 @@
   margin: 0;
   overflow: hidden;
   color: #fff;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1987,7 +2025,7 @@
 .focus-fs-date {
   margin: 0;
   color: rgb(255 255 255 / 84%);
-  font-size: 15px;
+  font-size: 0.9375rem;
   letter-spacing: 0.02em;
   text-shadow: 0 1px 12px rgb(0 0 0 / 42%);
 }
@@ -1996,7 +2034,7 @@
   max-width: min(84vw, 420px);
   margin: 4px 0 0;
   color: rgb(255 255 255 / 76%);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
 }
 
@@ -2013,7 +2051,7 @@
 .button.ghost-light {
   min-height: 30px;
   padding: 5px 11px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   border: 1px solid rgb(255 255 255 / 32%);
   color: #fff;
   background: rgb(255 255 255 / 15%);
@@ -2029,7 +2067,7 @@
 .focus-fullscreen-actions .button.primary {
   min-height: 30px;
   padding: 5px 11px;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 /* Landscape phones are short: shrink the ring, tighten gaps, drop the quote so nothing overflows. */

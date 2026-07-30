@@ -24,4 +24,12 @@ describe("备份状态", () => {
     expect(backupIsDue(new Date("2026-07-07T23:59:59.000Z"))).toBe(false);
     expect(backupIsDue(new Date("2026-07-08T00:00:00.000Z"))).toBe(true);
   });
+
+  it("不同账号的备份时间互不泄漏", () => {
+    markBackupExported(new Date("2026-07-09T12:00:00.000Z"), "user-a");
+
+    expect(getLastBackupAt("user-a")).toBe("2026-07-09T12:00:00.000Z");
+    expect(getLastBackupAt("user-b")).toBeNull();
+    expect(backupIsDue(new Date("2026-07-10T12:00:00.000Z"), "user-b")).toBe(true);
+  });
 });

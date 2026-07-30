@@ -9,7 +9,7 @@ import type {
   FocusSession,
   Semester
 } from "../types";
-import { addDays, courseScheduleOccursOn, eventOccursOn, startOfWeek, toISODate } from "./date";
+import { addDays, courseScheduleOccursOn, eventOccursOn, productDateTimeParts, startOfWeek, toISODate } from "./date";
 import { eventCompletionForDate } from "./eventCompletion";
 import { totalFocusSeconds } from "./focus";
 
@@ -182,7 +182,8 @@ export function buildScheduleOverview(input: BuildScheduleOverviewInput, now = n
 }
 
 export function selectNextOverviewItem(items: ScheduleOverviewItem[], now = new Date()): ScheduleOverviewItem | null {
-  const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const productNow = productDateTimeParts(now);
+  const currentTime = `${String(productNow.hour).padStart(2, "0")}:${String(productNow.minute).padStart(2, "0")}`;
   const incomplete = items.filter((item) => !item.completed);
   const timed = incomplete
     .filter((item) => !isAllDayOverviewItem(item) && overviewItemEndTime(item) >= currentTime)

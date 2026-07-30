@@ -31,4 +31,40 @@ describe("弹窗返回历史", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(back).toHaveBeenCalledTimes(1);
   });
+
+  it("挂载到 body、锁住页面滚动并在关闭后恢复焦点", async () => {
+    const before = document.createElement("button");
+    before.textContent = "打开前";
+    document.body.appendChild(before);
+    before.focus();
+    const { unmount } = render(<Modal title="可访问弹窗" onClose={() => undefined}><button>弹窗操作</button></Modal>);
+
+    const dialog = screen.getByRole("dialog", { name: "可访问弹窗" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
+    expect(before).toHaveFocus();
+    before.remove();
+  });
+
+  it("Tab 不会离开弹窗", async () => {
+    render(
+      <Modal title="焦点弹窗" onClose={() => undefined}>
+        <button>第一个</button>
+        <button>最后一个</button>
+      </Modal>
+    );
+    const first = screen.getByRole("button", { name: "第一个" });
+    const last = screen.getByRole("button", { name: "最后一个" });
+    last.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus();
+
+    screen.getByRole("button", { name: "关闭" }).focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(last).toHaveFocus();
+  });
 });

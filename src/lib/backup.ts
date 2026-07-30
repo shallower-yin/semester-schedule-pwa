@@ -2,6 +2,7 @@ import { db } from "../db";
 import type { BackupFile, SyncTableName } from "../types";
 import { markBackupExported } from "./backupStatus";
 import { exportText, type ExportedFile } from "./fileExport";
+import { getCurrentUserId } from "./identity";
 
 export const BACKUP_TABLES: SyncTableName[] = [
   "semesters",
@@ -36,31 +37,31 @@ export function prepareBackupRecordsForRestore(
       record.user_id === currentUserId
       || (record.user_id === "local" && currentUserId !== "local")
     );
-  if (!restorableIndexes.length) return incomingRecords;
+  if (!restorableIndexes.length) return [];
 
-  const newestKnownTimestamp = restorableIndexes.reduce((latest, { record, index }) => {
+  const newestKnownTimestamp = restorableIndexes.reduce((latest, { index }) => {
     const existing = existingRecords[index];
     return Math.max(
       latest,
-      timestampValue(record.updated_at),
       timestampValue(existing?.updated_at)
     );
   }, now.getTime());
-  // Keep one timestamp for the whole restore and make it strictly newer than the
-  // local/cloud version that was present immediately before import.
+  // Keep one timestamp for the whole restore and make it strictly newer than
+  // the local/cloud version present immediately before import. Never trust an
+  // imported future timestamp: it could otherwise win every later sync.
   const restoredAt = new Date(newestKnownTimestamp + 1).toISOString();
 
-  return incomingRecords.map((record, index) => {
+  return incomingRecords.flatMap((record, index) => {
     const shouldRestore = record.user_id === currentUserId
       || (record.user_id === "local" && currentUserId !== "local");
-    if (!shouldRestore) return record;
+    if (!shouldRestore) return [];
     const existing = existingRecords[index];
-    return {
+    return [{
       ...record,
       user_id: currentUserId,
       version: Math.max(Number(record.version ?? 0), Number(existing?.version ?? 0)) + 1,
       updated_at: restoredAt
-    };
+    }];
   });
 }
 
@@ -70,14 +71,15 @@ function timestampValue(value: unknown): number {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-export async function createBackup(): Promise<BackupFile> {
+export async function createBackup(ownerId = getCurrentUserId()): Promise<BackupFile> {
   const data = {} as BackupFile["data"];
   for (const name of BACKUP_TABLES) {
-    data[name] = await db.table(name).toArray();
+    data[name] = await db.table(name).filter((record) => record.user_id === ownerId).toArray();
   }
   return {
     format: "semester-schedule-backup",
     schema_version: 1,
+    owner_id: ownerId,
     exported_at: new Date().toISOString(),
     data
   };
@@ -85,6 +87,6 @@ export async function createBackup(): Promise<BackupFile> {
 
 export async function downloadBackup(backup: BackupFile, fileName: string): Promise<ExportedFile> {
   const result = await exportText(JSON.stringify(backup, null, 2), fileName, "application/json;charset=utf-8");
-  if (result.saved) markBackupExported();
+  if (result.saved) markBackupExported(new Date(), backup.owner_id || getCurrentUserId());
   return result;
 }

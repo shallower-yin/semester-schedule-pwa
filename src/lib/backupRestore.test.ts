@@ -32,7 +32,7 @@ describe("备份恢复同步元数据", () => {
     expect(String(restored[0].updated_at)).toBe("2026-07-31T08:00:00.001Z");
   });
 
-  it("接管匿名数据但不改写其他账号的数据", () => {
+  it("接管匿名数据并忽略其他账号的数据", () => {
     const otherUserId = "33333333-3333-4333-8333-333333333333";
     const restored = prepareBackupRecordsForRestore(
       [
@@ -45,11 +45,18 @@ describe("备份恢复同步元数据", () => {
     );
 
     expect(restored[0]).toMatchObject({ user_id: currentUserId, version: 2 });
-    expect(restored[1]).toEqual({
-      id: "other-1",
-      user_id: otherUserId,
-      version: 4,
-      updated_at: "2026-01-02T00:00:00.000Z"
-    });
+    expect(restored).toHaveLength(1);
+  });
+
+  it("不会采信备份中的未来时间戳", () => {
+    const restored = prepareBackupRecordsForRestore(
+      [{ id: "event-1", user_id: currentUserId, updated_at: "2099-01-01T00:00:00.000Z", version: 2 }],
+      [{ id: "event-1", user_id: currentUserId, updated_at: "2026-07-30T00:00:00.000Z", version: 3 }],
+      currentUserId,
+      new Date("2026-07-31T00:00:00.000Z")
+    );
+
+    expect(restored[0].updated_at).toBe("2026-07-31T00:00:00.001Z");
+    expect(restored[0].version).toBe(4);
   });
 });

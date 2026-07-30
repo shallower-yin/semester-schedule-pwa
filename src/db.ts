@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from "dexie";
 import type {
   Anniversary,
+  BackupFile,
   Category,
   ClassPeriod,
   Course,
@@ -21,7 +22,7 @@ import type {
   SyncTableName
 } from "./types";
 import { DEFAULT_CATEGORIES } from "./data/defaults";
-import { getDeviceId, syncFields } from "./lib/identity";
+import { getCurrentUserId, getDeviceId, syncFields } from "./lib/identity";
 import type { AiAttachmentContextRecord } from "./lib/assistantAttachments";
 
 class ScheduleDatabase extends Dexie {
@@ -420,6 +421,57 @@ class ScheduleDatabase extends Dexie {
         if (typeof settings.auto_start_break !== "boolean") settings.auto_start_break = true;
       });
     });
+    this.version(13)
+      .stores({
+        semesters: "id, is_current, start_date, updated_at, deleted_at",
+        classPeriods: "id, semester_id, [semester_id+weekday], [semester_id+weekday+period_number], updated_at, deleted_at",
+        courses: "id, semester_id, name, updated_at, deleted_at",
+        courseSchedules: "id, course_id, weekday, updated_at, deleted_at",
+        courseCancellations: "id, course_schedule_id, occurrence_date, updated_at, deleted_at",
+        categories: "id, name, updated_at, deleted_at",
+        events: "id, event_type, start_date, end_date, recurrence_type, updated_at, deleted_at",
+        eventOccurrenceStates: "id, [event_id+occurrence_date], updated_at, deleted_at",
+        anniversaries: "id, kind, date, reminder_enabled, reminder_sent_for, updated_at, deleted_at",
+        memoFolders: "id, name, sort_order, updated_at, deleted_at",
+        memos: "id, folder_id, title, is_pinned, updated_at, deleted_at",
+        focusSettings: "id, user_id, updated_at, deleted_at",
+        focusSessions: "id, mode, started_at, ended_at, linked_event_id, pomodoro_plan_id, updated_at, deleted_at",
+        restSessions: "id, user_id, started_at, ended_at, rest_kind, pomodoro_plan_id, updated_at, deleted_at",
+        healthProfiles: "id, user_id, updated_at, deleted_at",
+        healthLogs: "id, user_id, kind, logged_at, [user_id+kind], updated_at, deleted_at",
+        syncQueue: "id, owner_id, table_name, record_id, [owner_id+table_name+record_id], queued_at",
+        localBackupSnapshots: "id, owner_id, [owner_id+created_at], created_at, reason",
+        aiAttachmentContexts: "id, ownerId, updatedAt"
+      })
+      .upgrade(async (transaction) => {
+        const fallbackOwnerId = getCurrentUserId();
+        const queueTable = transaction.table("syncQueue");
+        const queued = await queueTable.toArray() as Array<SyncQueueItem & { owner_id?: string }>;
+        for (const item of queued) {
+          if (item.owner_id) continue;
+          const record = await transaction.table(item.table_name).get(item.record_id) as { user_id?: string } | undefined;
+          await queueTable.update(item.id, { owner_id: record?.user_id || fallbackOwnerId });
+        }
+
+        const snapshotTable = transaction.table("localBackupSnapshots");
+        const snapshots = await snapshotTable.toArray() as Array<{
+          id: string;
+          owner_id?: string;
+          backup?: BackupFile;
+        }>;
+        for (const snapshot of snapshots) {
+          const ownerId = snapshot.owner_id || fallbackOwnerId;
+          const backup = snapshot.backup;
+          if (backup?.data) {
+            for (const tableName of Object.keys(backup.data) as SyncTableName[]) {
+              backup.data[tableName] = (backup.data[tableName] as Array<{ user_id?: string }>)
+                .filter((record) => record.user_id === ownerId);
+            }
+            backup.owner_id = ownerId;
+          }
+          await snapshotTable.update(snapshot.id, { owner_id: ownerId, backup });
+        }
+      });
   }
 }
 
@@ -436,11 +488,17 @@ export async function initializeDatabase(): Promise<void> {
   }
 }
 
-export async function queueChange(table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert") {
+export async function queueChange(
+  table_name: SyncTableName,
+  record_id: string,
+  operation: "upsert" | "delete" = "upsert",
+  owner_id?: string
+) {
+  const record = await db.table(table_name).get(record_id) as { user_id?: string } | undefined;
+  const resolvedOwnerId = owner_id || record?.user_id || getCurrentUserId();
   const existing = await db.syncQueue
-    .where("table_name")
-    .equals(table_name)
-    .and((item) => item.record_id === record_id)
+    .where("[owner_id+table_name+record_id]")
+    .equals([resolvedOwnerId, table_name, record_id])
     .toArray();
   const retainedId = existing[0]?.id ?? crypto.randomUUID();
   if (existing.length > 1) {
@@ -448,6 +506,7 @@ export async function queueChange(table_name: SyncTableName, record_id: string, 
   }
   await db.syncQueue.put({
     id: retainedId,
+    owner_id: resolvedOwnerId,
     table_name,
     record_id,
     operation,
@@ -457,13 +516,13 @@ export async function queueChange(table_name: SyncTableName, record_id: string, 
   });
 }
 
-export async function putRecordAndQueue<T extends { id: string }>(
+export async function putRecordAndQueue<T extends { id: string; user_id?: string }>(
   tableName: SyncTableName,
   record: T,
   operation: "upsert" | "delete" = "upsert"
 ): Promise<void> {
   await db.transaction("rw", db.table(tableName), db.syncQueue, async () => {
     await db.table(tableName).put(record);
-    await queueChange(tableName, record.id, operation);
+    await queueChange(tableName, record.id, operation, record.user_id || getCurrentUserId());
   });
 }

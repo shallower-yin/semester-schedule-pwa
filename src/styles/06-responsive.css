@@ -1,17 +1,50 @@
-@media (min-width: 901px) and (max-width: 1500px) {
+/* Tablet / compact desktop: preserve every desktop destination, but give the
+   brand/tools and the full navigation their own rows. */
+@media (min-width: 901px) and (max-width: 1439.98px) {
   .app-header {
-    grid-template-columns: minmax(180px, 1fr) auto minmax(320px, 1fr);
+    grid-template:
+      "brand status" auto
+      "navigation navigation" auto
+      / minmax(170px, 1fr) auto;
+    height: calc(112px + var(--safe-top));
+    gap: 8px 16px;
+    padding: var(--safe-top) 20px 10px;
+  }
+
+  .brand {
+    grid-area: brand;
+  }
+
+  .header-status {
+    grid-area: status;
+    min-width: 0;
+  }
+
+  .sync-status {
+    max-width: 260px;
+  }
+
+  .sync-status span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .desktop-nav {
-    gap: 2px;
+    display: grid;
+    grid-area: navigation;
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    gap: 4px;
+    width: 100%;
+    padding: 4px;
   }
 
   .desktop-nav button {
     min-height: var(--control-min-size);
-    gap: 3px;
-    padding: 8px 4px;
-    font-size: 11px;
+    justify-content: center;
+    gap: 5px;
+    padding: 7px 6px;
+    font-size: 0.8125rem;
     white-space: nowrap;
   }
 }
@@ -202,7 +235,7 @@
     border-radius: 16px;
     color: #667085;
     background: transparent;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 700;
     cursor: pointer;
   }
@@ -274,7 +307,7 @@
   }
 
   .overview-stat strong {
-    font-size: 19px;
+    font-size: 1.1875rem;
   }
 
   .overview-list {
@@ -304,11 +337,11 @@
     border-radius: 9px;
     color: #6b7484;
     background: transparent;
-    font-size: 10px;
+    font-size: 0.75rem;
   }
 
   .mobile-day-switcher strong {
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .mobile-day-switcher button.selected {
@@ -368,7 +401,7 @@
 
   .calendar-entry.day-column.mobile-selected .entry-title {
     align-items: flex-start;
-    font-size: 13px;
+    font-size: 0.8125rem;
     line-height: 1.35;
     white-space: normal;
   }
@@ -383,7 +416,7 @@
   .calendar-entry.day-column.mobile-selected .entry-category,
   .calendar-entry.day-column.mobile-selected .entry-reminder {
     margin-top: 1px;
-    font-size: 11px;
+    font-size: 0.75rem;
     line-height: 1.35;
     white-space: normal;
   }
@@ -444,7 +477,7 @@
   .calendar-entry.day-column.mobile-selected.overlap-many .entry-title {
     display: -webkit-box;
     overflow: hidden;
-    font-size: 12px;
+    font-size: 0.75rem;
     line-height: 1.25;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -478,11 +511,11 @@
   }
 
   .time-label strong {
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 
   .time-label span {
-    font-size: 10px;
+    font-size: 0.75rem;
   }
 
   .entry-icon-button {
@@ -507,11 +540,11 @@
   }
 
   .settings-section-header h2 {
-    font-size: 15px;
+    font-size: 0.9375rem;
   }
 
   .settings-section-header p {
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 
   .setting-card {
@@ -532,7 +565,7 @@
     display: -webkit-box;
     overflow: hidden;
     margin-top: 3px;
-    font-size: 12px;
+    font-size: 0.75rem;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
   }
@@ -647,16 +680,16 @@
   }
 
   .today-anniversary-text strong {
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 
   .today-anniversary-text small,
   .today-anniversary-days small {
-    font-size: 10px;
+    font-size: 0.75rem;
   }
 
   .today-anniversary-days strong {
-    font-size: 16px;
+    font-size: 1rem;
   }
 
   .help-section-grid,
@@ -686,7 +719,7 @@
   }
 
   .today-item-main strong {
-    font-size: 15px;
+    font-size: 0.9375rem;
   }
 
   .today-item-meta {
@@ -695,7 +728,7 @@
 
   .today-item-main span,
   .today-item-main small {
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 
   .today-item-actions {
@@ -717,7 +750,7 @@
     flex: 0 0 auto;
     min-height: 31px;
     padding: 5px 8px;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
 
   .memo-sidebar {
@@ -790,7 +823,7 @@
     justify-content: center;
     gap: 4px;
     padding-inline: 6px;
-    font-size: 12px;
+    font-size: 0.75rem;
     white-space: nowrap;
   }
 
@@ -822,7 +855,7 @@
 
   .ai-header-access-code input {
     padding: 0 6px;
-    font-size: 11px;
+    font-size: 0.75rem;
   }
 
   .toast-host {
@@ -918,7 +951,7 @@
   }
 
   .health-water-ring strong {
-    font-size: 15px;
+    font-size: 0.9375rem;
   }
 
   .health-secondary-summary {
@@ -944,7 +977,7 @@
   }
 
   .health-secondary-summary strong {
-    font-size: 17px;
+    font-size: 1.0625rem;
     white-space: nowrap;
   }
 
@@ -983,7 +1016,7 @@
   }
 
   .brand > div:last-child strong {
-    font-size: 14px;
+    font-size: 0.875rem;
   }
 
   .brand > div:last-child span {
@@ -1018,7 +1051,7 @@
 
   .week-title h1,
   .page-heading h1 {
-    font-size: 21px;
+    font-size: 1.3125rem;
   }
 
   .page-heading {
@@ -1612,7 +1645,7 @@
     overflow: hidden;
     margin-bottom: 3px;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 0.75rem;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -1812,7 +1845,7 @@
 
   .memo-character-count {
     min-width: 56px;
-    font-size: 9px;
+    font-size: 0.75rem;
   }
 
   .memo-image-list {
@@ -1833,7 +1866,7 @@
     min-width: 0;
     gap: 3px;
     padding-inline: 3px;
-    font-size: 11px;
+    font-size: 0.75rem;
     white-space: nowrap;
   }
 
@@ -1860,7 +1893,7 @@
   .mind-map-preview-dialog > footer .button {
     min-height: 28px;
     padding: 3px 7px;
-    font-size: 11px;
+    font-size: 0.75rem;
   }
 
   .mind-map-preview-dialog > footer .button svg {
@@ -1892,13 +1925,13 @@
   }
 
   .habit-stats strong {
-    font-size: 19px;
+    font-size: 1.1875rem;
     line-height: 1.1;
   }
 
   .habit-stats small {
     margin-top: 1px;
-    font-size: 10px;
+    font-size: 0.75rem;
     line-height: 1.2;
   }
 
@@ -2027,7 +2060,7 @@
   }
 
   .admin-feedback-channel-editor label > span {
-    font-size: 11px;
+    font-size: 0.75rem;
   }
 
   .admin-feedback-channel-editor .button {
@@ -2058,7 +2091,7 @@
 }
 
 .health-water-ring strong {
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 
 .health-water-summary-copy {
@@ -2066,7 +2099,7 @@
 }
 
 .health-water-summary-copy > strong {
-  font-size: 18px;
+  font-size: 1.125rem;
 }
 
 .health-secondary-summary {
@@ -2079,7 +2112,7 @@
 }
 
 .health-secondary-summary strong {
-  font-size: 18px;
+  font-size: 1.125rem;
 }
 
 .health-action-band,
@@ -2134,7 +2167,7 @@
   gap: 8px;
   min-width: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -2213,7 +2246,7 @@
 }
 
 .health-bmi-result strong {
-  font-size: 20px;
+  font-size: 1.25rem;
 }
 
 .health-bmi-result small {
@@ -2427,7 +2460,7 @@
 
   .health-exercise-button span {
     grid-column: 2;
-    font-size: 10px;
+    font-size: 0.75rem;
   }
 
   .health-exercise-button strong {

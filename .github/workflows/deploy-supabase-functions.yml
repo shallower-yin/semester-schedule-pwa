@@ -27,87 +27,31 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       PROJECT_REF: haifsnaupqhlvgfoyvlc
+      MIGRATION_BASELINE_THROUGH: 20260731_security_and_consistency_hardening.sql
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
         with:
-          version: latest
+          version: 2.110.0
+
+      - name: Apply pending database migrations once
+        run: node scripts/apply-supabase-migrations.mjs
 
       - name: Prepare private reminder credential
         env:
           CONFIGURED_REMINDER_DISPATCHER_TOKEN: ${{ secrets.REMINDER_DISPATCHER_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -n "${CONFIGURED_REMINDER_DISPATCHER_TOKEN:-}" ]; then
-            reminder_token="$CONFIGURED_REMINDER_DISPATCHER_TOKEN"
-          else
-            reminder_token="$(printf 'schedule-dispatcher:%s' "$SUPABASE_ACCESS_TOKEN" | sha256sum | cut -d' ' -f1)"
+          if [ -z "${CONFIGURED_REMINDER_DISPATCHER_TOKEN:-}" ]; then
+            echo "::error::Missing REMINDER_DISPATCHER_TOKEN. It must match the existing database token verifier."
+            exit 1
           fi
+          reminder_token="$CONFIGURED_REMINDER_DISPATCHER_TOKEN"
           echo "::add-mask::$reminder_token"
           echo "REMINDER_DISPATCHER_TOKEN=$reminder_token" >> "$GITHUB_ENV"
-
-      - name: Apply AI feature quota migration
-        env:
-          MIGRATION_FILE: supabase/migrations/20260717_ai_feature_quotas.sql
-        run: |
-          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-feature-quotas-query.json
-          curl --fail-with-body \
-            --request POST \
-            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-              --data @/tmp/ai-feature-quotas-query.json
-
-      - name: Apply AI call records and account migration
-        env:
-          MIGRATION_FILE: supabase/migrations/20260718_ai_call_records_and_accounts.sql
-        run: |
-          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-call-records-query.json
-          curl --fail-with-body \
-            --request POST \
-            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data @/tmp/ai-call-records-query.json
-
-      - name: Apply AI provider and audio route migration
-        env:
-          MIGRATION_FILE: supabase/migrations/20260726_ai_provider_audio_routes.sql
-        run: |
-          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-provider-audio-routes-query.json
-          curl --fail-with-body \
-            --request POST \
-            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data @/tmp/ai-provider-audio-routes-query.json
-
-      - name: Apply translation assistant migration
-        env:
-          MIGRATION_FILE: supabase/migrations/20260729_translation_assistant.sql
-        run: |
-          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/translation-assistant-query.json
-          curl --fail-with-body \
-            --request POST \
-            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-              --data @/tmp/translation-assistant-query.json
-
-      - name: Apply AI quota and paid-task hardening migration
-        env:
-          MIGRATION_FILE: supabase/migrations/20260731_security_and_consistency_hardening.sql
-        run: |
-          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/ai-security-hardening-query.json
-          curl --fail-with-body \
-            --request POST \
-            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data @/tmp/ai-security-hardening-query.json
 
       - name: Configure function secrets
         env:
@@ -137,6 +81,8 @@ jobs:
           AI_ASSISTANT_MEMBER_DAILY_LIMIT: ${{ vars.AI_ASSISTANT_MEMBER_DAILY_LIMIT || '50' }}
           AI_ASSISTANT_MEMBER_WEEKLY_LIMIT: ${{ vars.AI_ASSISTANT_MEMBER_WEEKLY_LIMIT || '300' }}
           AI_MAX_DOCUMENT_PAGES: ${{ vars.AI_MAX_DOCUMENT_PAGES || '120' }}
+          AI_GLOBAL_DAILY_COST_CNY_LIMIT: ${{ vars.AI_GLOBAL_DAILY_COST_CNY_LIMIT || '500' }}
+          AI_GLOBAL_DAILY_TOKEN_LIMIT: ${{ vars.AI_GLOBAL_DAILY_TOKEN_LIMIT || '20000000' }}
         run: |
           supabase secrets set --project-ref "$PROJECT_REF" \
             REMINDER_DISPATCHER_TOKEN="$REMINDER_DISPATCHER_TOKEN" \
@@ -148,6 +94,8 @@ jobs:
             AI_ASSISTANT_MEMBER_DAILY_LIMIT="$AI_ASSISTANT_MEMBER_DAILY_LIMIT" \
             AI_ASSISTANT_MEMBER_WEEKLY_LIMIT="$AI_ASSISTANT_MEMBER_WEEKLY_LIMIT" \
             AI_MAX_DOCUMENT_PAGES="$AI_MAX_DOCUMENT_PAGES" \
+            AI_GLOBAL_DAILY_COST_CNY_LIMIT="$AI_GLOBAL_DAILY_COST_CNY_LIMIT" \
+            AI_GLOBAL_DAILY_TOKEN_LIMIT="$AI_GLOBAL_DAILY_TOKEN_LIMIT" \
             MIMO_PAYG_BASE_URL="$MIMO_PAYG_BASE_URL" \
             MIMO_TOKEN_PLAN_BASE_URL="$MIMO_TOKEN_PLAN_BASE_URL"
           supabase secrets set --project-ref "$PROJECT_REF" DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
@@ -233,18 +181,6 @@ jobs:
             --header "Content-Type: application/json" \
             --data @/tmp/reminder-vault-secret.json
 
-      - name: Switch reminder cron to private credential
-        env:
-          MIGRATION_FILE: supabase/migrations/20260706_schedule_reminder_edge_function.sql
-        run: |
-          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/reminder-secure-cron-query.json
-          curl --fail-with-body \
-            --request POST \
-            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data @/tmp/reminder-secure-cron-query.json
-
       - name: Deploy reminder function
         run: supabase functions deploy send-reminders --project-ref "$PROJECT_REF" --no-verify-jwt
 
@@ -291,18 +227,6 @@ jobs:
             --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
             --data @/tmp/reminder-cron-query.json
-
-      - name: Apply current reminder claim migration
-        env:
-          MIGRATION_FILE: supabase/migrations/20260715_event_entire_completion.sql
-        run: |
-          jq -Rs '{query: .}' "$MIGRATION_FILE" > /tmp/reminder-retry-query.json
-          curl --fail-with-body \
-            --request POST \
-            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
-            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data @/tmp/reminder-retry-query.json
 
       - name: Verify function responds
         run: |

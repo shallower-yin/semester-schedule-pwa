@@ -70,8 +70,8 @@ describe("sync queue compaction", () => {
 
   it("removes duplicate queued rows for the same record", async () => {
     await db.syncQueue.bulkPut([
-      { id: "queue-1", table_name: "events", record_id: "event-1", operation: "upsert", queued_at: "2026-07-09T08:00:00.000Z", attempts: 2, last_error: "old" },
-      { id: "queue-2", table_name: "events", record_id: "event-1", operation: "upsert", queued_at: "2026-07-09T08:01:00.000Z", attempts: 1, last_error: "old" }
+      { id: "queue-1", owner_id: userId, table_name: "events", record_id: "event-1", operation: "upsert", queued_at: "2026-07-09T08:00:00.000Z", attempts: 2, last_error: "old" },
+      { id: "queue-2", owner_id: userId, table_name: "events", record_id: "event-1", operation: "upsert", queued_at: "2026-07-09T08:01:00.000Z", attempts: 1, last_error: "old" }
     ]);
 
     await queueChange("events", "event-1", "delete");
@@ -88,5 +88,15 @@ describe("sync queue compaction", () => {
 
     expect(await db.events.get(eventItem.id)).toEqual(eventItem);
     expect(await db.syncQueue.where("record_id").equals(eventItem.id).count()).toBe(1);
+  });
+
+  it("不同账号的队列互不合并，健康检查也只统计当前账号", async () => {
+    const otherUserId = "33333333-3333-4333-8333-333333333333";
+    await queueChange("events", "shared-record-id", "upsert", userId);
+    await queueChange("events", "shared-record-id", "delete", otherUserId);
+
+    const queued = await db.syncQueue.where("record_id").equals("shared-record-id").toArray();
+    expect(queued).toHaveLength(2);
+    expect(queued.map((item) => item.owner_id).sort()).toEqual([userId, otherUserId].sort());
   });
 });

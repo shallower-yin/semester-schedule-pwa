@@ -17,9 +17,9 @@ describe("文件导出适配", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     nativeMocks.isNativeApp.mockReturnValue(false);
-    vi.stubGlobal("URL", {
-      createObjectURL: vi.fn(() => "blob:test"),
-      revokeObjectURL: vi.fn()
+    Object.defineProperties(URL, {
+      createObjectURL: { configurable: true, value: vi.fn(() => "blob:test") },
+      revokeObjectURL: { configurable: true, value: vi.fn() }
     });
   });
 

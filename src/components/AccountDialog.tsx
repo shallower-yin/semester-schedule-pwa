@@ -1,9 +1,10 @@
 import type { User } from "@supabase/supabase-js";
 import { useLiveQuery } from "dexie-react-hooks";
-import { AlertTriangle, BellRing, Camera, CheckCircle2, ClipboardCopy, Cloud, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, UserRound, X } from "lucide-react";
+import { AlertTriangle, BellRing, Camera, CheckCircle2, ClipboardCopy, Cloud, Download, LogOut, Pencil, RefreshCw, Save, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { createBackup, downloadBackup } from "../lib/backup";
+import { clearLocalAccountData, deleteCurrentCloudAccount } from "../lib/accountLifecycle";
 import { toISODate } from "../lib/date";
 import { syncFields } from "../lib/identity";
 import { supabase, supabaseConfigured } from "../lib/supabase";
@@ -60,6 +61,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
   const [savingUsername, setSavingUsername] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(() => accountAvatarUrl(user));
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [accountDeleting, setAccountDeleting] = useState(false);
   const [avatarCrop, setAvatarCrop] = useState<AvatarCropState | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const avatarDragRef = useRef<{ pointerId: number; x: number; y: number; centerX: number; centerY: number } | null>(null);
@@ -213,6 +215,38 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
     await disableNotificationsForCurrentDevice();
     await supabase?.auth.signOut();
     onClose();
+  }
+
+  async function clearLocalAndLogout() {
+    if (!window.confirm("确认退出登录并清除此账号在本机保存的课程缓存、AI 历史和自动备份吗？云端数据不会删除。")) return;
+    setAccountDeleting(true);
+    try {
+      await disableNotificationsForCurrentDevice();
+      await supabase?.auth.signOut();
+      await clearLocalAccountData(user.id);
+      onClose();
+      window.location.reload();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "清除本机数据失败。", "error");
+      setAccountDeleting(false);
+    }
+  }
+
+  async function deleteAccount() {
+    const confirmation = window.prompt("此操作会永久删除云端账号、日程和附件，且无法恢复。请输入“永久删除”继续：");
+    if (confirmation !== "永久删除") return;
+    setAccountDeleting(true);
+    try {
+      await disableNotificationsForCurrentDevice();
+      await deleteCurrentCloudAccount();
+      await clearLocalAccountData(user.id);
+      await supabase?.auth.signOut({ scope: "local" });
+      onClose();
+      window.location.reload();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "永久注销账号失败。", "error");
+      setAccountDeleting(false);
+    }
   }
 
   async function saveUsername() {
@@ -465,6 +499,18 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
         <button className="button primary" disabled={syncing} onClick={() => void runSync()}><Cloud size={17} />{syncing ? "同步中…" : syncStatus.primaryAction === "retry" ? "重试同步" : "立即同步"}</button>
         <button className="button secondary" onClick={logout}><LogOut size={17} />退出登录</button>
       </div>
+      <details className="account-danger-zone">
+        <summary>本机数据与账号注销</summary>
+        <p>共享设备建议在退出时清除本机数据；永久注销会同时删除云端数据和账号附件。</p>
+        <div>
+          <button className="button secondary" disabled={accountDeleting} onClick={() => void clearLocalAndLogout()}>
+            <LogOut size={16} />清除本机数据并退出
+          </button>
+          <button className="button danger" disabled={accountDeleting} onClick={() => void deleteAccount()}>
+            <Trash2 size={16} />永久注销账号
+          </button>
+        </div>
+      </details>
       {showNotificationDiagnostics && (
         <Modal
           title="通知高级诊断"

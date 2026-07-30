@@ -1,5 +1,6 @@
 import { db, putRecordAndQueue } from "../db";
 import type { HealthProfile } from "../types";
+import { productDateTimeParts } from "./date";
 import { syncFields } from "./identity";
 import { isNativeApp } from "./nativeApp";
 import { ensureNativeReminderPermission } from "./nativeReminders";
@@ -70,7 +71,8 @@ export async function recordHealthMovementReminderSent(ownerId: string, at: Date
 }
 
 function withinReminderWindow(profile: HealthProfile, now: Date): boolean {
-  const current = now.getHours() * 60 + now.getMinutes();
+  const productNow = productDateTimeParts(now);
+  const current = productNow.hour * 60 + productNow.minute;
   const start = minutes(profile.reminder_start_time);
   const end = minutes(profile.reminder_end_time);
   return start <= end ? current >= start && current <= end : current >= start || current <= end;

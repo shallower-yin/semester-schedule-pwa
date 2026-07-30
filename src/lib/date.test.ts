@@ -133,4 +133,22 @@ describe("事项重复", () => {
       recurrence_interval: 3
     }, new Date(2026, 2, 7))).toBe(true);
   });
+
+  it("每月 29–31 日在短月使用该月最后一天", () => {
+    const monthly = {
+      start_date: "2026-01-31",
+      end_date: "2026-01-31",
+      recurrence_type: "monthly",
+      recurrence_until: "2026-05-31",
+      recurrence_interval: 1
+    };
+    expect(eventOccursOn(monthly, new Date(2026, 1, 28))).toBe(true);
+    expect(eventOccursOn(monthly, new Date(2026, 3, 30))).toBe(true);
+    expect(eventOccursOn(monthly, new Date(2026, 3, 29))).toBe(false);
+  });
+
+  it("真实时间戳按北京时间解释日期", () => {
+    expect(toISODate(new Date("2026-07-31T15:59:59.000Z"))).toBe("2026-07-31");
+    expect(toISODate(new Date("2026-07-31T16:00:00.000Z"))).toBe("2026-08-01");
+  });
 });

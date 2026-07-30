@@ -1,7 +1,8 @@
+import Dexie from "dexie";
 import { db } from "../db";
 import type { EventOccurrenceState, SyncQueueItem, SyncTableName } from "../types";
 import { deduplicateCategories } from "./categories";
-import { syncFields } from "./identity";
+import { getCurrentUserId, syncFields } from "./identity";
 import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
 import { normalizeMemoImages } from "./memoImages";
 import { supabase } from "./supabase";
@@ -70,8 +71,8 @@ export interface SyncHealth {
   tables: SyncQueueTableHealth[];
 }
 
-export async function getSyncHealth(): Promise<SyncHealth> {
-  const queued = await db.syncQueue.orderBy("queued_at").toArray();
+export async function getSyncHealth(ownerId = getCurrentUserId()): Promise<SyncHealth> {
+  const queued = await db.syncQueue.where("owner_id").equals(ownerId).sortBy("queued_at");
   const byTable = new Map<SyncTableName, SyncQueueItem[]>();
   for (const item of queued) {
     const items = byTable.get(item.table_name) ?? [];
@@ -115,11 +116,12 @@ export interface SyncResult {
   completed_at: string;
 }
 
-let activeSync: Promise<SyncResult> | null = null;
+const activeSyncs = new Map<string, Promise<SyncResult>>();
 
-function queueRecord(table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert"): SyncQueueItem {
+function queueRecord(owner_id: string, table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert"): SyncQueueItem {
   return {
     id: crypto.randomUUID(),
+    owner_id,
     table_name,
     record_id,
     operation,
@@ -129,13 +131,12 @@ function queueRecord(table_name: SyncTableName, record_id: string, operation: "u
   };
 }
 
-async function putQueueItem(table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert") {
+async function putQueueItem(owner_id: string, table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert") {
   const existing = await db.syncQueue
-    .where("table_name")
-    .equals(table_name)
-    .and((item) => item.record_id === record_id)
+    .where("[owner_id+table_name+record_id]")
+    .equals([owner_id, table_name, record_id])
     .toArray();
-  const retained = existing[0] ?? queueRecord(table_name, record_id, operation);
+  const retained = existing[0] ?? queueRecord(owner_id, table_name, record_id, operation);
   if (existing.length > 1) {
     await db.syncQueue.bulkDelete(existing.slice(1).map((item) => item.id));
   }
@@ -163,11 +164,14 @@ export async function adoptAnonymousData(userId: string): Promise<number> {
         };
         await db.table(local).put(updated);
         const existingQueue = await db.syncQueue
-          .where("table_name")
-          .equals(local)
-          .and((item) => item.record_id === record.id)
+          .where("[owner_id+table_name+record_id]")
+          .equals(["local", local, record.id])
           .first();
-        await db.syncQueue.put(existingQueue ? { ...existingQueue, queued_at: new Date().toISOString() } : queueRecord(local, record.id));
+        if (existingQueue) {
+          await db.syncQueue.put({ ...existingQueue, owner_id: userId, queued_at: new Date().toISOString() });
+        } else {
+          await db.syncQueue.put(queueRecord(userId, local, record.id));
+        }
         adopted += 1;
       }
     }
@@ -410,7 +414,7 @@ async function releaseLocalReferencesForHardDeletes(userId: string, idsByTable: 
     for (const session of sessions) {
       const updated = { ...session, ...syncFields(session), linked_event_id: null };
       await db.focusSessions.put(updated);
-      await putQueueItem("focusSessions", updated.id);
+      await putQueueItem(userId, "focusSessions", updated.id);
     }
   }
 
@@ -428,7 +432,7 @@ async function releaseLocalReferencesForHardDeletes(userId: string, idsByTable: 
     for (const memo of memos) {
       const updated = { ...memo, ...syncFields(memo), folder_id: null };
       await db.memos.put(updated);
-      await putQueueItem("memos", updated.id);
+      await putQueueItem(userId, "memos", updated.id);
     }
   }
 }
@@ -487,7 +491,7 @@ export async function purgeLocalSoftDeletedRecords(userId: string): Promise<numb
       const ids = [...idsFor(idsByTable, config.local)];
       if (!ids.length) continue;
       for (const id of ids) {
-        await putQueueItem(config.local, id, "delete");
+        await putQueueItem(userId, config.local, id, "delete");
       }
       await db.table(config.local).bulkDelete(ids);
     }
@@ -582,7 +586,7 @@ async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
     // Dexie 表事务；这样用户在下载期间编辑时，要么先被本事务看到，要么在
     // 本事务之后写回更新，不会落入读取旧队列后再覆盖新编辑的窗口。
     await db.transaction("rw", db.table(config.local), db.syncQueue, async () => {
-      const pendingIds = await pendingUpsertIds(config.local);
+      const pendingIds = await pendingUpsertIds(config.local, userId);
       if (activeRecords.length && config.local === "eventOccurrenceStates") {
         const occurrenceRecords = activeRecords as unknown as EventOccurrenceState[];
         for (const record of occurrenceRecords) {
@@ -598,9 +602,8 @@ async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
           for (const local of localMatches) {
             if (local.id === record.id) continue;
             const pending = await db.syncQueue
-              .where("table_name")
-              .equals("eventOccurrenceStates")
-              .and((queuedItem) => queuedItem.record_id === local.id)
+              .where("[owner_id+table_name+record_id]")
+              .equals([userId, "eventOccurrenceStates", local.id])
               .first();
             if (!pending) await db.eventOccurrenceStates.delete(local.id);
           }
@@ -642,7 +645,7 @@ async function runSync(userId: string): Promise<SyncResult> {
   await purgeLocalSoftDeletedRecords(userId);
   await deduplicateLocalOccurrenceStates(userId);
 
-  const queued = await db.syncQueue.orderBy("queued_at").toArray();
+  const queued = await db.syncQueue.where("owner_id").equals(userId).sortBy("queued_at");
   const queueByTable = new Map<SyncTableName, SyncQueueItem[]>();
   for (const item of queued) {
     const items = queueByTable.get(item.table_name) ?? [];
@@ -766,13 +769,19 @@ async function runSync(userId: string): Promise<SyncResult> {
   return { uploaded, downloaded, kept_local: download.kept, completed_at: completedAt };
 }
 
-async function pendingUpsertIds(tableName: SyncTableName): Promise<Set<string>> {
-  const items = await db.syncQueue.where("table_name").equals(tableName).toArray();
+async function pendingUpsertIds(tableName: SyncTableName, ownerId: string): Promise<Set<string>> {
+  const items = await db.syncQueue
+    .where("[owner_id+table_name+record_id]")
+    .between([ownerId, tableName, Dexie.minKey], [ownerId, tableName, Dexie.maxKey])
+    .toArray();
   return new Set(items.filter((item) => item.operation !== "delete").map((item) => String(item.record_id)));
 }
 
 async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, userId: string, activeRemoteIds: Set<string>) {
-  const queuedItems = await db.syncQueue.where("table_name").equals(tableName).toArray();
+  const queuedItems = await db.syncQueue
+    .where("[owner_id+table_name+record_id]")
+    .between([userId, tableName, Dexie.minKey], [userId, tableName, Dexie.maxKey])
+    .toArray();
   const pendingIds = new Set(queuedItems.map((item) => item.record_id));
   const localRecords = await db.table(tableName).filter((record) => record.user_id === userId).toArray();
   const staleIds = localRecords
@@ -816,12 +825,15 @@ export async function pullRemoteNow(userId: string): Promise<SyncResult> {
 }
 
 export function syncNow(userId: string): Promise<SyncResult> {
-  if (!activeSync) {
-    activeSync = runSync(userId).finally(() => {
-      activeSync = null;
-    });
-  }
-  return activeSync;
+  const current = activeSyncs.get(userId);
+  if (current) return current;
+  const next = runSync(userId).finally(() => {
+    if (activeSyncs.get(userId) === next) {
+      activeSyncs.delete(userId);
+    }
+  });
+  activeSyncs.set(userId, next);
+  return next;
 }
 
 export function getLastSync(userId: string): string | null {

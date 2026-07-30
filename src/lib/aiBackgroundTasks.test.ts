@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cancelAiTask, dismissAiTask, getAiTaskSnapshot, startAiTask, updateAiTaskProgress } from "./aiBackgroundTasks";
+import { AI_TASK_STORAGE_KEY, cancelAiTask, dismissAiTask, getAiTaskSnapshot, startAiTask, updateAiTaskProgress } from "./aiBackgroundTasks";
 
 describe("AI 后台任务", () => {
   beforeEach(() => {
@@ -83,5 +83,17 @@ describe("AI 后台任务", () => {
     await Promise.resolve();
     expect(getAiTaskSnapshot("mind_map").status).toBe("idle");
     expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("把运行状态写入持久存储并在取消后清理", () => {
+    startAiTask({
+      feature: "translation",
+      label: "正在翻译",
+      run: () => new Promise(() => undefined)
+    });
+
+    expect(localStorage.getItem(AI_TASK_STORAGE_KEY)).toContain('"status":"running"');
+    cancelAiTask("translation");
+    expect(localStorage.getItem(AI_TASK_STORAGE_KEY)).toBeNull();
   });
 });

@@ -164,14 +164,14 @@ textarea:focus-visible {
 }
 
 .brand strong {
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 
 .brand span {
   overflow: hidden;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -236,7 +236,7 @@ textarea:focus-visible {
   border-radius: 999px;
   color: #6d7480;
   background: #fafbfc;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -351,14 +351,14 @@ main {
 }
 
 .overview-stat strong {
-  font-size: 21px;
+  font-size: 1.3125rem;
   letter-spacing: -0.03em;
 }
 
 .overview-stat small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .overview-stat.primary-stat small {
@@ -377,7 +377,7 @@ main {
   justify-content: space-between;
   margin-bottom: 8px;
   color: #334155;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 750;
 }
 
@@ -391,7 +391,7 @@ main {
   border: 0;
   color: var(--primary);
   background: transparent;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
   cursor: pointer;
 }
@@ -434,13 +434,13 @@ main {
 
 .overview-item strong {
   color: #1f2937;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .overview-item small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .overview-item em {
@@ -448,7 +448,7 @@ main {
   align-items: center;
   gap: 3px;
   color: #526071;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-style: normal;
   white-space: nowrap;
 }
@@ -468,7 +468,7 @@ main {
 .overview-empty {
   margin: 12px 0 2px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .overview-trend {
@@ -489,7 +489,7 @@ main {
   gap: 5px;
   justify-items: center;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .overview-trend-bars > div > span {
@@ -513,7 +513,7 @@ main {
   overflow: hidden;
   max-width: 100%;
   color: #334155;
-  font-size: 11px;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -530,7 +530,7 @@ main {
 .week-title h1,
 .page-heading h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: 1.5rem;
   letter-spacing: -0.03em;
 }
 
@@ -539,7 +539,7 @@ main {
   display: block;
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .calendar-title-actions {
@@ -595,7 +595,7 @@ main {
 
 .snapshot-choice-grid span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .snapshot-preview-note {
@@ -606,7 +606,7 @@ main {
   border-radius: 8px;
   color: #48556a;
   background: var(--surface-soft);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -650,7 +650,7 @@ main {
 
 .school-extractor-toolbar span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -758,14 +758,14 @@ main {
 
 .feedback-recommended-channel strong {
   flex: 0 0 auto;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .feedback-recommended-channel span {
   min-width: 0;
   overflow-x: auto;
   color: var(--primary);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   scrollbar-width: none;
   white-space: nowrap;
@@ -818,14 +818,14 @@ main {
 
 .feedback-attachment-list strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .feedback-attachment-list small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .feedback-attachment-list .icon-button {
@@ -869,7 +869,7 @@ main {
 .feedback-history time,
 .admin-feedback-list time {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .feedback-status {
@@ -877,7 +877,7 @@ main {
   border-radius: 999px;
   color: #9a5b00;
   background: #fff3d6;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -892,7 +892,7 @@ main {
   border-left: 3px solid var(--primary);
   color: #344158;
   background: var(--accent-soft);
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: pre-wrap;
 }
 
@@ -912,7 +912,7 @@ main {
   border-radius: 7px;
   color: var(--primary);
   background: white;
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .feedback-login-state {
@@ -990,7 +990,7 @@ main {
 .button.compact {
   min-height: var(--control-min-size);
   padding: 7px 11px;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .danger-button {
@@ -1034,7 +1034,7 @@ main {
   grid-row: 1;
   place-items: center;
   color: #28364e;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
@@ -1047,12 +1047,12 @@ main {
 }
 
 .date-header strong {
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 
 .date-header span {
   color: #667085;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -1078,13 +1078,13 @@ main {
 }
 
 .time-label strong {
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .time-label span {
   margin-top: 5px;
   color: #5d6674;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -1191,11 +1191,11 @@ main {
 }
 
 .event-entry.overlap-entry .entry-title {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .event-entry.overlap-entry .entry-time {
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .event-entry .entry-title,
@@ -1236,7 +1236,7 @@ main {
   align-items: center;
   gap: 5px;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 750;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -1255,7 +1255,7 @@ main {
 .entry-status {
   margin-top: 4px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 0.75rem;
   line-height: 1.25;
   opacity: 0.9;
   text-overflow: ellipsis;
@@ -1346,7 +1346,7 @@ main {
 .course-manager-toolbar p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .add-type-grid {
@@ -1433,7 +1433,7 @@ main {
 .course-count {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .course-count {
@@ -1466,13 +1466,13 @@ main {
 .settings-section-header h2 {
   margin: 0;
   color: #1f2937;
-  font-size: 17px;
+  font-size: 1.0625rem;
 }
 
 .settings-section-header p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.45;
 }
 
@@ -1534,7 +1534,7 @@ main {
 .local-data-card p {
   margin: 4px 0 0;
   color: #42725c;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .sync-summary-card {
@@ -1558,7 +1558,7 @@ main {
   border-radius: 999px;
   color: #36506d;
   background: rgb(255 255 255 / 70%);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -1616,7 +1616,7 @@ main {
 .muted-note {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.55;
 }
 

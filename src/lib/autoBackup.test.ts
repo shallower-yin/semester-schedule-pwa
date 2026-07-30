@@ -35,19 +35,19 @@ describe("本机自动备份快照", () => {
   it("超过备份间隔时静默生成本机快照并更新备份状态", async () => {
     await db.categories.put(category());
 
-    const snapshot = await ensureScheduledLocalBackup(new Date("2026-07-09T08:00:00.000Z"));
+    const snapshot = await ensureScheduledLocalBackup(userId, new Date("2026-07-09T08:00:00.000Z"));
 
     expect(snapshot?.reason).toBe("scheduled");
     expect(snapshot?.record_count).toBe(1);
     expect(snapshot?.backup.exported_at).toBe("2026-07-09T08:00:00.000Z");
     expect(await db.localBackupSnapshots.count()).toBe(1);
-    expect(getLastBackupAt()).toBe("2026-07-09T08:00:00.000Z");
+    expect(getLastBackupAt(userId)).toBe("2026-07-09T08:00:00.000Z");
   });
 
   it("未超过备份间隔时不重复生成", async () => {
-    markBackupCompleted(new Date("2026-07-09T08:00:00.000Z"));
+    markBackupCompleted(new Date("2026-07-09T08:00:00.000Z"), userId);
 
-    const snapshot = await ensureScheduledLocalBackup(new Date("2026-07-12T08:00:00.000Z"));
+    const snapshot = await ensureScheduledLocalBackup(userId, new Date("2026-07-12T08:00:00.000Z"));
 
     expect(snapshot).toBeNull();
     expect(await db.localBackupSnapshots.count()).toBe(0);
@@ -55,7 +55,7 @@ describe("本机自动备份快照", () => {
 
   it("只保留最近 3 份本机快照", async () => {
     for (let day = 1; day <= 5; day += 1) {
-      await createLocalBackupSnapshot("manual", new Date(`2026-07-0${day}T08:00:00.000Z`));
+      await createLocalBackupSnapshot(userId, "manual", new Date(`2026-07-0${day}T08:00:00.000Z`));
     }
 
     const snapshots = await db.localBackupSnapshots.orderBy("created_at").toArray();

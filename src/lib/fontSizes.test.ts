@@ -35,20 +35,14 @@ describe("字体大小设置", () => {
     expect(document.documentElement.style.getPropertyValue("-webkit-text-size-adjust")).toBe("80%");
   });
 
-  it("在桌面浏览器中同步缩放样式表里的固定字号", () => {
-    const styleElement = document.createElement("style");
-    styleElement.textContent = ".font-size-test-rule { font-size: 20px; }";
-    document.head.append(styleElement);
+  it("只调整根字号，不在运行时改写整个 CSSOM", () => {
     vi.spyOn(window, "getComputedStyle").mockReturnValue({ fontSize: "16px" } as CSSStyleDeclaration);
 
     applyAppFontSize("compact");
 
-    const rule = styleElement.sheet?.cssRules[0] as CSSStyleRule;
     expect(document.documentElement.style.fontSize).toBe("14.08px");
-    expect(rule.style.getPropertyValue("font-size")).toBe("17.6px");
 
     applyAppFontSize("standard");
-    expect(rule.style.getPropertyValue("font-size")).toBe("20px");
-    styleElement.remove();
+    expect(document.documentElement.style.fontSize).toBe("16px");
   });
 });

@@ -529,21 +529,16 @@ Deno.serve(async (request) => {
     const body = await request.json() as AiAssistantRequest;
     const serviceRoleKey = serviceRoleSecret();
     const settings = serviceRoleKey ? await getAiSettings(serviceRoleKey) : null;
+    const user = await getUser(authorization);
+    currentUser = user;
     if (body.action === "configuration") {
       const provider = configuredProvider(settings);
       return jsonResponse({
-        provider,
-        model: configuredModel(settings),
-        mimoChannel: configuredMimoChannel(settings),
-        audioProvider: configuredAudioProvider(settings),
-        audioModel: configuredAudioModel(settings),
         supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
         supportsAudioTranscription: Boolean(configuredAudioCredentials(settings).apiKey),
         maxDocumentPages: configuredMaxDocumentPages()
       });
     }
-    const user = await getUser(authorization);
-    currentUser = user;
     if (body.action === "transcribe_audio_range") {
       const range = sanitizeInternalAudioRange(body.audioRange, user.id);
       // Prefer header; body field is a fallback for runtimes that drop custom invoke headers.
@@ -1153,6 +1148,7 @@ async function checkAiQuota(
   if (!serviceRoleKey) {
     throw new PublicHttpError("AI 配额服务暂时不可用，请稍后重试。", 503);
   }
+  await assertGlobalAiBudget(serviceRoleKey);
   const response = await fetch(`${supabaseUrl}/rest/v1/rpc/reserve_ai_usage`, {
     method: "POST",
     headers: {
@@ -1227,6 +1223,36 @@ async function checkAiQuota(
     return { allowed: false, today, week, limits, usageKnown: true, reason: "AI 配额暂时不可用，请稍后重试。" };
   }
   return { allowed: true, today, week, limits, usageKnown: true };
+}
+
+async function assertGlobalAiBudget(serviceRoleKey: string): Promise<void> {
+  const dailyCostLimit = positiveNumberSecret("AI_GLOBAL_DAILY_COST_CNY_LIMIT", 500);
+  const dailyTokenLimit = positiveNumberSecret("AI_GLOBAL_DAILY_TOKEN_LIMIT", 20_000_000);
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/check_ai_global_budget`, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      p_daily_cost_cny_limit: dailyCostLimit,
+      p_daily_token_limit: dailyTokenLimit
+    })
+  });
+  if (!response.ok) {
+    console.error(`AI global budget check failed: HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+    throw new PublicHttpError("AI 成本保护服务暂时不可用，请稍后重试。", 503);
+  }
+  const budget = await response.json() as { allowed?: boolean };
+  if (!budget.allowed) {
+    throw new PublicHttpError("AI 服务今日已达到安全预算，请明天再试或联系管理员。", 429);
+  }
+}
+
+function positiveNumberSecret(name: string, fallback: number): number {
+  const parsed = Number(optionalSecret(name));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function quotaStatusAfterSuccessfulRequest(method: string, quota: AiQuotaCheck): AiPublicQuotaStatus {
@@ -3777,8 +3803,10 @@ async function logAiAssistantUsage(input: {
       model: minimalTranslationLog ? "" : input.model,
       prompt_tokens: minimalTranslationLog ? 0 : input.usage.prompt_tokens,
       completion_tokens: minimalTranslationLog ? 0 : input.usage.completion_tokens,
-      total_tokens: minimalTranslationLog ? 0 : input.usage.total_tokens,
-      estimated_cost_cny: minimalTranslationLog ? null : input.usage.estimated_cost_cny,
+      // Translation keeps source/target diagnostics private, but aggregate
+      // tokens and estimated cost are still required for the global safety budget.
+      total_tokens: input.usage.total_tokens,
+      estimated_cost_cny: input.usage.estimated_cost_cny,
       latency_ms: input.latencyMs,
       question_chars: minimalTranslationLog ? null : input.questionChars,
       error: minimalTranslationLog ? null : input.error ? input.error.slice(0, 500) : null,

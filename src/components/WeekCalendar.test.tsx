@@ -189,12 +189,12 @@ describe("周视图移动端新增事项", () => {
 });
 
 function renderWeekCalendar(
-  onAddEvent: ReturnType<typeof vi.fn>,
+  onAddEvent: (date: string, start: string, end: string, allDay?: boolean) => void,
   events: EventItem[] = [],
   activeSemester: Semester | null = semester,
   activePeriods: ClassPeriod[] = periods,
   occurrenceStates: EventOccurrenceState[] = [],
-  onToggleEventCompleted = vi.fn()
+  onToggleEventCompleted: (event: EventItem, occurrenceDate: Date, completed: boolean) => void = vi.fn()
 ) {
   render(
     <WeekCalendar

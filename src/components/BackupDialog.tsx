@@ -43,13 +43,14 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [importing, setImporting] = useState(false);
   const [creatingSnapshot, setCreatingSnapshot] = useState(false);
-  const latestSnapshot = useLiveQuery(() => getLatestLocalBackupSnapshot(), []);
+  const currentUserId = getCurrentUserId();
+  const latestSnapshot = useLiveQuery(() => getLatestLocalBackupSnapshot(currentUserId), [currentUserId]);
 
   async function createSnapshotNow() {
     if (creatingSnapshot) return;
     setCreatingSnapshot(true);
     try {
-      await createLocalBackupSnapshot("manual");
+      await createLocalBackupSnapshot(currentUserId, "manual");
       setMessage("已保存到本机浏览器。");
       showToast("已保存到本机浏览器。", "success");
     } catch (error) {
@@ -79,7 +80,6 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
     if (!file) return;
     try {
       const parsed = validateBackup(JSON.parse(await file.text()));
-      const currentUserId = getCurrentUserId();
       const tables: BackupTablePreview[] = [];
 
       for (const tableName of BACKUP_TABLES) {
@@ -124,7 +124,6 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
         setMessage("已取消导入前备份，数据尚未导入。");
         return;
       }
-      const currentUserId = getCurrentUserId();
       const restoreStartedAt = new Date();
 
       await db.transaction("rw", [...BACKUP_TABLES.map((name) => db.table(name)), db.syncQueue], async () => {
@@ -139,11 +138,9 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
             currentUserId,
             restoreStartedAt
           );
-          await db.table(tableName).bulkPut(records);
+          if (records.length) await db.table(tableName).bulkPut(records);
           for (const record of records) {
-            if (record.user_id === currentUserId || record.user_id === "local") {
-              await queueChange(tableName, String(record.id));
-            }
+            await queueChange(tableName, String(record.id), "upsert", currentUserId);
           }
         }
       });

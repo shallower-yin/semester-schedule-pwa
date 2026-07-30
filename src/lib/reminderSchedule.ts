@@ -4,7 +4,7 @@ import {
   formatAnniversaryReminderBody,
   nextAnniversaryOccurrence
 } from "./anniversaries";
-import { eventOccursOn, toISODate } from "./date";
+import { addDays, dateAtProductTime, eventOccursOn, parseLocalDate, toISODate } from "./date";
 import { reminderTimeForOccurrence } from "./reminderTime";
 
 // Android can persist hundreds of one-shot alarms cheaply. A one-year rolling horizon avoids silently
@@ -53,22 +53,16 @@ function eventReminderActive(event: EventItem): boolean {
 }
 
 // Expands events (with recurrence) and anniversaries into the concrete future reminders due within the
-// horizon, in device-local time, skipping past and completed occurrences. Sorted earliest-first and
+// horizon, in Asia/Shanghai product time, skipping past and completed occurrences. Sorted earliest-first and
 // capped, so a device only ever holds the nearest reminders and later ones roll in as the window moves.
 export function computeScheduledReminders(input: ComputeRemindersInput): ScheduledReminder[] {
   const now = input.now ?? new Date();
   const horizonDays = input.horizonDays ?? REMINDER_HORIZON_DAYS;
   const max = input.max ?? MAX_SCHEDULED_REMINDERS;
   const nowMs = now.getTime();
-  const horizonEnd = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + horizonDays,
-    23,
-    59,
-    59,
-    999
-  ).getTime();
+  const today = parseLocalDate(toISODate(now));
+  const horizonDate = toISODate(addDays(today, horizonDays));
+  const horizonEnd = dateAtProductTime(horizonDate, "23:59:59").getTime() + 999;
 
   const completedOccurrences = new Set<string>();
   for (const state of input.occurrenceStates) {
@@ -82,7 +76,7 @@ export function computeScheduledReminders(input: ComputeRemindersInput): Schedul
   for (const event of input.events) {
     if (!eventReminderActive(event)) continue;
     for (let dayOffset = 0; dayOffset <= horizonDays; dayOffset += 1) {
-      const occurrenceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+      const occurrenceDate = addDays(today, dayOffset);
       if (!eventOccursOn(event, occurrenceDate)) continue;
       const at = reminderTimeForOccurrence(event, occurrenceDate);
       const atMs = at.getTime();

@@ -313,7 +313,9 @@ export async function getAiAssistantConfiguration(): Promise<AiAssistantConfigur
   return {
     provider: normalizeAiProvider(data.provider),
     model: data.model || defaultAiModel(normalizeAiProvider(data.provider)),
-    supportsAttachments: Boolean(data.supportsAttachments && aiModelSupportsAttachments(normalizeAiProvider(data.provider), data.model)),
+    // Provider/model routing is intentionally server-internal. The capability
+    // flag is authoritative and is enough to decide whether attachment UI is shown.
+    supportsAttachments: Boolean(data.supportsAttachments),
     audioProvider: data.audioProvider === "siliconflow" ? "siliconflow" : "mimo",
     audioModel: data.audioModel
   };

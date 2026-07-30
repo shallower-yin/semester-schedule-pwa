@@ -86,6 +86,7 @@ import {
   semesterWeekForDate,
   startOfWeek,
   toISODate,
+  weekdayOf,
   weekDates
 } from "./lib/date";
 import { uniqueCategoriesByName } from "./lib/categories";
@@ -113,7 +114,6 @@ import { apkDownloadUrlForRelease, clearSkippedRelease, fetchLatestRelease, shou
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
-import { installOfflineAppUpdate } from "./lib/offlineAppUpdate";
 import { consumePendingNativeNotificationKey, isNativeApp, NATIVE_NOTIFICATION_OPEN_EVENT } from "./lib/nativeApp";
 import {
   clearCapturedInstallPrompt,
@@ -169,7 +169,7 @@ export default function App() {
   const [nativeNotificationKey, setNativeNotificationKey] = useState<string | null>(() => consumePendingNativeNotificationKey());
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [overviewNow, setOverviewNow] = useState(() => new Date());
-  const [selectedDay, setSelectedDay] = useState(() => (new Date().getDay() + 6) % 7);
+  const [selectedDay, setSelectedDay] = useState(() => weekdayOf(new Date()) - 1);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [semesterToEdit, setSemesterToEdit] = useState<Semester | null | undefined>(undefined);
   const [showPeriodSettings, setShowPeriodSettings] = useState(false);
@@ -203,7 +203,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [lastSync, setLastSync] = useState<string | null>(null);
-  const [lastBackupAt, setLastBackupAt] = useState<string | null>(() => getLastBackupAt());
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() => getCapturedInstallPrompt());
   const [installed, setInstalled] = useState(() => isNativeApp() || window.matchMedia("(display-mode: standalone)").matches);
   const [showInstallDialog, setShowInstallDialog] = useState(false);
@@ -310,8 +310,8 @@ export default function App() {
     () => (semester ? db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
     [semester?.id, ownerId]
   ) ?? [];
-  const pendingChanges = useLiveQuery(() => db.syncQueue.count(), []) ?? 0;
-  const syncHealth = useLiveQuery(() => getSyncHealth(), [pendingChanges, syncMessage, syncing, user?.id]) ?? null;
+  const pendingChanges = useLiveQuery(() => db.syncQueue.where("owner_id").equals(ownerId).count(), [ownerId]) ?? 0;
+  const syncHealth = useLiveQuery(() => getSyncHealth(ownerId), [ownerId, pendingChanges, syncMessage, syncing, user?.id]) ?? null;
 
   const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
   const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
@@ -564,18 +564,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const refreshBackupStatus = () => setLastBackupAt(getLastBackupAt());
+    const refreshBackupStatus = () => setLastBackupAt(getLastBackupAt(ownerId));
+    refreshBackupStatus();
     window.addEventListener(BACKUP_STATUS_CHANGED_EVENT, refreshBackupStatus);
     window.addEventListener("storage", refreshBackupStatus);
     return () => {
       window.removeEventListener(BACKUP_STATUS_CHANGED_EVENT, refreshBackupStatus);
       window.removeEventListener("storage", refreshBackupStatus);
     };
-  }, []);
+  }, [ownerId]);
 
   useEffect(() => {
-    void ensureScheduledLocalBackup().catch(() => undefined);
-  }, []);
+    if (!authReady) return;
+    void ensureScheduledLocalBackup(ownerId).catch(() => undefined);
+  }, [authReady, ownerId]);
 
   useGlobalShortcuts({
     onSearch: () => setShowGlobalSearch(true),
@@ -685,16 +687,16 @@ export default function App() {
 
     if (mode === "background") {
       setAvailableRelease(null);
-      setUpdateMessage("正在后台下载新版本…");
-      showToast("已开始后台下载新版本，你可以继续使用应用。", "info");
+      setUpdateMessage("正在通知本站后台服务检查新版本…");
+      showToast("已开始后台检查新版本，你可以继续使用应用。", "info");
       try {
-        const fileCount = await installOfflineAppUpdate(release, ({ completed, total }) => {
-          setUpdateMessage(`后台下载更新文件 ${completed}/${total}…`);
-        });
+        // Only the current origin's Service Worker may update its caches.
+        // Never copy assets from a mirror origin into this origin's cache:
+        // a mirror compromise would otherwise become arbitrary script execution.
+        await updateServiceWorker(false);
         skipReleaseVersion(release.version);
-        setNeedRefresh(true);
-        setUpdateMessage(`后台更新已准备完成，共 ${fileCount} 个文件。`);
-        showToast("新版本已在后台准备完成，下次打开应用时生效。", "success", 6000);
+        setUpdateMessage("后台检查已完成；新版本准备好后会显示刷新提示。");
+        showToast("后台检查已完成。检测到新版本后，应用会提示你刷新。", "success", 6000);
       } catch (error) {
         const message = error instanceof Error ? error.message : "后台更新失败，请稍后重试。";
         setAvailableRelease(release);
@@ -724,23 +726,6 @@ export default function App() {
       setUpdateMessage("正在切换到免代理更新线路…");
       window.location.assign(release.appUrl);
       return;
-    }
-
-    let mirrorError = "";
-    if (release) {
-      try {
-        setUpdateMessage("正在从免代理线路下载更新文件…");
-        const fileCount = await installOfflineAppUpdate(release, ({ completed, total }) => {
-          setUpdateMessage(`正在下载更新文件 ${completed}/${total}…`);
-        });
-        setUpdateMessage(`已安装 ${fileCount} 个更新文件，正在重新打开…`);
-        // Bust the URL so the browser does not reuse a half-rendered document shell.
-        window.location.replace(`${window.location.pathname}?updated=${Date.now()}${window.location.hash}`);
-        return;
-      } catch (error) {
-        mirrorError = error instanceof Error ? error.message : "免代理更新失败。";
-        setUpdateMessage("免代理线路暂不可用，正在尝试常规更新…");
-      }
     }
 
     setUpdateMessage("正在通知后台服务安装新版本…");
@@ -775,9 +760,7 @@ export default function App() {
       }
       setUpdatingApp(false);
       const regularError = error instanceof Error ? error.message : "请稍后重试。";
-      const message = mirrorError
-        ? `更新失败：免代理线路 ${mirrorError}；常规线路 ${regularError}`
-        : `更新失败：${regularError}`;
+      const message = `更新失败：${regularError}`;
       setUpdateMessage(message);
       showToast(message, "error");
     }
@@ -811,7 +794,7 @@ export default function App() {
 
   function goToday() {
     setAnchorDate(new Date());
-    setSelectedDay((new Date().getDay() + 6) % 7);
+    setSelectedDay(weekdayOf(new Date()) - 1);
   }
 
   function moveMobileDay(direction: number, nextSelectedDay: number) {

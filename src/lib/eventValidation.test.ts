@@ -21,7 +21,20 @@ describe("事项时间校验", () => {
         startTime: "10:00",
         endTime: "09:59"
       })
-    ).toBe("结束时间不能早于开始时间。如果只需要一个提醒，可以把开始时间和结束时间设为相同。");
+    ).toBe("跨夜事项请把结束日期设为第二天；同一天的结束时间不能早于开始时间。");
+  });
+
+  it("允许结束日期在第二天的跨夜事项", () => {
+    expect(
+      validateEventDraft({
+        title: "夜间值班",
+        startDate: "2026-07-31",
+        endDate: "2026-08-01",
+        allDay: false,
+        startTime: "22:30",
+        endTime: "01:00"
+      })
+    ).toBeNull();
   });
 
   it("标题为空时返回明确提示", () => {

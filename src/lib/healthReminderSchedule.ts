@@ -1,4 +1,5 @@
 import type { HealthProfile } from "../types";
+import { addDays, dateAtProductTime, parseLocalDate, productDateTimeParts, toISODate } from "./date";
 
 export interface NativeHealthReminderPlan {
   triggerAt: Date;
@@ -39,16 +40,19 @@ export function timeMinutes(value: string): number {
 }
 
 function moveIntoWindow(candidate: Date, startMinutes: number, endMinutes: number): Date {
-  const minute = candidate.getHours() * 60 + candidate.getMinutes();
+  const productCandidate = productDateTimeParts(candidate);
+  const minute = productCandidate.hour * 60 + productCandidate.minute;
   const inside = startMinutes <= endMinutes
     ? minute >= startMinutes && minute <= endMinutes
     : minute >= startMinutes || minute <= endMinutes;
   if (inside) return candidate;
 
-  const next = new Date(candidate);
-  if (startMinutes <= endMinutes && minute > endMinutes) next.setDate(next.getDate() + 1);
-  next.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-  return next;
+  const candidateDate = parseLocalDate(toISODate(candidate));
+  const targetDate = startMinutes <= endMinutes && minute > endMinutes
+    ? addDays(candidateDate, 1)
+    : candidateDate;
+  const time = `${String(Math.floor(startMinutes / 60)).padStart(2, "0")}:${String(startMinutes % 60).padStart(2, "0")}`;
+  return dateAtProductTime(toISODate(targetDate), time);
 }
 
 function validTime(value: string | null): number {

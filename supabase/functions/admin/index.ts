@@ -1,4 +1,4 @@
-type AdminAction = "whoami" | "summary" | "details" | "set-ai-access" | "get-ai-settings" | "set-ai-settings" | "set-account-ban";
+type AdminAction = "whoami" | "summary" | "details" | "set-ai-access" | "get-ai-settings" | "set-ai-settings" | "set-account-ban" | "delete-my-account";
 
 interface AdminRequest {
   action?: AdminAction;
@@ -177,6 +177,10 @@ Deno.serve(async (request) => {
 
     const user = await getUser(authorization);
     const body = await request.json() as AdminRequest;
+    if (body.action === "delete-my-account") {
+      await deleteOwnAccount(user, serviceRoleKey);
+      return jsonResponse({ deleted: true });
+    }
     const adminAccess = await getAiAccess(user.id, serviceRoleKey);
     const isAdmin = isActiveAdmin(adminAccess);
     if (body.action === "whoami") {
@@ -255,6 +259,65 @@ async function authAdminUpdate<T>(path: string, body: Record<string, unknown>, s
   return JSON.parse(text) as T;
 }
 
+async function deleteOwnAccount(user: SupabaseUser, serviceRoleKey: string): Promise<void> {
+  for (const bucket of ["account-avatars", "memo-images", "feedback-attachments"]) {
+    await deleteStoragePrefix(bucket, user.id, serviceRoleKey);
+  }
+  const response = await fetch(
+    `${supabaseUrl}/auth/v1/admin/users/${encodeURIComponent(user.id)}?should_soft_delete=false`,
+    {
+      method: "DELETE",
+      headers: serviceHeaders(serviceRoleKey)
+    }
+  );
+  if (!response.ok) {
+    console.error(`注销账号失败：HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+    throw new Error("注销账号失败，请稍后重试。");
+  }
+}
+
+async function deleteStoragePrefix(bucket: string, rootPrefix: string, serviceRoleKey: string): Promise<void> {
+  const pending = [rootPrefix.replace(/^\/+|\/+$/g, "")];
+  const objects: string[] = [];
+  while (pending.length) {
+    const prefix = pending.shift()!;
+    let offset = 0;
+    for (;;) {
+      const response = await fetch(`${supabaseUrl}/storage/v1/object/list/${encodeURIComponent(bucket)}`, {
+        method: "POST",
+        headers: serviceHeaders(serviceRoleKey, { "content-type": "application/json" }),
+        body: JSON.stringify({ prefix, limit: 1000, offset, sortBy: { column: "name", order: "asc" } })
+      });
+      if (response.status === 404) break;
+      if (!response.ok) {
+        console.error(`列出 ${bucket}/${prefix} 失败：HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+        throw new Error("清理账号附件失败，请稍后重试。");
+      }
+      const rows = await response.json() as Array<{ id?: string | null; name?: string; metadata?: unknown }>;
+      for (const row of rows) {
+        if (!row.name) continue;
+        const path = `${prefix}/${row.name}`.replace(/^\/+/, "");
+        if (row.id || row.metadata) objects.push(path);
+        else pending.push(path);
+      }
+      if (rows.length < 1000) break;
+      offset += rows.length;
+    }
+  }
+
+  for (let index = 0; index < objects.length; index += 100) {
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket)}`, {
+      method: "DELETE",
+      headers: serviceHeaders(serviceRoleKey, { "content-type": "application/json" }),
+      body: JSON.stringify({ prefixes: objects.slice(index, index + 100) })
+    });
+    if (!response.ok) {
+      console.error(`删除 ${bucket} 账号附件失败：HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+      throw new Error("清理账号附件失败，请稍后重试。");
+    }
+  }
+}
+
 async function setAccountBan(targetUserId: string, banned: boolean, serviceRoleKey: string) {
   const user = await authAdminUpdate<SupabaseUser>(
     `users/${encodeURIComponent(targetUserId)}`,
@@ -272,27 +335,36 @@ async function restGet<T>(
   table: string,
   serviceRoleKey: string,
   params: Record<string, string>,
-  limit = 1000
+  limit?: number
 ): Promise<T[]> {
-  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
-  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  url.searchParams.set("limit", String(limit));
-  const response = await fetch(url, {
-    headers: serviceHeaders(serviceRoleKey)
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    console.error(`读取 ${table} 失败：HTTP ${response.status} ${text.slice(0, 300)}`);
-    throw new Error("读取数据失败，请稍后再试。");
+  const rows: T[] = [];
+  const maximum = limit ?? Number.POSITIVE_INFINITY;
+  while (rows.length < maximum) {
+    const pageSize = Math.min(1000, maximum - rows.length);
+    const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    url.searchParams.set("limit", String(pageSize));
+    url.searchParams.set("offset", String(rows.length));
+    const response = await fetch(url, {
+      headers: serviceHeaders(serviceRoleKey)
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      console.error(`读取 ${table} 失败：HTTP ${response.status} ${text.slice(0, 300)}`);
+      throw new Error("读取数据失败，请稍后再试。");
+    }
+    const page = JSON.parse(text) as T[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
   }
-  return JSON.parse(text) as T[];
+  return rows;
 }
 
 async function optionalRestGet<T>(
   table: string,
   serviceRoleKey: string,
   params: Record<string, string>,
-  limit = 1000
+  limit?: number
 ): Promise<T[]> {
   try {
     return await restGet<T>(table, serviceRoleKey, params, limit);
@@ -328,8 +400,7 @@ function emptyCounts(): UserCounts {
 }
 
 async function getSummary(serviceRoleKey: string) {
-  const authData = await authAdminGet<{ users?: SupabaseUser[] }>("users?page=1&per_page=1000", serviceRoleKey);
-  const users = (authData.users ?? []).filter((user) => !isSmokeTestUser(user));
+  const users = (await listAllAuthUsers(serviceRoleKey)).filter((user) => !isSmokeTestUser(user));
   const counts = new Map<string, UserCounts>();
 
   for (const config of SUMMARY_TABLES) {
@@ -376,8 +447,7 @@ function isSmokeTestUser(user: SupabaseUser): boolean {
 }
 
 async function getDetails(targetUserId: string, serviceRoleKey: string) {
-  const authData = await authAdminGet<{ users?: SupabaseUser[] }>("users?page=1&per_page=1000", serviceRoleKey);
-  const user = (authData.users ?? []).find((item) => item.id === targetUserId) ?? null;
+  const user = await authAdminGet<SupabaseUser>(`users/${encodeURIComponent(targetUserId)}`, serviceRoleKey).catch(() => null);
   const [semesters, courses, events, anniversaries, memos, focusSessions, aiAccess, aiUsageRows] = await Promise.all([
     optionalRestGet( "semesters", serviceRoleKey, { select: DETAIL_TABLES.semesters, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
     optionalRestGet("courses", serviceRoleKey, { select: DETAIL_TABLES.courses, user_id: `eq.${targetUserId}`, deleted_at: "is.null", order: "updated_at.desc" }),
@@ -492,10 +562,22 @@ async function resolveTargetUserId(targetUserId: string | undefined, targetEmail
   if (normalizedId) return normalizedId;
   const email = targetEmail?.trim().toLowerCase();
   if (!email) throw new Error("缺少用户 ID 或邮箱。");
-  const authData = await authAdminGet<{ users?: SupabaseUser[] }>("users?page=1&per_page=1000", serviceRoleKey);
-  const user = (authData.users ?? []).find((item) => item.email?.toLowerCase() === email);
+  const user = (await listAllAuthUsers(serviceRoleKey)).find((item) => item.email?.toLowerCase() === email);
   if (!user) throw new Error("没有找到该邮箱对应的账号。");
   return user.id;
+}
+
+async function listAllAuthUsers(serviceRoleKey: string): Promise<SupabaseUser[]> {
+  const users: SupabaseUser[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await authAdminGet<{ users?: SupabaseUser[] }>(
+      `users?page=${page}&per_page=1000`,
+      serviceRoleKey
+    );
+    const batch = result.users ?? [];
+    users.push(...batch);
+    if (batch.length < 1000) return users;
+  }
 }
 
 async function setAiAccess(

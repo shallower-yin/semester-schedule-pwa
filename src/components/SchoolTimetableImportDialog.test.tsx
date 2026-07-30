@@ -15,7 +15,7 @@ describe("课表提取器学校目录", () => {
   });
 
   it("支持按学校搜索并将常用学校置顶", () => {
-    const { container } = render(<SchoolTimetableImportDialog semester={null} onClose={vi.fn()} />);
+    render(<SchoolTimetableImportDialog semester={null} onClose={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox", { name: "搜索学校" }), { target: { value: "清华" } });
     expect(screen.getByText("清华大学")).toBeInTheDocument();
     expect(screen.queryByText("天津大学")).not.toBeInTheDocument();
@@ -23,7 +23,7 @@ describe("课表提取器学校目录", () => {
     fireEvent.click(screen.getByRole("button", { name: "置顶清华大学" }));
     fireEvent.change(screen.getByRole("textbox", { name: "搜索学校" }), { target: { value: "" } });
 
-    const firstCard = container.querySelector(".school-extractor-grid article");
+    const firstCard = document.querySelector(".school-extractor-grid article");
     expect(firstCard).not.toBeNull();
     expect(within(firstCard as HTMLElement).getByText("清华大学")).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("school-extractor-pinned-v1") ?? "[]")).toEqual(["tsinghua"]);

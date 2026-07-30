@@ -17,6 +17,7 @@ describe("同步健康检查", () => {
     await db.syncQueue.bulkPut([
       {
         id: "11111111-1111-4111-8111-111111111111",
+        owner_id: "local",
         table_name: "events",
         record_id: "event-1",
         operation: "upsert",
@@ -26,6 +27,7 @@ describe("同步健康检查", () => {
       },
       {
         id: "22222222-2222-4222-8222-222222222222",
+        owner_id: "local",
         table_name: "events",
         record_id: "event-2",
         operation: "upsert",

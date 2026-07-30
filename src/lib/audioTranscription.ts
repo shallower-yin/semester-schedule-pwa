@@ -557,7 +557,7 @@ export async function splitM4aFileForAsr(
     onProgress?.(index, chunks.length, `解码 M4A 分段 ${index + 1}/${chunks.length}…`);
     const prefix = `p${String(index).padStart(width, "0")}`;
     const aac = new File(
-      [chunk.bytes],
+      [new Uint8Array(chunk.bytes).buffer],
       `${prefix}_${baseName}.aac`,
       { type: "audio/aac", lastModified: file.lastModified }
     );
@@ -674,7 +674,7 @@ export function maxSpeechWavPartSeconds(sampleRate: number, targetBytes: number)
 }
 
 /** Mix multi-channel AudioBuffer to a single chronological Float32Array. */
-export function mixToMonoSamples(buffer: AudioBuffer): { samples: Float32Array; sampleRate: number } {
+export function mixToMonoSamples(buffer: AudioBuffer): { samples: Float32Array<ArrayBuffer>; sampleRate: number } {
   const length = buffer.length;
   const channels = Math.max(1, buffer.numberOfChannels);
   const samples = new Float32Array(length);
@@ -696,12 +696,12 @@ export function mixToMonoSamples(buffer: AudioBuffer): { samples: Float32Array; 
  * Pure math — no Web Audio OfflineAudioContext (avoids offset/sample-rate bugs on WebView).
  */
 export function sliceAndResampleMono(
-  samples: Float32Array,
+  samples: Float32Array<ArrayBuffer>,
   srcRate: number,
   startSec: number,
   durationSec: number,
   targetRate: number
-): Float32Array {
+): Float32Array<ArrayBuffer> {
   if (!Number.isFinite(srcRate) || srcRate <= 0) throw new Error("无效的源采样率");
   if (!Number.isFinite(targetRate) || targetRate <= 0) throw new Error("无效的目标采样率");
   const startFrame = Math.max(0, Math.min(samples.length, Math.floor(startSec * srcRate)));

@@ -154,7 +154,7 @@
 .attachment-paste-hint {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
   line-height: 1.4;
   text-align: right;
 }
@@ -207,7 +207,7 @@
 
 .attachment-source-menu small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .assistant-attachments {
@@ -223,7 +223,7 @@
 
 .assistant-context-attachments > small {
   color: #667085;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -238,7 +238,7 @@
   border-radius: 7px;
   color: #42516d;
   background: #f7f9fd;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .assistant-attachments strong {
@@ -284,7 +284,7 @@
   padding: 0;
   color: var(--muted);
   background: transparent;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .assistant-empty-icon {
@@ -313,7 +313,7 @@
   border-radius: 10px;
   color: #40506c;
   background: white;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -349,7 +349,7 @@
 
 .ai-access-panel span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -380,7 +380,7 @@
   border-radius: 10px;
   color: #526071;
   background: #f8faff;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -390,7 +390,7 @@
 
 .ai-assistant-capability small {
   color: var(--primary);
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 750;
   white-space: nowrap;
 }
@@ -433,7 +433,7 @@
   padding: 0 7px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .mind-map-modal {
@@ -472,7 +472,7 @@
   display: grid;
   gap: 6px;
   color: #46546b;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -496,7 +496,7 @@
   border-radius: 7px;
   color: #536174;
   background: #f8fafc;
-  font-size: 11px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -512,7 +512,7 @@
 .mind-map-processing-status {
   margin: 0;
   color: var(--primary);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -523,7 +523,7 @@
   gap: 3px;
   margin-right: auto;
   color: #46546b;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 750;
   white-space: nowrap;
 }
@@ -581,7 +581,7 @@
 
 .mind-map-result-toolbar small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .mind-map-result-toolbar > div:last-child,
@@ -596,7 +596,7 @@
   flex: 0 0 auto;
   color: var(--muted);
   text-align: center;
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .mind-map-result-toolbar .button.compact {
@@ -637,13 +637,13 @@
 
 .mind-map-followup-history strong {
   color: #24324a;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .mind-map-followup-history p {
   margin: 0;
   color: #536174;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -722,7 +722,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .mind-map-preview-dialog > header > div {
@@ -762,7 +762,7 @@
   flex: 0 0 auto;
   min-height: 30px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -805,7 +805,7 @@
   flex: 0 0 auto;
   min-width: 36px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
   text-align: center;
 }
 
@@ -823,7 +823,7 @@
 
 .mind-map-node text {
   fill: #27364f;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 650;
   dominant-baseline: middle;
 }
@@ -835,7 +835,7 @@
 
 .mind-map-node.depth-0 text {
   fill: white;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 800;
 }
 
@@ -905,7 +905,7 @@
   display: grid;
   gap: 5px;
   color: #46546b;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -920,7 +920,7 @@
 }
 
 .audio-transcription-progress strong {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1.35;
   word-break: break-word;
@@ -928,7 +928,7 @@
 
 .audio-transcription-progress small {
   color: #4b6a9b;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .audio-transcription-progress-bar {
@@ -949,7 +949,7 @@
 .audio-file-field input {
   min-width: 0;
   padding: 7px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .audio-transcription-controls > .button {
@@ -1017,7 +1017,7 @@
   border-radius: 7px;
   color: #991b1b;
   background: #fff7f7;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -1068,7 +1068,7 @@
   gap: 4px;
   min-width: 150px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .translation-direction {
@@ -1103,7 +1103,7 @@
   padding: 9px 11px;
   cursor: pointer;
   color: #46546b;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -1118,7 +1118,7 @@
   display: grid;
   gap: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .translation-terms textarea {
@@ -1153,7 +1153,7 @@
 
 .translation-editors > article > header span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .translation-editors > article > textarea {
@@ -1219,13 +1219,13 @@
 .translation-primary-actions > span {
   margin-right: auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .translation-primary-actions > p {
   margin: 0;
   color: var(--danger);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .translation-history {
@@ -1310,7 +1310,7 @@
 
 .ai-task-drag-handle span {
   padding-left: 6px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -1325,7 +1325,7 @@
 }
 
 .ai-task-collapsed-handle strong {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .ai-task-notice {
@@ -1380,7 +1380,7 @@
 
 .ai-task-notice span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .audio-file-list {
@@ -1417,12 +1417,12 @@
 }
 
 .audio-file-list strong {
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .audio-file-list small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 0.75rem;
 }
 
 .audio-followup {
@@ -1441,7 +1441,7 @@
 
 .audio-followup > header span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.75rem;
 }
 
 .audio-followup > p {

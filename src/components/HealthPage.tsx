@@ -2,6 +2,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Activity, Bell, ChevronDown, ChevronUp, Clock3, Dumbbell, Footprints, GlassWater, HeartPulse, History, ListPlus, Plus, RotateCcw, Save, Scale, Trash2, Undo2 } from "lucide-react";
 import { useMemo, useState, type CSSProperties } from "react";
 import { db, putRecordAndQueue } from "../db";
+import { formatMonthDay, toISODate } from "../lib/date";
 import { DEFAULT_EXERCISE_ITEMS, DEFAULT_HEALTH_PROFILE } from "../lib/health";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, refreshNativeReminderSchedule } from "../lib/notifications";
@@ -202,7 +203,12 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
             const appearance = exerciseAppearance(exercise, index);
             const ExerciseIcon = appearance.icon;
             return (
-              <button key={exercise} className={`health-exercise-button ${appearance.tone}`} onClick={() => void addLog("exercise", exerciseEntry, "rep", exercise)}>
+              <button
+                key={exercise}
+                className={`health-exercise-button ${appearance.tone}`}
+                aria-label={`${exercise} +${exerciseEntry} 次`}
+                onClick={() => void addLog("exercise", exerciseEntry, "rep", exercise)}
+              >
                 <ExerciseIcon size={20} /><strong>{exercise}</strong><span>+{exerciseEntry} 次</span>
               </button>
             );
@@ -273,10 +279,7 @@ function sum(logs: HealthLog[], kind: HealthLogKind): number {
 }
 
 function localDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toISODate(date);
 }
 
 function numericOr(value: string, fallback: number | null): number | null {
@@ -336,6 +339,6 @@ function logIcon(item: HealthLog) {
 function formatLogDate(value: string): string {
   const date = new Date(value);
   const today = localDate(new Date());
-  const prefix = localDate(date) === today ? "今天" : `${date.getMonth() + 1}月${date.getDate()}日`;
-  return `${prefix} ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  const prefix = localDate(date) === today ? "今天" : formatMonthDay(date);
+  return `${prefix} ${date.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false })}`;
 }

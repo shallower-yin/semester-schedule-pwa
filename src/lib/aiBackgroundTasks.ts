@@ -20,6 +20,8 @@ interface AiTaskDefinition<T> {
 }
 
 export const AI_TASK_OPEN_EVENT = "semester-schedule-open-ai-task";
+export const AI_TASK_STORAGE_KEY = "semester-schedule-ai-task-snapshots-v1";
+const PERSISTED_TASK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const FEATURE_LABELS: Record<AiTaskFeature, string> = {
   assistant: "AI 助手",
@@ -35,7 +37,7 @@ const idleSnapshots: Record<AiTaskFeature, AiTaskSnapshot> = {
   audio_transcription: idleSnapshot("audio_transcription")
 };
 
-const tasks = new Map<AiTaskFeature, AiTaskSnapshot>();
+const tasks = restorePersistedTasks();
 const retries = new Map<AiTaskFeature, () => void>();
 const controllers = new Map<AiTaskFeature, AbortController>();
 const listeners = new Set<() => void>();
@@ -115,7 +117,9 @@ export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
 }
 
 export function retryAiTask(feature: AiTaskFeature): void {
-  retries.get(feature)?.();
+  const retry = retries.get(feature);
+  if (retry) retry();
+  else openAiTask(feature);
 }
 
 export function cancelAiTask(feature: AiTaskFeature): boolean {
@@ -124,6 +128,7 @@ export function cancelAiTask(feature: AiTaskFeature): boolean {
   controllers.delete(feature);
   tasks.delete(feature);
   retries.delete(feature);
+  persistTasks();
   emit();
   return true;
 }
@@ -143,6 +148,19 @@ export function dismissAiTask(feature: AiTaskFeature): void {
   controllers.delete(feature);
   tasks.delete(feature);
   retries.delete(feature);
+  persistTasks();
+  emit();
+}
+
+export function clearAllAiTasks(): void {
+  for (const controller of controllers.values()) {
+    controller.abort(new DOMException("账号已退出。", "AbortError"));
+  }
+  for (const feature of dismissalTimers.keys()) clearDismissalTimer(feature);
+  controllers.clear();
+  tasks.clear();
+  retries.clear();
+  persistTasks();
   emit();
 }
 
@@ -182,6 +200,7 @@ function idleSnapshot(feature: AiTaskFeature): AiTaskSnapshot {
 
 function updateTask(task: AiTaskSnapshot): void {
   tasks.set(task.feature, task);
+  persistTasks();
   emit();
 }
 
@@ -204,4 +223,52 @@ async function showCompletionNotification(feature: AiTaskFeature, body: string):
     badge: `${import.meta.env.BASE_URL}app-icon-192.png`,
     data: { url: target.toString() }
   });
+}
+
+function restorePersistedTasks(): Map<AiTaskFeature, AiTaskSnapshot> {
+  const restored = new Map<AiTaskFeature, AiTaskSnapshot>();
+  if (typeof localStorage === "undefined") return restored;
+  try {
+    const values = JSON.parse(localStorage.getItem(AI_TASK_STORAGE_KEY) ?? "[]") as Partial<AiTaskSnapshot>[];
+    const now = Date.now();
+    for (const value of Array.isArray(values) ? values : []) {
+      if (!isAiTaskFeature(value.feature) || !isAiTaskStatus(value.status)) continue;
+      const timestamp = Number(value.completedAt ?? value.startedAt ?? 0);
+      if (!timestamp || now - timestamp > PERSISTED_TASK_MAX_AGE_MS) continue;
+      const interrupted = value.status === "running";
+      restored.set(value.feature, {
+        feature: value.feature,
+        status: interrupted ? "error" : value.status,
+        label: typeof value.label === "string" && value.label ? value.label : FEATURE_LABELS[value.feature],
+        message: interrupted
+          ? "页面曾在任务进行中重新加载。已完成的阶段结果会保留；请打开该功能检查并重新提交未完成部分。"
+          : String(value.message || ""),
+        startedAt: Number.isFinite(value.startedAt) ? Number(value.startedAt) : null,
+        completedAt: interrupted ? now : (Number.isFinite(value.completedAt) ? Number(value.completedAt) : null)
+      });
+    }
+  } catch {
+    localStorage.removeItem(AI_TASK_STORAGE_KEY);
+  }
+  queueMicrotask(persistTasks);
+  return restored;
+}
+
+function persistTasks(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const values = Array.from(tasks.values()).filter((task) => task.status !== "idle");
+    if (values.length) localStorage.setItem(AI_TASK_STORAGE_KEY, JSON.stringify(values));
+    else localStorage.removeItem(AI_TASK_STORAGE_KEY);
+  } catch {
+    // Storage can be unavailable in private mode. Task execution must continue.
+  }
+}
+
+function isAiTaskFeature(value: unknown): value is AiTaskFeature {
+  return value === "assistant" || value === "translation" || value === "mind_map" || value === "audio_transcription";
+}
+
+function isAiTaskStatus(value: unknown): value is AiTaskStatus {
+  return value === "idle" || value === "running" || value === "success" || value === "error";
 }

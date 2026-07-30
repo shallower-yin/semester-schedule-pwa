@@ -53,9 +53,9 @@ describe("管理后台 AI 模型选择", () => {
   afterEach(cleanup);
 
   it("使用内置主 AI 和音频转写模型下拉框", async () => {
-    const { container } = render(<AdminDialog onClose={vi.fn()} />);
+    render(<AdminDialog onClose={vi.fn()} />);
 
-    const selects = () => Array.from(container.querySelectorAll(".admin-ai-provider-row select")) as HTMLSelectElement[];
+    const selects = () => Array.from(document.querySelectorAll(".admin-ai-provider-row select")) as HTMLSelectElement[];
     await waitFor(() => expect(selects().map((select) => select.value)).toEqual([
       "mimo",
       "mimo-v2.5",
@@ -78,9 +78,9 @@ describe("管理后台 AI 模型选择", () => {
   });
 
   it("保留音频转写独立通道，不跟随主 AI 供应商切换", async () => {
-    const { container } = render(<AdminDialog onClose={vi.fn()} />);
+    render(<AdminDialog onClose={vi.fn()} />);
 
-    const selects = () => Array.from(container.querySelectorAll(".admin-ai-provider-row select")) as HTMLSelectElement[];
+    const selects = () => Array.from(document.querySelectorAll(".admin-ai-provider-row select")) as HTMLSelectElement[];
     await waitFor(() => expect(selects().at(-1)).toHaveValue("TeleAI/TeleSpeechASR"));
     fireEvent.change(selects()[0], { target: { value: "deepseek" } });
     expect(selects().at(-2)).toHaveValue("siliconflow");

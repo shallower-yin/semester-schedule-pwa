@@ -73,7 +73,7 @@ describe("意见反馈通道", () => {
 
   it("登录用户可以提交正文和图片附件", async () => {
     setMobileMode(true);
-    const { container } = render(<FeedbackDialog userId="user-1" userEmail="user@example.com" onRequestLogin={vi.fn()} onClose={vi.fn()} />);
+    render(<FeedbackDialog userId="user-1" userEmail="user@example.com" onRequestLogin={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(listMyFeedbackMock).toHaveBeenCalledWith("user-1"));
 
     const file = new File(["png"], "screenshot.png", { type: "image/png" });
@@ -81,7 +81,7 @@ describe("意见反馈通道", () => {
     expect(screen.getByRole("menuitem", { name: /相册/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /拍照/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /文件/ })).toBeInTheDocument();
-    const fileInput = container.querySelector('input[aria-label="从相册选择"]') as HTMLInputElement;
+    const fileInput = document.querySelector('input[aria-label="从相册选择"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [file] } });
     fireEvent.change(screen.getByLabelText("反馈内容"), { target: { value: "手机端按钮位置不对" } });
     fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));

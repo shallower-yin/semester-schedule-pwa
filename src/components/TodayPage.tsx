@@ -2,7 +2,7 @@ import { AlertCircle, CalendarCheck2, CalendarHeart, CheckCircle2, Clock3, Edit3
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
 import { daysUntilAnniversary, nextAnniversaryOccurrence } from "../lib/anniversaries";
-import { addDays, formatMonthDay, parseLocalDate, startOfWeek, toISODate } from "../lib/date";
+import { addDays, formatMonthDay, parseLocalDate, productDateTimeParts, startOfWeek, toISODate } from "../lib/date";
 import { setEventCompletedForDate, postponeEventToDate } from "../lib/eventActions";
 import { formatFocusDuration } from "../lib/focus";
 import { selectNextOverviewItem, type ScheduleOverview, type ScheduleOverviewItem } from "../lib/overview";
@@ -303,7 +303,8 @@ function quickAddShouldIgnore(target: EventTarget): boolean {
 }
 
 function defaultTodaySlot(now: Date): { date: string; start: string; end: string } {
-  const startMinutes = Math.min(23 * 60 + 30, Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30);
+  const productNow = productDateTimeParts(now);
+  const startMinutes = Math.min(23 * 60 + 30, Math.ceil((productNow.hour * 60 + productNow.minute) / 30) * 30);
   const endMinutes = Math.min(23 * 60 + 59, startMinutes + 30);
   return {
     date: toISODate(now),

@@ -4,8 +4,7 @@ const DEFAULT_ASSET_MIRROR_URL = "https://haifsnaupqhlvgfoyvlc.supabase.co/funct
 export const appInstallUrl = import.meta.env.VITE_APP_URL?.trim() || DEFAULT_APP_URL;
 export const appAssetMirrorUrl = import.meta.env.VITE_APP_ASSET_MIRROR_URL?.trim() || DEFAULT_ASSET_MIRROR_URL;
 export const appMirrorReleaseUrl = new URL("release.json", appAssetMirrorUrl).href;
-export const appMirrorAssetManifestUrl = new URL("asset-manifest.json", appAssetMirrorUrl).href;
-/** Conventional path on the same app-hosting mirror used by the web offline updater. */
+/** Conventional APK path on the independent no-proxy app mirror. */
 export const appMirrorApkPath = "android/semester-schedule.apk";
 export const appMirrorApkUrl = new URL(appMirrorApkPath, appAssetMirrorUrl).href;
 

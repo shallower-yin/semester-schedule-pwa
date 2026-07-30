@@ -213,10 +213,10 @@ describe("AI 助手消息编辑", () => {
     askDeepSeekAssistantMock
       .mockResolvedValueOnce({ answer: "已读取文件", actions: [] })
       .mockResolvedValueOnce({ answer: "后续回答", actions: [] });
-    const { container } = render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "导入图片或文档" });
 
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [new File(["课程安排：周五提交报告"], "安排.txt", { type: "text/plain" })] } });
     expect(await screen.findByText("安排.txt")).toBeInTheDocument();
 

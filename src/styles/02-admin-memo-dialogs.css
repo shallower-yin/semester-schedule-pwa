@@ -39,7 +39,7 @@
 
 .semester-list-main > span:last-child {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -102,12 +102,12 @@
 
 .compact-empty h2 {
   color: #283143;
-  font-size: 19px;
+  font-size: 1.1875rem;
 }
 
 .modal-backdrop {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-backdrop);
   inset: 0;
   display: grid;
   overflow: auto;
@@ -154,7 +154,7 @@
 .modal-header h2 {
   flex: 0 0 auto;
   margin: 0;
-  font-size: 19px;
+  font-size: 1.1875rem;
 }
 
 .modal-header-extra {
@@ -206,7 +206,7 @@
   flex-direction: column;
   gap: 7px;
   color: #394355;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 650;
 }
 
@@ -286,7 +286,7 @@ textarea {
 .event-completion-editor p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -310,7 +310,7 @@ textarea {
   grid-column: 1 / -1;
   margin: 0;
   color: #52637e;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -337,7 +337,7 @@ textarea {
 .form-hint {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.55;
 }
 
@@ -362,13 +362,13 @@ textarea {
 
 .section-heading h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .section-heading p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .schedule-editor {
@@ -391,7 +391,7 @@ textarea {
   align-items: center;
   justify-content: space-between;
   color: #4f596b;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 650;
 }
 
@@ -400,7 +400,7 @@ textarea {
   border: 0;
   color: var(--primary);
   background: transparent;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -417,7 +417,7 @@ textarea {
   border-radius: 7px;
   color: #5c6677;
   background: white;
-  font-size: 12px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 
@@ -467,7 +467,7 @@ textarea {
 .period-toolbar p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -498,7 +498,7 @@ textarea {
 }
 
 .time-block-kind {
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 650;
 }
 
@@ -506,7 +506,7 @@ textarea {
   padding: 28px;
   color: var(--muted);
   text-align: center;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .period-table-head,
@@ -522,7 +522,7 @@ textarea {
 .period-table-head {
   color: #667085;
   background: #f6f8fb;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -538,7 +538,7 @@ textarea {
 .lunch-preview {
   color: #80551f;
   background: #fff8eb;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .backup-options {
@@ -555,13 +555,13 @@ textarea {
 
 .backup-options h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 0.9375rem;
 }
 
 .backup-options p {
   margin: 7px 0 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -602,7 +602,7 @@ textarea {
 .backup-method-row span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.4;
   text-overflow: ellipsis;
 }
@@ -628,7 +628,7 @@ textarea {
   justify-content: space-between;
   gap: 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .backup-snapshot-row .inline-actions {
@@ -656,7 +656,7 @@ textarea {
 .backup-preview-summary span {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .backup-preview-table {
@@ -683,7 +683,7 @@ textarea {
 .backup-preview-table small {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -742,7 +742,7 @@ textarea {
   border-radius: 6px;
   color: #647085;
   background: transparent;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
   cursor: pointer;
 }
@@ -806,7 +806,7 @@ textarea {
   border-radius: 999px;
   background: #e5e7eb;
   color: #374151;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -844,14 +844,14 @@ textarea {
 .admin-detail-header p {
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .admin-detail-header small {
   display: block;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
 
@@ -867,14 +867,14 @@ textarea {
   border-left: 3px solid #e4a11b;
   color: #684d18;
   background: #fff9e8;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
 .admin-data-note {
   margin: -4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.45;
 }
 
@@ -894,12 +894,12 @@ textarea {
 }
 
 .admin-stats-grid strong {
-  font-size: 18px;
+  font-size: 1.125rem;
 }
 
 .admin-stats-grid span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .admin-ai-usage-summary {
@@ -920,17 +920,17 @@ textarea {
 
 .admin-ai-usage-card span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
 .admin-ai-usage-card strong {
-  font-size: 18px;
+  font-size: 1.125rem;
 }
 
 .admin-ai-usage-card small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .admin-access-editor,
@@ -986,7 +986,7 @@ textarea {
   display: grid;
   gap: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -1023,7 +1023,7 @@ textarea {
 .admin-feature-quota-header {
   color: #647085;
   background: #f6f8fc;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -1032,7 +1032,7 @@ textarea {
 }
 
 .admin-feature-quota-row > strong {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .admin-feature-quota-row label {
@@ -1042,7 +1042,7 @@ textarea {
 .admin-feature-quota-row input,
 .admin-feature-quota-row select {
   width: 100%;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .admin-cleanup-controls {
@@ -1056,7 +1056,7 @@ textarea {
   display: grid;
   gap: 5px;
   color: #536174;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -1068,7 +1068,7 @@ textarea {
   display: grid;
   gap: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -1094,7 +1094,7 @@ textarea {
   border-radius: 8px;
   color: #3d6650;
   background: #f0faf4;
-  font-size: 12px;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
@@ -1116,7 +1116,7 @@ textarea {
 .admin-record-list span {
   overflow-wrap: anywhere;
   color: var(--text);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .file-input {
@@ -1162,13 +1162,13 @@ textarea {
   flex-direction: column;
   gap: 6px;
   color: #394355;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 650;
 }
 
 .import-options label small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.45;
 }
@@ -1200,13 +1200,13 @@ textarea {
 
 .import-preview-summary strong {
   color: #1f2937;
-  font-size: 20px;
+  font-size: 1.25rem;
 }
 
 .import-preview-summary span {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .import-conflict-panel {
@@ -1218,7 +1218,7 @@ textarea {
   border-radius: 10px;
   color: #7c2d12;
   background: #fff8f3;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -1254,7 +1254,7 @@ textarea {
 .import-preview-list p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -1264,7 +1264,7 @@ textarea {
   border-radius: 9px;
   color: #265e43;
   background: #edf8f2;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -1331,7 +1331,7 @@ textarea {
 .memo-sidebar-section > span,
 .memo-sidebar-title > span {
   color: #8a93a3;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
@@ -1447,7 +1447,7 @@ textarea {
   gap: 12px;
   margin-bottom: 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 700;
 }
 
@@ -1486,7 +1486,7 @@ textarea {
 
 .memo-card time {
   color: #98a1af;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .memo-pin {
@@ -1497,7 +1497,7 @@ textarea {
   border-radius: 999px;
   color: #9b5a0a;
   background: #fff3d6;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1506,7 +1506,7 @@ textarea {
   max-width: 100%;
   overflow-wrap: anywhere;
   margin: 10px 0 8px;
-  font-size: 19px;
+  font-size: 1.1875rem;
 }
 
 .memo-todo-badge {
@@ -1517,7 +1517,7 @@ textarea {
   border-radius: 999px;
   color: #2563eb;
   background: #eaf2ff;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -1531,7 +1531,7 @@ textarea {
   border-radius: 999px;
   color: #7c3aed;
   background: #f1eafe;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -1605,7 +1605,7 @@ textarea {
 .memo-textarea,
 .memo-textarea-visual {
   font-family: inherit;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.65;
 }

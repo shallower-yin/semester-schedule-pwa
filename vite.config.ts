@@ -49,11 +49,13 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
-          manualChunks: {
-            react: ["react", "react-dom"],
-            dexie: ["dexie", "dexie-react-hooks"],
-            supabase: ["@supabase/supabase-js"],
-            icons: ["lucide-react"]
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (/[\\/]node_modules[\\/](?:react|react-dom|scheduler)[\\/]/.test(id)) return "react";
+            if (/[\\/]node_modules[\\/](?:dexie|dexie-react-hooks)[\\/]/.test(id)) return "dexie";
+            if (id.includes(`${resolve("node_modules", "@supabase").replace(/\\/g, "/")}/`) || id.includes("/node_modules/@supabase/")) return "supabase";
+            if (id.includes("/node_modules/lucide-react/") || id.includes("\\node_modules\\lucide-react\\")) return "icons";
+            return undefined;
           }
         }
       }
@@ -188,7 +190,10 @@ function loadReleaseNotes(): { title: string; notes: string[] } {
 }
 
 function assertReleaseNotesMatchCurrentCommit() {
-  if (!process.env.GITHUB_ACTIONS) return;
+  // CI/test builds do not publish release metadata. Deployment workflows opt
+  // in explicitly so pull requests and merge commits are never rejected only
+  // because their HEAD is not the last notes-editing commit.
+  if (process.env.REQUIRE_RELEASE_NOTES !== "true") return;
   const currentCommit = (process.env.GITHUB_SHA || runGit(["rev-parse", "HEAD"])).trim();
   const pushBase = (process.env.GITHUB_EVENT_BEFORE || "").trim();
   if (/^[0-9a-f]{40}$/i.test(pushBase) && !/^0+$/.test(pushBase)) {
