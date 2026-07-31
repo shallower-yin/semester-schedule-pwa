@@ -13,6 +13,12 @@ export interface AppRelease {
   apkVersionCode?: number;
   /** Optional lowercase hex SHA-256 of the APK file. */
   apkSha256?: string;
+  /** Web bundle version actually packaged inside the published APK. */
+  apkVersion?: string;
+  apkCommit?: string;
+  apkTitle?: string;
+  apkNotes?: string[];
+  apkPublishedAt?: string;
 }
 
 const SKIPPED_RELEASE_KEY = "semester-schedule-skipped-release";
@@ -28,16 +34,7 @@ export async function fetchLatestRelease(): Promise<AppRelease | null> {
     .flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []);
   if (!releases.length) return null;
 
-  // Prefer the mirror (or any source) that carries APK metadata, highest versionCode first.
-  const withApk = releases
-    .filter((item) => item.apkUrl || item.apkVersionCode)
-    .sort((left, right) => (right.apkVersionCode ?? 0) - (left.apkVersionCode ?? 0));
-  if (withApk.length) {
-    return ensureAbsoluteApkUrl(withApk[0]);
-  }
-  return ensureAbsoluteApkUrl(
-    releases.sort((left, right) => compareVersions(right.version, left.version))[0] ?? null
-  );
+  return combineLatestReleases(releases);
 }
 
 export function shouldShowRelease(currentVersion: string, release: AppRelease | null): release is AppRelease {
@@ -46,29 +43,50 @@ export function shouldShowRelease(currentVersion: string, release: AppRelease | 
 }
 
 /**
- * APK should show the same release-notes dialog as the web build when
- * release.json version advances, and also when a newer APK binary (versionCode) is published.
+ * Android can only install a package whose native versionCode is newer.
+ * A newer web release that still points to the installed APK must never show as an APK update.
  */
 export function shouldShowNativeRelease(
   installed: { versionCode: number; versionName: string },
-  release: AppRelease | null,
-  packagedWebVersion: string = installed.versionName
+  release: AppRelease | null
 ): release is AppRelease {
   if (!release) return false;
-  // Same human version gate as PWA (avoid type-predicate narrowing that collapses release to never).
-  const webVersion = packagedWebVersion || installed.versionName;
-  if (
-    compareVersions(release.version, webVersion) > 0
-    && localStorage.getItem(SKIPPED_RELEASE_KEY) !== release.version
-  ) {
-    return true;
-  }
   const apkCode = release.apkVersionCode;
-  if (typeof apkCode === "number" && Number.isFinite(apkCode)) {
-    if (localStorage.getItem(SKIPPED_APK_CODE_KEY) === String(apkCode)) return false;
-    return apkCode > installed.versionCode;
-  }
-  return false;
+  if (typeof apkCode !== "number" || !Number.isFinite(apkCode)) return false;
+  if (localStorage.getItem(SKIPPED_APK_CODE_KEY) === String(apkCode)) return false;
+  return apkCode > installed.versionCode;
+}
+
+export function nativeReleaseDetails(release: AppRelease | null): AppRelease | null {
+  if (!release || (!release.apkUrl && !release.apkVersionCode)) return null;
+  return ensureAbsoluteApkUrl({
+    ...release,
+    version: release.apkVersion || release.version,
+    commit: release.apkCommit || release.commit,
+    title: release.apkTitle || release.title,
+    notes: release.apkNotes?.length ? release.apkNotes : release.notes,
+    publishedAt: release.apkPublishedAt || release.publishedAt
+  });
+}
+
+export function combineLatestReleases(releases: AppRelease[]): AppRelease | null {
+  if (!releases.length) return null;
+  const newestWeb = releases.slice().sort((left, right) => compareVersions(right.version, left.version))[0];
+  const newestApk = releases
+    .filter((item) => item.apkUrl || item.apkVersionCode)
+    .sort((left, right) => (right.apkVersionCode ?? 0) - (left.apkVersionCode ?? 0))[0];
+  if (!newestApk) return ensureAbsoluteApkUrl(newestWeb);
+  return ensureAbsoluteApkUrl({
+    ...newestWeb,
+    apkUrl: newestApk.apkUrl,
+    apkVersionCode: newestApk.apkVersionCode,
+    apkSha256: newestApk.apkSha256,
+    apkVersion: newestApk.apkVersion,
+    apkCommit: newestApk.apkCommit,
+    apkTitle: newestApk.apkTitle,
+    apkNotes: newestApk.apkNotes,
+    apkPublishedAt: newestApk.apkPublishedAt
+  });
 }
 
 export function skipReleaseVersion(version: string, apkVersionCode?: number) {
@@ -82,6 +100,18 @@ export function skipReleaseVersion(version: string, apkVersionCode?: number) {
 export function clearSkippedRelease() {
   localStorage.removeItem(SKIPPED_RELEASE_KEY);
   localStorage.removeItem(SKIPPED_APK_CODE_KEY);
+}
+
+export function appUpdateEntryStatus(input: {
+  updating: boolean;
+  updateMessage: string;
+  hasAvailableRelease: boolean;
+  serviceWorkerNeedsRefresh: boolean;
+}): string {
+  if (input.updating) return input.updateMessage || "正在更新…";
+  if (input.hasAvailableRelease) return "有新版本，点击更新";
+  if (input.serviceWorkerNeedsRefresh) return "更新已下载，点击刷新";
+  return "点击检查更新";
 }
 
 export function compareVersions(left: string, right: string): number {
@@ -116,7 +146,7 @@ export function apkDownloadUrlForRelease(release: AppRelease): string | undefine
   if (!resolved) return undefined;
   try {
     const url = new URL(resolved);
-    if (release.version) url.searchParams.set("v", release.version);
+    if (release.apkVersion || release.version) url.searchParams.set("v", release.apkVersion || release.version);
     if (release.apkVersionCode) url.searchParams.set("code", String(release.apkVersionCode));
     if (release.apkSha256) url.searchParams.set("sha", release.apkSha256.slice(0, 16));
     url.searchParams.set("t", String(Date.now()));
@@ -154,7 +184,12 @@ async function fetchRelease(url: string): Promise<AppRelease | null> {
       appUrl: String(value.appUrl ?? ""),
       apkUrl,
       apkVersionCode: Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? apkVersionCode : undefined,
-      apkSha256: typeof value.apkSha256 === "string" && value.apkSha256.trim() ? value.apkSha256.trim().toLowerCase() : undefined
+      apkSha256: typeof value.apkSha256 === "string" && value.apkSha256.trim() ? value.apkSha256.trim().toLowerCase() : undefined,
+      apkVersion: typeof value.apkVersion === "string" && value.apkVersion.trim() ? value.apkVersion.trim() : undefined,
+      apkCommit: typeof value.apkCommit === "string" && value.apkCommit.trim() ? value.apkCommit.trim() : undefined,
+      apkTitle: typeof value.apkTitle === "string" && value.apkTitle.trim() ? value.apkTitle.trim() : undefined,
+      apkNotes: Array.isArray(value.apkNotes) ? value.apkNotes.map(String).filter(Boolean).slice(0, 12) : undefined,
+      apkPublishedAt: typeof value.apkPublishedAt === "string" && value.apkPublishedAt.trim() ? value.apkPublishedAt.trim() : undefined
     };
   } catch {
     return null;

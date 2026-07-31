@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FocusSession } from "../types";
-import { elapsedFocusSeconds, focusDailyTotals, focusModeLabel, focusSessionsForDate, formatFocusDuration, remainingFocusSeconds, totalFocusSeconds } from "./focus";
+import { elapsedFocusSeconds, focusDailyTotals, focusModeLabel, focusSessionsForDate, formatFocusDuration, formatFocusRecordTiming, remainingFocusSeconds, totalFocusSeconds } from "./focus";
 
 describe("专注计时", () => {
   it("计算已用时间时扣除暂停时间", () => {
@@ -21,6 +21,14 @@ describe("专注计时", () => {
   it("格式化专注时长", () => {
     expect(formatFocusDuration(65)).toBe("01:05");
     expect(formatFocusDuration(3661)).toBe("01:01:01");
+  });
+
+  it("以北京时间纯数字显示记录的日期、起止时间和持续时间", () => {
+    expect(formatFocusRecordTiming(
+      "2026-07-30T08:19:23.000Z",
+      "2026-07-30T08:54:45.000Z",
+      2122
+    )).toBe("2026/07/30 · 16:19:23 → 16:54:45 · 35:22");
   });
 
   it("支持锁机模式标签", () => {

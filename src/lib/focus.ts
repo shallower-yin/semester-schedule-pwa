@@ -1,5 +1,5 @@
 import type { FocusSession, FocusTimerMode } from "../types";
-import { toISODate } from "./date";
+import { productDateTimeParts, toISODate } from "./date";
 
 export interface ActiveFocusState {
   mode: FocusTimerMode;
@@ -135,6 +135,19 @@ export function formatFocusDuration(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(restSeconds).padStart(2, "0")}`;
 }
 
+export function formatFocusRecordTiming(startedAt: string, endedAt: string, durationSeconds: number): string {
+  const started = productDateTimeParts(new Date(startedAt));
+  const ended = productDateTimeParts(new Date(endedAt));
+  const startedDate = `${started.year}/${pad2(started.month)}/${pad2(started.day)}`;
+  const endedDate = `${ended.year}/${pad2(ended.month)}/${pad2(ended.day)}`;
+  const startedTime = `${pad2(started.hour)}:${pad2(started.minute)}:${pad2(started.second)}`;
+  const endedTime = `${pad2(ended.hour)}:${pad2(ended.minute)}:${pad2(ended.second)}`;
+  const range = startedDate === endedDate
+    ? `${startedDate} · ${startedTime} → ${endedTime}`
+    : `${startedDate} ${startedTime} → ${endedDate} ${endedTime}`;
+  return `${range} · ${formatFocusDuration(durationSeconds)}`;
+}
+
 export function focusSessionsForDate(sessions: FocusSession[], date: Date): FocusSession[] {
   const target = toISODate(date);
   return sessions.filter((session) => toISODate(new Date(session.ended_at)) === target && !session.deleted_at);
@@ -173,4 +186,8 @@ export function focusModeLabel(mode: FocusTimerMode): string {
     lock: "锁机",
     rest: "休息"
   }[mode];
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }

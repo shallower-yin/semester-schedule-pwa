@@ -72,6 +72,28 @@ describe("专注记录管理", () => {
     expect(await db.syncQueue.where("table_name").equals("focusSessions").count()).toBe(2);
   });
 
+  it("移除重复的专注内容并让最近记录只保留一个标题和纯时间信息", async () => {
+    await db.focusSessions.clear();
+    await db.focusSessions.put({
+      ...session("3"),
+      mode: "stopwatch",
+      task_title: "正计时",
+      duration_seconds: 2122,
+      started_at: "2026-07-30T08:19:23.000Z",
+      ended_at: "2026-07-30T08:54:45.000Z"
+    });
+
+    render(<FocusPage ownerId="local" />);
+
+    expect(screen.queryByRole("heading", { name: "专注内容" })).not.toBeInTheDocument();
+    const title = await screen.findByText("正计时", { selector: ".focus-record-title" });
+    const card = title.closest("article");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getAllByText("正计时")).toHaveLength(1);
+    expect(within(card as HTMLElement).getByText("2026/07/30 · 16:19:23 → 16:54:45 · 35:22")).toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByText(/开始|结束|持续/)).not.toBeInTheDocument();
+  });
+
   it("开始专注不自动弹出系统小窗，仅点击“系统小窗”后才打开", async () => {
     vi.mocked(openFocusSystemWindow).mockClear();
     render(<FocusPage ownerId="local" />);

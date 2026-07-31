@@ -212,6 +212,7 @@
     bottom: calc(10px + var(--safe-bottom));
     left: 10px;
     display: grid;
+    grid-template-columns: repeat(var(--mobile-nav-count), minmax(var(--control-min-size), 1fr));
     gap: 3px;
     overflow-x: auto;
     padding: 5px;
@@ -220,6 +221,25 @@
     background: color-mix(in srgb, var(--surface) 94%, transparent);
     box-shadow: 0 12px 32px rgb(23 35 58 / 16%);
     backdrop-filter: blur(18px);
+  }
+
+  .app-shell[data-app-target="android"] .mobile-bottom-nav {
+    grid-template-columns: repeat(var(--mobile-nav-count), minmax(0, 1fr));
+    gap: 2px;
+    overflow-x: hidden;
+  }
+
+  .app-shell[data-app-target="android"] .mobile-bottom-nav button {
+    min-width: 0;
+    overflow: hidden;
+    padding-right: 0;
+    padding-left: 0;
+    white-space: nowrap;
+  }
+
+  .app-shell[data-app-target="android"] .mobile-bottom-nav[data-item-count="8"] button,
+  .app-shell[data-app-target="android"] .mobile-bottom-nav[data-item-count="9"] button {
+    font-size: 0.625rem;
   }
 
   .mobile-bottom-nav button {
@@ -772,10 +792,6 @@
   .focus-stats {
     width: 100%;
     overflow-x: auto;
-  }
-
-  .focus-breakdown-grid {
-    grid-template-columns: 1fr;
   }
 
   .modal-backdrop {

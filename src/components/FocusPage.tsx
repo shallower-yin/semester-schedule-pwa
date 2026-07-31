@@ -11,6 +11,7 @@ import {
   focusModeLabel,
   focusSessionsForDate,
   formatFocusDuration,
+  formatFocusRecordTiming,
   loadActiveFocus,
   loadPomodoroPlan,
   notifyFocusComplete,
@@ -118,8 +119,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const weekSeconds = totalFocusSeconds(weekSessions);
   const dailyTotals = useMemo(() => focusDailyTotals(sessions, 7, new Date()), [sessions]);
   const maxDailySeconds = Math.max(1, ...dailyTotals.map((item) => item.total_seconds));
-  const todayBreakdown = useMemo(() => focusBreakdown(todaySessions, events), [events, todaySessions]);
-  const weekBreakdown = useMemo(() => focusBreakdown(weekSessions, events), [events, weekSessions]);
   const elapsed = active ? nativeElapsed ?? elapsedFocusSeconds(active, now) : 0;
   const remaining = active?.planned_seconds == null ? null : Math.max(0, active.planned_seconds - elapsed);
   const displaySeconds = active ? remaining ?? elapsed : plannedSecondsForMode(mode, effectiveSettings);
@@ -712,14 +711,6 @@ export function FocusPage({ ownerId }: FocusPageProps) {
             </div>
           </section>
 
-          <section>
-            <h2><ListChecks size={18} />专注内容</h2>
-            <div className="focus-breakdown-grid">
-              <FocusBreakdownList title="今日" items={todayBreakdown} />
-              <FocusBreakdownList title="本周" items={weekBreakdown} />
-            </div>
-          </section>
-
         </aside>
       </div>
 
@@ -738,8 +729,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           {recentSessions.map((session) => (
             <article key={session.id} className={selectedSessionIds.has(session.id) ? "selected" : ""}>
               {managingRecords && <label className="focus-record-selector" aria-label={`选择${session.task_title || focusModeLabel(session.mode)}`}><input type="checkbox" checked={selectedSessionIds.has(session.id)} onChange={() => toggleRecordSelection(session.id)} /></label>}
-              <strong>{session.task_title || focusModeLabel(session.mode)}</strong>
-              <span>{focusModeLabel(session.mode)} · {formatFocusDuration(session.duration_seconds)} · {new Date(session.ended_at).toLocaleString()}</span>
+              <strong className="focus-record-title">{session.task_title || focusModeLabel(session.mode)}</strong>
+              <span className="focus-record-timing">{formatFocusRecordTiming(session.started_at, session.ended_at, session.duration_seconds)}</span>
               {!managingRecords && <div className="focus-record-actions">
                 <button className="button secondary compact" onClick={() => setSessionToEdit(session)}><Edit3 size={14} />编辑</button>
                 <button className="button danger-button compact" onClick={() => void deleteSession(session)}><Trash2 size={14} />彻底删除</button>
@@ -757,8 +748,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         <div className="focus-record-list focus-record-grid">
           {recentRestSessions.map((session) => (
             <article key={session.id}>
-              <strong>休息 {formatFocusDuration(session.duration_seconds)}</strong>
-              <span>{session.completed ? "已完成" : "提前结束"} · {new Date(session.ended_at).toLocaleString()}</span>
+              <strong className="focus-record-title">休息</strong>
+              <span className="focus-record-timing">{formatFocusRecordTiming(session.started_at, session.ended_at, session.duration_seconds)}</span>
               <div className="focus-record-actions">
                 <button className="button danger-button compact" onClick={() => void deleteRestSession(session)}><Trash2 size={14} />彻底删除</button>
               </div>
@@ -905,44 +896,6 @@ async function persistNativeTransitions(
     }
   }
   return plan;
-}
-
-interface FocusBreakdownItem {
-  title: string;
-  seconds: number;
-  count: number;
-}
-
-function focusBreakdown(sessions: FocusSession[], events: EventItem[]): FocusBreakdownItem[] {
-  const eventTitleMap = new Map(events.map((event) => [event.id, event.title]));
-  const map = new Map<string, FocusBreakdownItem>();
-  for (const session of sessions) {
-    const title = session.linked_event_id
-      ? eventTitleMap.get(session.linked_event_id) ?? session.task_title ?? "已删除任务"
-      : session.task_title || focusModeLabel(session.mode);
-    const key = title.trim() || "未命名专注";
-    const item = map.get(key) ?? { title: key, seconds: 0, count: 0 };
-    item.seconds += session.duration_seconds;
-    item.count += 1;
-    map.set(key, item);
-  }
-  return Array.from(map.values())
-    .sort((left, right) => right.seconds - left.seconds)
-    .slice(0, 6);
-}
-
-function FocusBreakdownList({ title, items }: { title: string; items: FocusBreakdownItem[] }) {
-  return (
-    <div className="focus-breakdown-list">
-      <strong>{title}</strong>
-      {items.length ? items.map((item) => (
-        <article key={item.title}>
-          <span>{item.title}</span>
-          <small>{formatFocusDuration(item.seconds)} · {item.count} 次</small>
-        </article>
-      )) : <p>暂无记录。</p>}
-    </div>
-  );
 }
 
 type StatsPeriod = "day" | "week" | "month";

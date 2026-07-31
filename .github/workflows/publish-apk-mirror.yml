@@ -170,9 +170,14 @@ jobs:
           data["apkVersionCode"]=int(os.environ["VITE_APK_VERSION_CODE"])
           data["apkSha256"]=os.environ["VITE_APK_SHA256"]
           data["apkUrl"]=os.environ["VITE_APK_URL"]
+          data["apkVersion"]=data["version"]
+          data["apkCommit"]=data["commit"]
+          data["apkTitle"]=data["title"]
+          data["apkNotes"]=data["notes"]
+          data["apkPublishedAt"]=data["publishedAt"]
           json.dump(data, open(path,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
           open(path,"a",encoding="utf-8").write("\n")
-          print(json.dumps({k:data.get(k) for k in ("version","apkVersionCode","apkUrl","apkSha256")}, ensure_ascii=False))
+          print(json.dumps({k:data.get(k) for k in ("version","apkVersion","apkCommit","apkVersionCode","apkUrl","apkSha256")}, ensure_ascii=False))
           PY
 
       - name: Deploy mirror (web + APK)
@@ -193,4 +198,4 @@ jobs:
           echo "APK HEAD status=$code"
           test "$code" = "200"
           rel=$(curl -sS "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/release.json")
-          echo "$rel" | python3 -c 'import os,sys,json; d=json.load(sys.stdin); assert int(d.get("apkVersionCode") or 0)==int(os.environ["EXPECTED_APK_CODE"]), d; print("release ok", d.get("version"), d.get("apkVersionCode"))'
+          echo "$rel" | python3 -c 'import os,sys,json; d=json.load(sys.stdin); assert int(d.get("apkVersionCode") or 0)==int(os.environ["EXPECTED_APK_CODE"]), d; assert d.get("apkVersion")==d.get("version"), d; assert d.get("apkCommit")==d.get("commit"), d; print("release ok", d.get("version"), d.get("apkVersion"), d.get("apkVersionCode"))'

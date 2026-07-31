@@ -37,9 +37,18 @@ const mirrorBase = (process.env.VITE_APP_ASSET_MIRROR_URL?.trim()
 if (!release.apkUrl && !release.apkVersionCode) {
   const previous = await downloadJsonObject("release.json");
   if (previous?.apkVersionCode || previous?.apkUrl) {
-    release.apkUrl = previous.apkUrl;
-    release.apkVersionCode = previous.apkVersionCode;
-    release.apkSha256 = previous.apkSha256;
+    for (const field of [
+      "apkUrl",
+      "apkVersionCode",
+      "apkSha256",
+      "apkVersion",
+      "apkCommit",
+      "apkTitle",
+      "apkNotes",
+      "apkPublishedAt"
+    ]) {
+      if (previous[field] !== undefined) release[field] = previous[field];
+    }
     console.log(`Merged previous APK metadata (versionCode=${release.apkVersionCode}) into release.json`);
   }
 }

@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
   const releaseNotes = loadReleaseNotes();
   const apkVersionCode = Number(process.env.VITE_APK_VERSION_CODE || "");
   const apkSha256 = process.env.VITE_APK_SHA256?.trim().toLowerCase() || "";
+  const publishedAt = new Date().toISOString();
   const apkUrl = process.env.VITE_APK_URL?.trim()
     || (Number.isFinite(apkVersionCode) && apkVersionCode > 0
       ? "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/android/semester-schedule.apk"
@@ -28,11 +29,16 @@ export default defineConfig(({ mode }) => {
     commit: appCommit,
     title: releaseNotes.title,
     notes: releaseNotes.notes,
-    publishedAt: new Date().toISOString(),
+    publishedAt,
     appUrl,
     ...(Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? {
       apkVersionCode,
       apkUrl,
+      apkVersion: appVersion,
+      apkCommit: appCommit,
+      apkTitle: releaseNotes.title,
+      apkNotes: releaseNotes.notes,
+      apkPublishedAt: publishedAt,
       ...(apkSha256 ? { apkSha256 } : {})
     } : {})
   }, null, 2);

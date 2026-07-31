@@ -40,7 +40,7 @@ import {
   X
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
 import { AssistantDialogs } from "./components/AssistantDialogs";
@@ -110,7 +110,7 @@ import { appHistoryLayer, appHistoryPage, initializeAppHistory, navigateAppHisto
 import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { appMirrorApkUrl } from "./lib/appHosting";
-import { apkDownloadUrlForRelease, clearSkippedRelease, fetchLatestRelease, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
+import { apkDownloadUrlForRelease, appUpdateEntryStatus, clearSkippedRelease, fetchLatestRelease, nativeReleaseDetails, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
@@ -407,15 +407,14 @@ export default function App() {
     if (isNativeApp()) {
       try {
         const native = await AppUpdater.getNativeVersion();
-        // Use packaged web __APP_VERSION__ so APK shows the same release notes dialog as PWA.
-        const show = shouldShowNativeRelease(native, release, __APP_VERSION__);
-        setAvailableRelease(show ? release : null);
-        return show ? release : null;
+        const apkRelease = nativeReleaseDetails(release);
+        const show = shouldShowNativeRelease(native, apkRelease);
+        setAvailableRelease(show ? apkRelease : null);
+        return show ? apkRelease : null;
       } catch {
-        // Fall back to web version string comparison if the native plugin is unavailable.
-        const show = shouldShowRelease(__APP_VERSION__, release);
-        setAvailableRelease(show ? release : null);
-        return show ? release : null;
+        // Without the native versionCode we cannot safely claim that an APK is installable.
+        setAvailableRelease(null);
+        return null;
       }
     }
     const show = shouldShowRelease(__APP_VERSION__, release);
@@ -646,11 +645,15 @@ export default function App() {
   async function applyAppUpdate(mode: "immediate" | "background" = "immediate") {
     if (updatingApp) return;
     const release = availableRelease;
-    if (!release) return;
+    if (!release && !needRefresh) return;
     setUpdatingApp(true);
 
     // Android APK: download signed package and hand it to the system installer (cover update, same key).
     if (isNativeApp()) {
+      if (!release) {
+        setUpdatingApp(false);
+        return;
+      }
       try {
         // Absolute HTTPS only — relative paths fail in the native downloader and look like "未配置".
         const apkUrl = apkDownloadUrlForRelease(release) || appMirrorApkUrl;
@@ -686,6 +689,10 @@ export default function App() {
     }
 
     if (mode === "background") {
+      if (!release) {
+        setUpdatingApp(false);
+        return;
+      }
       setAvailableRelease(null);
       setUpdateMessage("正在通知本站后台服务检查新版本…");
       showToast("已开始后台检查新版本，你可以继续使用应用。", "info");
@@ -707,7 +714,7 @@ export default function App() {
       }
       return;
     }
-    if (release.appUrl && !isCurrentAppUrl(release.appUrl)) {
+    if (release?.appUrl && !isCurrentAppUrl(release.appUrl)) {
       if (!user && pendingChanges > 0) {
         setUpdatingApp(false);
         const message = "切换到免代理更新线路前，请先登录同步或导出 JSON 备份，避免本机数据留在旧网址。";
@@ -865,7 +872,7 @@ export default function App() {
     if (semester?.id === target.id) setAnchorDate(new Date());
   }
 
-  const navItems: Array<{ id: PageId; label: string; icon: ReactNode }> = [
+  const navItems: Array<{ id: PageId; label: string; mobileLabel?: string; icon: ReactNode }> = [
     { id: "today", label: "今天", icon: <CalendarCheck2 size={19} /> },
     { id: "calendar", label: "日程", icon: <CalendarDays size={19} /> },
     { id: "habits", label: "习惯", icon: <CheckCircle2 size={19} /> },
@@ -874,7 +881,7 @@ export default function App() {
     { id: "focus", label: "专注", icon: <Target size={19} /> },
     { id: "health", label: "健康", icon: <HeartPulse size={19} /> },
     { id: "settings", label: "设置", icon: <Settings size={19} /> },
-    { id: "help", label: "使用说明", icon: <CircleHelp size={19} /> }
+    { id: "help", label: "使用说明", mobileLabel: "说明", icon: <CircleHelp size={19} /> }
   ];
   const selectedMobileNavItems = navItems
     .filter((item) => mobileNavItems.includes(item.id))
@@ -966,10 +973,10 @@ export default function App() {
     );
   }
 
-  function renderNavigation(items: typeof navItems) {
+  function renderNavigation(items: typeof navItems, compact = false) {
     return items.map((item) => (
       <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => navigate(item.id)}>
-        {item.icon}{item.label}
+        {item.icon}{compact ? item.mobileLabel ?? item.label : item.label}
       </button>
     ));
   }
@@ -1150,7 +1157,12 @@ export default function App() {
                       })();
                     }}
                   >
-                    <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {updatingApp ? updateMessage : availableRelease || needRefresh ? "有新版本，点击更新" : "点击检查更新"}</small></span><ChevronRight />
+                    <RefreshCw /><span><strong>应用版本</strong><small>{appVersion} · {appUpdateEntryStatus({
+                      updating: updatingApp,
+                      updateMessage,
+                      hasAvailableRelease: Boolean(availableRelease),
+                      serviceWorkerNeedsRefresh: needRefresh
+                    })}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
                     <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
@@ -1236,8 +1248,13 @@ export default function App() {
         )}
       </main>
 
-      <nav className="mobile-bottom-nav" aria-label="手机底部导航" style={{ gridTemplateColumns: `repeat(${Math.max(1, selectedMobileNavItems.length)}, minmax(var(--control-min-size), 1fr))` }}>
-        {renderNavigation(selectedMobileNavItems)}
+      <nav
+        className="mobile-bottom-nav"
+        aria-label="手机底部导航"
+        data-item-count={selectedMobileNavItems.length}
+        style={{ "--mobile-nav-count": Math.max(1, selectedMobileNavItems.length) } as CSSProperties}
+      >
+        {renderNavigation(selectedMobileNavItems, true)}
       </nav>
       {page === "calendar" && (
         <button className="mobile-fab" onClick={() => setShowAddSchedule(true)} aria-label="新增日程">
