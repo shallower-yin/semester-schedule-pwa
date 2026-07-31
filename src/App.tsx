@@ -975,7 +975,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell" data-skin={themeSkin}>
+    <div className="app-shell" data-skin={themeSkin} data-app-target={__APP_TARGET__}>
       <header className="app-header">
         <div className="brand">
           <button className="mobile-menu-button" onClick={() => setSidebarOpen(true)} aria-label="打开菜单"><Menu /></button>
