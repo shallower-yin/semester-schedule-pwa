@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, queueChange } from "../db";
-import type { EventOccurrenceState, HealthLog, SyncFields } from "../types";
-import { pullRemoteNow, SYNC_TABLES } from "./sync";
+import type { EventOccurrenceState, FocusSession, HealthLog, SyncFields } from "../types";
+import { pullRemoteNow, syncNow, SYNC_TABLES } from "./sync";
 
 interface MockQueryResult {
   data: Record<string, unknown>[] | null;
@@ -15,10 +15,12 @@ const mockRemote = vi.hoisted(() => ({
   maxRowsPerRequest: 1000,
   // 模拟异常场景：无论怎么分页，只有前 N 行可以被取到（count 仍按全量上报）
   servedRowsCap: null as number | null,
+  upsertCalls: [] as Array<{ tableName: string; payloads: Record<string, unknown>[] }>,
   reset() {
     this.tables = new Map();
     this.maxRowsPerRequest = 1000;
     this.servedRowsCap = null;
+    this.upsertCalls = [];
   }
 }));
 
@@ -30,7 +32,8 @@ vi.mock("./supabase", () => {
     let rangeFrom: number | null = null;
     let rangeTo: number | null = null;
     let countMode: string | null = null;
-    let mutation = false;
+    let mutation: "delete" | "update" | "upsert" | null = null;
+    let mutationPayloads: Record<string, unknown>[] = [];
 
     const builder = {
       select(_columns?: string, options?: { count?: string }) {
@@ -38,11 +41,16 @@ vi.mock("./supabase", () => {
         return builder;
       },
       delete() {
-        mutation = true;
+        mutation = "delete";
         return builder;
       },
       update(_payload: Record<string, unknown>) {
-        mutation = true;
+        mutation = "update";
+        return builder;
+      },
+      upsert(payload: Record<string, unknown> | Record<string, unknown>[]) {
+        mutation = "upsert";
+        mutationPayloads = Array.isArray(payload) ? payload : [payload];
         return builder;
       },
       eq(column: string, value: unknown) {
@@ -68,6 +76,17 @@ vi.mock("./supabase", () => {
         onFulfilled: (result: MockQueryResult) => unknown,
         onRejected?: (reason: unknown) => unknown
       ) {
+        if (mutation === "upsert") {
+          mockRemote.upsertCalls.push({ tableName, payloads: mutationPayloads });
+          const rows = [...(mockRemote.tables.get(tableName) ?? [])];
+          for (const payload of mutationPayloads) {
+            const index = rows.findIndex((row) => String(row.id) === String(payload.id));
+            if (index >= 0) rows[index] = { ...rows[index], ...payload, server_updated_at: "2026-07-01T08:00:00.000Z" };
+            else rows.push({ ...payload, server_updated_at: "2026-07-01T08:00:00.000Z" });
+          }
+          mockRemote.tables.set(tableName, rows);
+          return Promise.resolve({ data: null, error: null, count: null }).then(onFulfilled, onRejected);
+        }
         if (mutation) {
           return Promise.resolve({ data: null, error: null, count: null }).then(onFulfilled, onRejected);
         }
@@ -186,6 +205,44 @@ describe("云端下载分页与镜像删除保护", () => {
 
     expect(await db.healthLogs.count()).toBe(2);
     expect(await db.healthLogs.get(removedLocally.id)).toBeUndefined();
+  });
+});
+
+describe("上传前自动修复历史重复队列", () => {
+  beforeEach(async () => {
+    mockRemote.reset();
+    await clearLocalTables();
+  });
+
+  it("同一条专注记录只生成一个 upsert 载荷并清空重复队列", async () => {
+    const session: FocusSession = {
+      ...fields("44444444-4444-4444-8444-444444444444"),
+      mode: "pomodoro",
+      task_title: "复习高数",
+      linked_event_id: null,
+      planned_seconds: 1500,
+      duration_seconds: 1500,
+      started_at: "2026-07-31T08:00:00.000Z",
+      ended_at: "2026-07-31T08:25:00.000Z",
+      completed: true,
+      interrupted: false,
+      pomodoro_plan_id: null,
+      pomodoro_round: null
+    };
+    await db.focusSessions.put(session);
+    await db.syncQueue.bulkPut([
+      { id: "queue-focus-old", owner_id: USER_ID, table_name: "focusSessions", record_id: session.id, operation: "upsert", queued_at: "2026-07-31T08:25:01.000Z", attempts: 2, last_error: "ON CONFLICT" },
+      { id: "queue-focus-new", owner_id: USER_ID, table_name: "focusSessions", record_id: session.id, operation: "upsert", queued_at: "2026-07-31T08:25:02.000Z", attempts: 1, last_error: "ON CONFLICT" }
+    ]);
+
+    const result = await syncNow(USER_ID);
+
+    const focusUploads = mockRemote.upsertCalls.filter((call) => call.tableName === "focus_sessions");
+    expect(focusUploads).toHaveLength(1);
+    expect(focusUploads[0].payloads).toHaveLength(1);
+    expect(focusUploads[0].payloads[0].id).toBe(session.id);
+    expect(result.uploaded).toBe(1);
+    expect(await db.syncQueue.where("owner_id").equals(USER_ID).count()).toBe(0);
   });
 });
 

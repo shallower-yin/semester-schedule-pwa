@@ -118,6 +118,39 @@ export interface SyncResult {
 
 const activeSyncs = new Map<string, Promise<SyncResult>>();
 
+interface CompactedSyncQueue {
+  items: SyncQueueItem[];
+  duplicateIds: string[];
+}
+
+export function compactSyncQueueItems(items: SyncQueueItem[]): CompactedSyncQueue {
+  const retainedByRecord = new Map<string, SyncQueueItem>();
+  const duplicateIds: string[] = [];
+  for (const item of items) {
+    const key = `${item.owner_id}::${item.table_name}::${item.record_id}`;
+    const retained = retainedByRecord.get(key);
+    if (!retained) {
+      retainedByRecord.set(key, item);
+      continue;
+    }
+    const itemIsNewer = item.queued_at > retained.queued_at
+      || (item.queued_at === retained.queued_at && item.operation === "delete" && retained.operation !== "delete");
+    if (itemIsNewer) {
+      duplicateIds.push(retained.id);
+      retainedByRecord.set(key, item);
+    } else {
+      duplicateIds.push(item.id);
+    }
+  }
+  return { items: Array.from(retainedByRecord.values()), duplicateIds };
+}
+
+function uniquePayloadsById(payloads: Record<string, unknown>[]): Record<string, unknown>[] {
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const payload of payloads) byId.set(String(payload.id), payload);
+  return Array.from(byId.values());
+}
+
 function queueRecord(owner_id: string, table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert"): SyncQueueItem {
   return {
     id: crypto.randomUUID(),
@@ -645,7 +678,12 @@ async function runSync(userId: string): Promise<SyncResult> {
   await purgeLocalSoftDeletedRecords(userId);
   await deduplicateLocalOccurrenceStates(userId);
 
-  const queued = await db.syncQueue.where("owner_id").equals(userId).sortBy("queued_at");
+  const queuedRows = await db.syncQueue.where("owner_id").equals(userId).sortBy("queued_at");
+  const compactedQueue = compactSyncQueueItems(queuedRows);
+  if (compactedQueue.duplicateIds.length) {
+    await db.syncQueue.bulkDelete(compactedQueue.duplicateIds);
+  }
+  const queued = compactedQueue.items;
   const queueByTable = new Map<SyncTableName, SyncQueueItem[]>();
   for (const item of queued) {
     const items = queueByTable.get(item.table_name) ?? [];
@@ -726,7 +764,8 @@ async function runSync(userId: string): Promise<SyncResult> {
         const compositeKey = `${record.event_id}::${record.occurrence_date}`;
         batchPayload.push({ ...payload, id: existingMap.get(compositeKey) ?? record.id });
       }
-      const { error } = await supabase.from(config.remote).upsert(batchPayload, { onConflict: "id" });
+      const uniqueBatchPayload = uniquePayloadsById(batchPayload);
+      const { error } = await supabase.from(config.remote).upsert(uniqueBatchPayload, { onConflict: "id" });
       if (error) {
         for (const { item } of validItems) {
           await db.syncQueue.update(item.id, { attempts: item.attempts + 1, last_error: error.message });
@@ -738,13 +777,13 @@ async function runSync(userId: string): Promise<SyncResult> {
       }
       for (const { item } of validItems) {
         await db.syncQueue.delete(item.id);
-        uploaded += 1;
       }
+      uploaded += uniqueBatchPayload.length;
       continue;
     }
 
     // All other tables: batch upsert in a single request (Supabase supports arrays natively).
-    const payloads = validItems.map(({ record }) => normalizeUploadPayload(config.local, record));
+    const payloads = uniquePayloadsById(validItems.map(({ record }) => normalizeUploadPayload(config.local, record)));
     const { error } = await supabase.from(config.remote).upsert(payloads, { onConflict: "id" });
     if (error) {
       for (const { item } of validItems) {
@@ -757,8 +796,8 @@ async function runSync(userId: string): Promise<SyncResult> {
     }
     for (const { item } of validItems) {
       await db.syncQueue.delete(item.id);
-      uploaded += 1;
     }
+    uploaded += payloads.length;
   }
 
   const download = await downloadRemoteTables(userId);
