@@ -5,6 +5,11 @@ interface MemoTextEdit {
   cursor: number;
 }
 
+export interface MemoSelectionRange {
+  start: number;
+  end: number;
+}
+
 export interface MemoChecklistStats {
   total: number;
   completed: number;
@@ -117,6 +122,15 @@ export function getMemoChecklistStats(content: string): MemoChecklistStats {
     }
     return stats;
   }, { total: 0, completed: 0, incomplete: 0 });
+}
+
+export function memoLineSelectionRange(content: string, selectionStart: number, selectionEnd = selectionStart): MemoSelectionRange {
+  const start = clamp(Math.min(selectionStart, selectionEnd), 0, content.length);
+  const end = clamp(Math.max(selectionStart, selectionEnd), 0, content.length);
+  return {
+    start: findLineStart(content, start),
+    end: findLineEnd(content, end)
+  };
 }
 
 function formatSelectedLines(content: string, start: number, end: number, kind: MemoLineFormat): MemoTextEdit {

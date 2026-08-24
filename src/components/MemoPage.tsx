@@ -5,7 +5,7 @@ import { db, putRecordAndQueue } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
-import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
+import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, memoLineSelectionRange, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
 import { getMemoImageUrls, MEMO_IMAGE_LIMIT, normalizeMemoImages, removeMemoImages, uploadMemoImage, validateMemoImage } from "../lib/memoImages";
 import { showToast } from "../lib/toast";
 import type { EventItem, Memo, MemoFolder, MemoImage } from "../types";
@@ -384,6 +384,7 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
   const [uploadingImages, setUploadingImages] = useState(false);
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const contentPointerTypeRef = useRef("mouse");
   const mountedRef = useRef(true);
   const newImagePathsRef = useRef<string[]>([]);
   const removedExistingPathsRef = useRef<string[]>([]);
@@ -526,10 +527,18 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
   }
 
   function handleContentClick(event: React.MouseEvent<HTMLTextAreaElement>) {
+    if (event.detail > 1) return;
     const edit = toggleMemoChecklistAtCursor(content, event.currentTarget.selectionStart);
     if (!edit) return;
     setContent(edit.content);
     focusTextareaAt(edit.cursor);
+  }
+
+  function handleContentDoubleClick(event: React.MouseEvent<HTMLTextAreaElement>) {
+    if (contentPointerTypeRef.current === "touch") return;
+    event.preventDefault();
+    const range = memoLineSelectionRange(content, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+    event.currentTarget.setSelectionRange(range.start, range.end, "forward");
   }
 
   async function copyFullText() {
@@ -588,7 +597,11 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
               aria-label="正文"
               value={content}
               onChange={(event) => setContent(event.target.value)}
+              onPointerDown={(event) => {
+                contentPointerTypeRef.current = event.pointerType;
+              }}
               onClick={handleContentClick}
+              onDoubleClick={handleContentDoubleClick}
               onKeyDown={handleContentKeyDown}
             />
           </div>

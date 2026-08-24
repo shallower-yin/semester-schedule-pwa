@@ -113,8 +113,8 @@
   overflow: auto;
   padding: 24px;
   place-items: center;
-  background: rgb(22 30 45 / 48%);
-  backdrop-filter: blur(3px);
+  /* Full-screen backdrop blur forces costly repaints while typing in dialogs. */
+  background: rgb(22 30 45 / 52%);
 }
 
 .modal {

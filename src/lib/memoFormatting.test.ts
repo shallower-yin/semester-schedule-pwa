@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, toggleMemoChecklistAtCursor } from "./memoFormatting";
+import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, memoLineSelectionRange, toggleMemoChecklistAtCursor } from "./memoFormatting";
 
 describe("备忘录正文格式化", () => {
   it("在空正文中插入首个编号", () => {
@@ -66,6 +66,14 @@ describe("备忘录正文格式化", () => {
       completed: 2,
       incomplete: 2
     });
+  });
+
+  it("根据原生文字选区扩展为当前整行且不包含换行符", () => {
+    const content = "第一行\n第二行文字\n第三行";
+
+    expect(memoLineSelectionRange(content, 6, 8)).toEqual({ start: 4, end: 9 });
+    expect(memoLineSelectionRange(content, 0)).toEqual({ start: 0, end: 3 });
+    expect(memoLineSelectionRange(content, content.length)).toEqual({ start: 10, end: content.length });
   });
 
   it("统计没有空格和带缩进的子待办", () => {

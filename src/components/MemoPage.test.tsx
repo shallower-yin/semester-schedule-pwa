@@ -146,6 +146,28 @@ describe("备忘录视图", () => {
     expect(screen.queryByLabelText("待办清单")).not.toBeInTheDocument();
   });
 
+  it("桌面双击正文文字选中整行，触摸操作保留原生选区", () => {
+    render(<MemoPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
+    const textarea = screen.getByLabelText("正文") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "第一行\n第二行文字\n第三行" } });
+
+    textarea.setSelectionRange(6, 8);
+    fireEvent.pointerDown(textarea, { pointerType: "mouse" });
+    fireEvent.doubleClick(textarea, { detail: 2 });
+    expect(textarea.selectionStart).toBe(4);
+    expect(textarea.selectionEnd).toBe(9);
+
+    textarea.setSelectionRange(12, 13);
+    const touchPointerDown = new Event("pointerdown", { bubbles: true });
+    Object.defineProperty(touchPointerDown, "pointerType", { value: "touch" });
+    fireEvent(textarea, touchPointerDown);
+    fireEvent.doubleClick(textarea, { detail: 2 });
+    expect(textarea.selectionStart).toBe(12);
+    expect(textarea.selectionEnd).toBe(13);
+  });
+
   it("显示未完成待办数并支持筛选含未完成待办的备忘录", async () => {
     await db.memos.bulkAdd([
       { ...memoRecord(1), title: "采购", content: "○ 鞋垫\n● 防晒" },
