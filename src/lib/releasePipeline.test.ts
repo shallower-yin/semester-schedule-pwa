@@ -17,9 +17,9 @@ describe("Web 与 APK 发布版本隔离", () => {
     }
   });
 
-  it("新安装包使用高于线上 26 的 versionCode", () => {
-    expect(androidBuild).toMatch(/versionCode\s+27\b/);
-    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.27"/);
+  it("新安装包使用高于线上 27 的 versionCode", () => {
+    expect(androidBuild).toMatch(/versionCode\s+28\b/);
+    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.28"/);
   });
 
   it("只有 Service Worker 待接管时也能进入刷新流程", () => {

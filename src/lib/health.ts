@@ -1,7 +1,7 @@
 import { db, putRecordAndQueue } from "../db";
 import type { HealthProfile } from "../types";
-import { productDateTimeParts } from "./date";
 import { syncFields } from "./identity";
+import { dueHealthReminderSlot } from "./healthReminderSchedule";
 import { isNativeApp } from "./nativeApp";
 import { ensureNativeReminderPermission } from "./nativeReminders";
 import { showHealthMovementReminder } from "./notifications";
@@ -33,25 +33,18 @@ export async function checkDueHealthReminder(ownerId: string, now = new Date()):
   const profile = await db.healthProfiles
     .filter((item) => item.user_id === ownerId && !item.deleted_at)
     .first();
-  if (!profile?.movement_reminder_enabled || !withinReminderWindow(profile, now)) return false;
-
-  const lastMovement = await db.healthLogs
-    .filter((item) => item.user_id === ownerId && !item.deleted_at && item.kind === "movement")
-    .reverse()
-    .sortBy("logged_at")
-    .then((items) => items[0]?.logged_at ?? null);
+  if (!profile?.movement_reminder_enabled) return false;
   const lastSent = readLastReminder(ownerId);
-  const baseline = Math.max(
-    new Date(profile.updated_at).getTime() || 0,
-    lastMovement ? new Date(lastMovement).getTime() : 0,
-    profile.last_movement_reminder_at ? new Date(profile.last_movement_reminder_at).getTime() : 0,
+  const lastDeliveredAt = new Date(Math.max(
+    profile.last_movement_reminder_at ? new Date(profile.last_movement_reminder_at).getTime() || 0 : 0,
     lastSent
-  );
-  if (now.getTime() - baseline < profile.movement_interval_minutes * 60_000) return false;
+  ));
+  const reminderSlot = dueHealthReminderSlot(profile, lastDeliveredAt.getTime() ? lastDeliveredAt : null, now);
+  if (!reminderSlot) return false;
 
   await showHealthMovementReminder();
-  localStorage.setItem(`${LAST_REMINDER_KEY}:${ownerId}`, String(now.getTime()));
-  await recordHealthMovementReminderSent(ownerId, now);
+  localStorage.setItem(`${LAST_REMINDER_KEY}:${ownerId}`, String(reminderSlot.getTime()));
+  await recordHealthMovementReminderSent(ownerId, reminderSlot);
   return true;
 }
 
@@ -68,19 +61,6 @@ export async function recordHealthMovementReminderSent(ownerId: string, at: Date
   await putRecordAndQueue("healthProfiles", updated);
   localStorage.setItem(`${LAST_REMINDER_KEY}:${ownerId}`, String(at.getTime()));
   return true;
-}
-
-function withinReminderWindow(profile: HealthProfile, now: Date): boolean {
-  const productNow = productDateTimeParts(now);
-  const current = productNow.hour * 60 + productNow.minute;
-  const start = minutes(profile.reminder_start_time);
-  const end = minutes(profile.reminder_end_time);
-  return start <= end ? current >= start && current <= end : current >= start || current <= end;
-}
-
-function minutes(value: string): number {
-  const [hour, minute] = value.split(":").map(Number);
-  return (Number.isFinite(hour) ? hour : 0) * 60 + (Number.isFinite(minute) ? minute : 0);
 }
 
 function readLastReminder(ownerId: string): number {

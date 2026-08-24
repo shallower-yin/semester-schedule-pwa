@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HealthProfile } from "../types";
 import { dateAtProductTime, productDateTimeParts, toISODate } from "./date";
-import { computeNextHealthReminder } from "./healthReminderSchedule";
+import { computeNextHealthReminder, dueHealthReminderSlot } from "./healthReminderSchedule";
 
 function profile(overrides: Partial<HealthProfile> = {}): HealthProfile {
   return {
@@ -25,38 +25,64 @@ function profile(overrides: Partial<HealthProfile> = {}): HealthProfile {
 }
 
 describe("computeNextHealthReminder", () => {
-  it("按最近活动或设置更新时间向后安排一个间隔", () => {
-    const lastMovementAt = dateAtProductTime("2026-07-24", "09:15").toISOString();
+  it("设置在 09:02 保存后仍对齐到下一个整点时间槽", () => {
     const result = computeNextHealthReminder(
-      profile(),
-      lastMovementAt,
-      dateAtProductTime("2026-07-24", "09:20")
+      profile({ updated_at: dateAtProductTime("2026-07-24", "09:02").toISOString() }),
+      dateAtProductTime("2026-07-24", "09:02")
     );
-    expect(productDateTimeParts(result!.triggerAt)).toMatchObject({ hour: 10, minute: 15 });
+    expect(productDateTimeParts(result!.triggerAt)).toMatchObject({ hour: 10, minute: 0 });
     expect(result?.intervalMinutes).toBe(60);
   });
 
-  it("候选时间越过结束时刻后移动到下一提醒窗口", () => {
-    const updatedAt = dateAtProductTime("2026-07-24", "21:30").toISOString();
+  it("结束时刻之后移动到下一天的开始时间槽", () => {
     const result = computeNextHealthReminder(
-      profile({ updated_at: updatedAt }),
-      null,
-      dateAtProductTime("2026-07-24", "21:35")
+      profile(),
+      dateAtProductTime("2026-07-24", "22:01")
     );
     expect(toISODate(result!.triggerAt)).toBe("2026-07-25");
     expect(productDateTimeParts(result!.triggerAt)).toMatchObject({ hour: 9, minute: 0 });
   });
 
   it("关闭活动提醒时不生成原生计划", () => {
-    expect(computeNextHealthReminder(profile({ movement_reminder_enabled: false }), null)).toBeNull();
+    expect(computeNextHealthReminder(profile({ movement_reminder_enabled: false }))).toBeNull();
   });
 
-  it("按上次已发送活动提醒推迟下一次提醒，避免跨端短间隔重复", () => {
+  it("上次提醒晚到不会让后续时间槽跟着漂移", () => {
     const result = computeNextHealthReminder(
       profile({ last_movement_reminder_at: dateAtProductTime("2026-07-24", "10:05").toISOString() }),
-      dateAtProductTime("2026-07-24", "09:15").toISOString(),
       dateAtProductTime("2026-07-24", "10:20")
     );
-    expect(productDateTimeParts(result!.triggerAt)).toMatchObject({ hour: 11, minute: 5 });
+    expect(productDateTimeParts(result!.triggerAt)).toMatchObject({ hour: 11, minute: 0 });
+  });
+
+  it("允许三分钟内补发当前时间槽，但不会在更晚时间随机补发", () => {
+    const currentSlot = dueHealthReminderSlot(
+      profile({ updated_at: dateAtProductTime("2026-07-24", "08:30").toISOString() }),
+      null,
+      dateAtProductTime("2026-07-24", "10:02")
+    );
+    expect(productDateTimeParts(currentSlot!)).toMatchObject({ hour: 10, minute: 0 });
+    expect(dueHealthReminderSlot(
+      profile({ updated_at: dateAtProductTime("2026-07-24", "08:30").toISOString() }),
+      null,
+      dateAtProductTime("2026-07-24", "10:04")
+    )).toBeNull();
+  });
+
+  it("刚保存设置时不补发已经过去的时间槽", () => {
+    expect(dueHealthReminderSlot(
+      profile({ updated_at: dateAtProductTime("2026-07-24", "10:02").toISOString() }),
+      null,
+      dateAtProductTime("2026-07-24", "10:02")
+    )).toBeNull();
+  });
+
+  it("旧的错误送达分钟不会阻止下一个固定时间槽", () => {
+    const slot = dueHealthReminderSlot(
+      profile({ updated_at: dateAtProductTime("2026-07-24", "08:30").toISOString() }),
+      dateAtProductTime("2026-07-24", "10:17"),
+      dateAtProductTime("2026-07-24", "11:00")
+    );
+    expect(productDateTimeParts(slot!)).toMatchObject({ hour: 11, minute: 0 });
   });
 });

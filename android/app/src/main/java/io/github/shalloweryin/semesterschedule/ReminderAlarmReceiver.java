@@ -28,6 +28,7 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
     private static final String EVENTS = "events";
     private static final String ACTION_FIRE = "io.github.shalloweryin.semesterschedule.REMINDER_FIRE";
     private static final int MAX_DIAGNOSTICS = 80;
+    private static final long HEALTH_LATE_GRACE_MS = 3 * 60_000L;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -36,13 +37,19 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
         String body = intent.getStringExtra("body");
         String key = intent.getStringExtra("key");
         JSONObject record = findRecord(context, id);
+        long receivedAt = System.currentTimeMillis();
+        boolean repeatingHealth = record != null && record.optInt("repeatIntervalMinutes") > 0;
         recordDiagnostic(context, "received", id, key == null ? "" : key);
         removeRecord(context, id);
-        postNotification(context, id, title, body, key);
-        if (record != null && record.optInt("repeatIntervalMinutes") > 0) {
+        if (!repeatingHealth || receivedAt - record.optLong("triggerAt") <= HEALTH_LATE_GRACE_MS) {
+            postNotification(context, id, title, body, key);
+        } else {
+            recordDiagnostic(context, "health_late_skipped", id, String.valueOf(receivedAt - record.optLong("triggerAt")));
+        }
+        if (repeatingHealth) {
             try {
-                long nextTrigger = nextWindowedTrigger(
-                    Math.max(System.currentTimeMillis(), record.optLong("triggerAt")),
+                long nextTrigger = HealthReminderSlotCalculator.nextSlotAfter(
+                    receivedAt,
                     record.optInt("repeatIntervalMinutes"),
                     record.optInt("windowStartMinutes"),
                     record.optInt("windowEndMinutes")
@@ -133,7 +140,18 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
             if (record == null) continue;
             long triggerAt = record.optLong("triggerAt");
             try {
-                if (triggerAt > now) {
+                if (record.optInt("repeatIntervalMinutes") > 0) {
+                    long nextTrigger = HealthReminderSlotCalculator.nextSlotAfter(
+                        now,
+                        record.optInt("repeatIntervalMinutes"),
+                        record.optInt("windowStartMinutes"),
+                        record.optInt("windowEndMinutes")
+                    );
+                    record.put("triggerAt", nextTrigger);
+                    record.put("sig", "health:" + nextTrigger);
+                    future.put(record);
+                    schedule(context, record);
+                } else if (triggerAt > now) {
                     future.put(record);
                     schedule(context, record);
                 } else if (now - triggerAt <= 15 * 60_000L) {
@@ -313,26 +331,6 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
             if (record != null && record.optInt("id") == id) return record;
         }
         return null;
-    }
-
-    private static long nextWindowedTrigger(long from, int intervalMinutes, int startMinutes, int endMinutes) {
-        java.util.Calendar next = java.util.Calendar.getInstance();
-        next.setTimeInMillis(from);
-        next.add(java.util.Calendar.MINUTE, Math.max(15, intervalMinutes));
-        int minute = next.get(java.util.Calendar.HOUR_OF_DAY) * 60 + next.get(java.util.Calendar.MINUTE);
-        boolean inside = startMinutes <= endMinutes
-            ? minute >= startMinutes && minute <= endMinutes
-            : minute >= startMinutes || minute <= endMinutes;
-        if (inside) return next.getTimeInMillis();
-
-        if (startMinutes <= endMinutes && minute > endMinutes) {
-            next.add(java.util.Calendar.DAY_OF_MONTH, 1);
-        }
-        next.set(java.util.Calendar.HOUR_OF_DAY, Math.max(0, Math.min(23, startMinutes / 60)));
-        next.set(java.util.Calendar.MINUTE, Math.max(0, Math.min(59, startMinutes % 60)));
-        next.set(java.util.Calendar.SECOND, 0);
-        next.set(java.util.Calendar.MILLISECOND, 0);
-        return next.getTimeInMillis();
     }
 
     private static void writeRecords(Context context, JSONArray records) {

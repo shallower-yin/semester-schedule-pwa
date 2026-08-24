@@ -279,6 +279,7 @@ export async function diagnoseNotifications(): Promise<NotificationDiagnosticSte
         received: "接收器已唤醒",
         notified: "通知已发布",
         notify_denied: "发布被拒绝",
+        health_late_skipped: "健康提醒过期已跳过",
         restored: "已恢复",
         schedule_error: "注册失败",
         restore_error: "恢复失败",
@@ -447,15 +448,11 @@ async function applyNativeHealthReminderCooldown(ownerId: string, profile: Healt
 // Cancels/updates/adds OS notifications so they stay in sync with events and anniversaries.
 async function rescheduleNativeReminders(ownerId: string): Promise<number> {
   if ((await ensureNativeReminderPermission(false)) !== "granted") return 0;
-  const [events, anniversaries, occurrenceStates, healthProfile, movementLogs] = await Promise.all([
+  const [events, anniversaries, occurrenceStates, healthProfile] = await Promise.all([
     db.events.filter((event) => event.user_id === ownerId).toArray(),
     db.anniversaries.filter((anniversary) => anniversary.user_id === ownerId).toArray(),
     db.eventOccurrenceStates.filter((state) => state.user_id === ownerId).toArray(),
-    db.healthProfiles.filter((profile) => profile.user_id === ownerId && !profile.deleted_at).first(),
-    db.healthLogs
-      .filter((log) => log.user_id === ownerId && !log.deleted_at && log.kind === "movement")
-      .reverse()
-      .sortBy("logged_at")
+    db.healthProfiles.filter((profile) => profile.user_id === ownerId && !profile.deleted_at).first()
   ]);
   const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates });
   const scheduledCount = await syncNativeReminders(reminders);
@@ -463,7 +460,7 @@ async function rescheduleNativeReminders(ownerId: string): Promise<number> {
     ? await applyNativeHealthReminderCooldown(ownerId, healthProfile)
     : null;
   const healthPlan = healthProfileWithNativeCooldown
-    ? computeNextHealthReminder(healthProfileWithNativeCooldown, movementLogs[0]?.logged_at ?? null)
+    ? computeNextHealthReminder(healthProfileWithNativeCooldown)
     : null;
   await syncNativeHealthReminder(healthPlan ? {
     enabled: true,
