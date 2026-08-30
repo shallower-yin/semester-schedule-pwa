@@ -70,6 +70,7 @@ import { MobileNavSettingsDialog } from "./components/MobileNavSettingsDialog";
 import { PeriodSettingsDialog } from "./components/PeriodSettingsDialog";
 import { QuickEntryDialog } from "./components/QuickEntryDialog";
 import { ScheduleSnapshotDialog } from "./components/ScheduleSnapshotDialog";
+import { ScheduleWidgetSettingCard } from "./components/ScheduleWidgetSettingCard";
 import { SemesterDialog } from "./components/SemesterDialog";
 const SchoolTimetableImportDialog = lazy(() => import("./components/SchoolTimetableImportDialog").then((module) => ({ default: module.SchoolTimetableImportDialog })));
 const StatsDialog = lazy(() => import("./components/StatsDialog").then((module) => ({ default: module.StatsDialog })));
@@ -1476,6 +1477,7 @@ export default function App() {
                   <button className="setting-card" onClick={() => setShowInstallDialog(true)}>
                     <Download /><span><strong>安装到设备</strong><small>{installed ? "已安装，可查看 APK 与主屏幕安装方式" : "安装为独立应用，并按引导创建快捷方式"}</small></span><ChevronRight />
                   </button>
+                  <ScheduleWidgetSettingCard />
                   <button className="setting-card" onClick={() => setShowFeedback(true)}>
                     <MessageSquareText /><span><strong>意见反馈</strong><small>向管理员提交文字、图片或文档</small></span><ChevronRight />
                   </button>

@@ -17,9 +17,9 @@ describe("Web 与 APK 发布版本隔离", () => {
     }
   });
 
-  it("新安装包使用高于线上 28 的 versionCode", () => {
-    expect(androidBuild).toMatch(/versionCode\s+29\b/);
-    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.29"/);
+  it("新安装包使用高于线上 29 的 versionCode", () => {
+    expect(androidBuild).toMatch(/versionCode\s+30\b/);
+    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.30"/);
   });
 
   it("APK 发布后下载镜像文件并核对实际 SHA-256", () => {

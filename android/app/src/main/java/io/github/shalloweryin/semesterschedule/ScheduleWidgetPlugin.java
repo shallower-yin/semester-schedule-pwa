@@ -1,5 +1,10 @@
 package io.github.shalloweryin.semesterschedule;
 
+import android.appwidget.AppWidgetManager;
+import android.app.Activity;
+import android.content.ComponentName;
+import android.os.Build;
+
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -15,6 +20,46 @@ import java.util.Locale;
 /** Capacitor bridge for publishing a validated, non-sensitive widget snapshot. */
 @CapacitorPlugin(name = "ScheduleWidget")
 public class ScheduleWidgetPlugin extends Plugin {
+    @PluginMethod
+    public void requestPin(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("supported", false);
+        result.put("requested", false);
+        result.put("alreadyAdded", false);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            result.put("status", "unsupported_android");
+            call.resolve(result);
+            return;
+        }
+        Activity activity = getActivity();
+        if (activity == null) {
+            result.put("status", "no_activity");
+            call.resolve(result);
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            try {
+                AppWidgetManager manager = AppWidgetManager.getInstance(activity);
+                ComponentName provider = new ComponentName(activity, TodayScheduleWidgetProvider.class);
+                result.put("alreadyAdded", manager.getAppWidgetIds(provider).length > 0);
+                boolean supported = manager.isRequestPinAppWidgetSupported();
+                result.put("supported", supported);
+                if (!supported) {
+                    result.put("status", "unsupported_launcher");
+                    call.resolve(result);
+                    return;
+                }
+                boolean requested = manager.requestPinAppWidget(provider, null, null);
+                result.put("requested", requested);
+                result.put("status", requested ? "request_accepted" : "request_rejected");
+                call.resolve(result);
+            } catch (Exception error) {
+                result.put("status", "error");
+                call.resolve(result);
+            }
+        });
+    }
+
     @PluginMethod
     public void setActiveOwner(PluginCall call) {
         String owner = digestOwner(ownerFrom(call));

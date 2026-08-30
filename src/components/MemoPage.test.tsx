@@ -353,8 +353,10 @@ describe("备忘录视图", () => {
     await waitFor(() => expect(screen.getByText("已定位到第 2 行")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "编号" }));
 
-    expect(screen.queryByText("已定位到第 2 行")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("memo-search-line-highlight")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("已定位到第 2 行")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("memo-search-line-highlight")).not.toBeInTheDocument();
+    });
   });
 
   it("CRLF 正文从搜索打开时仍选中第二行的准确关键词", async () => {
