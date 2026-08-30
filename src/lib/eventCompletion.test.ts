@@ -16,7 +16,7 @@ describe("事项完成状态", () => {
       end_date: "2026-07-07"
     });
     const existing: EventOccurrenceState = {
-      ...syncFields(),
+      ...syncFields(undefined, "local"),
       id: "state-1",
       event_id: eventItem.id,
       occurrence_date: "2026-07-07",
@@ -57,7 +57,7 @@ describe("事项完成状态", () => {
 
 function eventRecord(overrides: Partial<EventItem> = {}): EventItem {
   return {
-    ...syncFields(),
+    ...syncFields(undefined, "local"),
     id: "event-1",
     event_type: "event",
     title: "测试事项",

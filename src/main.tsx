@@ -7,12 +7,13 @@ import { clearAppCachesAndReload } from "./lib/appBootRecovery";
 import { withTimeout } from "./lib/asyncTimeout";
 import { initializeAppFontSize } from "./lib/fontSizes";
 import { initializeNativeAppBridge } from "./lib/nativeApp";
+import { getCurrentUserId } from "./lib/identity";
 import "./styles.css";
 
 async function startApp() {
   initializeAppFontSize();
   await withTimeout(
-    initializeDatabase(),
+    initializeDatabase(getCurrentUserId()),
     10_000,
     "本地数据库打开超时。请关闭其他仍在运行的日程计划表标签页后重试。"
   );

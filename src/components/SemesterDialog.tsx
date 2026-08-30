@@ -4,6 +4,7 @@ import type { Semester } from "../types";
 import { Modal } from "./Modal";
 
 interface SemesterDialogProps {
+  ownerId: string;
   semester?: Semester;
   onClose: () => void;
 }
@@ -15,7 +16,7 @@ function currentMonday(): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export function SemesterDialog({ semester, onClose }: SemesterDialogProps) {
+export function SemesterDialog({ ownerId, semester, onClose }: SemesterDialogProps) {
   const [name, setName] = useState(semester?.name ?? "");
   const [startDate, setStartDate] = useState(semester?.start_date ?? currentMonday());
   const [totalWeeks, setTotalWeeks] = useState(semester?.total_weeks ?? 20);
@@ -25,7 +26,7 @@ export function SemesterDialog({ semester, onClose }: SemesterDialogProps) {
     event.preventDefault();
     if (!name.trim() || totalWeeks < 1 || totalWeeks > 60) return;
     setSaving(true);
-    await saveSemesterRecord({ semester, name, startDate, totalWeeks });
+    await saveSemesterRecord({ ownerId, semester, name, startDate, totalWeeks });
     setSaving(false);
     onClose();
   }

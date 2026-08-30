@@ -17,9 +17,15 @@ describe("Web 与 APK 发布版本隔离", () => {
     }
   });
 
-  it("新安装包使用高于线上 27 的 versionCode", () => {
-    expect(androidBuild).toMatch(/versionCode\s+28\b/);
-    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.28"/);
+  it("新安装包使用高于线上 28 的 versionCode", () => {
+    expect(androidBuild).toMatch(/versionCode\s+29\b/);
+    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.29"/);
+  });
+
+  it("APK 发布后下载镜像文件并核对实际 SHA-256", () => {
+    expect(apkWorkflow).toContain("EXPECTED_APK_SHA: ${{ steps.apk.outputs.sha }}");
+    expect(apkWorkflow).toContain("sha256sum /tmp/published-semester-schedule.apk");
+    expect(apkWorkflow).toContain('test "$actual_sha" = "$EXPECTED_APK_SHA"');
   });
 
   it("只有 Service Worker 待接管时也能进入刷新流程", () => {

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { Fragment, lazy, Suspense } from "react";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { AiToolboxDialog } from "./AiToolboxDialog";
 
@@ -50,7 +50,7 @@ export function AssistantDialogs({
   setShowAiToolbox
 }: AssistantDialogsProps) {
   return (
-    <>
+    <Fragment key={ownerId}>
       {showScheduleAssistant && (
         <Suspense fallback={null}>
           <ScheduleAssistantDialog input={input} onClose={() => setShowScheduleAssistant(false)} />
@@ -90,6 +90,6 @@ export function AssistantDialogs({
           onClose={() => setShowAiToolbox(false)}
         />
       )}
-    </>
+    </Fragment>
   );
 }

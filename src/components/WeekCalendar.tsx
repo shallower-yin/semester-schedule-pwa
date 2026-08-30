@@ -102,7 +102,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
     }
     if (!window.confirm(`将 ${formatMonthDay(date)} 的“${courseName}”标记为停课？`)) return;
     const cancellation: CourseCancellation = {
-      ...syncFields(),
+      ...syncFields(undefined, schedule.user_id),
       course_schedule_id: schedule.id,
       occurrence_date: occurrenceDate,
       reason: ""

@@ -20,6 +20,7 @@ import type { ClassPeriod, Course, CourseSchedule, Semester, Weekday } from "../
 import { Modal } from "./Modal";
 
 interface SchoolTimetableImportDialogProps {
+  ownerId: string;
   semester: Semester | null;
   onClose: () => void;
   onImported?: (semester: Semester) => void;
@@ -186,14 +187,14 @@ function loadPinnedSchools(): string[] {
   }
 }
 
-function TianjinTimetableImportDialog({ semester, onClose, onImported, onBack }: SchoolTimetableImportDialogProps & { onBack: () => void }) {
+function TianjinTimetableImportDialog({ ownerId, semester, onClose, onImported, onBack }: SchoolTimetableImportDialogProps & { onBack: () => void }) {
   const workingSemester = useMemo<Semester>(() => semester ?? ({
-    ...syncFields(),
+    ...syncFields(undefined, ownerId),
     name: "新学期",
     start_date: toISODate(startOfWeek(new Date())),
     total_weeks: 20,
     is_current: true
-  }), [semester?.id]);
+  }), [ownerId, semester?.id]);
   const existingCourses = useLiveQuery(
     () => semester ? db.courses.where("semester_id").equals(semester.id).filter((course) => !course.deleted_at).toArray() : [],
     [semester?.id]
@@ -262,6 +263,7 @@ function TianjinTimetableImportDialog({ semester, onClose, onImported, onBack }:
       let targetSemester = workingSemester;
       if (targetMode === "new") {
         targetSemester = await saveSemesterRecord({
+          ownerId,
           name: newSemesterName || timetable.termName || "导入课表学期",
           startDate: firstWeekStartDate,
           totalWeeks: maxWeek,
@@ -290,6 +292,7 @@ function TianjinTimetableImportDialog({ semester, onClose, onImported, onBack }:
           await deleteSemesterCascade(createdSemesterId);
           if (semester) {
             await saveSemesterRecord({
+              ownerId: semester.user_id,
               semester,
               name: semester.name,
               startDate: semester.start_date,
@@ -572,9 +575,9 @@ export async function applyTimetableImport(
 ): Promise<ImportResult> {
   if (!timetable.schedules.length) throw new Error("没有可导入的课程安排。");
 
-  const courseGroups = groupCourses(timetable.schedules, semester.id, timetable.termName);
+  const courseGroups = groupCourses(timetable.schedules, semester.id, timetable.termName, semester.user_id);
   const maxWeek = Math.max(semester.total_weeks, ...timetable.schedules.flatMap((schedule) => schedule.weeks));
-  const periodBlocks = options.updatePeriods ? buildClassPeriodBlocks(semester.id, timetable.periods) : [];
+  const periodBlocks = options.updatePeriods ? buildClassPeriodBlocks(semester.id, timetable.periods, semester.user_id) : [];
   let replacedCourses = false;
   let updatedSemester = false;
   let createdCourses = 0;
@@ -596,7 +599,7 @@ export async function applyTimetableImport(
         total_weeks: options.syncSemesterInfo ? maxWeek : semester.total_weeks
       };
       await db.semesters.put(updatedSemesterRecord);
-      await queueChange("semesters", updatedSemesterRecord.id);
+      await queueChange("semesters", updatedSemesterRecord.id, "upsert", updatedSemesterRecord.user_id);
       updatedSemester = true;
     }
 
@@ -619,7 +622,7 @@ export async function applyTimetableImport(
       await hardDeleteLocalRecords("classPeriods", existingPeriods.filter((item) => !item.deleted_at).map((item) => item.id));
       for (const block of periodBlocks) {
         await db.classPeriods.put(block);
-        await queueChange("classPeriods", block.id);
+        await queueChange("classPeriods", block.id, "upsert", block.user_id);
       }
     }
 
@@ -633,11 +636,11 @@ export async function applyTimetableImport(
       const existingCourse = options.importMode === "merge" ? existingCourseMap.get(courseKey(group.course)) : undefined;
       if (!existingCourse) {
         await db.courses.put(group.course);
-        await queueChange("courses", group.course.id);
+        await queueChange("courses", group.course.id, "upsert", group.course.user_id);
         createdCourses += 1;
         for (const schedule of group.schedules) {
           await db.courseSchedules.put(schedule);
-          await queueChange("courseSchedules", schedule.id);
+          await queueChange("courseSchedules", schedule.id, "upsert", schedule.user_id);
           createdSchedules += 1;
         }
         continue;
@@ -653,7 +656,7 @@ export async function applyTimetableImport(
         deleted_at: null
       };
       await db.courses.put(updatedCourse);
-      await queueChange("courses", updatedCourse.id);
+      await queueChange("courses", updatedCourse.id, "upsert", updatedCourse.user_id);
       updatedCourses += 1;
 
       const activeSchedules = await db.courseSchedules.where("course_id").equals(existingCourse.id).filter((schedule) => !schedule.deleted_at).toArray();
@@ -666,7 +669,7 @@ export async function applyTimetableImport(
             course_id: existingCourse.id
           };
           await db.courseSchedules.put(createdSchedule);
-          await queueChange("courseSchedules", createdSchedule.id);
+          await queueChange("courseSchedules", createdSchedule.id, "upsert", createdSchedule.user_id);
           createdSchedules += 1;
           continue;
         }
@@ -681,7 +684,7 @@ export async function applyTimetableImport(
           weeks
         };
         await db.courseSchedules.put(updatedSchedule);
-        await queueChange("courseSchedules", updatedSchedule.id);
+        await queueChange("courseSchedules", updatedSchedule.id, "upsert", updatedSchedule.user_id);
         updatedSchedules += 1;
       }
     }
@@ -701,7 +704,12 @@ export async function applyTimetableImport(
   };
 }
 
-export function groupCourses(schedules: ImportedCourseSchedule[], semesterId: string, termName: string | null) {
+export function groupCourses(
+  schedules: ImportedCourseSchedule[],
+  semesterId: string,
+  termName: string | null,
+  ownerId: string
+) {
   const groups = new Map<
     string,
     {
@@ -716,7 +724,7 @@ export function groupCourses(schedules: ImportedCourseSchedule[], semesterId: st
     let group = groups.get(key);
     if (!group) {
       const course: Course = {
-        ...syncFields(),
+        ...syncFields(undefined, ownerId),
         semester_id: semesterId,
         name: item.name,
         teacher: "",
@@ -737,7 +745,7 @@ export function groupCourses(schedules: ImportedCourseSchedule[], semesterId: st
       continue;
     }
     const schedule: CourseSchedule = {
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       course_id: group.course.id,
       weekday: item.weekday,
       start_period: item.startPeriod,
@@ -750,7 +758,7 @@ export function groupCourses(schedules: ImportedCourseSchedule[], semesterId: st
   return Array.from(groups.values()).map(({ course, schedules }) => ({ course, schedules }));
 }
 
-export function buildClassPeriodBlocks(semesterId: string, periods: ImportedClassPeriod[]): ClassPeriod[] {
+export function buildClassPeriodBlocks(semesterId: string, periods: ImportedClassPeriod[], ownerId: string): ClassPeriod[] {
   const sorted = [...periods].sort((left, right) => left.periodNumber - right.periodNumber);
   const fourthPeriod = sorted.find((period) => period.periodNumber === 4);
   const fifthPeriod = sorted.find((period) => period.periodNumber === 5);
@@ -764,7 +772,7 @@ export function buildClassPeriodBlocks(semesterId: string, periods: ImportedClas
     let sortOrder = 1;
     for (const period of sorted) {
       blocks.push({
-        ...syncFields(),
+        ...syncFields(undefined, ownerId),
         semester_id: semesterId,
         weekday,
         period_number: period.periodNumber,
@@ -776,7 +784,7 @@ export function buildClassPeriodBlocks(semesterId: string, periods: ImportedClas
       });
       if (period.periodNumber === 4 && lunch) {
         blocks.push({
-          ...syncFields(),
+          ...syncFields(undefined, ownerId),
           semester_id: semesterId,
           weekday,
           period_number: 0,

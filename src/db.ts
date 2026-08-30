@@ -460,12 +460,19 @@ class ScheduleDatabase extends Dexie {
           backup?: BackupFile;
         }>;
         for (const snapshot of snapshots) {
-          const ownerId = snapshot.owner_id || fallbackOwnerId;
           const backup = snapshot.backup;
+          const inferredOwnerId = inferBackupOwnerId(backup);
+          const explicitOwnerId = snapshot.owner_id || backup?.owner_id || inferredOwnerId;
+          const ownerId = explicitOwnerId || fallbackOwnerId;
           if (backup?.data) {
-            for (const tableName of Object.keys(backup.data) as SyncTableName[]) {
-              backup.data[tableName] = (backup.data[tableName] as Array<{ user_id?: string }>)
-                .filter((record) => record.user_id === ownerId);
+            // Only filter when the snapshot itself proves a single owner.  An
+            // ambiguous legacy snapshot is kept intact rather than silently
+            // discarding recoverable records during the index migration.
+            if (explicitOwnerId) {
+              for (const tableName of Object.keys(backup.data) as SyncTableName[]) {
+                backup.data[tableName] = (backup.data[tableName] as Array<{ user_id?: string }>)
+                  .filter((record) => record.user_id === ownerId);
+              }
             }
             backup.owner_id = ownerId;
           }
@@ -475,13 +482,27 @@ class ScheduleDatabase extends Dexie {
   }
 }
 
+export function inferBackupOwnerId(backup: BackupFile | undefined): string | null {
+  const declared = backup?.owner_id?.trim();
+  if (declared) return declared;
+  if (!backup?.data) return null;
+  const owners = new Set<string>();
+  for (const records of Object.values(backup.data)) {
+    for (const record of records as Array<{ user_id?: unknown }>) {
+      if (typeof record.user_id === "string" && record.user_id.trim()) owners.add(record.user_id);
+      if (owners.size > 1) return null;
+    }
+  }
+  return owners.size === 1 ? [...owners][0] : null;
+}
+
 export const db = new ScheduleDatabase();
 
-export async function initializeDatabase(): Promise<void> {
+export async function initializeDatabase(ownerId: string): Promise<void> {
   if ((await db.categories.count()) === 0) {
     await db.categories.bulkAdd(
       DEFAULT_CATEGORIES.map((category) => ({
-        ...syncFields(),
+        ...syncFields(undefined, ownerId),
         ...category
       }))
     );
@@ -491,14 +512,13 @@ export async function initializeDatabase(): Promise<void> {
 export async function queueChange(
   table_name: SyncTableName,
   record_id: string,
-  operation: "upsert" | "delete" = "upsert",
-  owner_id?: string
+  operation: "upsert" | "delete",
+  owner_id: string
 ) {
-  const record = await db.table(table_name).get(record_id) as { user_id?: string } | undefined;
-  const resolvedOwnerId = owner_id || record?.user_id || getCurrentUserId();
+  if (typeof owner_id !== "string" || !owner_id.trim()) throw new Error("同步队列记录必须显式指定 ownerId。");
   const existing = await db.syncQueue
     .where("[owner_id+table_name+record_id]")
-    .equals([resolvedOwnerId, table_name, record_id])
+    .equals([owner_id, table_name, record_id])
     .toArray();
   const retainedId = existing[0]?.id ?? crypto.randomUUID();
   if (existing.length > 1) {
@@ -506,7 +526,7 @@ export async function queueChange(
   }
   await db.syncQueue.put({
     id: retainedId,
-    owner_id: resolvedOwnerId,
+    owner_id,
     table_name,
     record_id,
     operation,
@@ -516,13 +536,13 @@ export async function queueChange(
   });
 }
 
-export async function putRecordAndQueue<T extends { id: string; user_id?: string }>(
+export async function putRecordAndQueue<T extends { id: string; user_id: string }>(
   tableName: SyncTableName,
   record: T,
   operation: "upsert" | "delete" = "upsert"
 ): Promise<void> {
   await db.transaction("rw", db.table(tableName), db.syncQueue, async () => {
     await db.table(tableName).put(record);
-    await queueChange(tableName, record.id, operation, record.user_id || getCurrentUserId());
+    await queueChange(tableName, record.id, operation, record.user_id);
   });
 }

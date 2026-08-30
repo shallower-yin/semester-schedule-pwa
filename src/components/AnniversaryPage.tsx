@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { BellRing, Cake, CalendarHeart, Gift, Heart, PartyPopper, Plus, Search, Trash2 } from "lucide-react";
 import type { ComponentType, CSSProperties, FormEvent, SVGProps } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import {
   ANNIVERSARY_KIND_META,
@@ -20,8 +20,10 @@ import {
 import { formatMonthDay, toISODate } from "../lib/date";
 import { hardDeleteLocalRecord } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { currentOwnerRecord } from "../lib/liveQueryScope";
 import { enableNotifications } from "../lib/notifications";
 import { isNativeApp } from "../lib/nativeApp";
+import { findSearchNavigationMatch, searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
 import type { Anniversary, AnniversaryKind } from "../types";
 import { Modal } from "./Modal";
@@ -29,7 +31,9 @@ import { Modal } from "./Modal";
 interface AnniversaryPageProps {
   ownerId: string;
   openAnniversaryId?: string | null;
+  openSearchMatch?: SearchNavigationMatch | null;
   onOpenAnniversaryConsumed?: () => void;
+  onSearchMatchClosed?: () => void;
 }
 
 type AnniversaryFilter = "all" | AnniversaryKind;
@@ -48,7 +52,20 @@ const KIND_ICONS: Record<AnniversaryKind, IconComponent> = {
   holiday: PartyPopper
 };
 
-export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryConsumed }: AnniversaryPageProps) {
+function useAnniversaryEditorInstanceToken(identity: string, activeTokenRef: React.MutableRefObject<string>): string {
+  const previousIdentityRef = useRef("closed");
+  const generationRef = useRef(0);
+  const tokenRef = useRef("closed");
+  if (previousIdentityRef.current !== identity) {
+    previousIdentityRef.current = identity;
+    generationRef.current += 1;
+    tokenRef.current = identity === "closed" ? "closed" : `${identity}:${generationRef.current}`;
+  }
+  activeTokenRef.current = tokenRef.current;
+  return tokenRef.current;
+}
+
+export function AnniversaryPage({ ownerId, openAnniversaryId, openSearchMatch, onOpenAnniversaryConsumed, onSearchMatchClosed }: AnniversaryPageProps) {
   const anniversaries = useLiveQuery(
     () => db.anniversaries.filter((item) => item.user_id === ownerId).toArray(),
     [ownerId]
@@ -56,15 +73,26 @@ export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryC
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<AnniversaryFilter>("all");
   const [anniversaryToEdit, setAnniversaryToEdit] = useState<Anniversary | null | undefined>(undefined);
+  const [anniversarySearchMatch, setAnniversarySearchMatch] = useState<SearchNavigationMatch | null>(null);
+  const previousOwnerIdRef = useRef(ownerId);
+  const anniversaryEditorTokenRef = useRef("closed");
 
   const activeAnniversaries = anniversaries.filter((item) => !item.deleted_at);
   useEffect(() => {
     if (!openAnniversaryId) return;
-    const target = activeAnniversaries.find((item) => item.id === openAnniversaryId);
+    const target = activeAnniversaries.find((item) => item.id === openAnniversaryId && item.user_id === ownerId);
     if (!target) return;
+    setAnniversarySearchMatch(openSearchMatch ?? null);
     setAnniversaryToEdit(target);
     onOpenAnniversaryConsumed?.();
-  }, [activeAnniversaries, onOpenAnniversaryConsumed, openAnniversaryId]);
+  }, [activeAnniversaries, onOpenAnniversaryConsumed, openAnniversaryId, openSearchMatch, ownerId]);
+  useEffect(() => {
+    if (previousOwnerIdRef.current === ownerId) return;
+    previousOwnerIdRef.current = ownerId;
+    setAnniversarySearchMatch(null);
+    setAnniversaryToEdit(undefined);
+    onSearchMatchClosed?.();
+  }, [onSearchMatchClosed, ownerId]);
   const visibleAnniversaries = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return activeAnniversaries
@@ -79,6 +107,20 @@ export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryC
         return leftDays - rightDays || left.title.localeCompare(right.title, "zh-CN");
       });
   }, [activeAnniversaries, filter, query]);
+  const anniversaryToEditForOwner = currentOwnerRecord(anniversaryToEdit, ownerId);
+  const anniversaryEditorIdentity = anniversaryToEditForOwner === undefined
+    ? "closed"
+    : `${ownerId}:${anniversaryToEditForOwner?.id ?? "new"}`;
+  const anniversaryEditorToken = useAnniversaryEditorInstanceToken(anniversaryEditorIdentity, anniversaryEditorTokenRef);
+
+  function openAnniversary(anniversary: Anniversary) {
+    setAnniversarySearchMatch(findSearchNavigationMatch([
+      { field: "title", label: "标题", value: anniversary.title },
+      { field: "note", label: "备注", value: anniversary.note },
+      { field: "kind", label: "类型", value: anniversaryKindLabel(anniversary.kind) }
+    ], query));
+    setAnniversaryToEdit(anniversary);
+  }
 
   return (
     <section className="anniversary-page">
@@ -120,7 +162,7 @@ export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryC
               <AnniversaryCard
                 key={anniversary.id}
                 anniversary={anniversary}
-                onEdit={setAnniversaryToEdit}
+                onEdit={openAnniversary}
               />
             ))}
           </div>
@@ -138,11 +180,19 @@ export function AnniversaryPage({ ownerId, openAnniversaryId, onOpenAnniversaryC
         )}
       </div>
 
-      {anniversaryToEdit !== undefined && (
+      {anniversaryToEditForOwner !== undefined && (
         <AnniversaryDialog
-          anniversary={anniversaryToEdit ?? undefined}
+          key={anniversaryEditorToken}
+          ownerId={ownerId}
+          anniversary={anniversaryToEditForOwner ?? undefined}
+          searchMatch={anniversarySearchMatch}
           initialKind={filter !== "all" ? filter : "anniversary"}
-          onClose={() => setAnniversaryToEdit(undefined)}
+          onClose={() => {
+            if (anniversaryEditorTokenRef.current !== anniversaryEditorToken) return;
+            setAnniversarySearchMatch(null);
+            onSearchMatchClosed?.();
+            setAnniversaryToEdit(undefined);
+          }}
         />
       )}
     </section>
@@ -194,12 +244,14 @@ function AnniversaryCard({ anniversary, onEdit }: AnniversaryCardProps) {
 }
 
 interface AnniversaryDialogProps {
+  ownerId: string;
   anniversary?: Anniversary;
+  searchMatch?: SearchNavigationMatch | null;
   initialKind: AnniversaryKind;
   onClose: () => void;
 }
 
-function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDialogProps) {
+function AnniversaryDialog({ ownerId, anniversary, searchMatch, initialKind, onClose }: AnniversaryDialogProps) {
   const [kind, setKind] = useState<AnniversaryKind>(anniversary?.kind ?? initialKind);
   const [title, setTitle] = useState(anniversary?.title ?? "");
   const [date, setDate] = useState(anniversary?.date ?? toISODate(new Date()));
@@ -210,6 +262,17 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
   const [reminderTime, setReminderTime] = useState(anniversary?.reminder_time ?? "09:00");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    if (!searchMatch) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = Array.from(formRef.current?.querySelectorAll<HTMLElement>("[data-search-field]") ?? [])
+        .find((element) => element.dataset.searchField === searchMatch.field);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchMatch]);
   const [enablingReminder, setEnablingReminder] = useState(false);
 
   const previewDraft: Anniversary = {
@@ -299,7 +362,7 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
     }
     setSaving(true);
     const record: Anniversary = {
-      ...syncFields(anniversary),
+      ...syncFields(anniversary, ownerId),
       kind,
       title: title.trim(),
       date,
@@ -328,16 +391,16 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
 
   return (
     <Modal title={anniversary ? "编辑日子" : "新增日子"} onClose={onClose}>
-      <form className="form-stack" onSubmit={save}>
+      <form ref={formRef} className="form-stack" onSubmit={save}>
         <div className="form-grid">
-          <label>类型
+          <label data-search-field="kind" className={searchMatchFieldClass(searchMatch, "kind")}>类型
             <select value={kind} onChange={(event) => changeKind(event.target.value as AnniversaryKind)}>
               {ANNIVERSARY_KINDS.map((item) => <option key={item} value={item}>{anniversaryKindLabel(item)}</option>)}
             </select>
           </label>
           <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
         </div>
-        <label>标题<input required autoFocus value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <label data-search-field="title" className={searchMatchFieldClass(searchMatch, "title")}>标题<input required autoFocus value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <label>日期<input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
         <section className="reminder-editor anniversary-reminder-editor">
           <label className="checkbox-label">
@@ -360,7 +423,7 @@ function AnniversaryDialog({ anniversary, initialKind, onClose }: AnniversaryDia
             </p>
           )}
         </section>
-        <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+        <label data-search-field="note" className={searchMatchFieldClass(searchMatch, "note")}>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         {message && <p className={message.includes("失败") || message.includes("请") || message.includes("不支持") ? "auth-message error" : "auth-message"}>{message}</p>}
         <div className="form-actions split">
           <div>{anniversary && <button type="button" className="button danger-button" onClick={() => void remove()}><Trash2 size={16} />彻底删除</button>}</div>

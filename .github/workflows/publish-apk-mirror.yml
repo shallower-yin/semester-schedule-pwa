@@ -12,7 +12,9 @@ on:
 
 concurrency:
   group: publish-apk-mirror
-  cancel-in-progress: true
+  # Do not cancel an in-flight APK/web mirror publish; the job-level
+  # app-hosting-mirror group serializes it with Pages mirror uploads.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -21,6 +23,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      group: app-hosting-mirror
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -191,6 +196,7 @@ jobs:
       - name: Verify published APK
         env:
           EXPECTED_APK_CODE: ${{ steps.apk.outputs.code }}
+          EXPECTED_APK_SHA: ${{ steps.apk.outputs.sha }}
         run: |
           set -euo pipefail
           URL="https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/android/semester-schedule.apk"
@@ -198,4 +204,8 @@ jobs:
           echo "APK HEAD status=$code"
           test "$code" = "200"
           rel=$(curl -sS "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/release.json")
-          echo "$rel" | python3 -c 'import os,sys,json; d=json.load(sys.stdin); assert int(d.get("apkVersionCode") or 0)==int(os.environ["EXPECTED_APK_CODE"]), d; assert d.get("apkVersion")==d.get("version"), d; assert d.get("apkCommit")==d.get("commit"), d; print("release ok", d.get("version"), d.get("apkVersion"), d.get("apkVersionCode"))'
+          apk_url=$(echo "$rel" | python3 -c 'import os,sys,json; d=json.load(sys.stdin); expected=os.environ["EXPECTED_APK_SHA"].lower(); assert int(d.get("apkVersionCode") or 0)==int(os.environ["EXPECTED_APK_CODE"]), d; assert str(d.get("apkSha256") or "").lower()==expected, d; assert d.get("apkVersion")==d.get("version"), d; assert d.get("apkCommit")==d.get("commit"), d; print(d["apkUrl"])')
+          curl --fail --location --silent --show-error "$apk_url" -o /tmp/published-semester-schedule.apk
+          actual_sha=$(sha256sum /tmp/published-semester-schedule.apk | awk '{print tolower($1)}')
+          test "$actual_sha" = "$EXPECTED_APK_SHA"
+          echo "Published APK verified (versionCode=$EXPECTED_APK_CODE sha256=$actual_sha)"

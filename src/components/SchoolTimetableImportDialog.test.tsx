@@ -15,7 +15,7 @@ describe("课表提取器学校目录", () => {
   });
 
   it("支持按学校搜索并将常用学校置顶", () => {
-    render(<SchoolTimetableImportDialog semester={null} onClose={vi.fn()} />);
+    render(<SchoolTimetableImportDialog ownerId="local" semester={null} onClose={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox", { name: "搜索学校" }), { target: { value: "清华" } });
     expect(screen.getByText("清华大学")).toBeInTheDocument();
     expect(screen.queryByText("天津大学")).not.toBeInTheDocument();
@@ -66,14 +66,16 @@ describe("教务课表导入写入规则", () => {
       }
     ];
 
-    const groups = groupCourses(schedules, "semester-1", "2025-2026学年第二学期");
+    const groups = groupCourses(schedules, "semester-1", "2025-2026学年第二学期", "alice");
 
     expect(groups).toHaveLength(1);
     expect(groups[0].course.name).toBe("能源管理与规范");
     expect(groups[0].course.teacher).toBe("雷海燕,吕心力");
     expect(groups[0].course.classroom).toBe("55楼B区316");
+    expect(groups[0].course.user_id).toBe("alice");
     expect(groups[0].schedules).toHaveLength(1);
     expect(groups[0].schedules[0]).toMatchObject({
+      user_id: "alice",
       weekday: 3,
       start_period: 5,
       end_period: 6,
@@ -88,11 +90,12 @@ describe("教务课表导入写入规则", () => {
       { periodNumber: 3, name: "第三节", startTime: "10:25", endTime: "11:10" },
       { periodNumber: 4, name: "第四节", startTime: "11:15", endTime: "12:00" },
       { periodNumber: 5, name: "第五节", startTime: "13:30", endTime: "14:15" }
-    ]);
+    ], "alice");
 
     const mondayBlocks = blocks.filter((block) => block.weekday === 1);
 
     expect(mondayBlocks.map((block) => block.name)).toEqual(["第一节", "第二节", "第三节", "第四节", "午休", "第五节"]);
+    expect(mondayBlocks.every((block) => block.user_id === "alice")).toBe(true);
     expect(mondayBlocks.filter((block) => block.kind === "break")).toEqual([
       expect.objectContaining({
         name: "午休",
@@ -105,7 +108,7 @@ describe("教务课表导入写入规则", () => {
 
   it("合并导入时复用已有课程并合并相同时间段周数", async () => {
     const semester: Semester = {
-      ...syncFields(),
+      ...syncFields(undefined, "local"),
       id: "semester-1",
       name: "2026春",
       start_date: "2026-02-23",
@@ -113,7 +116,7 @@ describe("教务课表导入写入规则", () => {
       is_current: true
     };
     const course: Course = {
-      ...syncFields(),
+      ...syncFields(undefined, "local"),
       id: "course-1",
       semester_id: semester.id,
       name: "数学",
@@ -123,7 +126,7 @@ describe("教务课表导入写入规则", () => {
       note: ""
     };
     const schedule: CourseSchedule = {
-      ...syncFields(),
+      ...syncFields(undefined, "local"),
       id: "schedule-1",
       course_id: course.id,
       weekday: 1,
@@ -197,7 +200,7 @@ describe("教务课表导入写入规则", () => {
   it("导入预览提示已有课程和时间冲突", () => {
     const existingCourses: Course[] = [
       {
-        ...syncFields(),
+        ...syncFields(undefined, "local"),
         id: "course-existing",
         semester_id: "semester-1",
         name: "数学",
@@ -207,7 +210,7 @@ describe("教务课表导入写入规则", () => {
         note: ""
       },
       {
-        ...syncFields(),
+        ...syncFields(undefined, "local"),
         id: "course-conflict",
         semester_id: "semester-1",
         name: "物理",
@@ -218,8 +221,8 @@ describe("教务课表导入写入规则", () => {
       }
     ];
     const existingSchedules: CourseSchedule[] = [
-      { ...syncFields(), id: "schedule-existing", course_id: "course-existing", weekday: 1, start_period: 1, end_period: 2, weeks: [1, 2] },
-      { ...syncFields(), id: "schedule-conflict", course_id: "course-conflict", weekday: 1, start_period: 3, end_period: 4, weeks: [2] }
+      { ...syncFields(undefined, "local"), id: "schedule-existing", course_id: "course-existing", weekday: 1, start_period: 1, end_period: 2, weeks: [1, 2] },
+      { ...syncFields(undefined, "local"), id: "schedule-conflict", course_id: "course-conflict", weekday: 1, start_period: 3, end_period: 4, weeks: [2] }
     ];
     const timetable: ImportedTimetable = {
       sourceName: "sheet001.htm",

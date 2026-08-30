@@ -76,6 +76,27 @@ describe("事项编辑弹窗", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  it("跨标签切换共享身份后，新建事项仍归属打开弹窗的账号", async () => {
+    setCurrentUserId("alice");
+    render(
+      <EventDialog
+        initialDate="2026-07-25"
+        ownerId="alice"
+        occurrenceStates={[]}
+        onClose={vi.fn()}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "Alice 的事项" } });
+    setCurrentUserId("bob");
+    fireEvent.click(screen.getByRole("button", { name: "保存事项" }));
+
+    await waitFor(async () => {
+      const saved = await db.events.filter((item) => item.title === "Alice 的事项").first();
+      expect(saved?.user_id).toBe("alice");
+    });
+  });
+
   it("新增习惯时保存为 habit 类型", async () => {
     render(
       <EventDialog
@@ -171,7 +192,7 @@ describe("事项编辑弹窗", () => {
 
 function eventRecord(overrides: Partial<EventItem> = {}): EventItem {
   return {
-    ...syncFields(),
+    ...syncFields(undefined, "local"),
     id: "event-1",
     event_type: "event",
     title: "今天事项",

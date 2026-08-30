@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
+import { setCurrentUserId } from "../lib/identity";
 import { HealthPage } from "./HealthPage";
 
 describe("健康第一阶段", () => {
@@ -36,6 +37,41 @@ describe("健康第一阶段", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
     await waitFor(async () => expect(await db.healthProfiles.count()).toBe(1));
     await waitFor(async () => expect((await db.healthLogs.toArray()).filter((item) => item.kind === "weight")).toHaveLength(1));
+  });
+
+  it("跨标签切换共享身份后，健康记录仍归属页面捕获的账号", async () => {
+    setCurrentUserId("alice");
+    render(<HealthPage ownerId="alice" />);
+    setCurrentUserId("bob");
+
+    fireEvent.click(screen.getByRole("button", { name: "+250 ml" }));
+
+    await waitFor(async () => {
+      expect((await db.healthLogs.toArray())[0]?.user_id).toBe("alice");
+    });
+  });
+
+  it("切换 ownerId 时清空未保存的健康草稿", async () => {
+    const { rerender } = render(<HealthPage ownerId="alice" />);
+    fireEvent.change(screen.getByLabelText("身高（cm）"), { target: { value: "175" } });
+    fireEvent.change(screen.getByLabelText("本次体重（kg）"), { target: { value: "68" } });
+    fireEvent.change(screen.getByLabelText("饮水目标（ml）"), { target: { value: "3200" } });
+
+    rerender(<HealthPage ownerId="bob" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("身高（cm）")).toHaveValue("");
+      expect(screen.getByLabelText("本次体重（kg）")).toHaveValue("");
+      expect(screen.getByLabelText("饮水目标（ml）")).toHaveValue("");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await waitFor(async () => {
+      const saved = await db.healthProfiles.where("user_id").equals("bob").first();
+      expect(saved?.height_cm).toBeNull();
+      expect(saved?.daily_water_goal_ml).toBe(2000);
+    });
+    expect(await db.healthProfiles.where("user_id").equals("alice").count()).toBe(0);
   });
 
   it("可以依次撤销当天最近的活动与训练记录", async () => {

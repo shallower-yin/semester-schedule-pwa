@@ -102,6 +102,11 @@
   gap: 10px;
 }
 
+.memo-editor-heading > span:first-child {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .memo-editor-toolbar {
   display: flex;
   flex-wrap: wrap;

@@ -2,13 +2,14 @@ import { Bell, BookOpen, CalendarHeart, CheckCircle2, FileText, Search } from "l
 import { useMemo, useState } from "react";
 import type { Anniversary, Category, Course, EventItem, Memo } from "../types";
 import { anniversaryKindLabel } from "../lib/anniversaries";
+import { findSearchNavigationMatch, type SearchNavigationMatch, type SearchableField } from "../lib/searchNavigation";
 import { Modal } from "./Modal";
 
-export type GlobalSearchResult =
-  | { type: "course"; id: string }
-  | { type: "event"; id: string }
-  | { type: "anniversary"; id: string }
-  | { type: "memo"; id: string };
+export interface GlobalSearchResult {
+  type: "course" | "event" | "anniversary" | "memo";
+  id: string;
+  match?: SearchNavigationMatch;
+}
 
 interface GlobalSearchDialogProps {
   courses: Course[];
@@ -25,7 +26,7 @@ interface SearchItem {
   id: string;
   title: string;
   subtitle: string;
-  body: string;
+  fields: SearchableField[];
 }
 
 export function GlobalSearchDialog({ courses, events, categories, anniversaries, memos, onOpen, onClose }: GlobalSearchDialogProps) {
@@ -37,7 +38,12 @@ export function GlobalSearchDialog({ courses, events, categories, anniversaries,
       id: course.id,
       title: course.name,
       subtitle: [course.teacher, course.classroom].filter(Boolean).join(" · ") || "课程",
-      body: [course.name, course.teacher, course.classroom, course.note].join("\n")
+      fields: [
+        { field: "name", label: "课程名称", value: course.name },
+        { field: "teacher", label: "教师", value: course.teacher },
+        { field: "classroom", label: "教室", value: course.classroom },
+        { field: "note", label: "备注", value: course.note }
+      ]
     })),
     ...events.filter((eventItem) => !eventItem.deleted_at).map((eventItem) => {
       const category = eventItem.category_id ? categoryMap.get(eventItem.category_id) : undefined;
@@ -46,7 +52,12 @@ export function GlobalSearchDialog({ courses, events, categories, anniversaries,
         id: eventItem.id,
         title: eventItem.title,
         subtitle: `${eventItem.event_type === "habit" ? "习惯" : "事项"} · ${eventItem.start_date}${eventItem.end_date !== eventItem.start_date ? ` 至 ${eventItem.end_date}` : ""}`,
-        body: [eventItem.title, eventItem.note, category?.name ?? ""].join("\n")
+        fields: [
+          { field: "title", label: "标题", value: eventItem.title },
+          { field: "location", label: "地点", value: eventItem.location },
+          { field: "note", label: "备注", value: eventItem.note },
+          { field: "category", label: "分类", value: category?.name }
+        ]
       };
     }),
     ...anniversaries.filter((anniversary) => !anniversary.deleted_at).map((anniversary) => ({
@@ -54,27 +65,35 @@ export function GlobalSearchDialog({ courses, events, categories, anniversaries,
       id: anniversary.id,
       title: anniversary.title,
       subtitle: `${anniversaryKindLabel(anniversary.kind)} · ${anniversary.date}`,
-      body: [anniversary.title, anniversary.note, anniversaryKindLabel(anniversary.kind)].join("\n")
+      fields: [
+        { field: "title", label: "标题", value: anniversary.title },
+        { field: "note", label: "备注", value: anniversary.note },
+        { field: "kind", label: "类型", value: anniversaryKindLabel(anniversary.kind) }
+      ]
     })),
     ...memos.filter((memo) => !memo.deleted_at).map((memo) => ({
       type: "memo" as const,
       id: memo.id,
       title: memo.title,
       subtitle: "备忘录",
-      body: [memo.title, memo.content].join("\n")
+      fields: [
+        { field: "title", label: "标题", value: memo.title },
+        { field: "content", label: "正文", value: memo.content }
+      ]
     }))
   ], [anniversaries, categoryMap, courses, events, memos]);
 
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return items.slice(0, 12);
-    return items
-      .filter((item) => item.body.toLowerCase().includes(normalized))
-      .slice(0, 30);
+    if (!normalized) return items.slice(0, 12).map((item) => ({ item, match: null }));
+    return items.flatMap((item) => {
+      const match = findSearchNavigationMatch(item.fields, query);
+      return match ? [{ item, match }] : [];
+    }).slice(0, 30);
   }, [items, query]);
 
-  function openItem(item: SearchItem) {
-    onOpen({ type: item.type, id: item.id } as GlobalSearchResult);
+  function openItem(item: SearchItem, match: SearchNavigationMatch | null) {
+    onOpen({ type: item.type, id: item.id, ...(match ? { match } : {}) });
   }
 
   return (
@@ -85,7 +104,7 @@ export function GlobalSearchDialog({ courses, events, categories, anniversaries,
           <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索课程、事项、习惯、纪念日或备忘录" />
         </label>
         <div className="global-search-results" role="list" aria-label="搜索结果">
-          {visibleItems.length ? visibleItems.map((item) => {
+          {visibleItems.length ? visibleItems.map(({ item, match }) => {
             const Icon = item.type === "course"
               ? BookOpen
               : item.type === "anniversary"
@@ -96,11 +115,11 @@ export function GlobalSearchDialog({ courses, events, categories, anniversaries,
                     ? CheckCircle2
                     : Bell;
             return (
-              <button key={`${item.type}-${item.id}`} type="button" onClick={() => openItem(item)} role="listitem">
+              <button key={`${item.type}-${item.id}`} type="button" onClick={() => openItem(item, match)} role="listitem">
                 <Icon size={18} />
                 <span>
                   <strong>{item.title}</strong>
-                  <small>{item.subtitle}</small>
+                  <small>{match ? `${match.fieldLabel} · ${match.preview}` : item.subtitle}</small>
                 </span>
               </button>
             );

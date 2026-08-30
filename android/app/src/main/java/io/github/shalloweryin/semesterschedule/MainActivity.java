@@ -22,6 +22,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ReminderSupportPlugin.class);
         registerPlugin(AppUpdaterPlugin.class);
         registerPlugin(NativeFileExportPlugin.class);
+        registerPlugin(ScheduleWidgetPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Android 15+ enforces edge-to-edge for apps targeting SDK 35+. OEM skins (e.g. ColorOS)

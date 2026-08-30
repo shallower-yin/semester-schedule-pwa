@@ -51,6 +51,7 @@ public class FocusNativeTimerPlugin extends Plugin {
     static final String SOUND = "sound-enabled";
     static final String TRANSITIONS = "transitions";
     static final Object TRANSITION_LOCK = new Object();
+    private static final Object TIMER_STATE_LOCK = new Object();
 
     private SharedPreferences prefs() {
         return getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -59,61 +60,80 @@ public class FocusNativeTimerPlugin extends Plugin {
     @PluginMethod
     public void start(PluginCall call) {
         long initialElapsed = Math.max(0, readLong(call, "initialElapsedSeconds", 0));
-        prefs().edit()
-            .putBoolean(ACTIVE, true)
-            .putString(OWNER, call.getString("ownerId", ""))
-            .putString(MODE, call.getString("mode", "pomodoro"))
-            .putString(TITLE, call.getString("title", ""))
-            .putString(LINKED_EVENT, call.getString("linkedEventId", ""))
-            .putLong(PLANNED, readLong(call, "plannedSeconds", -1))
-            .putLong(ELAPSED_BASE, initialElapsed)
-            .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
-            .putLong(ANCHOR_WALL, System.currentTimeMillis())
-            .putLong(ANCHOR_BOOT, bootCount(getContext()))
-            .putBoolean(PAUSED, false)
-            .putString(PLAN_ID, call.getString("pomodoroPlanId", ""))
-            .putInt(ROUND, call.getInt("pomodoroRound", 0))
-            .putInt(TOTAL_ROUNDS, call.getInt("pomodoroTotalRounds", 0))
-            .putLong(SHORT_BREAK, readLong(call, "pomodoroShortBreakSeconds", 300))
-            .putLong(LONG_BREAK, readLong(call, "pomodoroLongBreakSeconds", 900))
-            .putInt(LONG_INTERVAL, call.getInt("pomodoroLongBreakInterval", 4))
-            .putBoolean(AUTO_BREAK, call.getBoolean("pomodoroAutoStartBreak", true))
-            .putString(REST_KIND, call.getString("pomodoroRestKind", ""))
-            .putLong(FOCUS_SECONDS, readLong(call, "pomodoroFocusSeconds", Math.max(0, readLong(call, "plannedSeconds", 0))))
-            .putString(TASK_TITLE, readTaskTitle(call))
-            .putBoolean(SOUND, call.getBoolean("soundEnabled", true))
-            .apply();
-        if (!call.getString("pomodoroPlanId", "").isEmpty()) FocusTimerService.start(getContext());
-        call.resolve(readState());
-    }
-
-    @PluginMethod
-    public void pause(PluginCall call) {
-        SharedPreferences current = prefs();
-        if (current.getBoolean(ACTIVE, false) && !current.getBoolean(PAUSED, false)) {
-            current.edit()
-                .putLong(ELAPSED_BASE, currentElapsedSeconds(current))
-                .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
-                .putLong(ANCHOR_WALL, System.currentTimeMillis())
-                .putLong(ANCHOR_BOOT, bootCount(getContext()))
-                .putBoolean(PAUSED, true)
-                .apply();
-        }
-        call.resolve(readState());
-    }
-
-    @PluginMethod
-    public void resume(PluginCall call) {
-        SharedPreferences current = prefs();
-        if (current.getBoolean(ACTIVE, false) && current.getBoolean(PAUSED, false)) {
-            current.edit()
+        String planId = call.getString("pomodoroPlanId", "");
+        JSObject state;
+        synchronized (TIMER_STATE_LOCK) {
+            prefs().edit()
+                .putBoolean(ACTIVE, true)
+                .putString(OWNER, call.getString("ownerId", ""))
+                .putString(MODE, call.getString("mode", "pomodoro"))
+                .putString(TITLE, call.getString("title", ""))
+                .putString(LINKED_EVENT, call.getString("linkedEventId", ""))
+                .putLong(PLANNED, readLong(call, "plannedSeconds", -1))
+                .putLong(ELAPSED_BASE, initialElapsed)
                 .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
                 .putLong(ANCHOR_WALL, System.currentTimeMillis())
                 .putLong(ANCHOR_BOOT, bootCount(getContext()))
                 .putBoolean(PAUSED, false)
+                .putString(PLAN_ID, planId)
+                .putInt(ROUND, call.getInt("pomodoroRound", 0))
+                .putInt(TOTAL_ROUNDS, call.getInt("pomodoroTotalRounds", 0))
+                .putLong(SHORT_BREAK, readLong(call, "pomodoroShortBreakSeconds", 300))
+                .putLong(LONG_BREAK, readLong(call, "pomodoroLongBreakSeconds", 900))
+                .putInt(LONG_INTERVAL, call.getInt("pomodoroLongBreakInterval", 4))
+                .putBoolean(AUTO_BREAK, call.getBoolean("pomodoroAutoStartBreak", true))
+                .putString(REST_KIND, call.getString("pomodoroRestKind", ""))
+                .putLong(FOCUS_SECONDS, readLong(call, "pomodoroFocusSeconds", Math.max(0, readLong(call, "plannedSeconds", 0))))
+                .putString(TASK_TITLE, readTaskTitle(call))
+                .putBoolean(SOUND, call.getBoolean("soundEnabled", true))
                 .apply();
+            if (!planId.isEmpty()) FocusTimerService.start(getContext());
+            state = readState();
         }
-        call.resolve(readState());
+        call.resolve(state);
+    }
+
+    @PluginMethod
+    public void pause(PluginCall call) {
+        String expectedOwner = call.getString("ownerId", "");
+        JSObject state;
+        synchronized (TIMER_STATE_LOCK) {
+            SharedPreferences current = prefs();
+            if (matchesOwner(current, expectedOwner)
+                && current.getBoolean(ACTIVE, false)
+                && !current.getBoolean(PAUSED, false)) {
+                current.edit()
+                    .putLong(ELAPSED_BASE, currentElapsedSeconds(current))
+                    .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
+                    .putLong(ANCHOR_WALL, System.currentTimeMillis())
+                    .putLong(ANCHOR_BOOT, bootCount(getContext()))
+                    .putBoolean(PAUSED, true)
+                    .apply();
+            }
+            state = readState();
+        }
+        call.resolve(state);
+    }
+
+    @PluginMethod
+    public void resume(PluginCall call) {
+        String expectedOwner = call.getString("ownerId", "");
+        JSObject state;
+        synchronized (TIMER_STATE_LOCK) {
+            SharedPreferences current = prefs();
+            if (matchesOwner(current, expectedOwner)
+                && current.getBoolean(ACTIVE, false)
+                && current.getBoolean(PAUSED, false)) {
+                current.edit()
+                    .putLong(ANCHOR_REALTIME, SystemClock.elapsedRealtime())
+                    .putLong(ANCHOR_WALL, System.currentTimeMillis())
+                    .putLong(ANCHOR_BOOT, bootCount(getContext()))
+                    .putBoolean(PAUSED, false)
+                    .apply();
+            }
+            state = readState();
+        }
+        call.resolve(state);
     }
 
     @PluginMethod
@@ -123,9 +143,39 @@ public class FocusNativeTimerPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
-        prefs().edit().putBoolean(ACTIVE, false).apply();
-        FocusTimerService.stop(getContext());
-        call.resolve();
+        SharedPreferences current = prefs();
+        String expectedOwner = call.getString("ownerId", "");
+        JSObject result = new JSObject();
+        if (!matchesOwner(current, expectedOwner)) {
+            result.put("stopped", false);
+            call.resolve(result);
+            return;
+        }
+        Runnable stopTimer = () -> {
+            boolean stopped = false;
+            synchronized (TIMER_STATE_LOCK) {
+                SharedPreferences executionState = prefs();
+                if (matchesOwner(executionState, expectedOwner)) {
+                    Activity activity = getActivity();
+                    if (call.getBoolean("exitLockTask", false) && activity != null) {
+                        try {
+                            if (isLockTaskActive()) activity.stopLockTask();
+                        } catch (Exception ignored) {
+                            // The owner may already have unpinned with the system gesture.
+                        }
+                        activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    }
+                    executionState.edit().putBoolean(ACTIVE, false).apply();
+                    FocusTimerService.stop(getContext());
+                    stopped = true;
+                }
+            }
+            result.put("stopped", stopped);
+            call.resolve(result);
+        };
+        Activity activity = getActivity();
+        if (activity != null) activity.runOnUiThread(stopTimer);
+        else stopTimer.run();
     }
 
     @PluginMethod
@@ -179,6 +229,13 @@ public class FocusNativeTimerPlugin extends Plugin {
 
     @PluginMethod
     public void enterLockTask(PluginCall call) {
+        String expectedOwner = call.getString("ownerId", "");
+        if (!matchesOwner(prefs(), expectedOwner)) {
+            JSObject result = new JSObject();
+            result.put("active", false);
+            call.resolve(result);
+            return;
+        }
         Activity activity = getActivity();
         if (activity == null) {
             call.reject("no-activity");
@@ -186,9 +243,15 @@ public class FocusNativeTimerPlugin extends Plugin {
         }
         activity.runOnUiThread(() -> {
             try {
-                activity.startLockTask();
                 JSObject result = new JSObject();
-                result.put("active", isLockTaskActive());
+                synchronized (TIMER_STATE_LOCK) {
+                    if (!matchesOwner(prefs(), expectedOwner)) {
+                        result.put("active", false);
+                    } else {
+                        activity.startLockTask();
+                        result.put("active", isLockTaskActive());
+                    }
+                }
                 call.resolve(result);
             } catch (Exception error) {
                 call.reject("lock-task-failed", error);
@@ -247,6 +310,10 @@ public class FocusNativeTimerPlugin extends Plugin {
         if (explicit != null && !explicit.isEmpty()) return explicit;
         String mode = call.getString("mode", "pomodoro");
         return "pomodoro".equals(mode) ? call.getString("title", "") : "";
+    }
+
+    private boolean matchesOwner(SharedPreferences current, String expectedOwner) {
+        return expectedOwner.isEmpty() || expectedOwner.equals(current.getString(OWNER, ""));
     }
 
     private long currentElapsedSeconds(SharedPreferences current) {

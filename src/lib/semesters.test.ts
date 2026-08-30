@@ -121,7 +121,7 @@ describe("学期删除", () => {
     const previous: Semester = { ...fields("semester-old"), name: "旧学期", start_date: "2026-02-23", total_weeks: 18, is_current: true };
     await db.semesters.put(previous);
 
-    const created = await saveSemesterRecord({ name: "2026 秋", startDate: "2026-09-07", totalWeeks: 20 });
+    const created = await saveSemesterRecord({ ownerId: userId, name: "2026 秋", startDate: "2026-09-07", totalWeeks: 20 });
 
     expect(created.name).toBe("2026 秋");
     expect(created.is_current).toBe(true);
@@ -129,5 +129,17 @@ describe("学期删除", () => {
     const periods = await db.classPeriods.where("semester_id").equals(created.id).toArray();
     expect(new Set(periods.map((period) => period.weekday))).toEqual(new Set([1, 2, 3, 4, 5, 6, 7]));
     expect(periods.length).toBeGreaterThan(70);
+  });
+
+  it("跨标签切换共享身份后，新建学期和默认节次仍归属调用方捕获的账号", async () => {
+    const ownerId = "alice";
+    setCurrentUserId("bob");
+
+    const created = await saveSemesterRecord({ ownerId, name: "Alice 的学期", startDate: "2026-09-07", totalWeeks: 20 });
+
+    expect(created.user_id).toBe(ownerId);
+    const periods = await db.classPeriods.where("semester_id").equals(created.id).toArray();
+    expect(periods.length).toBeGreaterThan(70);
+    expect(new Set(periods.map((period) => period.user_id))).toEqual(new Set([ownerId]));
   });
 });

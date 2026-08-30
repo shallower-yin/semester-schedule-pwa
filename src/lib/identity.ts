@@ -18,11 +18,29 @@ export function getCurrentUserId(): string {
   return localStorage.getItem(USER_KEY) ?? "local";
 }
 
-export function syncFields(existing?: { id: string; created_at: string; version: number }) {
+interface ExistingSyncRecord {
+  id: string;
+  created_at: string;
+  version: number;
+  user_id: string;
+}
+
+export function syncFields(existing: ExistingSyncRecord, ownerId?: string): ReturnType<typeof buildSyncFields>;
+export function syncFields(existing: ExistingSyncRecord | undefined, ownerId: string): ReturnType<typeof buildSyncFields>;
+export function syncFields(existing?: ExistingSyncRecord, ownerId?: string) {
+  if (existing?.user_id && ownerId && existing.user_id !== ownerId) {
+    throw new Error("更新同步记录时 ownerId 必须与已有记录一致。");
+  }
+  const resolvedOwnerId = existing?.user_id ?? ownerId;
+  if (!resolvedOwnerId?.trim()) throw new Error("新建同步记录时必须显式指定 ownerId。");
+  return buildSyncFields(existing, resolvedOwnerId);
+}
+
+function buildSyncFields(existing: ExistingSyncRecord | undefined, ownerId: string) {
   const now = new Date().toISOString();
   return {
     id: existing?.id ?? crypto.randomUUID(),
-    user_id: getCurrentUserId(),
+    user_id: ownerId,
     created_at: existing?.created_at ?? now,
     updated_at: now,
     deleted_at: null,

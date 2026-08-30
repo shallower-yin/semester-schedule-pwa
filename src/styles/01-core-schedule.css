@@ -21,6 +21,7 @@
   text-size-adjust: 100%;
 }
 
+:root[data-skin="cake"],
 .app-shell[data-skin="cake"] {
   --primary: #b83275;
   --primary-hover: #9f2863;
@@ -33,6 +34,7 @@
   --accent-soft: #ffe8f3;
 }
 
+:root[data-skin="linen"],
 .app-shell[data-skin="linen"] {
   --primary: #477342;
   --primary-hover: #395f35;
@@ -45,6 +47,7 @@
   --accent-soft: #edf6e8;
 }
 
+:root[data-skin="space"],
 .app-shell[data-skin="space"] {
   --primary: #6863d9;
   --primary-hover: #5650c7;
@@ -57,6 +60,7 @@
   --accent-soft: #e8e9ff;
 }
 
+:root[data-skin="cherry"],
 .app-shell[data-skin="cherry"] {
   --primary: #b43d60;
   --primary-hover: #9b3151;
@@ -69,6 +73,7 @@
   --accent-soft: #ffe3eb;
 }
 
+:root[data-skin="peace"],
 .app-shell[data-skin="peace"] {
   --primary: #9e1f2f;
   --primary-hover: #861a28;

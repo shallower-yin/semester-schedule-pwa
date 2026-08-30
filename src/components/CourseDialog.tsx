@@ -1,11 +1,12 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { findCourseEventConflicts, findCourseScheduleConflicts } from "../lib/conflicts";
 import { hardDeleteCoursesCascade, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
 import type { Course, CourseSchedule, Semester, Weekday } from "../types";
 import { Modal } from "./Modal";
@@ -21,10 +22,11 @@ interface ScheduleDraft {
 interface CourseDialogProps {
   semester: Semester;
   course?: Course;
+  searchMatch?: SearchNavigationMatch | null;
   onClose: () => void;
 }
 
-export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
+export function CourseDialog({ semester, course, searchMatch, onClose }: CourseDialogProps) {
   const periods = useLiveQuery(
     () => db.classPeriods.where("semester_id").equals(semester.id).filter((item) => !item.deleted_at && item.kind !== "break").toArray(),
     [semester.id]
@@ -38,6 +40,17 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
     { weekday: 1, start_period: 1, end_period: 2, weeks: Array.from({ length: semester.total_weeks }, (_, index) => index + 1) }
   ]);
   const [saving, setSaving] = useState(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    if (!searchMatch) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = Array.from(formRef.current?.querySelectorAll<HTMLElement>("[data-search-field]") ?? [])
+        .find((element) => element.dataset.searchField === searchMatch.field);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchMatch]);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -119,6 +132,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    const operationOwnerId = semester.user_id;
     const invalidSchedule = schedules.some((item) => {
       const dayPeriods = periodsForWeekday(item.weekday);
       const startIndex = dayPeriods.findIndex((period) => period.period_number === item.start_period);
@@ -128,7 +142,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
     if (!name.trim() || invalidSchedule) return;
     setSaving(true);
     const courseRecord: Course = {
-      ...syncFields(course),
+      ...syncFields(course, operationOwnerId),
       semester_id: semester.id,
       name: name.trim(),
       teacher: teacher.trim(),
@@ -168,7 +182,7 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
       for (const item of schedules) {
         const existing = oldSchedules.find((old) => old.id === item.id);
         const record: CourseSchedule = {
-          ...syncFields(existing),
+          ...syncFields(existing, operationOwnerId),
           course_id: courseRecord.id,
           weekday: item.weekday,
           start_period: item.start_period,
@@ -191,13 +205,13 @@ export function CourseDialog({ semester, course, onClose }: CourseDialogProps) {
 
   return (
     <Modal title={course ? "编辑课程" : "新增课程"} onClose={onClose} wide>
-      <form className="form-stack" onSubmit={save}>
+      <form ref={formRef} className="form-stack" onSubmit={save}>
         <div className="form-grid">
-          <label className="span-2">课程名称<input required autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label>教师<input value={teacher} onChange={(event) => setTeacher(event.target.value)} /></label>
-          <label>教室<input value={classroom} onChange={(event) => setClassroom(event.target.value)} /></label>
+          <label data-search-field="name" className={`span-2 ${searchMatchFieldClass(searchMatch, "name")}`.trim()}>课程名称<input required autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label data-search-field="teacher" className={searchMatchFieldClass(searchMatch, "teacher")}>教师<input value={teacher} onChange={(event) => setTeacher(event.target.value)} /></label>
+          <label data-search-field="classroom" className={searchMatchFieldClass(searchMatch, "classroom")}>教室<input value={classroom} onChange={(event) => setClassroom(event.target.value)} /></label>
           <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
-          <label className="span-2">备注<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+          <label data-search-field="note" className={`span-2 ${searchMatchFieldClass(searchMatch, "note")}`.trim()}>备注<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         </div>
 
         <div className="section-heading">

@@ -41,10 +41,11 @@ import { syncFields } from "../lib/identity";
 import { isNativeApp } from "../lib/nativeApp";
 import { disableFocusScreenWakeLock, enableFocusScreenWakeLock, focusScreenWakeLockSupported } from "../lib/focusScreenWakeLock";
 import { showToast } from "../lib/toast";
+import { enterImmersiveFullscreen, exitImmersiveFullscreen, lockOrientation } from "../lib/focusPresentation";
 import type { EventItem, FocusMode, FocusSession, FocusSettings, FocusTimerMode, RestSession } from "../types";
 import { Modal } from "./Modal";
 import { FocusAudioPlayer } from "./FocusAudioPlayer";
-import { FocusFullscreen, enterImmersiveFullscreen, exitImmersiveFullscreen, lockOrientation } from "./FocusFullscreen";
+import { FocusFullscreen } from "./FocusFullscreen";
 
 interface FocusPageProps {
   ownerId: string;
@@ -100,6 +101,17 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [nativeElapsed, setNativeElapsed] = useState<number | null>(null);
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>("week");
   const [keepScreenAwake, setKeepScreenAwake] = useState(loadFocusScreenWakeLockPreference);
+  const previousOwnerRef = useRef<string | null>(null);
+  const ownerIdentityRef = useRef(ownerId);
+  const ownerGenerationRef = useRef(0);
+  if (ownerIdentityRef.current !== ownerId) {
+    ownerIdentityRef.current = ownerId;
+    ownerGenerationRef.current += 1;
+  }
+
+  useEffect(() => () => {
+    ownerGenerationRef.current += 1;
+  }, []);
 
   const effectiveSettings = useMemo(
     () => ({
@@ -153,8 +165,30 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   }, [storedSettings?.id, storedSettings?.updated_at]);
 
   useEffect(() => {
+    const ownerChanged = previousOwnerRef.current !== null && previousOwnerRef.current !== ownerId;
+    previousOwnerRef.current = ownerId;
     setActive(loadActiveFocus(ownerId));
     setPomodoroPlan(loadPomodoroPlan(ownerId));
+    // FocusPage remains mounted when the signed-in account changes.  Clear
+    // transient controls and record-selection state before rendering the new
+    // owner's data, otherwise an unsaved task/settings draft could be saved
+    // under the wrong account (or old record ids could be acted on).
+    setMode("pomodoro");
+    setTaskTitle("");
+    setLinkedEventId("");
+    setSettingsDraft({ ...DEFAULT_SETTINGS });
+    setMessage("");
+    setSessionToEdit(null);
+    setManagingRecords(false);
+    setSelectedSessionIds(new Set());
+    setShowFullscreen(false);
+    setSystemWindowOpen(false);
+    setNativeElapsed(null);
+    if (ownerChanged) {
+      void closeFocusSystemWindow();
+      void exitImmersiveFullscreen();
+      void lockOrientation("auto");
+    }
     const refresh = () => {
       setActive(loadActiveFocus(ownerId));
       setPomodoroPlan(loadPomodoroPlan(ownerId));
@@ -216,15 +250,22 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       if (refreshing) return;
       refreshing = true;
       try {
+        if (cancelled) return;
         const transitions = await readNativeFocusTransitions(ownerId);
         if (transitions.length) {
           const nextPlan = await persistNativeTransitions(ownerId, transitions);
           await clearNativeFocusTransitions(transitions.map((item) => item.id));
           if (!cancelled && nextPlan !== undefined) setPomodoroPlan(nextPlan);
         }
+        // The account (or active session) may have changed while the native
+        // bridge was responding.  Do not start/read the old owner's timer
+        // after this effect has been invalidated.
+        if (cancelled) return;
         let state = await readNativeFocusTimer(ownerId);
         if (!state) {
+          if (cancelled) return;
           await startNativeFocusTimer(ownerId, active);
+          if (cancelled) return;
           state = await readNativeFocusTimer(ownerId);
         }
         if (cancelled || !state) return;
@@ -277,6 +318,9 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const selectedEvent = events.find((event) => event.id === linkedEventId);
 
   async function startFocus() {
+    const operationOwnerId = ownerId;
+    const operationGeneration = ownerGenerationRef.current;
+    const isCurrent = () => ownerGenerationRef.current === operationGeneration && ownerIdentityRef.current === operationOwnerId;
     const isRest = mode === "rest";
     let plan = mode === "pomodoro" ? pomodoroPlan : null;
     if (mode === "pomodoro" && !plan) {
@@ -316,20 +360,25 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     setActive(next);
     saveActiveFocus(ownerId, next);
     try {
-      const elapsedSeconds = await startNativeFocusTimer(ownerId, next);
+      const elapsedSeconds = await startNativeFocusTimer(operationOwnerId, next);
+      if (!isCurrent()) {
+        await stopNativeFocusTimer(operationOwnerId, mode === "lock");
+        return;
+      }
       if (elapsedSeconds != null) setNativeElapsed(elapsedSeconds);
     } catch {
-      setNativeElapsed(null);
+      if (isCurrent()) setNativeElapsed(null);
     }
+    if (!isCurrent()) return;
     // 系统小窗（原生悬浮窗 / 画中画）只在用户点击“系统小窗”时打开，开始专注不再自动弹出。
     if (effectiveSettings.sound_enabled) requestFocusNotificationPermission();
     if (mode === "lock") {
       void enterImmersiveFullscreen();
       try {
-        const pinned = await enterNativeLockTask();
-        if (!pinned) showToast("系统未进入屏幕固定，请确认系统弹窗。", "info");
+        const pinned = await enterNativeLockTask(operationOwnerId);
+        if (isCurrent() && !pinned) showToast("系统未进入屏幕固定，请确认系统弹窗。", "info");
       } catch {
-        showToast("无法启动系统屏幕固定，请在安卓设置中启用“固定屏幕”。", "error");
+        if (isCurrent()) showToast("无法启动系统屏幕固定，请在安卓设置中启用“固定屏幕”。", "error");
       }
     }
     setMessage("");
@@ -374,30 +423,40 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
   function pauseOrResume() {
     if (!active) return;
+    const operationOwnerId = ownerId;
+    const operationGeneration = ownerGenerationRef.current;
+    const isCurrent = () => ownerGenerationRef.current === operationGeneration && ownerIdentityRef.current === operationOwnerId;
     const current = new Date();
     if (active.pause_started_at) {
       const pausedFor = Math.max(0, Math.floor((current.getTime() - new Date(active.pause_started_at).getTime()) / 1000));
       const next = { ...active, paused_seconds: active.paused_seconds + pausedFor, pause_started_at: null };
       setActive(next);
       saveActiveFocus(ownerId, next);
-      void resumeNativeFocusTimer().then((seconds) => seconds != null && setNativeElapsed(seconds));
+      void resumeNativeFocusTimer(operationOwnerId).then((seconds) => {
+        if (isCurrent() && seconds != null) setNativeElapsed(seconds);
+      });
       updateFocusSystemWindow(next);
     } else {
       const next = { ...active, pause_started_at: current.toISOString() };
       setActive(next);
       saveActiveFocus(ownerId, next);
-      void pauseNativeFocusTimer().then((seconds) => seconds != null && setNativeElapsed(seconds));
+      void pauseNativeFocusTimer(operationOwnerId).then((seconds) => {
+        if (isCurrent() && seconds != null) setNativeElapsed(seconds);
+      });
       updateFocusSystemWindow(next);
     }
   }
 
   async function finishFocus(completed: boolean, interrupted: boolean) {
     if (!active) return;
+    const operationOwnerId = ownerId;
+    const operationGeneration = ownerGenerationRef.current;
+    const isCurrent = () => ownerGenerationRef.current === operationGeneration && ownerIdentityRef.current === operationOwnerId;
     const endedAt = new Date();
     const duration = Math.max(1, elapsedFocusSeconds(active, endedAt));
     if (active.mode === "rest") {
       const record: RestSession = {
-        ...syncFields(),
+        ...syncFields(undefined, ownerId),
         planned_seconds: active.planned_seconds ?? effectiveSettings.short_break_minutes * 60,
         duration_seconds: duration,
         started_at: active.started_at,
@@ -411,7 +470,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       await putRecordAndQueue("restSessions", record);
     } else {
       const record: FocusSession = {
-        ...syncFields(),
+        ...syncFields(undefined, ownerId),
         mode: active.mode,
         task_title: active.task_title,
         linked_event_id: active.linked_event_id,
@@ -426,7 +485,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       };
       await putRecordAndQueue("focusSessions", record);
     }
-    await stopNativeFocusTimer(active.mode === "lock");
+    await stopNativeFocusTimer(operationOwnerId, active.mode === "lock");
     let nextActive: ActiveFocusState | null = null;
     if (completed && active.mode === "pomodoro" && active.pomodoro_plan_id) {
       const round = active.pomodoro_round ?? 1;
@@ -440,7 +499,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
         completed_rounds: round
       };
       savePomodoroPlan(ownerId, updatedPlan);
-      setPomodoroPlan(updatedPlan);
+      if (isCurrent()) setPomodoroPlan(updatedPlan);
       if (active.pomodoro_auto_start_break) {
         const restKind = pomodoroRestKind(active);
         const restSeconds = restKind === "pomodoro_long"
@@ -465,7 +524,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       const total = active.pomodoro_total_rounds ?? pomodoroPlan?.total_rounds ?? round;
       if (round >= total) {
         clearPomodoroPlan(ownerId);
-        setPomodoroPlan(null);
+        if (isCurrent()) setPomodoroPlan(null);
       } else {
         const nextRound = round + 1;
         const updatedPlan: PomodoroPlanState = {
@@ -477,7 +536,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
           completed_rounds: round
         };
         savePomodoroPlan(ownerId, updatedPlan);
-        setPomodoroPlan(updatedPlan);
+        if (isCurrent()) setPomodoroPlan(updatedPlan);
         nextActive = {
           ...active,
           mode: "pomodoro",
@@ -497,17 +556,20 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     }
     if (nextActive) {
       saveActiveFocus(ownerId, nextActive);
-      setActive(nextActive);
-      try {
-        const nativeSeconds = await startNativeFocusTimer(ownerId, nextActive);
-        setNativeElapsed(nativeSeconds);
-      } catch {
-        setNativeElapsed(null);
+      if (isCurrent()) {
+        setActive(nextActive);
+        try {
+          const nativeSeconds = await startNativeFocusTimer(operationOwnerId, nextActive);
+          if (isCurrent()) setNativeElapsed(nativeSeconds);
+        } catch {
+          if (isCurrent()) setNativeElapsed(null);
+        }
       }
     } else {
       clearActiveFocus(ownerId);
-      setActive(null);
+      if (isCurrent()) setActive(null);
     }
+    if (!isCurrent()) return;
     void closeFocusSystemWindow();
     void exitImmersiveFullscreen();
     void lockOrientation("auto");
@@ -525,7 +587,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
   function discardFocus() {
     if (!active || !window.confirm(`放弃当前${active.mode === "rest" ? "休息" : "专注"}？不会保存本次记录。`)) return;
-    void stopNativeFocusTimer(active.mode === "lock");
+    void stopNativeFocusTimer(ownerId, active.mode === "lock");
     clearActiveFocus(ownerId);
     void closeFocusSystemWindow();
     void exitImmersiveFullscreen();
@@ -539,11 +601,14 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   }
 
   async function saveSettings() {
+    const operationOwnerId = ownerId;
+    const operationGeneration = ownerGenerationRef.current;
     const record: FocusSettings = {
-      ...syncFields(storedSettings),
+      ...syncFields(storedSettings, ownerId),
       ...settingsDraft
     };
     await putRecordAndQueue("focusSettings", record);
+    if (ownerGenerationRef.current !== operationGeneration || ownerIdentityRef.current !== operationOwnerId) return;
     setMessage("专注设置已保存。");
     showToast("专注设置已保存。", "success");
   }
@@ -847,9 +912,8 @@ async function persistNativeTransitions(
   let plan = loadPomodoroPlan(ownerId);
   for (const transition of transitions) {
     const common = {
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       id: transition.id,
-      user_id: ownerId,
       planned_seconds: transition.plannedSeconds,
       duration_seconds: Math.max(1, transition.durationSeconds),
       started_at: new Date(transition.startedAt).toISOString(),

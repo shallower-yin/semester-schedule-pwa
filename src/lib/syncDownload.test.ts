@@ -266,7 +266,7 @@ describe("下载侧保护本地未上传编辑", () => {
   it("本地有待传队列项时，纯拉取不覆盖该记录并计入 kept_local", async () => {
     const local: HealthLog = { ...healthLog(0), amount: 999 };
     await db.healthLogs.put(local);
-    await queueChange("healthLogs", local.id);
+    await queueChange("healthLogs", local.id, "upsert", local.user_id);
     mockRemote.tables.set("health_logs", [toRemoteRow({ ...healthLog(0), amount: 111 })]);
 
     const result = await pullRemoteNow(USER_ID);
@@ -302,7 +302,7 @@ describe("下载侧保护本地未上传编辑", () => {
   it("事项状态：本地有待传项时下载不覆盖打卡结果", async () => {
     const local = occurrenceState("occ-1", { completed: true, updated_at: "2026-07-01T09:00:00.000Z" });
     await db.eventOccurrenceStates.put(local);
-    await queueChange("eventOccurrenceStates", local.id);
+    await queueChange("eventOccurrenceStates", local.id, "upsert", local.user_id);
     mockRemote.tables.set("event_occurrence_states", [
       toRemoteRow(occurrenceState("occ-1", { completed: false }) as unknown as HealthLog)
     ]);

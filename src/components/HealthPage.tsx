@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Activity, Bell, ChevronDown, ChevronUp, Clock3, Dumbbell, Footprints, GlassWater, HeartPulse, History, ListPlus, Plus, RotateCcw, Save, Scale, Trash2, Undo2 } from "lucide-react";
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { formatMonthDay, toISODate } from "../lib/date";
 import { DEFAULT_EXERCISE_ITEMS, DEFAULT_HEALTH_PROFILE } from "../lib/health";
@@ -46,6 +46,26 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
   const [showExerciseManager, setShowExerciseManager] = useState(false);
   const [showRecent, setShowRecent] = useState(true);
 
+  // The page stays mounted while the active account changes.  All of these
+  // controls are transient drafts, so carrying them into the next account
+  // could accidentally save one user's unsaved values to another user's
+  // profile.  Reset them as soon as the owner scope changes.
+  useEffect(() => {
+    setHeight("");
+    setWeight("");
+    setWaterGoal("");
+    setReminderEnabled(null);
+    setReminderInterval("");
+    setReminderStart("");
+    setReminderEnd("");
+    setMovementAmount("5");
+    setExerciseAmount("10");
+    setExerciseItems(null);
+    setNewExerciseItem("");
+    setShowExerciseManager(false);
+    setShowRecent(true);
+  }, [ownerId]);
+
   const today = localDate(new Date());
   const todayLogs = logs.filter((item) => localDate(new Date(item.logged_at)) === today);
   const water = sum(todayLogs, "water");
@@ -65,7 +85,7 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
   const effectiveExerciseItems = exerciseItems ?? normalizeExerciseItems(profile.exercise_items);
 
   async function addLog(kind: HealthLogKind, amount: number, unit: HealthLog["unit"], activity: string | null = null) {
-    const record: HealthLog = { ...syncFields(), kind, logged_at: new Date().toISOString(), amount, unit, activity, note: "" };
+    const record: HealthLog = { ...syncFields(undefined, ownerId), kind, logged_at: new Date().toISOString(), amount, unit, activity, note: "" };
     await putRecordAndQueue("healthLogs", record);
     if (kind === "movement") void refreshHealthReminders();
     showToast(`${logLabel(record)}，已记录。`, "success");
@@ -86,7 +106,7 @@ export function HealthPage({ ownerId, onSync }: HealthPageProps) {
 
   async function saveProfile() {
     const next: HealthProfile = {
-      ...syncFields(storedProfile),
+      ...syncFields(storedProfile, ownerId),
       height_cm: clampOptional(numericOr(height, profile.height_cm), 80, 260),
       daily_water_goal_ml: clamp(Math.round(effectiveGoal), 250, 10000),
       exercise_items: effectiveExerciseItems,

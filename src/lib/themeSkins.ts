@@ -35,6 +35,18 @@ export function themeSkinLabel(id: ThemeSkinId): string {
   return THEME_SKINS.find((skin) => skin.id === id)?.name ?? THEME_SKINS[0].name;
 }
 
+/** Keep theme variables available to UI rendered through document.body portals. */
+export function applyDocumentThemeSkin(id: ThemeSkinId): () => void {
+  const root = document.documentElement;
+  const previous = root.dataset.skin;
+  root.dataset.skin = id;
+  return () => {
+    if (root.dataset.skin !== id) return;
+    if (previous) root.dataset.skin = previous;
+    else delete root.dataset.skin;
+  };
+}
+
 function isThemeSkinId(value: unknown): value is ThemeSkinId {
   return typeof value === "string" && THEME_SKINS.some((skin) => skin.id === value);
 }

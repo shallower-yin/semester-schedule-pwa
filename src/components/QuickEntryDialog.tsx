@@ -27,8 +27,7 @@ export function QuickEntryDialog({ ownerId, onCreated, onClose }: QuickEntryDial
     }
     setSaving(true);
     const record: EventItem = {
-      ...syncFields(),
-      user_id: ownerId,
+      ...syncFields(undefined, ownerId),
       event_type: "event",
       title: draft.title,
       start_date: draft.date,

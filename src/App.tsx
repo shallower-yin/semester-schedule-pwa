@@ -99,7 +99,7 @@ import { checkDueHealthReminder, recordHealthMovementReminderSent } from "./lib/
 import { DESKTOP_HEADER_TOOLS, loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { applyAppFontSize, appFontSizeLabel, loadAppFontSize, type AppFontSizeId } from "./lib/fontSizes";
 import { loadMobileNavSettings } from "./lib/mobileNavSettings";
-import { loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
+import { applyDocumentThemeSkin, loadThemeSkin, themeSkinLabel, type ThemeSkinId } from "./lib/themeSkins";
 import { getAdminStatus } from "./lib/admin";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview";
 import { ensureScheduledLocalBackup } from "./lib/autoBackup";
@@ -115,6 +115,11 @@ import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
 import { consumePendingNativeNotificationKey, isNativeApp, NATIVE_NOTIFICATION_OPEN_EVENT } from "./lib/nativeApp";
+import { currentLiveQueryValue, currentOwnerRecord, scopedLiveQueryValue } from "./lib/liveQueryScope";
+import type { SearchNavigationMatch } from "./lib/searchNavigation";
+import { ScheduleWidget } from "./lib/scheduleWidgetPlugin";
+import { buildWidgetSnapshot } from "./lib/widgetSnapshot";
+import { resetAccountFocusPresentation } from "./lib/focusPresentation";
 import {
   clearCapturedInstallPrompt,
   getCapturedInstallPrompt,
@@ -130,11 +135,28 @@ type Page = PageId;
 type ScheduleFilter = "all" | "courses" | "uncategorized" | string;
 
 interface EventDraft {
+  ownerId: string;
   date: string;
   start: string;
   end: string;
   allDay: boolean;
   eventType: EventType;
+}
+
+function useEditorInstanceToken(
+  identity: string,
+  generationRef: React.MutableRefObject<number>,
+  activeTokenRef: React.MutableRefObject<string>
+): string {
+  const previousIdentityRef = useRef("closed");
+  const tokenRef = useRef("closed");
+  if (previousIdentityRef.current !== identity) {
+    previousIdentityRef.current = identity;
+    generationRef.current += 1;
+    tokenRef.current = identity === "closed" ? "closed" : `${identity}:${generationRef.current}`;
+  }
+  activeTokenRef.current = tokenRef.current;
+  return tokenRef.current;
 }
 
 function formatSyncDateTime(value: string | null): string {
@@ -213,6 +235,10 @@ export default function App() {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [anniversaryToOpen, setAnniversaryToOpen] = useState<string | null>(null);
   const [memoToOpen, setMemoToOpen] = useState<string | null>(null);
+  const [courseSearchMatch, setCourseSearchMatch] = useState<SearchNavigationMatch | null>(null);
+  const [eventSearchMatch, setEventSearchMatch] = useState<SearchNavigationMatch | null>(null);
+  const [anniversarySearchMatch, setAnniversarySearchMatch] = useState<SearchNavigationMatch | null>(null);
+  const [memoSearchMatch, setMemoSearchMatch] = useState<SearchNavigationMatch | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installMessage, setInstallMessage] = useState("");
   const [updatingApp, setUpdatingApp] = useState(false);
@@ -273,45 +299,202 @@ export default function App() {
   const [eventStatusFilter, setEventStatusFilter] = useState<EventStatusFilter>("all");
   const [isAdmin, setIsAdmin] = useState(false);
   const ownerId = user?.id ?? "local";
+  const previousOwnerIdRef = useRef(ownerId);
+  const semesterEditorGenerationRef = useRef(0);
+  const courseEditorGenerationRef = useRef(0);
+  const eventEditorGenerationRef = useRef(0);
+  const semesterEditorTokenRef = useRef("closed");
+  const courseEditorTokenRef = useRef("closed");
+  const eventEditorTokenRef = useRef("closed");
 
-  const semester = useLiveQuery(
-    () => db.semesters.filter((item) => item.user_id === ownerId && item.is_current && !item.deleted_at).first(),
-    [ownerId]
+  useEffect(() => applyDocumentThemeSkin(themeSkin), [themeSkin]);
+
+  useEffect(() => {
+    if (previousOwnerIdRef.current === ownerId) return;
+    previousOwnerIdRef.current = ownerId;
+    setSemesterToEdit(undefined);
+    setCourseToEdit(undefined);
+    setEventToEdit(undefined);
+    setEventDraft(null);
+    setAnniversaryToOpen(null);
+    setMemoToOpen(null);
+    setCourseSearchMatch(null);
+    setEventSearchMatch(null);
+    setAnniversarySearchMatch(null);
+    setMemoSearchMatch(null);
+    setShowPeriodSettings(false);
+    setShowBackup(false);
+    setShowBatchEvents(false);
+    setShowDataHealth(false);
+    setShowStats(false);
+    setShowQuickEntry(false);
+    setShowScheduleAssistant(false);
+    setShowDeepSeekAssistant(false);
+    setShowTranslation(false);
+    setShowMindMap(false);
+    setShowAudioTranscription(false);
+    setShowAiToolbox(false);
+    setShowAdmin(false);
+    setShowAddSchedule(false);
+    setShowCourseManager(false);
+    setShowAccount(false);
+    setShowFeedback(false);
+    setShowSchoolImport(false);
+    setSnapshotMode(null);
+    setShowGlobalSearch(false);
+    // FocusPage is keyed by owner so an account switch unmounts the old
+    // instance immediately.  Native fullscreen/overlay state lives outside
+    // React, so explicitly tear it down here as well; otherwise the previous
+    // account's floating timer or immersive flags could survive the unmount.
+    void resetAccountFocusPresentation();
+  }, [ownerId]);
+
+  const semesterToEditForOwner = currentOwnerRecord(semesterToEdit, ownerId);
+  const courseToEditForOwner = currentOwnerRecord(courseToEdit, ownerId);
+  const eventToEditForOwner = currentOwnerRecord(eventToEdit, ownerId);
+  const eventDraftForOwner = eventDraft?.ownerId === ownerId ? eventDraft : null;
+  const semesterEditorIdentity = semesterToEditForOwner === undefined
+    ? "closed"
+    : `${ownerId}:${semesterToEditForOwner?.id ?? "new"}`;
+  const eventEditorIdentity = !eventDraftForOwner && eventToEditForOwner === undefined
+    ? "closed"
+    : `${ownerId}:${eventToEditForOwner?.id ?? `new:${eventDraftForOwner?.date ?? "direct"}:${eventDraftForOwner?.start ?? ""}:${eventDraftForOwner?.end ?? ""}:${eventDraftForOwner?.eventType ?? "event"}:${eventDraftForOwner?.allDay ? "all-day" : "timed"}`}`;
+  const semesterEditorToken = useEditorInstanceToken(semesterEditorIdentity, semesterEditorGenerationRef, semesterEditorTokenRef);
+  const eventEditorToken = useEditorInstanceToken(eventEditorIdentity, eventEditorGenerationRef, eventEditorTokenRef);
+
+  const ownerQueryScope = ownerId;
+  const semesterResult = useLiveQuery(
+    async () => scopedLiveQueryValue(
+      ownerQueryScope,
+      (await db.semesters.filter((item) => item.user_id === ownerId && item.is_current && !item.deleted_at).first()) ?? null
+    ),
+    [ownerQueryScope]
   );
-  const semesters = useLiveQuery(
-    () => db.semesters.filter((item) => item.user_id === ownerId && !item.deleted_at).reverse().sortBy("start_date"),
-    [ownerId]
-  ) ?? [];
-  const courses = useLiveQuery(
-    () => (semester ? db.courses.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
-    [semester?.id, ownerId]
-  ) ?? [];
-  const schedules = useLiveQuery(
+  const semesterQuery = currentLiveQueryValue(semesterResult, ownerQueryScope);
+  const semester = semesterQuery ?? null;
+  const courseToEditForSemester = courseToEditForOwner == null
+    ? courseToEditForOwner
+    : courseToEditForOwner.semester_id === semester?.id
+      ? courseToEditForOwner
+      : undefined;
+  const courseEditorIdentity = courseToEditForSemester === undefined || !semester
+    ? "closed"
+    : `${ownerId}:${semester.id}:${courseToEditForSemester?.id ?? "new"}`;
+  const courseEditorToken = useEditorInstanceToken(courseEditorIdentity, courseEditorGenerationRef, courseEditorTokenRef);
+  const semestersResult = useLiveQuery(
+    async () => scopedLiveQueryValue(
+      ownerQueryScope,
+      await db.semesters.filter((item) => item.user_id === ownerId && !item.deleted_at).reverse().sortBy("start_date")
+    ),
+    [ownerQueryScope]
+  );
+  const semestersQuery = currentLiveQueryValue(semestersResult, ownerQueryScope);
+  const semesters = semestersQuery ?? [];
+  const semesterDataScope = JSON.stringify([ownerId, semester?.id ?? null]);
+  const coursesResult = useLiveQuery(
+    async () => scopedLiveQueryValue(
+      semesterDataScope,
+      semester
+        ? await db.courses.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()
+        : []
+    ),
+    [semesterDataScope]
+  );
+  const coursesQuery = currentLiveQueryValue(coursesResult, semesterDataScope);
+  const courses = coursesQuery ?? [];
+  const schedulesDataScope = JSON.stringify([ownerId, courses.map((course) => course.id).sort()]);
+  const schedulesResult = useLiveQuery(
     async () => {
-      if (!courses.length) return [];
+      if (!courses.length) return scopedLiveQueryValue(schedulesDataScope, []);
       const courseIds = new Set(courses.map((course) => course.id));
-      return db.courseSchedules.filter((item) => item.user_id === ownerId && courseIds.has(item.course_id) && !item.deleted_at).toArray();
+      const value = await db.courseSchedules.filter((item) => item.user_id === ownerId && courseIds.has(item.course_id) && !item.deleted_at).toArray();
+      return scopedLiveQueryValue(schedulesDataScope, value);
     },
-    [courses.map((course) => course.id).join(","), ownerId]
-  ) ?? [];
-  const cancellations = useLiveQuery(() => db.courseCancellations.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
-  const events = useLiveQuery(() => db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
-  const categories = uniqueCategoriesByName(
-    useLiveQuery(
-      () => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
-      [ownerId]
-    ) ?? []
+    [schedulesDataScope]
   );
-  const occurrenceStates = useLiveQuery(() => db.eventOccurrenceStates.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
-  const anniversaries = useLiveQuery(() => db.anniversaries.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
-  const memos = useLiveQuery(() => db.memos.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
-  const focusSessions = useLiveQuery(() => db.focusSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(), [ownerId]) ?? [];
-  const periods = useLiveQuery(
-    () => (semester ? db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray() : []),
-    [semester?.id, ownerId]
-  ) ?? [];
-  const pendingChanges = useLiveQuery(() => db.syncQueue.where("owner_id").equals(ownerId).count(), [ownerId]) ?? 0;
-  const syncHealth = useLiveQuery(() => getSyncHealth(ownerId), [ownerId, pendingChanges, syncMessage, syncing, user?.id]) ?? null;
+  const schedulesQuery = currentLiveQueryValue(schedulesResult, schedulesDataScope);
+  const schedules = schedulesQuery ?? [];
+  const cancellationsResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.courseCancellations.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const cancellationsQuery = currentLiveQueryValue(cancellationsResult, ownerQueryScope);
+  const cancellations = cancellationsQuery ?? [];
+  const eventsResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const eventsQuery = currentLiveQueryValue(eventsResult, ownerQueryScope);
+  const events = eventsQuery ?? [];
+  const categoriesResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const categoriesQuery = currentLiveQueryValue(categoriesResult, ownerQueryScope);
+  const categories = useMemo(() => uniqueCategoriesByName(categoriesQuery ?? []), [categoriesQuery]);
+  const occurrenceStatesResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.eventOccurrenceStates.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const occurrenceStatesQuery = currentLiveQueryValue(occurrenceStatesResult, ownerQueryScope);
+  const occurrenceStates = occurrenceStatesQuery ?? [];
+  const anniversariesResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.anniversaries.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const anniversariesQuery = currentLiveQueryValue(anniversariesResult, ownerQueryScope);
+  const anniversaries = anniversariesQuery ?? [];
+  const memosResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.memos.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const memosQuery = currentLiveQueryValue(memosResult, ownerQueryScope);
+  const memos = memosQuery ?? [];
+  const focusSessionsResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.focusSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const focusSessionsQuery = currentLiveQueryValue(focusSessionsResult, ownerQueryScope);
+  const focusSessions = focusSessionsQuery ?? [];
+  const periodsResult = useLiveQuery(
+    async () => scopedLiveQueryValue(
+      semesterDataScope,
+      semester
+        ? await db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()
+        : []
+    ),
+    [semesterDataScope]
+  );
+  const periodsQuery = currentLiveQueryValue(periodsResult, semesterDataScope);
+  const periods = periodsQuery ?? [];
+
+  useEffect(() => {
+    if (semesterQuery === undefined || !courseToEdit) return;
+    if (courseToEdit.user_id === ownerId && courseToEdit.semester_id === semester?.id) return;
+    setCourseSearchMatch(null);
+    setCourseToEdit(undefined);
+  }, [courseToEdit, ownerId, semester?.id, semesterQuery]);
+  const widgetDataReady = authReady
+    && semesterQuery !== undefined
+    && semestersQuery !== undefined
+    && coursesQuery !== undefined
+    && schedulesQuery !== undefined
+    && cancellationsQuery !== undefined
+    && eventsQuery !== undefined
+    && categoriesQuery !== undefined
+    && occurrenceStatesQuery !== undefined
+    && periodsQuery !== undefined
+    && focusSessionsQuery !== undefined;
+  const pendingChangesResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.syncQueue.where("owner_id").equals(ownerId).count()),
+    [ownerQueryScope]
+  );
+  const pendingChanges = currentLiveQueryValue(pendingChangesResult, ownerQueryScope) ?? 0;
+  const syncHealthResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await getSyncHealth(ownerId)),
+    [ownerId, pendingChanges, syncMessage, syncing, user?.id]
+  );
+  const syncHealth = currentLiveQueryValue(syncHealthResult, ownerQueryScope) ?? null;
 
   const dates = useMemo(() => weekDates(anchorDate), [anchorDate]);
   const weekNumber = semester ? semesterWeekForDate(semester, dates[0]) : null;
@@ -335,6 +518,77 @@ export default function App() {
     [semester, courses, schedules, cancellations, events, categories, occurrenceStates, anniversaries, memos, periods, focusSessions]
   );
 
+  // Clear the previous account's native projection as soon as authentication
+  // resolves to a different owner. Do not wait for every Dexie query to finish:
+  // a slow query must never leave another account's schedule on the launcher.
+  useEffect(() => {
+    if (!isNativeApp() || !authReady) return;
+    void ScheduleWidget.setActiveOwner({ ownerId }).catch(() => {
+      // Older Android shells do not expose this optional bridge.
+    });
+  }, [authReady, ownerId]);
+
+  // The launcher widget is a native, read-only projection.  Keep all schedule
+  // calculation in the existing Web/Dexie layer and publish only after every
+  // relevant live query has produced its first result for the active account.
+  useEffect(() => {
+    if (!isNativeApp() || !widgetDataReady) return;
+    let cancelled = false;
+    const publish = async () => {
+      try {
+        // Re-activating the same owner is idempotent on the native side and
+        // makes this first publication race-free with account changes.
+        await ScheduleWidget.setActiveOwner({ ownerId });
+        if (cancelled) return;
+        const snapshot = buildWidgetSnapshot({
+          ownerId,
+          semester,
+          courses,
+          schedules,
+          cancellations,
+          events,
+          categories,
+          occurrenceStates,
+          periods,
+          focusSessions
+        }, new Date());
+        await ScheduleWidget.updateSnapshot({
+          ownerId,
+          snapshotJson: JSON.stringify({ ...snapshot, ownerId })
+        });
+      } catch {
+        // Widget support is best-effort; schedule editing must continue even
+        // when an older native shell does not have the bridge yet.
+      }
+    };
+
+    void publish();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void publish();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pageshow", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pageshow", onVisibilityChange);
+    };
+  }, [
+    authReady,
+    categories,
+    cancellations,
+    courses,
+    events,
+    focusSessions,
+    ownerId,
+    occurrenceStates,
+    periods,
+    schedules,
+    semester,
+    user?.id,
+    widgetDataReady
+  ]);
+
   useEffect(() => {
     const handleOpen = (event: Event) => setNativeNotificationKey((event as CustomEvent<string>).detail || null);
     window.addEventListener(NATIVE_NOTIFICATION_OPEN_EVENT, handleOpen);
@@ -345,6 +599,18 @@ export default function App() {
 
   useEffect(() => {
     if (!nativeNotificationKey) return;
+    if (nativeNotificationKey === "route:quick-entry") {
+      if (!authReady) return;
+      setShowQuickEntry(true);
+      setNativeNotificationKey(null);
+      return;
+    }
+    if (nativeNotificationKey === "route:today") {
+      goToday();
+      navigate("today");
+      setNativeNotificationKey(null);
+      return;
+    }
     if (nativeNotificationKey === "route:focus") {
       navigate("focus");
       setNativeNotificationKey(null);
@@ -352,8 +618,8 @@ export default function App() {
     }
     const eventMatch = /^event:([^:]+):/.exec(nativeNotificationKey);
     if (eventMatch) {
-      const target = events.find((item) => item.id === eventMatch[1]);
-      if (!target && events.length === 0) return;
+      if (!authReady || eventsQuery === undefined) return;
+      const target = eventsQuery.find((item) => item.id === eventMatch[1] && item.user_id === ownerId);
       navigate(target?.event_type === "habit" ? "habits" : "calendar");
       if (target) setEventToEdit(target);
       else showToast("这条提醒对应的事项已被删除。", "info");
@@ -362,7 +628,12 @@ export default function App() {
     }
     const anniversaryMatch = /^anniversary:([^:]+):/.exec(nativeNotificationKey);
     if (anniversaryMatch) {
-      if (!anniversaries.some((item) => item.id === anniversaryMatch[1]) && anniversaries.length === 0) return;
+      if (!authReady || anniversariesQuery === undefined) return;
+      if (!anniversariesQuery.some((item) => item.id === anniversaryMatch[1] && item.user_id === ownerId)) {
+        showToast("这条提醒对应的日子已被删除。", "info");
+        setNativeNotificationKey(null);
+        return;
+      }
       navigate("anniversaries");
       setAnniversaryToOpen(anniversaryMatch[1]);
       setNativeNotificationKey(null);
@@ -370,7 +641,7 @@ export default function App() {
     }
     if (nativeNotificationKey === "health") navigate("health");
     setNativeNotificationKey(null);
-  }, [anniversaries, events, nativeNotificationKey]);
+  }, [anniversariesQuery, authReady, eventsQuery, nativeNotificationKey, ownerId]);
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
     if (eventStatusFilter !== "all") return [];
@@ -810,7 +1081,7 @@ export default function App() {
   }
 
   function openNewEvent(date: string, start: string, end: string, allDay = false, eventType: EventType = "event") {
-    setEventDraft({ date, start, end, allDay, eventType });
+    setEventDraft({ ownerId, date, start, end, allDay, eventType });
     setEventToEdit(null);
   }
 
@@ -826,27 +1097,41 @@ export default function App() {
 
   function openGlobalSearchResult(result: GlobalSearchResult) {
     setShowGlobalSearch(false);
+    setSemesterToEdit(undefined);
+    setCourseToEdit(undefined);
+    setEventToEdit(undefined);
+    setEventDraft(null);
+    setCourseSearchMatch(null);
+    setEventSearchMatch(null);
+    setAnniversaryToOpen(null);
+    setMemoToOpen(null);
+    setAnniversarySearchMatch(null);
+    setMemoSearchMatch(null);
     if (result.type === "course") {
-      const course = courses.find((candidate) => candidate.id === result.id);
+      const course = courses.find((candidate) => candidate.id === result.id && candidate.user_id === ownerId);
       if (course) {
+        setCourseSearchMatch(result.match ?? null);
         setCourseToEdit(course);
         navigate("calendar");
       }
       return;
     }
     if (result.type === "event") {
-      const eventItem = events.find((candidate) => candidate.id === result.id);
+      const eventItem = events.find((candidate) => candidate.id === result.id && candidate.user_id === ownerId);
       if (eventItem) {
+        setEventSearchMatch(result.match ?? null);
         setEventToEdit(eventItem);
         navigate(eventItem.event_type === "habit" ? "habits" : "calendar");
       }
       return;
     }
     if (result.type === "anniversary") {
+      setAnniversarySearchMatch(result.match ?? null);
       setAnniversaryToOpen(result.id);
       navigate("anniversaries");
       return;
     }
+    setMemoSearchMatch(result.match ?? null);
     setMemoToOpen(result.id);
     navigate("memos");
   }
@@ -1003,7 +1288,7 @@ export default function App() {
         </div>
       </header>
 
-      <FocusFloatingTimer ownerId={ownerId} />
+      <FocusFloatingTimer key={ownerId} ownerId={ownerId} />
 
       {sidebarOpen && (
         <div className="mobile-sidebar-backdrop" onClick={requestSidebarClose}>
@@ -1017,9 +1302,27 @@ export default function App() {
 
       <main>
         {page === "memos" ? (
-          <MemoPage ownerId={ownerId} openMemoId={memoToOpen} onOpenMemoConsumed={() => setMemoToOpen(null)} />
+          <MemoPage
+            key={ownerId}
+            ownerId={ownerId}
+            openMemoId={memoToOpen}
+            openSearchMatch={memoSearchMatch}
+            onOpenMemoConsumed={() => {
+              setMemoToOpen(null);
+            }}
+            onSearchMatchClosed={() => setMemoSearchMatch(null)}
+          />
         ) : page === "anniversaries" ? (
-          <AnniversaryPage ownerId={ownerId} openAnniversaryId={anniversaryToOpen} onOpenAnniversaryConsumed={() => setAnniversaryToOpen(null)} />
+          <AnniversaryPage
+            key={ownerId}
+            ownerId={ownerId}
+            openAnniversaryId={anniversaryToOpen}
+            openSearchMatch={anniversarySearchMatch}
+            onOpenAnniversaryConsumed={() => {
+              setAnniversaryToOpen(null);
+            }}
+            onSearchMatchClosed={() => setAnniversarySearchMatch(null)}
+          />
         ) : page === "habits" ? (
           <HabitPage
             habits={events}
@@ -1028,9 +1331,9 @@ export default function App() {
             onEditHabit={(habit) => setEventToEdit(habit)}
           />
         ) : page === "focus" ? (
-          <FocusPage ownerId={ownerId} />
+          <FocusPage key={ownerId} ownerId={ownerId} />
         ) : page === "health" ? (
-          <HealthPage ownerId={ownerId} onSync={handleSync} />
+          <HealthPage key={ownerId} ownerId={ownerId} onSync={handleSync} />
         ) : page === "help" ? (
           <HelpPage />
         ) : page === "today" && todayOverview ? (
@@ -1262,8 +1565,18 @@ export default function App() {
         </button>
       )}
 
-      {semesterToEdit !== undefined && <SemesterDialog semester={semesterToEdit ?? undefined} onClose={() => setSemesterToEdit(undefined)} />}
-      {showPeriodSettings && semester && <PeriodSettingsDialog semester={semester} onClose={() => setShowPeriodSettings(false)} />}
+      {semesterToEditForOwner !== undefined && (
+        <SemesterDialog
+          key={semesterEditorToken}
+          ownerId={ownerId}
+          semester={semesterToEditForOwner ?? undefined}
+          onClose={() => {
+            if (semesterEditorTokenRef.current !== semesterEditorToken) return;
+            setSemesterToEdit(undefined);
+          }}
+        />
+      )}
+      {showPeriodSettings && semester && <PeriodSettingsDialog key={`${ownerId}:${semester.id}`} semester={semester} onClose={() => setShowPeriodSettings(false)} />}
       {showThemeSkinSettings && <ThemeSkinDialog value={themeSkin} onChange={setThemeSkin} onClose={() => setShowThemeSkinSettings(false)} />}
       {showFontSizeSettings && <FontSizeDialog value={fontSize} onChange={setFontSize} onClose={() => setShowFontSizeSettings(false)} />}
       {showBackup && <BackupDialog onClose={() => setShowBackup(false)} />}
@@ -1334,7 +1647,7 @@ export default function App() {
           onClose={() => setShowHeaderToolSettings(false)}
         />
       )}
-      {showSchoolImport && <Suspense fallback={null}><SchoolTimetableImportDialog semester={semester ?? null} onImported={(target) => setAnchorDate(parseLocalDate(target.start_date))} onClose={() => setShowSchoolImport(false)} /></Suspense>}
+      {showSchoolImport && <Suspense fallback={null}><SchoolTimetableImportDialog ownerId={ownerId} semester={semester ?? null} onImported={(target) => setAnchorDate(parseLocalDate(target.start_date))} onClose={() => setShowSchoolImport(false)} /></Suspense>}
       {snapshotMode && (
         <ScheduleSnapshotDialog
           mode={snapshotMode}
@@ -1403,18 +1716,34 @@ export default function App() {
           onClose={() => setShowAccount(false)}
         />
       )}
-      {courseToEdit !== undefined && semester && <CourseDialog semester={semester} course={courseToEdit ?? undefined} onClose={() => setCourseToEdit(undefined)} />}
-      {(eventDraft || eventToEdit !== undefined) && (
+      {courseToEditForSemester !== undefined && semester && (
+        <CourseDialog
+          key={courseEditorToken}
+          semester={semester}
+          course={courseToEditForSemester ?? undefined}
+          searchMatch={courseSearchMatch}
+          onClose={() => {
+            if (courseEditorTokenRef.current !== courseEditorToken) return;
+            setCourseSearchMatch(null);
+            setCourseToEdit(undefined);
+          }}
+        />
+      )}
+      {(eventDraftForOwner || eventToEditForOwner !== undefined) && (
         <EventDialog
-          eventItem={eventToEdit ?? undefined}
-          initialDate={eventToEdit?.start_date ?? eventDraft?.date ?? toISODate(new Date())}
-          initialStartTime={eventDraft?.start}
-          initialEndTime={eventDraft?.end}
-          initialAllDay={eventDraft?.allDay}
-          initialEventType={eventToEdit?.event_type ?? eventDraft?.eventType}
+          key={eventEditorToken}
+          eventItem={eventToEditForOwner ?? undefined}
+          initialDate={eventToEditForOwner?.start_date ?? eventDraftForOwner?.date ?? toISODate(new Date())}
+          initialStartTime={eventDraftForOwner?.start}
+          initialEndTime={eventDraftForOwner?.end}
+          initialAllDay={eventDraftForOwner?.allDay}
+          initialEventType={eventToEditForOwner?.event_type ?? eventDraftForOwner?.eventType}
           ownerId={ownerId}
           occurrenceStates={occurrenceStates}
+          searchMatch={eventSearchMatch}
           onClose={() => {
+            if (eventEditorTokenRef.current !== eventEditorToken) return;
+            setEventSearchMatch(null);
             setEventDraft(null);
             setEventToEdit(undefined);
           }}

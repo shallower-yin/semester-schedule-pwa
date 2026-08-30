@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { BellRing, CalendarCheck, Copy, FileText } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
 import { findEventConflicts, findEventCourseConflicts } from "../lib/conflicts";
@@ -12,6 +12,7 @@ import { hardDeleteEventsCascade } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
 import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
 import { isNativeApp } from "../lib/nativeApp";
+import { searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
 import type { EventItem, EventOccurrenceState, EventRecurrenceType, EventType, Memo } from "../types";
 import { Modal } from "./Modal";
@@ -25,10 +26,11 @@ interface EventDialogProps {
   initialEventType?: EventType;
   ownerId: string;
   occurrenceStates: EventOccurrenceState[];
+  searchMatch?: SearchNavigationMatch | null;
   onClose: () => void;
 }
 
-export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, initialEventType = "event", ownerId, occurrenceStates, onClose }: EventDialogProps) {
+export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00", initialEndTime = "10:00", initialAllDay = false, initialEventType = "event", ownerId, occurrenceStates, searchMatch, onClose }: EventDialogProps) {
   const categories = uniqueCategoriesByName(
     useLiveQuery(
       () => db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
@@ -46,6 +48,17 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [color, setColor] = useState(eventItem?.color ?? "#e36b32");
   const [location, setLocation] = useState(eventItem?.location ?? "");
   const [note, setNote] = useState(eventItem?.note ?? "");
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    if (!searchMatch) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = Array.from(formRef.current?.querySelectorAll<HTMLElement>("[data-search-field]") ?? [])
+        .find((element) => element.dataset.searchField === searchMatch.field);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchMatch]);
   const [recurrence, setRecurrence] = useState<EventRecurrenceType>(eventItem?.recurrence_type ?? "none");
   const [recurrenceUntil, setRecurrenceUntil] = useState(eventItem?.recurrence_until ?? eventItem?.start_date ?? initialDate);
   const [recurrenceInterval, setRecurrenceInterval] = useState(eventItem?.recurrence_interval ?? 1);
@@ -227,7 +240,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     }
     setSaving(true);
     const record: EventItem = {
-      ...syncFields(eventItem),
+      ...syncFields(eventItem, ownerId),
       event_type: eventType,
       title: title.trim(),
       start_date: date,
@@ -326,7 +339,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     if (!eventItem) return;
     const record: EventItem = {
       ...eventItem,
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       title: `${eventItem.title} 副本`,
       deleted_at: null
     };
@@ -359,7 +372,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
 
   async function createMemoFromEvent() {
     const record: Memo = {
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       folder_id: null,
       title: title.trim() || "未命名事项",
       content: [
@@ -377,8 +390,8 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
 
   return (
     <Modal title={eventItem ? `编辑${itemLabel}` : `新增${itemLabel}`} onClose={onClose}>
-      <form className="form-stack" onSubmit={save}>
-        <label>标题<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      <form ref={formRef} className="form-stack" onSubmit={save}>
+        <label data-search-field="title" className={searchMatchFieldClass(searchMatch, "title")}>标题<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <div className="template-toolbar">
           <label>模板
             <select value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}>
@@ -405,7 +418,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </div>
         )}
         <div className="form-grid">
-          <label>分类
+          <label data-search-field="category" className={searchMatchFieldClass(searchMatch, "category")}>分类
             <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
               <option value="">未分类</option>
               {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
@@ -413,7 +426,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </label>
           <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
         </div>
-        <label>地点<input value={location} placeholder="可不填" onChange={(event) => setLocation(event.target.value)} /></label>
+        <label data-search-field="location" className={searchMatchFieldClass(searchMatch, "location")}>地点<input value={location} placeholder="可不填" onChange={(event) => setLocation(event.target.value)} /></label>
         <label>重复
           <select value={recurrence} onChange={(event) => changeRecurrence(event.target.value as EventRecurrenceType)}>
             <option value="none">{eventType === "habit" ? "每天打卡" : "日期范围内每天"}</option>
@@ -490,7 +503,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </p>
           {reminderMessage && <p>{reminderMessage}</p>}
         </section>
-        <label>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+        <label data-search-field="note" className={searchMatchFieldClass(searchMatch, "note")}>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         {validationMessage && <p className="auth-message error">{validationMessage}</p>}
         {conflictMessage && (
           <div className="auth-message conflict-suggestion">

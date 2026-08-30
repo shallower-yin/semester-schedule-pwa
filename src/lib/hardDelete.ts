@@ -6,15 +6,31 @@ function uniqueIds(ids: string[]): string[] {
   return [...new Set(ids.filter(Boolean))];
 }
 
+async function resolveDeletionOwner(tableName: SyncTableName, recordId: string, record?: { user_id?: string }): Promise<string> {
+  if (record?.user_id) return record.user_id;
+  const queued = await db.syncQueue
+    .filter((item) => item.table_name === tableName && item.record_id === recordId)
+    .toArray();
+  const owners = new Set(queued.map((item) => item.owner_id).filter(Boolean));
+  if (owners.size === 1) return [...owners][0];
+  throw new Error(`无法确定待删除记录的归属：${tableName}/${recordId}`);
+}
+
 export async function hardDeleteLocalRecord(tableName: SyncTableName, recordId: string): Promise<void> {
-  await queueChange(tableName, recordId, "delete");
+  const record = await db.table(tableName).get(recordId) as { user_id?: string } | undefined;
+  const ownerId = await resolveDeletionOwner(tableName, recordId, record);
+  await queueChange(tableName, recordId, "delete", ownerId);
   await db.table(tableName).delete(recordId);
 }
 
 export async function hardDeleteLocalRecords(tableName: SyncTableName, recordIds: string[]): Promise<void> {
   const ids = uniqueIds(recordIds);
   if (!ids.length) return;
-  for (const id of ids) await queueChange(tableName, id, "delete");
+  const records = await db.table(tableName).bulkGet(ids) as Array<{ user_id?: string } | undefined>;
+  for (const [index, id] of ids.entries()) {
+    const ownerId = await resolveDeletionOwner(tableName, id, records[index]);
+    await queueChange(tableName, id, "delete", ownerId);
+  }
   await db.table(tableName).bulkDelete(ids);
 }
 

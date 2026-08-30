@@ -51,11 +51,27 @@ describe("纪念日页面", () => {
       expect(await db.syncQueue.where("table_name").equals("anniversaries").count()).toBe(1);
     });
   });
+
+  it("跨标签切换共享身份后，新建日子仍归属打开弹窗的账号", async () => {
+    setCurrentUserId("alice");
+    render(<AnniversaryPage ownerId="alice" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增日子/ }));
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "Alice 的纪念日" } });
+    fireEvent.change(screen.getByLabelText("日期"), { target: { value: "2026-08-30" } });
+    setCurrentUserId("bob");
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(async () => {
+      const saved = await db.anniversaries.filter((item) => item.title === "Alice 的纪念日").first();
+      expect(saved?.user_id).toBe("alice");
+    });
+  });
 });
 
 function anniversaryRecord(id: string, title: string, kind: AnniversaryKind): Anniversary {
   return {
-    ...syncFields(),
+    ...syncFields(undefined, "local"),
     id,
     title,
     kind,

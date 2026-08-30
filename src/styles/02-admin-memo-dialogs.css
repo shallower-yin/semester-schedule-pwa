@@ -1806,7 +1806,68 @@ textarea {
 
 .memo-textarea-shell {
   position: relative;
+  overflow: hidden;
   min-height: 260px;
+  border-radius: 9px;
+}
+
+.search-match-field > input,
+.search-match-field > textarea,
+.search-match-field > select {
+  animation: search-match-field-pulse 2.6s ease-out;
+}
+
+.memo-search-location {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: rgb(var(--primary-rgb) / 12%);
+  font-size: 0.75rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.memo-search-line-highlight {
+  position: absolute;
+  z-index: 2;
+  left: 1px;
+  right: 1px;
+  border-left: 3px solid var(--primary);
+  border-radius: 5px;
+  background: rgb(var(--primary-rgb) / 18%);
+  pointer-events: none;
+  animation: memo-search-line-pulse 2.6s ease-out forwards;
+}
+
+@keyframes search-match-field-pulse {
+  0%, 48% {
+    border-color: rgb(var(--primary-rgb) / 58%);
+    background-color: rgb(var(--primary-rgb) / 14%);
+    box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 14%);
+  }
+  100% {
+    border-color: var(--border);
+    background-color: var(--surface);
+    box-shadow: 0 0 0 0 rgb(var(--primary-rgb) / 0%);
+  }
+}
+
+@keyframes memo-search-line-pulse {
+  0%, 52% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-match-field > input,
+  .search-match-field > textarea,
+  .search-match-field > select,
+  .memo-search-line-highlight {
+    animation-duration: 2.6s;
+    animation-timing-function: step-end;
+  }
 }
 
 .memo-textarea-shell .memo-textarea {

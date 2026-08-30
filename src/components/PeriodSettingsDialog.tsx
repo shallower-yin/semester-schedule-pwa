@@ -72,7 +72,7 @@ export function PeriodSettingsDialog({ semester, onClose }: PeriodSettingsDialog
         ? Math.max(0, ...positiveNumbers) + 1
         : Math.min(0, ...negativeNumbers) - 1;
     const block: ClassPeriod = {
-      ...syncFields(),
+      ...syncFields(undefined, semester.user_id),
       semester_id: semester.id,
       weekday,
       period_number: periodNumber,

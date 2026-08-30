@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keep the account-scoped widget projection out of cloud/device transfers. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="schedule_widget.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="schedule_widget.xml" />
+    </device-transfer>
+</data-extraction-rules>

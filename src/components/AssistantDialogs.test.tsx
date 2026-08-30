@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState, type ComponentProps } from "react";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { AssistantDialogs } from "./AssistantDialogs";
 
@@ -11,11 +12,14 @@ vi.mock("./ScheduleAssistantDialog", () => ({
   )
 }));
 vi.mock("./DeepSeekAssistantDialog", () => ({
-  DeepSeekAssistantDialog: ({ input, userEmail, onClose }: { input: unknown; userEmail?: string | null; onClose: () => void }) => (
-    <div data-testid="deepseek" data-has-input={String(Boolean(input))} data-email={String(userEmail)}>
-      <button onClick={onClose}>close</button>
-    </div>
-  )
+  DeepSeekAssistantDialog: ({ input, ownerId, userEmail, onClose }: { input: unknown; ownerId: string; userEmail?: string | null; onClose: () => void }) => {
+    const [mountedOwner] = useState(ownerId);
+    return (
+      <div data-testid="deepseek" data-has-input={String(Boolean(input))} data-email={String(userEmail)} data-mounted-owner={mountedOwner}>
+        <button onClick={onClose}>close</button>
+      </div>
+    );
+  }
 }));
 vi.mock("./MindMapDialog", () => ({
   MindMapDialog: ({ input, ownerId, onClose }: { input: unknown; ownerId: string; onClose: () => void }) => (
@@ -54,7 +58,9 @@ vi.mock("./AiToolboxDialog", () => ({
 
 const input = { semester: null } as unknown as ScheduleAssistantInput;
 
-function setup(overrides: Record<string, unknown> = {}) {
+type AssistantDialogsProps = ComponentProps<typeof AssistantDialogs>;
+
+function setup(overrides: Partial<AssistantDialogsProps> = {}) {
   const setters = {
     setShowScheduleAssistant: vi.fn(),
     setShowDeepSeekAssistant: vi.fn(),
@@ -63,22 +69,25 @@ function setup(overrides: Record<string, unknown> = {}) {
     setShowAudioTranscription: vi.fn(),
     setShowAiToolbox: vi.fn()
   };
-  render(
-    <AssistantDialogs
-      input={input}
-      ownerId="local"
-      userEmail="a@b.c"
-      showScheduleAssistant={false}
-      showDeepSeekAssistant={false}
-      showTranslation={false}
-      showMindMap={false}
-      showAudioTranscription={false}
-      showAiToolbox={false}
-      {...setters}
-      {...overrides}
-    />
-  );
-  return setters;
+  const baseProps: AssistantDialogsProps = {
+    input,
+    ownerId: "local",
+    userEmail: "a@b.c",
+    showScheduleAssistant: false,
+    showDeepSeekAssistant: false,
+    showTranslation: false,
+    showMindMap: false,
+    showAudioTranscription: false,
+    showAiToolbox: false,
+    ...setters
+  };
+  const view = render(<AssistantDialogs {...baseProps} {...overrides} />);
+  return {
+    ...setters,
+    rerenderWith(next: Partial<AssistantDialogsProps>) {
+      view.rerender(<AssistantDialogs {...baseProps} {...overrides} {...next} />);
+    }
+  };
 }
 
 afterEach(cleanup);
@@ -107,6 +116,13 @@ describe("AssistantDialogs 编排", () => {
     const node = await screen.findByTestId("deepseek");
     expect(node).toHaveAttribute("data-has-input", "true");
     expect(node).toHaveAttribute("data-email", "a@b.c");
+  });
+
+  it("切换账号时重挂载 AI 子树，不复用旧账号对话状态", async () => {
+    const view = setup({ ownerId: "alice", showDeepSeekAssistant: true });
+    expect(await screen.findByTestId("deepseek")).toHaveAttribute("data-mounted-owner", "alice");
+    view.rerenderWith({ ownerId: "bob" });
+    expect(await screen.findByTestId("deepseek")).toHaveAttribute("data-mounted-owner", "bob");
   });
 
   it("思维导图：转发 input 与 ownerId", async () => {

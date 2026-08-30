@@ -29,8 +29,14 @@ export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
   const [active, setActive] = useState<ActiveFocusState | null>(() => loadActiveFocus(ownerId));
   const [now, setNow] = useState(() => new Date());
   const completingRef = useRef(false);
+  const ownerGenerationRef = useRef(0);
 
   useEffect(() => {
+    // A completion may still be writing the previous owner's record when the
+    // account changes.  Advance the generation so its finally-handler cannot
+    // publish stale active state into the new owner's timer surface.
+    ownerGenerationRef.current += 1;
+    completingRef.current = false;
     const refresh = () => setActive(loadActiveFocus(ownerId));
     refresh();
     window.addEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
@@ -40,6 +46,7 @@ export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
       setActive(loadActiveFocus(ownerId));
     }, 1000);
     return () => {
+      ownerGenerationRef.current += 1;
       window.removeEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
       window.clearInterval(timer);
@@ -62,8 +69,15 @@ export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
   useEffect(() => {
     if (!active || active.pause_started_at || active.planned_seconds == null || remaining !== 0 || completingRef.current) return;
     if (isNativeApp() && active.pomodoro_plan_id) return;
+    const completionGeneration = ownerGenerationRef.current;
     completingRef.current = true;
-    void completeExpiredFocus(ownerId, active, now).finally(() => {
+    void completeExpiredFocus(
+      ownerId,
+      active,
+      now,
+      () => ownerGenerationRef.current === completionGeneration
+    ).finally(() => {
+      if (ownerGenerationRef.current !== completionGeneration) return;
       completingRef.current = false;
       setActive(loadActiveFocus(ownerId));
     });
@@ -72,13 +86,18 @@ export function FocusFloatingTimer({ ownerId }: FocusFloatingTimerProps) {
   return null;
 }
 
-export async function completeExpiredFocus(ownerId: string, active: ActiveFocusState, now = new Date()): Promise<boolean> {
+export async function completeExpiredFocus(
+  ownerId: string,
+  active: ActiveFocusState,
+  now = new Date(),
+  isCurrent: () => boolean = () => true
+): Promise<boolean> {
   const latest = loadActiveFocus(ownerId);
   if (!latest || latest.started_at !== active.started_at || latest.pause_started_at || remainingFocusSeconds(latest, now) !== 0) return false;
   const duration = Math.max(1, elapsedFocusSeconds(latest, now));
   if (latest.mode === "rest") {
     const record: RestSession = {
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       planned_seconds: latest.planned_seconds ?? duration,
       duration_seconds: duration,
       started_at: latest.started_at,
@@ -92,7 +111,7 @@ export async function completeExpiredFocus(ownerId: string, active: ActiveFocusS
     await putRecordAndQueue("restSessions", record);
   } else {
     const record: FocusSession = {
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       mode: latest.mode,
       task_title: latest.task_title,
       linked_event_id: latest.linked_event_id,
@@ -118,9 +137,10 @@ export async function completeExpiredFocus(ownerId: string, active: ActiveFocusS
   if (nextActive) {
     saveActiveFocus(ownerId, nextActive);
   } else {
-    await stopNativeFocusTimer(latest.mode === "lock");
+    if (isCurrent()) await stopNativeFocusTimer(ownerId, latest.mode === "lock");
     clearActiveFocus(ownerId);
   }
+  if (!isCurrent()) return true;
   notifyFocusComplete(latest.task_title, settings?.sound_enabled ?? true);
   showToast(
     nextActive?.mode === "rest"

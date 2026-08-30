@@ -7,6 +7,8 @@ import { toISODate } from "../lib/date";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, memoLineSelectionRange, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
 import { getMemoImageUrls, MEMO_IMAGE_LIMIT, normalizeMemoImages, removeMemoImages, uploadMemoImage, validateMemoImage } from "../lib/memoImages";
+import { currentOwnerRecord } from "../lib/liveQueryScope";
+import { findSearchNavigationMatch, normalizeSearchText, searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
 import type { EventItem, Memo, MemoFolder, MemoImage } from "../types";
 import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
@@ -15,14 +17,29 @@ import { Modal } from "./Modal";
 interface MemoPageProps {
   ownerId: string;
   openMemoId?: string | null;
+  openSearchMatch?: SearchNavigationMatch | null;
   onOpenMemoConsumed?: () => void;
+  onSearchMatchClosed?: () => void;
 }
 
 type FolderFilter = "all" | "uncheckedTodos" | string;
 type MemoViewMode = "list" | "grid";
 const GRID_PAGE_SIZE = 9;
 
-export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPageProps) {
+function useMemoEditorInstanceToken(identity: string, activeTokenRef: React.MutableRefObject<string>): string {
+  const previousIdentityRef = useRef("closed");
+  const generationRef = useRef(0);
+  const tokenRef = useRef("closed");
+  if (previousIdentityRef.current !== identity) {
+    previousIdentityRef.current = identity;
+    generationRef.current += 1;
+    tokenRef.current = identity === "closed" ? "closed" : `${identity}:${generationRef.current}`;
+  }
+  activeTokenRef.current = tokenRef.current;
+  return tokenRef.current;
+}
+
+export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsumed, onSearchMatchClosed }: MemoPageProps) {
   const folders = useLiveQuery(
     () => db.memoFolders.filter((folder) => folder.user_id === ownerId && !folder.deleted_at).sortBy("sort_order"),
     [ownerId]
@@ -36,15 +53,27 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
   const [viewMode, setViewMode] = useState<MemoViewMode>("list");
   const [gridPage, setGridPage] = useState(0);
   const [memoToEdit, setMemoToEdit] = useState<Memo | null | undefined>(undefined);
+  const [memoSearchMatch, setMemoSearchMatch] = useState<SearchNavigationMatch | null>(null);
   const [message, setMessage] = useState("");
+  const previousOwnerIdRef = useRef(ownerId);
+  const memoEditorTokenRef = useRef("closed");
 
   useEffect(() => {
     if (!openMemoId) return;
-    const target = memos.find((memo) => memo.id === openMemoId && !memo.deleted_at);
+    const target = memos.find((memo) => memo.id === openMemoId && memo.user_id === ownerId && !memo.deleted_at);
     if (!target) return;
+    setMemoSearchMatch(openSearchMatch ?? null);
     setMemoToEdit(target);
     onOpenMemoConsumed?.();
-  }, [memos, onOpenMemoConsumed, openMemoId]);
+  }, [memos, onOpenMemoConsumed, openMemoId, openSearchMatch, ownerId]);
+
+  useEffect(() => {
+    if (previousOwnerIdRef.current === ownerId) return;
+    previousOwnerIdRef.current = ownerId;
+    setMemoSearchMatch(null);
+    setMemoToEdit(undefined);
+    onSearchMatchClosed?.();
+  }, [onSearchMatchClosed, ownerId]);
 
   useEffect(() => {
     const legacyDeletedIds = memos.filter((memo) => memo.deleted_at).map((memo) => memo.id);
@@ -82,6 +111,9 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
   const activeGridPage = Math.min(gridPage, gridPageCount - 1);
   const gridMemos = visibleMemos.slice(activeGridPage * GRID_PAGE_SIZE, activeGridPage * GRID_PAGE_SIZE + GRID_PAGE_SIZE);
   const emptyGridSlots = GRID_PAGE_SIZE - gridMemos.length;
+  const memoToEditForOwner = currentOwnerRecord(memoToEdit, ownerId);
+  const memoEditorIdentity = memoToEditForOwner === undefined ? "closed" : `${ownerId}:${memoToEditForOwner?.id ?? "new"}`;
+  const memoEditorToken = useMemoEditorInstanceToken(memoEditorIdentity, memoEditorTokenRef);
 
   function selectFilter(nextFilter: FolderFilter) {
     setFilter(nextFilter);
@@ -98,11 +130,19 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
     setGridPage(0);
   }
 
+  function openMemo(memo: Memo) {
+    setMemoSearchMatch(findSearchNavigationMatch([
+      { field: "title", label: "标题", value: memo.title },
+      { field: "content", label: "正文", value: memo.content }
+    ], query));
+    setMemoToEdit(memo);
+  }
+
   async function addFolder() {
     const name = window.prompt("文件夹名称");
     if (!name?.trim()) return;
     const folder: MemoFolder = {
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       name: name.trim(),
       sort_order: folders.length + 1
     };
@@ -112,10 +152,11 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
 
   async function removeFolder(folder: MemoFolder) {
     if (!window.confirm(`确定彻底删除文件夹“${folder.name}”吗？文件夹内备忘录会移到“全部”，文件夹本身无法恢复。`)) return;
+    const operationOwnerId = ownerId;
     await db.transaction("rw", db.memoFolders, db.memos, db.syncQueue, async () => {
-      const folderMemos = await db.memos.where("folder_id").equals(folder.id).filter((memo) => memo.user_id === ownerId && !memo.deleted_at).toArray();
+      const folderMemos = await db.memos.where("folder_id").equals(folder.id).filter((memo) => memo.user_id === operationOwnerId && !memo.deleted_at).toArray();
       for (const memo of folderMemos) {
-        const updated = { ...memo, ...syncFields(memo), deleted_at: memo.deleted_at, folder_id: null };
+        const updated = { ...memo, ...syncFields(memo, operationOwnerId), deleted_at: memo.deleted_at, folder_id: null };
         await putRecordAndQueue("memos", updated);
       }
       await hardDeleteLocalRecord("memoFolders", folder.id);
@@ -135,7 +176,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
   async function createEventFromMemo(memo: Memo) {
     const today = toISODate(new Date());
     const eventItem: EventItem = {
-      ...syncFields(),
+      ...syncFields(undefined, ownerId),
       event_type: "event",
       title: memo.title,
       start_date: today,
@@ -273,7 +314,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
                     key={memo.id}
                     memo={memo}
                     mode="grid"
-                    onEdit={setMemoToEdit}
+                    onEdit={openMemo}
                     onCreateEvent={createEventFromMemo}
                   />
                 ))}
@@ -294,7 +335,7 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
                   key={memo.id}
                   memo={memo}
                   mode="list"
-                  onEdit={setMemoToEdit}
+                  onEdit={openMemo}
                   onCreateEvent={createEventFromMemo}
                 />
               ))}
@@ -314,13 +355,20 @@ export function MemoPage({ ownerId, openMemoId, onOpenMemoConsumed }: MemoPagePr
         )}
       </div>
 
-      {memoToEdit !== undefined && (
+      {memoToEditForOwner !== undefined && (
         <MemoDialog
+          key={memoEditorToken}
           ownerId={ownerId}
           folders={folders}
-          memo={memoToEdit ?? undefined}
+          memo={memoToEditForOwner ?? undefined}
+          searchMatch={memoSearchMatch}
           initialFolderId={filter !== "all" && filter !== "uncheckedTodos" ? filter : null}
-          onClose={() => setMemoToEdit(undefined)}
+          onClose={() => {
+            if (memoEditorTokenRef.current !== memoEditorToken) return;
+            setMemoSearchMatch(null);
+            onSearchMatchClosed?.();
+            setMemoToEdit(undefined);
+          }}
         />
       )}
     </section>
@@ -369,26 +417,33 @@ interface MemoDialogProps {
   ownerId: string;
   folders: MemoFolder[];
   memo?: Memo;
+  searchMatch?: SearchNavigationMatch | null;
   initialFolderId: string | null;
   onClose: () => void;
 }
 
-function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDialogProps) {
+function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onClose }: MemoDialogProps) {
   const [draftMemoId] = useState(() => memo?.id ?? crypto.randomUUID());
   const [title, setTitle] = useState(memo?.title ?? "");
-  const [content, setContent] = useState(memo?.content ?? "");
+  const [content, setContent] = useState(() => normalizeSearchText(memo?.content ?? ""));
   const [folderId, setFolderId] = useState(memo?.folder_id ?? initialFolderId ?? "");
   const [isPinned, setIsPinned] = useState(memo?.is_pinned ?? false);
   const [images, setImages] = useState<MemoImage[]>(() => normalizeMemoImages(memo?.images));
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [uploadingImages, setUploadingImages] = useState(false);
   const [message, setMessage] = useState("");
+  const [searchHighlightVisible, setSearchHighlightVisible] = useState(Boolean(searchMatch));
+  const [lineHighlight, setLineHighlight] = useState<{ top: number; height: number } | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const contentRef = useRef(content);
+  contentRef.current = content;
   const contentPointerTypeRef = useRef("mouse");
   const mountedRef = useRef(true);
   const newImagePathsRef = useRef<string[]>([]);
   const removedExistingPathsRef = useRef<string[]>([]);
   const savedRef = useRef(false);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -404,12 +459,46 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
 
   useEffect(() => () => {
     mountedRef.current = false;
+    // The database commit may still be using the newly uploaded paths.  Its
+    // continuation owns cleanup after it settles; deleting here would leave a
+    // successfully saved memo pointing at an object that no longer exists.
+    if (savingRef.current) return;
     const cleanupPaths = [
       ...newImagePathsRef.current,
       ...(savedRef.current ? removedExistingPathsRef.current : [])
     ];
     if (cleanupPaths.length) void removeMemoImages(cleanupPaths).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!searchMatch) return;
+    setSearchHighlightVisible(true);
+    const frame = window.requestAnimationFrame(() => {
+      if (searchMatch.field === "content" && textareaRef.current) {
+        const textarea = textareaRef.current;
+        const currentContent = contentRef.current;
+        const start = Math.min(currentContent.length, Math.max(0, searchMatch.start));
+        const end = Math.min(currentContent.length, Math.max(start, searchMatch.end));
+        textarea.setSelectionRange(start, end, "forward");
+        setLineHighlight(positionMemoSearchLine(textarea, currentContent, searchMatch));
+      } else if (searchMatch.field === "title") {
+        titleInputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    });
+    const timer = window.setTimeout(() => {
+      setSearchHighlightVisible(false);
+      setLineHighlight(null);
+    }, 2600);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [searchMatch]);
+
+  function dismissSearchHighlight() {
+    setSearchHighlightVisible(false);
+    setLineHighlight(null);
+  }
 
   function focusTextareaAt(cursor: number) {
     window.setTimeout(() => {
@@ -427,14 +516,27 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
       return;
     }
     const record: Memo = {
-      ...syncFields(memo ?? { id: draftMemoId, created_at: new Date().toISOString(), version: 0 }),
+      ...syncFields(memo ?? { id: draftMemoId, user_id: ownerId, created_at: new Date().toISOString(), version: 0 }, ownerId),
       folder_id: folderId || null,
       title: title.trim(),
       content,
       is_pinned: isPinned,
       images
     };
-    await putRecordAndQueue("memos", record);
+    savingRef.current = true;
+    try {
+      await putRecordAndQueue("memos", record);
+    } catch (error) {
+      savingRef.current = false;
+      if (!mountedRef.current) {
+        const orphanedPaths = [...newImagePathsRef.current];
+        newImagePathsRef.current = [];
+        if (orphanedPaths.length) void removeMemoImages(orphanedPaths).catch(() => undefined);
+        return;
+      }
+      setMessage(error instanceof Error ? error.message : "保存备忘录失败，请重试。");
+      return;
+    }
     savedRef.current = true;
     const retainedPaths = new Set(images.map((image) => image.path));
     newImagePathsRef.current = newImagePathsRef.current.filter((path) => !retainedPaths.has(path));
@@ -445,11 +547,15 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
         removedExistingPathsRef.current = [];
         newImagePathsRef.current = [];
       } catch (error) {
-        setMessage(error instanceof Error ? `备忘录已保存，但图片清理失败：${error.message}` : "备忘录已保存，但图片清理失败，请重试保存。");
+        savingRef.current = false;
+        if (mountedRef.current) {
+          setMessage(error instanceof Error ? `备忘录已保存，但图片清理失败：${error.message}` : "备忘录已保存，但图片清理失败，请重试保存。");
+        }
         return;
       }
     }
-    onClose();
+    savingRef.current = false;
+    if (mountedRef.current) onClose();
   }
 
   async function remove() {
@@ -513,6 +619,7 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
       textarea?.selectionEnd ?? content.length,
       kind
     );
+    dismissSearchHighlight();
     setContent(edit.content);
     focusTextareaAt(edit.cursor);
   }
@@ -522,6 +629,7 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
     const edit = continueMemoListOnEnter(content, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
     if (!edit) return;
     event.preventDefault();
+    dismissSearchHighlight();
     setContent(edit.content);
     focusTextareaAt(edit.cursor);
   }
@@ -530,6 +638,7 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
     if (event.detail > 1) return;
     const edit = toggleMemoChecklistAtCursor(content, event.currentTarget.selectionStart);
     if (!edit) return;
+    dismissSearchHighlight();
     setContent(edit.content);
     focusTextareaAt(edit.cursor);
   }
@@ -565,7 +674,18 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
       headerExtra={<label className="memo-pin-control"><input type="checkbox" checked={isPinned} onChange={(event) => setIsPinned(event.target.checked)} />置顶</label>}
     >
       <form className="form-stack memo-dialog-form" onSubmit={save}>
-        <label className="memo-meta-row"><span>标题</span><input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <label className={`memo-meta-row ${searchHighlightVisible ? searchMatchFieldClass(searchMatch, "title") : ""}`.trim()}>
+          <span>标题</span>
+          <input
+            ref={titleInputRef}
+            required
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              dismissSearchHighlight();
+            }}
+          />
+        </label>
         <label className="memo-meta-row"><span>文件夹</span>
           <select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
             <option value="">全部 / 不放入文件夹</option>
@@ -576,6 +696,9 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
           <div className="memo-editor-heading">
             <span>正文</span>
             <div className="memo-editor-toolbar">
+              {searchHighlightVisible && searchMatch?.field === "content" && (
+                <span className="memo-search-location" role="status">已定位到第 {searchMatch.line + 1} 行</span>
+              )}
               <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("numbered")}><ListOrdered size={15} />编号</button>
               <button type="button" className="button secondary compact" onMouseDown={(event) => event.preventDefault()} onClick={() => applyLineFormat("checklist")}><ListChecks size={15} />待办</button>
               <AttachmentSourcePicker
@@ -590,19 +713,34 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
             </div>
           </div>
           <div className="memo-textarea-shell">
+            {searchHighlightVisible && lineHighlight && (
+              <span
+                className="memo-search-line-highlight"
+                data-testid="memo-search-line-highlight"
+                style={{ top: `${lineHighlight.top}px`, height: `${lineHighlight.height}px` }}
+              />
+            )}
             <textarea
               ref={textareaRef}
               className="memo-textarea"
               rows={12}
               aria-label="正文"
               value={content}
-              onChange={(event) => setContent(event.target.value)}
+              onChange={(event) => {
+                setContent(event.target.value);
+                dismissSearchHighlight();
+              }}
               onPointerDown={(event) => {
                 contentPointerTypeRef.current = event.pointerType;
               }}
               onClick={handleContentClick}
               onDoubleClick={handleContentDoubleClick}
               onKeyDown={handleContentKeyDown}
+              onScroll={(event) => {
+                if (searchHighlightVisible && searchMatch?.field === "content") {
+                  setLineHighlight(positionMemoSearchLine(event.currentTarget, content, searchMatch, false));
+                }
+              }}
             />
           </div>
           {images.length > 0 && (
@@ -630,6 +768,65 @@ function MemoDialog({ ownerId, folders, memo, initialFolderId, onClose }: MemoDi
       </form>
     </Modal>
   );
+}
+
+function positionMemoSearchLine(
+  textarea: HTMLTextAreaElement,
+  content: string,
+  match: SearchNavigationMatch,
+  center = true
+): { top: number; height: number } {
+  const computed = window.getComputedStyle(textarea);
+  const lineHeight = Number.parseFloat(computed.lineHeight) || 23;
+  const paddingTop = Number.parseFloat(computed.paddingTop) || 9;
+  let contentTop = paddingTop + match.line * lineHeight;
+  let contentHeight = lineHeight;
+  const mirror = document.createElement("div");
+  mirror.setAttribute("aria-hidden", "true");
+  const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0;
+  const paddingRight = Number.parseFloat(computed.paddingRight) || 0;
+  const borderLeft = Number.parseFloat(computed.borderLeftWidth) || 0;
+  const borderRight = Number.parseFloat(computed.borderRightWidth) || 0;
+  const viewportWidth = textarea.clientWidth || textarea.offsetWidth || Number.parseFloat(computed.width) || 600;
+  const fallbackBorders = textarea.clientWidth ? 0 : borderLeft + borderRight;
+  const contentWidth = Math.max(1, viewportWidth - paddingLeft - paddingRight - fallbackBorders);
+  Object.assign(mirror.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    visibility: "hidden",
+    boxSizing: "content-box",
+    width: `${contentWidth}px`,
+    padding: computed.padding,
+    border: "0",
+    font: computed.font,
+    letterSpacing: computed.letterSpacing,
+    lineHeight: computed.lineHeight,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+    wordBreak: computed.wordBreak
+  });
+  mirror.append(document.createTextNode(content.slice(0, match.lineStart)));
+  const marker = document.createElement("span");
+  marker.textContent = content.slice(match.lineStart, match.lineEnd) || "\u200b";
+  mirror.append(marker);
+  document.body.append(mirror);
+  const mirrorRect = mirror.getBoundingClientRect();
+  const markerRect = marker.getBoundingClientRect();
+  if (markerRect.height > 0) {
+    contentTop = markerRect.top - mirrorRect.top;
+    contentHeight = Math.max(lineHeight, markerRect.height);
+  }
+  mirror.remove();
+
+  if (center) {
+    const viewportHeight = textarea.clientHeight || 260;
+    textarea.scrollTop = Math.max(0, contentTop - (viewportHeight - contentHeight) / 2);
+  }
+  return {
+    top: Math.max(1, contentTop - textarea.scrollTop),
+    height: Math.max(lineHeight, contentHeight)
+  };
 }
 
 function copyTextFallback(content: string) {

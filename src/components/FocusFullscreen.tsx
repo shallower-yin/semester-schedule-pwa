@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, Images, Pause, PictureInPicture2, Play, RotateCw, Shrink, Square } from "lucide-react";
-import { FocusOverlay } from "../lib/focusOverlayPlugin";
 import { focusModeLabel, formatFocusDuration, type ActiveFocusState } from "../lib/focus";
 import { isNativeApp } from "../lib/nativeApp";
+import { lockOrientation } from "../lib/focusPresentation";
 
 // Bundled night-scene backgrounds (public/focus). WebP so they stay small and are precached offline.
 const FOCUS_BACKGROUNDS = [
@@ -24,30 +24,6 @@ const WEEKDAYS = ["星期日", "星期一", "星期二", "星期三", "星期四
 
 export function formatFocusDate(now: Date): string {
   return `${now.getMonth() + 1}月${now.getDate()}日 ${WEEKDAYS[now.getDay()]}`;
-}
-
-// Cross-platform immersive fullscreen: browser uses Fullscreen API, APK uses native Android flags.
-export async function enterImmersiveFullscreen(): Promise<void> {
-  if (isNativeApp()) {
-    await FocusOverlay.setImmersive({ enabled: "true" });
-  } else if (document.documentElement.requestFullscreen) {
-    try { await document.documentElement.requestFullscreen(); } catch { /* ignored */ }
-  }
-}
-
-export async function exitImmersiveFullscreen(): Promise<void> {
-  if (isNativeApp()) {
-    await FocusOverlay.setImmersive({ enabled: "false" });
-  } else if (document.fullscreenElement) {
-    try { await document.exitFullscreen(); } catch { /* ignored */ }
-  }
-}
-
-// Orientation lock: Android uses Activity.setRequestedOrientation, browser does not support it.
-export async function lockOrientation(mode: "landscape" | "portrait" | "auto"): Promise<void> {
-  if (isNativeApp()) {
-    await FocusOverlay.setOrientation({ mode });
-  }
 }
 
 interface FocusFullscreenProps {

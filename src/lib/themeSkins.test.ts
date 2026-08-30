@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_THEME_SKIN, loadThemeSkin, saveThemeSkin, themeSkinLabel } from "./themeSkins";
+import { applyDocumentThemeSkin, DEFAULT_THEME_SKIN, loadThemeSkin, saveThemeSkin, themeSkinLabel } from "./themeSkins";
 
 describe("界面皮肤设置", () => {
   beforeEach(() => {
@@ -14,5 +14,13 @@ describe("界面皮肤设置", () => {
     expect(saveThemeSkin("cake")).toBe("cake");
     expect(loadThemeSkin()).toBe("cake");
     expect(themeSkinLabel("cake")).toBe("蛋糕物语");
+  });
+
+  it("把主题同步到弹窗祖先并在卸载时恢复", () => {
+    document.documentElement.dataset.skin = "linen";
+    const cleanup = applyDocumentThemeSkin("cake");
+    expect(document.documentElement.dataset.skin).toBe("cake");
+    cleanup();
+    expect(document.documentElement.dataset.skin).toBe("linen");
   });
 });

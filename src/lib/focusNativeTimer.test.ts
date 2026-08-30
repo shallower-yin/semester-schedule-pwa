@@ -23,7 +23,8 @@ vi.mock("./nativeApp", () => ({
 import {
   clearNativeFocusTransitions,
   readNativeFocusTransitions,
-  startNativeFocusTimer
+  startNativeFocusTimer,
+  stopNativeFocusTimer
 } from "./focusNativeTimer";
 
 describe("原生番茄计时桥", () => {
@@ -32,6 +33,7 @@ describe("原生番茄计时桥", () => {
     nativePlugin.start.mockResolvedValue({ elapsedSeconds: 0 });
     nativePlugin.getTransitions.mockResolvedValue({ transitions: [] });
     nativePlugin.clearTransitions.mockResolvedValue(undefined);
+    nativePlugin.stop.mockResolvedValue({ stopped: true });
   });
 
   it("把完整番茄循环配置传给 Android 服务", async () => {
@@ -75,5 +77,11 @@ describe("原生番茄计时桥", () => {
     expect(await readNativeFocusTransitions()).toEqual([{ id: "transition-1", kind: "focus" }]);
     await clearNativeFocusTransitions(["transition-1"]);
     expect(nativePlugin.clearTransitions).toHaveBeenCalledWith({ ids: ["transition-1"] });
+  });
+
+  it("停止计时把预期 owner 交给原生层做原子校验", async () => {
+    await expect(stopNativeFocusTimer("alice", true)).resolves.toBe(true);
+    expect(nativePlugin.stop).toHaveBeenCalledWith({ ownerId: "alice", exitLockTask: true });
+    expect(nativePlugin.exitLockTask).not.toHaveBeenCalled();
   });
 });

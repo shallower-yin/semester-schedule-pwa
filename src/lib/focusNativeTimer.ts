@@ -63,13 +63,13 @@ interface FocusNativeTimerPlugin {
     pomodoroTaskTitle: string;
     soundEnabled: boolean;
   }): Promise<NativeTimerState>;
-  pause(): Promise<NativeTimerState>;
-  resume(): Promise<NativeTimerState>;
+  pause(options: { ownerId: string }): Promise<NativeTimerState>;
+  resume(options: { ownerId: string }): Promise<NativeTimerState>;
   getState(): Promise<NativeTimerState>;
   getTransitions(): Promise<{ transitions: NativeFocusTransition[] }>;
   clearTransitions(options: { ids: string[] }): Promise<void>;
-  stop(): Promise<void>;
-  enterLockTask(): Promise<{ active: boolean }>;
+  stop(options: { ownerId: string; exitLockTask: boolean }): Promise<{ stopped: boolean }>;
+  enterLockTask(options: { ownerId: string }): Promise<{ active: boolean }>;
   exitLockTask(): Promise<{ active: boolean }>;
 }
 
@@ -116,25 +116,22 @@ export async function clearNativeFocusTransitions(ids: string[]): Promise<void> 
   if (ids.length) await FocusNativeTimer.clearTransitions({ ids });
 }
 
-export async function pauseNativeFocusTimer(): Promise<number | null> {
+export async function pauseNativeFocusTimer(ownerId: string): Promise<number | null> {
   if (!isNativeApp()) return null;
-  return (await FocusNativeTimer.pause()).elapsedSeconds;
+  return (await FocusNativeTimer.pause({ ownerId })).elapsedSeconds;
 }
 
-export async function resumeNativeFocusTimer(): Promise<number | null> {
+export async function resumeNativeFocusTimer(ownerId: string): Promise<number | null> {
   if (!isNativeApp()) return null;
-  return (await FocusNativeTimer.resume()).elapsedSeconds;
+  return (await FocusNativeTimer.resume({ ownerId })).elapsedSeconds;
 }
 
-export async function stopNativeFocusTimer(exitLockTask: boolean): Promise<void> {
-  if (!isNativeApp()) return;
-  if (exitLockTask) {
-    try { await FocusNativeTimer.exitLockTask(); } catch { /* already unpinned */ }
-  }
-  await FocusNativeTimer.stop();
-}
-
-export async function enterNativeLockTask(): Promise<boolean> {
+export async function stopNativeFocusTimer(ownerId: string, exitLockTask: boolean): Promise<boolean> {
   if (!isNativeApp()) return false;
-  return (await FocusNativeTimer.enterLockTask()).active;
+  return (await FocusNativeTimer.stop({ ownerId, exitLockTask })).stopped;
+}
+
+export async function enterNativeLockTask(ownerId: string): Promise<boolean> {
+  if (!isNativeApp()) return false;
+  return (await FocusNativeTimer.enterLockTask({ ownerId })).active;
 }

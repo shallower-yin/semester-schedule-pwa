@@ -4,6 +4,7 @@ import type { Semester, Weekday } from "../types";
 import { syncFields } from "./identity";
 
 export interface SaveSemesterInput {
+  ownerId: string;
   semester?: Semester;
   name: string;
   startDate: string;
@@ -13,7 +14,7 @@ export interface SaveSemesterInput {
 
 export async function saveSemesterRecord(input: SaveSemesterInput): Promise<Semester> {
   const record: Semester = {
-    ...syncFields(input.semester),
+    ...syncFields(input.semester, input.ownerId),
     name: input.name.trim(),
     start_date: input.startDate,
     total_weeks: input.totalWeeks,
@@ -31,10 +32,10 @@ export async function saveSemesterRecord(input: SaveSemesterInput): Promise<Seme
     await putRecordAndQueue("semesters", record);
     if (createPeriods) {
       const periods = ([1, 2, 3, 4, 5, 6, 7] as Weekday[]).flatMap((weekday) =>
-        defaultPeriodsForWeekday(weekday).map((period) => ({ ...syncFields(), semester_id: record.id, ...period }))
+        defaultPeriodsForWeekday(weekday).map((period) => ({ ...syncFields(undefined, record.user_id), semester_id: record.id, ...period }))
       );
       await db.classPeriods.bulkAdd(periods);
-      for (const period of periods) await queueChange("classPeriods", period.id);
+      for (const period of periods) await queueChange("classPeriods", period.id, "upsert", record.user_id);
     }
   });
   return record;
@@ -71,25 +72,25 @@ export async function deleteSemesterCascade(semesterId: string): Promise<DeleteS
       : [];
 
     for (const cancellation of cancellations) {
-      await queueChange("courseCancellations", cancellation.id, "delete");
+      await queueChange("courseCancellations", cancellation.id, "delete", cancellation.user_id);
     }
     if (cancellations.length) await db.courseCancellations.bulkDelete(cancellations.map((item) => item.id));
     result.courseCancellations = cancellations.length;
 
-    for (const schedule of schedules) await queueChange("courseSchedules", schedule.id, "delete");
+    for (const schedule of schedules) await queueChange("courseSchedules", schedule.id, "delete", schedule.user_id);
     if (schedules.length) await db.courseSchedules.bulkDelete(schedules.map((item) => item.id));
     result.courseSchedules = schedules.length;
 
-    for (const period of periods) await queueChange("classPeriods", period.id, "delete");
+    for (const period of periods) await queueChange("classPeriods", period.id, "delete", period.user_id);
     if (periods.length) await db.classPeriods.bulkDelete(periods.map((item) => item.id));
     result.classPeriods = periods.length;
 
-    for (const course of courses) await queueChange("courses", course.id, "delete");
+    for (const course of courses) await queueChange("courses", course.id, "delete", course.user_id);
     if (courses.length) await db.courses.bulkDelete(courses.map((item) => item.id));
     result.courses = courses.length;
 
     if (semester) {
-      await queueChange("semesters", semester.id, "delete");
+      await queueChange("semesters", semester.id, "delete", semester.user_id);
       await db.semesters.delete(semester.id);
       result.semesters = 1;
     }

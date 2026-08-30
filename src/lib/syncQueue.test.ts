@@ -52,7 +52,7 @@ describe("sync queue compaction", () => {
   it("keeps only the latest operation for one record", async () => {
     const eventItem = eventRecord("event-pending");
     await db.events.put(eventItem);
-    await queueChange("events", eventItem.id, "upsert");
+    await queueChange("events", eventItem.id, "upsert", eventItem.user_id);
 
     await hardDeleteLocalRecord("events", eventItem.id);
 
@@ -74,7 +74,7 @@ describe("sync queue compaction", () => {
       { id: "queue-2", owner_id: userId, table_name: "events", record_id: "event-1", operation: "upsert", queued_at: "2026-07-09T08:01:00.000Z", attempts: 1, last_error: "old" }
     ]);
 
-    await queueChange("events", "event-1", "delete");
+    await queueChange("events", "event-1", "delete", userId);
 
     const queued = await db.syncQueue.where("record_id").equals("event-1").toArray();
     expect(queued).toHaveLength(1);

@@ -23,6 +23,8 @@ import { withTimeout } from "./asyncTimeout";
 import { computeNextHealthReminder } from "./healthReminderSchedule";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
+let nativeReminderRefreshGeneration = 0;
+let nativeReminderRefreshTail: Promise<void> = Promise.resolve();
 
 export type NotificationStatus =
   | "unsupported"
@@ -424,8 +426,13 @@ export async function resetSentRemindersForChangedEvent(
   return states.length;
 }
 
-async function applyNativeHealthReminderCooldown(ownerId: string, profile: HealthProfile): Promise<HealthProfile> {
+async function applyNativeHealthReminderCooldown(
+  ownerId: string,
+  profile: HealthProfile,
+  isCurrent: () => boolean
+): Promise<HealthProfile> {
   const diagnostics = await getNativeReminderDiagnostics();
+  if (!isCurrent()) return profile;
   const nativeLastSentAt = diagnostics?.events.reduce((latest, event) => {
     if (event.stage !== "notified" || event.id !== HEALTH_NOTIFICATION_ID) return latest;
     return Math.max(latest, event.at || 0);
@@ -440,6 +447,7 @@ async function applyNativeHealthReminderCooldown(ownerId: string, profile: Healt
     user_id: ownerId,
     last_movement_reminder_at: new Date(nativeLastSentAt).toISOString()
   };
+  if (!isCurrent()) return profile;
   await putRecordAndQueue("healthProfiles", updated);
   return updated;
 }
@@ -447,18 +455,41 @@ async function applyNativeHealthReminderCooldown(ownerId: string, profile: Healt
 // Loads the current user's reminder-eligible data and hands the computed schedule to the native OS.
 // Cancels/updates/adds OS notifications so they stay in sync with events and anniversaries.
 async function rescheduleNativeReminders(ownerId: string): Promise<number> {
+  // A component that was unmounted during an account switch can still finish
+  // an earlier async save and request a refresh.  Do not let that late stale
+  // caller supersede the refresh belonging to the active owner.
+  if (ownerId !== getCurrentUserId()) return 0;
+  const generation = ++nativeReminderRefreshGeneration;
+  const run = () => rescheduleNativeRemindersForGeneration(ownerId, generation);
+  const result = nativeReminderRefreshTail.then(run, run);
+  nativeReminderRefreshTail = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+async function rescheduleNativeRemindersForGeneration(ownerId: string, generation: number): Promise<number> {
+  const isCurrent = () => (
+    generation === nativeReminderRefreshGeneration
+    && ownerId === getCurrentUserId()
+  );
+  if (!isCurrent()) return 0;
   if ((await ensureNativeReminderPermission(false)) !== "granted") return 0;
+  if (!isCurrent()) return 0;
   const [events, anniversaries, occurrenceStates, healthProfile] = await Promise.all([
     db.events.filter((event) => event.user_id === ownerId).toArray(),
     db.anniversaries.filter((anniversary) => anniversary.user_id === ownerId).toArray(),
     db.eventOccurrenceStates.filter((state) => state.user_id === ownerId).toArray(),
     db.healthProfiles.filter((profile) => profile.user_id === ownerId && !profile.deleted_at).first()
   ]);
+  if (!isCurrent()) return 0;
   const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates });
   const scheduledCount = await syncNativeReminders(reminders);
+  // A newer owner refresh is queued behind this one.  Let it become the final
+  // OS state and do not let the stale run replace the shared health schedule.
+  if (!isCurrent()) return scheduledCount;
   const healthProfileWithNativeCooldown = healthProfile
-    ? await applyNativeHealthReminderCooldown(ownerId, healthProfile)
+    ? await applyNativeHealthReminderCooldown(ownerId, healthProfile, isCurrent)
     : null;
+  if (!isCurrent()) return scheduledCount;
   const healthPlan = healthProfileWithNativeCooldown
     ? computeNextHealthReminder(healthProfileWithNativeCooldown)
     : null;
@@ -469,6 +500,7 @@ async function rescheduleNativeReminders(ownerId: string): Promise<number> {
     startMinutes: healthPlan.startMinutes,
     endMinutes: healthPlan.endMinutes
   } : { enabled: false });
+  if (!isCurrent()) return scheduledCount + (healthPlan ? 1 : 0);
   await ensureNativeReliableReminderService();
   return scheduledCount + (healthPlan ? 1 : 0);
 }
@@ -509,7 +541,7 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
         `event-${event.id}-${date}`
       );
       const state = {
-        ...syncFields(existing),
+        ...syncFields(existing, event.user_id),
         event_id: event.id,
         occurrence_date: date,
         completed: existing?.completed ?? false,

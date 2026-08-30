@@ -27,8 +27,7 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
     ? null
     : normalizeDate(action.recurrenceUntil) ?? rangeEndDate;
   return {
-    ...syncFields(),
-    user_id: ownerId,
+    ...syncFields(undefined, ownerId),
     event_type: action.eventType === "habit" ? "habit" : "event",
     title,
     start_date: action.startDate,
@@ -63,8 +62,7 @@ export function anniversaryFromAiAction(action: DeepSeekAssistantAction, sourceT
   if (!title || !date) return null;
   const kind = normalizeAnniversaryKind(action.kind) ?? resolvedHoliday?.kind ?? "anniversary";
   return {
-    ...syncFields(),
-    user_id: ownerId,
+    ...syncFields(undefined, ownerId),
     kind,
     title: resolvedHoliday?.title && isHolidayText(title) ? resolvedHoliday.title : title,
     date,
@@ -84,8 +82,7 @@ export function memoFromAiAction(action: DeepSeekAssistantAction, sourceText: st
   if (!title) return null;
   const content = typeof action.content === "string" ? action.content.trim() : "";
   return {
-    ...syncFields(),
-    user_id: ownerId,
+    ...syncFields(undefined, ownerId),
     folder_id: null,
     title,
     content,

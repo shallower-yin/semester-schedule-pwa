@@ -112,6 +112,20 @@ describe("专注记录管理", () => {
     );
   });
 
+  it("切换 ownerId 时清空未保存的任务和设置草稿", async () => {
+    const { rerender } = render(<FocusPage ownerId="alice" />);
+    const taskInput = await screen.findByPlaceholderText("专注任务，例如：复习高数");
+    fireEvent.change(taskInput, { target: { value: "Alice 私密任务" } });
+    fireEvent.change(screen.getByLabelText("番茄分钟"), { target: { value: "90" } });
+
+    rerender(<FocusPage ownerId="bob" />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("专注任务，例如：复习高数")).toHaveValue("");
+      expect(screen.getByLabelText("番茄分钟")).toHaveValue(25);
+    });
+  });
+
   it("可在专注界面开启屏幕常亮，并在专注开始后生效", async () => {
     vi.mocked(enableFocusScreenWakeLock).mockClear();
     render(<FocusPage ownerId="local" />);

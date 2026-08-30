@@ -33,7 +33,7 @@ export function buildEventCompletionRecord(
   existing?: EventOccurrenceState
 ): EventOccurrenceState {
   return {
-    ...syncFields(existing),
+    ...syncFields(existing, eventItem.user_id),
     event_id: eventItem.id,
     occurrence_date: occurrenceDate,
     completed,

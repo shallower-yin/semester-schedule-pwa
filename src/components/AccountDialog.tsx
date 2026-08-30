@@ -170,8 +170,7 @@ export function AccountDialog({ user, pendingChanges, lastSync, syncing, message
       startsAt.setMinutes(startsAt.getMinutes() + 2);
       const startTime = `${String(startsAt.getHours()).padStart(2, "0")}:${String(startsAt.getMinutes()).padStart(2, "0")}`;
       const record = {
-        ...syncFields(),
-        user_id: user.id,
+        ...syncFields(undefined, user.id),
         event_type: "event" as const,
         title: "提醒测试",
         start_date: toISODate(startsAt),
