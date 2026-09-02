@@ -1,7 +1,7 @@
 export type ISODate = string;
 export type ISODateTime = string;
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
-export type PageId = "today" | "calendar" | "habits" | "anniversaries" | "memos" | "focus" | "health" | "settings" | "help";
+export type PageId = "today" | "calendar" | "habits" | "anniversaries" | "memos" | "todos" | "focus" | "health" | "settings" | "help";
 
 export interface SyncFields {
   id: string;
@@ -127,6 +127,15 @@ export interface Memo extends SyncFields {
   images?: MemoImage[];
 }
 
+/** A standalone, offline-first task.  It intentionally has no event dependency. */
+export interface TodoItem extends SyncFields {
+  title: string;
+  color: string;
+  sort_order: number;
+  is_pinned: boolean;
+  completed_at: ISODateTime | null;
+}
+
 export type FocusMode = "stopwatch" | "countdown" | "pomodoro" | "lock";
 export type FocusTimerMode = FocusMode | "rest";
 
@@ -213,6 +222,7 @@ export type SyncTableName =
   | "anniversaries"
   | "memoFolders"
   | "memos"
+  | "todos"
   | "focusSettings"
   | "focusSessions"
   | "restSessions"

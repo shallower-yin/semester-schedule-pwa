@@ -78,7 +78,7 @@
             android:name=".TodayScheduleWidgetProvider"
             android:description="@string/widget_today_description"
             android:exported="false"
-            android:label="@string/widget_today_title">
+            android:label="@string/widget_home_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="android.intent.action.DATE_CHANGED" />

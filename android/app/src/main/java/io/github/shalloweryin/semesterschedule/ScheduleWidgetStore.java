@@ -20,6 +20,7 @@ final class ScheduleWidgetStore {
     private static final String ACTIVE_OWNER = "active_owner";
     private static final String SNAPSHOT = "snapshot";
     private static final int MAX_BYTES = 64 * 1024;
+    private static final int MAX_TODOS = 3;
     private static final Pattern DATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
 
     private ScheduleWidgetStore() {}
@@ -110,6 +111,18 @@ final class ScheduleWidgetStore {
                 if (item.has("allDay") && !(item.opt("allDay") instanceof Boolean)) return false;
                 if (item.has("completed") && !(item.opt("completed") instanceof Boolean)) return false;
                 if (!validMinute(item, "startMinute") || !validMinute(item, "endMinute")) return false;
+            }
+        }
+        // Optional keeps schema 1 backward compatible: legacy snapshots have
+        // no todo projection, while an explicit empty array means "all done".
+        if (value.has("todos")) {
+            JSONArray todos = value.optJSONArray("todos");
+            if (todos == null || todos.length() > MAX_TODOS) return false;
+            for (int i = 0; i < todos.length(); i++) {
+                JSONObject todo = todos.optJSONObject(i);
+                if (todo == null || todo.length() != 1 || !(todo.opt("title") instanceof String)) return false;
+                String title = todo.optString("title", "");
+                if (title.trim().isEmpty() || title.codePointCount(0, title.length()) > 80) return false;
             }
         }
         return true;

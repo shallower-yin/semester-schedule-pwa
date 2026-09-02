@@ -18,12 +18,46 @@ import type {
   MemoFolder,
   RestSession,
   Semester,
+  TodoItem,
   SyncQueueItem,
   SyncTableName
 } from "./types";
 import { DEFAULT_CATEGORIES } from "./data/defaults";
 import { getCurrentUserId, getDeviceId, syncFields } from "./lib/identity";
 import type { AiAttachmentContextRecord } from "./lib/assistantAttachments";
+
+/**
+ * Keep the two newest schemas reusable by migration tests.  Version 14 only
+ * adds the standalone todo store; every pre-existing store and index stays
+ * byte-for-byte compatible with version 13 so a cached v13 bundle can still
+ * open the database through Dexie's higher-native-version fallback.
+ */
+export const SCHEDULE_DB_V13_STORES = {
+  semesters: "id, is_current, start_date, updated_at, deleted_at",
+  classPeriods: "id, semester_id, [semester_id+weekday], [semester_id+weekday+period_number], updated_at, deleted_at",
+  courses: "id, semester_id, name, updated_at, deleted_at",
+  courseSchedules: "id, course_id, weekday, updated_at, deleted_at",
+  courseCancellations: "id, course_schedule_id, occurrence_date, updated_at, deleted_at",
+  categories: "id, name, updated_at, deleted_at",
+  events: "id, event_type, start_date, end_date, recurrence_type, updated_at, deleted_at",
+  eventOccurrenceStates: "id, [event_id+occurrence_date], updated_at, deleted_at",
+  anniversaries: "id, kind, date, reminder_enabled, reminder_sent_for, updated_at, deleted_at",
+  memoFolders: "id, name, sort_order, updated_at, deleted_at",
+  memos: "id, folder_id, title, is_pinned, updated_at, deleted_at",
+  focusSettings: "id, user_id, updated_at, deleted_at",
+  focusSessions: "id, mode, started_at, ended_at, linked_event_id, pomodoro_plan_id, updated_at, deleted_at",
+  restSessions: "id, user_id, started_at, ended_at, rest_kind, pomodoro_plan_id, updated_at, deleted_at",
+  healthProfiles: "id, user_id, updated_at, deleted_at",
+  healthLogs: "id, user_id, kind, logged_at, [user_id+kind], updated_at, deleted_at",
+  syncQueue: "id, owner_id, table_name, record_id, [owner_id+table_name+record_id], queued_at",
+  localBackupSnapshots: "id, owner_id, [owner_id+created_at], created_at, reason",
+  aiAttachmentContexts: "id, ownerId, updatedAt"
+} as const;
+
+export const SCHEDULE_DB_V14_STORES = {
+  ...SCHEDULE_DB_V13_STORES,
+  todos: "id, user_id, [user_id+sort_order], updated_at, deleted_at"
+} as const;
 
 class ScheduleDatabase extends Dexie {
   semesters!: EntityTable<Semester, "id">;
@@ -37,6 +71,7 @@ class ScheduleDatabase extends Dexie {
   anniversaries!: EntityTable<Anniversary, "id">;
   memoFolders!: EntityTable<MemoFolder, "id">;
   memos!: EntityTable<Memo, "id">;
+  todos!: EntityTable<TodoItem, "id">;
   focusSettings!: EntityTable<FocusSettings, "id">;
   focusSessions!: EntityTable<FocusSession, "id">;
   restSessions!: EntityTable<RestSession, "id">;
@@ -422,27 +457,7 @@ class ScheduleDatabase extends Dexie {
       });
     });
     this.version(13)
-      .stores({
-        semesters: "id, is_current, start_date, updated_at, deleted_at",
-        classPeriods: "id, semester_id, [semester_id+weekday], [semester_id+weekday+period_number], updated_at, deleted_at",
-        courses: "id, semester_id, name, updated_at, deleted_at",
-        courseSchedules: "id, course_id, weekday, updated_at, deleted_at",
-        courseCancellations: "id, course_schedule_id, occurrence_date, updated_at, deleted_at",
-        categories: "id, name, updated_at, deleted_at",
-        events: "id, event_type, start_date, end_date, recurrence_type, updated_at, deleted_at",
-        eventOccurrenceStates: "id, [event_id+occurrence_date], updated_at, deleted_at",
-        anniversaries: "id, kind, date, reminder_enabled, reminder_sent_for, updated_at, deleted_at",
-        memoFolders: "id, name, sort_order, updated_at, deleted_at",
-        memos: "id, folder_id, title, is_pinned, updated_at, deleted_at",
-        focusSettings: "id, user_id, updated_at, deleted_at",
-        focusSessions: "id, mode, started_at, ended_at, linked_event_id, pomodoro_plan_id, updated_at, deleted_at",
-        restSessions: "id, user_id, started_at, ended_at, rest_kind, pomodoro_plan_id, updated_at, deleted_at",
-        healthProfiles: "id, user_id, updated_at, deleted_at",
-        healthLogs: "id, user_id, kind, logged_at, [user_id+kind], updated_at, deleted_at",
-        syncQueue: "id, owner_id, table_name, record_id, [owner_id+table_name+record_id], queued_at",
-        localBackupSnapshots: "id, owner_id, [owner_id+created_at], created_at, reason",
-        aiAttachmentContexts: "id, ownerId, updatedAt"
-      })
+      .stores(SCHEDULE_DB_V13_STORES)
       .upgrade(async (transaction) => {
         const fallbackOwnerId = getCurrentUserId();
         const queueTable = transaction.table("syncQueue");
@@ -479,6 +494,7 @@ class ScheduleDatabase extends Dexie {
           await snapshotTable.update(snapshot.id, { owner_id: ownerId, backup });
         }
       });
+    this.version(14).stores(SCHEDULE_DB_V14_STORES);
   }
 }
 

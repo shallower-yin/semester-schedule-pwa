@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
-import type { EventItem, EventOccurrenceState, FocusSession, Memo, MemoFolder, SyncFields } from "../types";
+import type { EventItem, EventOccurrenceState, FocusSession, Memo, MemoFolder, SyncFields, TodoItem } from "../types";
 import { getSyncHealth, purgeLocalSoftDeletedRecords } from "./sync";
 
 describe("同步健康检查", () => {
@@ -10,7 +10,27 @@ describe("同步健康检查", () => {
     await db.focusSessions.clear();
     await db.memoFolders.clear();
     await db.memos.clear();
+    await db.todos.clear();
     await db.syncQueue.clear();
+  });
+
+  it("软删除待办会在同步前转为待上传的硬删除", async () => {
+    const todo: TodoItem = {
+      ...fields("todo-legacy"),
+      deleted_at: "2026-07-09T08:00:00.000Z",
+      title: "已删除待办",
+      color: "#cfeeff",
+      sort_order: 1,
+      is_pinned: false,
+      completed_at: null
+    };
+    await db.todos.put(todo);
+
+    expect(await purgeLocalSoftDeletedRecords(USER_ID)).toBe(1);
+    expect(await db.todos.get(todo.id)).toBeUndefined();
+    expect(await db.syncQueue.toArray()).toEqual([
+      expect.objectContaining({ table_name: "todos", record_id: todo.id, operation: "delete" })
+    ]);
   });
 
   it("按数据表汇总待上传和失败信息", async () => {

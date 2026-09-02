@@ -13,6 +13,12 @@ describe("应用返回历史", () => {
     expect(appHistoryPage(window.history.state)).toBe("memos");
   });
 
+  it("识别待办页面，供桌面插件和系统返回键跳转", () => {
+    initializeAppHistory("today");
+    navigateAppHistory("todos");
+    expect(appHistoryPage(window.history.state)).toBe("todos");
+  });
+
   it("从弹窗进入新页面时消费当前弹窗层", () => {
     initializeAppHistory("today");
     pushAppHistoryLayer("modal-1");

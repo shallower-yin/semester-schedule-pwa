@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db, queueChange } from "../db";
-import type { EventOccurrenceState, FocusSession, HealthLog, SyncFields } from "../types";
+import type { EventOccurrenceState, FocusSession, HealthLog, SyncFields, TodoItem } from "../types";
 import { pullRemoteNow, syncNow, SYNC_TABLES } from "./sync";
 
 interface MockQueryResult {
@@ -159,6 +159,17 @@ function toRemoteRow(log: HealthLog): Record<string, unknown> {
   return { ...log, server_updated_at: "2026-07-01T08:00:00.000Z" };
 }
 
+function todo(id: string): TodoItem {
+  return {
+    ...fields(id),
+    title: "整理待办同步",
+    color: "#cfeeff",
+    sort_order: 2,
+    is_pinned: true,
+    completed_at: null
+  };
+}
+
 async function clearLocalTables() {
   for (const table of SYNC_TABLES) {
     await db.table(table.local).clear();
@@ -241,6 +252,27 @@ describe("上传前自动修复历史重复队列", () => {
     expect(focusUploads).toHaveLength(1);
     expect(focusUploads[0].payloads).toHaveLength(1);
     expect(focusUploads[0].payloads[0].id).toBe(session.id);
+    expect(result.uploaded).toBe(1);
+    expect(await db.syncQueue.where("owner_id").equals(USER_ID).count()).toBe(0);
+  });
+
+  it("待办会上传完整的独立字段并清空同步队列", async () => {
+    const item = todo("todo-1");
+    await db.todos.put(item);
+    await queueChange("todos", item.id, "upsert", USER_ID);
+
+    const result = await syncNow(USER_ID);
+
+    const uploads = mockRemote.upsertCalls.filter((call) => call.tableName === "todos");
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0].payloads).toEqual([expect.objectContaining({
+      id: item.id,
+      title: item.title,
+      color: item.color,
+      sort_order: item.sort_order,
+      is_pinned: true,
+      completed_at: null
+    })]);
     expect(result.uploaded).toBe(1);
     expect(await db.syncQueue.where("owner_id").equals(USER_ID).count()).toBe(0);
   });

@@ -32,7 +32,7 @@ export function ScheduleWidgetSettingCard() {
       <CalendarDays />
       <span>
         <strong>{requesting ? "正在打开系统面板…" : "添加桌面组件"}</strong>
-        <small>在桌面查看今日日程，并通过“＋”快速记录事项</small>
+        <small>在桌面同时查看今日日程和待办，并分别快速进入对应页面</small>
       </span>
       <ChevronRight />
     </button>

@@ -1,6 +1,6 @@
 /* Tablet / compact desktop: preserve every desktop destination, but give the
    brand/tools and the full navigation their own rows. */
-@media (min-width: 901px) and (max-width: 1439.98px) {
+@media (min-width: 901px) and (max-width: 1599.98px) {
   .app-header {
     grid-template:
       "brand status" auto
@@ -33,7 +33,7 @@
   .desktop-nav {
     display: grid;
     grid-area: navigation;
-    grid-template-columns: repeat(9, minmax(0, 1fr));
+    grid-template-columns: repeat(10, minmax(0, 1fr));
     gap: 4px;
     width: 100%;
     padding: 4px;
@@ -238,7 +238,8 @@
   }
 
   .app-shell[data-app-target="android"] .mobile-bottom-nav[data-item-count="8"] button,
-  .app-shell[data-app-target="android"] .mobile-bottom-nav[data-item-count="9"] button {
+  .app-shell[data-app-target="android"] .mobile-bottom-nav[data-item-count="9"] button,
+  .app-shell[data-app-target="android"] .mobile-bottom-nav[data-item-count="10"] button {
     font-size: 0.625rem;
   }
 

@@ -23,6 +23,7 @@ describe("桌面组件设置入口", () => {
   it("仅在 Android APK 中显示，并请求系统添加组件", async () => {
     mocks.requestPin.mockResolvedValue({ supported: true, requested: true });
     render(<ScheduleWidgetSettingCard />);
+    expect(screen.getByText(/同时查看今日日程和待办/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /添加桌面组件/ }));
 

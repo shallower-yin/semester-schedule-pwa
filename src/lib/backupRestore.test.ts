@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { prepareBackupRecordsForRestore } from "./backup";
+import { OPTIONAL_TABLES_IN_OLD_BACKUPS, prepareBackupRecordsForRestore } from "./backup";
 
 describe("备份恢复同步元数据", () => {
   const currentUserId = "22222222-2222-4222-8222-222222222222";
@@ -58,5 +58,9 @@ describe("备份恢复同步元数据", () => {
 
     expect(restored[0].updated_at).toBe("2026-07-31T00:00:00.001Z");
     expect(restored[0].version).toBe(4);
+  });
+
+  it("待办缺失不会使旧版备份失效", () => {
+    expect(OPTIONAL_TABLES_IN_OLD_BACKUPS.has("todos")).toBe(true);
   });
 });

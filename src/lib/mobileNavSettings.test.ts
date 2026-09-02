@@ -9,16 +9,19 @@ const responsiveStyles = readFileSync(resolve(process.cwd(), "src/styles/06-resp
 describe("安卓底部导航设置", () => {
   beforeEach(() => localStorage.clear());
 
-  it("首次打开默认显示所有可用按钮", () => {
-    expect(DEFAULT_MOBILE_NAV).toEqual(AVAILABLE_MOBILE_NAV);
-    expect(loadMobileNavSettings()).toEqual(AVAILABLE_MOBILE_NAV);
+  it("首次打开默认只显示五个常用按钮", () => {
+    expect(DEFAULT_MOBILE_NAV).toEqual(["today", "calendar", "memos", "focus", "settings"]);
+    expect(loadMobileNavSettings()).toEqual(DEFAULT_MOBILE_NAV);
+    expect(AVAILABLE_MOBILE_NAV).toContain("todos");
   });
 
-  it("旧版默认设置自动补齐后来增加的按钮", () => {
+  it("保留旧版已经保存的底栏配置，不自动增删按钮", () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([
       "today", "calendar", "habits", "anniversaries", "memos", "focus", "health", "settings"
     ]));
-    expect(loadMobileNavSettings()).toEqual(AVAILABLE_MOBILE_NAV);
+    expect(loadMobileNavSettings()).toEqual([
+      "today", "calendar", "habits", "anniversaries", "memos", "focus", "health", "settings"
+    ]);
   });
 
   it("保留用户主动选择的按钮和顺序", () => {

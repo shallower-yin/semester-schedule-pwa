@@ -4,21 +4,194 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@drawable/widget_background"
-    android:clickable="true"
-    android:focusable="true">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
-            <TextView android:id="@+id/widget_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_today_title" android:textColor="#FF17233D" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/widget_date" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FF65708A" android:textSize="12sp" />
-            <TextView android:id="@+id/widget_updated" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FF98A1B3" android:textSize="11sp" />
+    android:background="@drawable/widget_background">
+
+    <LinearLayout
+        android:id="@+id/widget_schedule_section"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="10dp"
+        android:paddingTop="7dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="6dp"
+        android:background="@drawable/widget_schedule_section_background"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="@string/widget_open_today">
+
+        <LinearLayout
+            android:id="@+id/widget_schedule_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/widget_today_title"
+                android:textColor="#FF17233D"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_date"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FF65708A"
+                android:textSize="10sp" />
         </LinearLayout>
-        <TextView android:id="@+id/widget_quick_entry" android:layout_width="36dp" android:layout_height="36dp" android:gravity="center" android:text="@string/widget_quick_entry_symbol" android:textColor="#FF3157D5" android:textSize="24sp" android:contentDescription="@string/widget_quick_entry" />
+
+        <TextView
+            android:id="@+id/widget_empty"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text="@string/widget_empty"
+            android:textColor="#FF65708A"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_item_1"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#FF17233D"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_item_2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#FF17233D"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_item_3"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#FF17233D"
+            android:textSize="12sp" />
     </LinearLayout>
-    <TextView android:id="@+id/widget_empty" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="@string/widget_empty" android:textColor="#FF65708A" android:textSize="13sp" />
-    <TextView android:id="@+id/widget_item_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:ellipsize="end" android:maxLines="1" android:textColor="#FF17233D" android:textSize="13sp" />
-    <TextView android:id="@+id/widget_item_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#FF17233D" android:textSize="13sp" />
-    <TextView android:id="@+id/widget_item_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#FF17233D" android:textSize="13sp" />
-    <TextView android:id="@+id/widget_item_4" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#FF17233D" android:textSize="13sp" />
-    <TextView android:id="@+id/widget_item_5" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#FF17233D" android:textSize="13sp" />
+
+    <LinearLayout
+        android:id="@+id/widget_todo_section"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="6dp"
+        android:orientation="vertical"
+        android:paddingStart="10dp"
+        android:paddingTop="5dp"
+        android:paddingEnd="7dp"
+        android:paddingBottom="6dp"
+        android:background="@drawable/widget_todo_section_background"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="@string/widget_open_todos">
+
+        <LinearLayout
+            android:id="@+id/widget_todo_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_todo_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/widget_todo_title"
+                android:textColor="#FF17233D"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_todo_add"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:gravity="center"
+                android:background="@drawable/widget_add_background"
+                android:text="@string/widget_quick_entry_symbol"
+                android:textColor="#FF9A7100"
+                android:textSize="21sp"
+                android:contentDescription="@string/widget_todo_add" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_todo_empty"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text="@string/widget_todo_empty"
+            android:textColor="#FF756838"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_todo_item_1"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#FF332D1B"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_todo_item_2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#FF332D1B"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_todo_item_3"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#FF332D1B"
+            android:textSize="12sp" />
+    </LinearLayout>
 </LinearLayout>

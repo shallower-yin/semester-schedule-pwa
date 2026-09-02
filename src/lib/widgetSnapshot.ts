@@ -7,7 +7,8 @@ import type {
   EventItem,
   EventOccurrenceState,
   FocusSession,
-  Semester
+  Semester,
+  TodoItem
 } from "../types";
 import { addDays, dateAtProductTime, PRODUCT_TIME_ZONE, toISODate } from "./date";
 import { buildScheduleOverview, type ScheduleOverviewItem } from "./overview";
@@ -15,6 +16,7 @@ import { buildScheduleOverview, type ScheduleOverviewItem } from "./overview";
 export const WIDGET_SNAPSHOT_SCHEMA = 1 as const;
 export const WIDGET_SNAPSHOT_DAYS = 7;
 export const WIDGET_MAX_ITEMS_PER_DAY = 8;
+export const WIDGET_MAX_TODOS = 3;
 
 export interface WidgetSnapshotItem {
   /** Deep-link key understood by the existing native notification router. */
@@ -34,12 +36,19 @@ export interface WidgetSnapshotDay {
   items: WidgetSnapshotItem[];
 }
 
+/** The native widget only needs a label because every row opens the todo page. */
+export interface WidgetSnapshotTodo {
+  title: string;
+}
+
 export interface WidgetSnapshot {
   schema: typeof WIDGET_SNAPSHOT_SCHEMA;
   generatedAt: string;
   validUntil: string;
   timezone: typeof PRODUCT_TIME_ZONE;
   days: WidgetSnapshotDay[];
+  /** Optional so schema-1 snapshots remain readable by old and new APKs. */
+  todos?: WidgetSnapshotTodo[];
 }
 
 export interface WidgetSnapshotInput {
@@ -53,6 +62,7 @@ export interface WidgetSnapshotInput {
   occurrenceStates: EventOccurrenceState[];
   periods: ClassPeriod[];
   focusSessions: FocusSession[];
+  todos?: TodoItem[];
 }
 
 export interface BuildWidgetSnapshotOptions {
@@ -86,6 +96,13 @@ export function buildWidgetSnapshot(
   const occurrenceStates = owned(input.occurrenceStates);
   const periods = owned(input.periods);
   const focusSessions = owned(input.focusSessions);
+  const todos = input.todos === undefined
+    ? undefined
+    : owned(input.todos)
+      .filter((todo) => todo.deleted_at === null && todo.completed_at === null)
+      .sort(compareTodos)
+      .slice(0, WIDGET_MAX_TODOS)
+      .map((todo) => ({ title: truncate(todo.title, 80, "未命名待办") }));
   const todayDate = toISODate(now);
   const days = Array.from({ length: dayCount }, (_, index) => {
     const date = toISODate(addDays(now, index));
@@ -115,13 +132,24 @@ export function buildWidgetSnapshot(
   // user to open the app and refresh the local projection.
   const lastDate = days.at(-1)?.date ?? todayDate;
   const validUntil = dateAtProductTime(toISODate(addDays(dateAtProductTime(lastDate, "12:00"), 1)), "00:00").toISOString();
-  return {
+  const snapshot: WidgetSnapshot = {
     schema: WIDGET_SNAPSHOT_SCHEMA,
     generatedAt: now.toISOString(),
     validUntil,
     timezone: PRODUCT_TIME_ZONE,
     days
   };
+  if (todos !== undefined) snapshot.todos = todos;
+  return snapshot;
+}
+
+function compareTodos(left: TodoItem, right: TodoItem): number {
+  if (left.is_pinned !== right.is_pinned) return left.is_pinned ? -1 : 1;
+  const leftOrder = Number.isFinite(left.sort_order) ? left.sort_order : Number.MAX_SAFE_INTEGER;
+  const rightOrder = Number.isFinite(right.sort_order) ? right.sort_order : Number.MAX_SAFE_INTEGER;
+  if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+  const created = left.created_at.localeCompare(right.created_at);
+  return created !== 0 ? created : left.id.localeCompare(right.id);
 }
 
 function toWidgetItem(item: ScheduleOverviewItem, occurrenceDate: string): WidgetSnapshotItem {
@@ -154,10 +182,10 @@ function normalizeColor(value: string | null | undefined): string {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#3157d5";
 }
 
-function truncate(value: string, maxLength: number): string {
+function truncate(value: string, maxLength: number, fallback = "未命名事项"): string {
   const text = String(value ?? "").trim();
   const chars = Array.from(text);
-  return chars.length > maxLength ? `${chars.slice(0, maxLength - 1).join("")}…` : text || "未命名事项";
+  return chars.length > maxLength ? `${chars.slice(0, maxLength - 1).join("")}…` : text || fallback;
 }
 
 function clampInteger(value: number, min: number, max: number): number {

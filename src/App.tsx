@@ -20,6 +20,7 @@ import {
   HeartPulse,
   LogIn,
   Languages,
+  ListTodo,
   Menu,
   MessageSquareText,
   Network,
@@ -76,6 +77,7 @@ const SchoolTimetableImportDialog = lazy(() => import("./components/SchoolTimeta
 const StatsDialog = lazy(() => import("./components/StatsDialog").then((module) => ({ default: module.StatsDialog })));
 import { ThemeSkinDialog } from "./components/ThemeSkinDialog";
 import { TodayPage } from "./components/TodayPage";
+import { TodoPage } from "./components/TodoPage";
 import { ToastHost } from "./components/ToastHost";
 import { UpdateNotesDialog } from "./components/UpdateNotesDialog";
 import { WeekCalendar } from "./components/WeekCalendar";
@@ -190,6 +192,7 @@ export default function App() {
   const appVersion = `版本 ${__APP_VERSION__} · 提交 ${__APP_COMMIT__}`;
   const [page, setPage] = useState<Page>("today");
   const [nativeNotificationKey, setNativeNotificationKey] = useState<string | null>(() => consumePendingNativeNotificationKey());
+  const [todoCreateRequest, setTodoCreateRequest] = useState<string | null>(null);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [overviewNow, setOverviewNow] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => weekdayOf(new Date()) - 1);
@@ -319,6 +322,7 @@ export default function App() {
     setEventDraft(null);
     setAnniversaryToOpen(null);
     setMemoToOpen(null);
+    setTodoCreateRequest(null);
     setCourseSearchMatch(null);
     setEventSearchMatch(null);
     setAnniversarySearchMatch(null);
@@ -451,6 +455,12 @@ export default function App() {
   );
   const memosQuery = currentLiveQueryValue(memosResult, ownerQueryScope);
   const memos = memosQuery ?? [];
+  const todosResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerQueryScope, await db.todos.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerQueryScope]
+  );
+  const todosQuery = currentLiveQueryValue(todosResult, ownerQueryScope);
+  const todos = todosQuery ?? [];
   const focusSessionsResult = useLiveQuery(
     async () => scopedLiveQueryValue(ownerQueryScope, await db.focusSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
     [ownerQueryScope]
@@ -484,6 +494,7 @@ export default function App() {
     && eventsQuery !== undefined
     && categoriesQuery !== undefined
     && occurrenceStatesQuery !== undefined
+    && todosQuery !== undefined
     && periodsQuery !== undefined
     && focusSessionsQuery !== undefined;
   const pendingChangesResult = useLiveQuery(
@@ -550,6 +561,7 @@ export default function App() {
           events,
           categories,
           occurrenceStates,
+          todos,
           periods,
           focusSessions
         }, new Date());
@@ -583,6 +595,7 @@ export default function App() {
     focusSessions,
     ownerId,
     occurrenceStates,
+    todos,
     periods,
     schedules,
     semester,
@@ -609,6 +622,18 @@ export default function App() {
     if (nativeNotificationKey === "route:today") {
       goToday();
       navigate("today");
+      setNativeNotificationKey(null);
+      return;
+    }
+    if (nativeNotificationKey === "route:todos") {
+      navigate("todos");
+      setNativeNotificationKey(null);
+      return;
+    }
+    if (nativeNotificationKey === "route:todos-create") {
+      if (!authReady) return;
+      navigate("todos");
+      setTodoCreateRequest(crypto.randomUUID());
       setNativeNotificationKey(null);
       return;
     }
@@ -1161,6 +1186,7 @@ export default function App() {
   const navItems: Array<{ id: PageId; label: string; mobileLabel?: string; icon: ReactNode }> = [
     { id: "today", label: "今天", icon: <CalendarCheck2 size={19} /> },
     { id: "calendar", label: "日程", icon: <CalendarDays size={19} /> },
+    { id: "todos", label: "待办", icon: <ListTodo size={19} /> },
     { id: "habits", label: "习惯", icon: <CheckCircle2 size={19} /> },
     { id: "anniversaries", label: "纪念日", icon: <CalendarHeart size={19} /> },
     { id: "memos", label: "备忘录", icon: <NotebookText size={19} /> },
@@ -1302,7 +1328,14 @@ export default function App() {
       )}
 
       <main>
-        {page === "memos" ? (
+        {page === "todos" ? (
+          <TodoPage
+            key={ownerId}
+            ownerId={ownerId}
+            openCreateRequest={todoCreateRequest}
+            onOpenCreateConsumed={() => setTodoCreateRequest(null)}
+          />
+        ) : page === "memos" ? (
           <MemoPage
             key={ownerId}
             ownerId={ownerId}

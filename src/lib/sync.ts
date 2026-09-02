@@ -19,6 +19,7 @@ export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: s
   { local: "anniversaries", remote: "anniversaries", label: "纪念日" },
   { local: "memoFolders", remote: "memo_folders", label: "备忘录文件夹" },
   { local: "memos", remote: "memos", label: "备忘录" },
+  { local: "todos", remote: "todos", label: "待办" },
   { local: "focusSettings", remote: "focus_settings", label: "专注设置" },
   { local: "focusSessions", remote: "focus_sessions", label: "专注记录" },
   { local: "restSessions", remote: "rest_sessions", label: "休息记录" },
@@ -41,6 +42,7 @@ const DELETE_TABLES = [
   "healthProfiles",
   "events",
   "memos",
+  "todos",
   "memoFolders",
   "anniversaries",
   "categories",
@@ -259,6 +261,16 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       images: normalizeMemoImages(record.images)
     };
   }
+  if (table === "todos") {
+    return {
+      ...record,
+      title: String(record.title ?? ""),
+      color: normalizeTodoColor(record.color),
+      sort_order: Number(record.sort_order ?? 0),
+      is_pinned: Boolean(record.is_pinned),
+      completed_at: record.completed_at ?? null
+    };
+  }
   if (table === "healthProfiles") {
     return {
       ...record,
@@ -339,6 +351,16 @@ function normalizeUploadPayload(table: SyncTableName, record: Record<string, unk
       last_movement_reminder_at: payload.last_movement_reminder_at ?? null
     };
   }
+  if (table === "todos") {
+    return {
+      ...payload,
+      title: String(payload.title ?? "").trim(),
+      color: normalizeTodoColor(payload.color),
+      sort_order: Number(payload.sort_order ?? 0),
+      is_pinned: Boolean(payload.is_pinned),
+      completed_at: payload.completed_at ?? null
+    };
+  }
   if (table === "focusSessions") {
     const mode = payload.mode;
     const safeMode = mode === "stopwatch" || mode === "countdown" || mode === "pomodoro" || mode === "lock"
@@ -378,6 +400,11 @@ function normalizeExerciseItems(value: unknown): string[] {
     .filter(Boolean)
     .slice(0, 12);
   return items.length ? [...new Set(items)] : ["俯卧撑", "仰卧起坐", "深蹲"];
+}
+
+function normalizeTodoColor(value: unknown): string {
+  const color = String(value ?? "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : "#cfeeff";
 }
 
 function emptyDeleteMap(): Map<SyncTableName, Set<string>> {

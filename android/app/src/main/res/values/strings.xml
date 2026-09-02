@@ -4,10 +4,16 @@
     <string name="title_activity_main">日程计划表</string>
     <string name="package_name">io.github.shalloweryin.semesterschedule</string>
     <string name="custom_url_scheme">io.github.shalloweryin.semesterschedule</string>
+    <string name="widget_home_title">今日日程与待办</string>
     <string name="widget_today_title">今日日程</string>
-    <string name="widget_today_description">查看今天的课程和日程，快速记录事项</string>
-    <string name="widget_quick_entry">速记</string>
+    <string name="widget_today_description">查看今日日程和未完成待办</string>
+    <string name="widget_open_today">打开今天</string>
+    <string name="widget_todo_title">待办</string>
+    <string name="widget_open_todos">打开待办</string>
+    <string name="widget_todo_add">新增待办</string>
     <string name="widget_quick_entry_symbol">＋</string>
     <string name="widget_empty">今天没有安排</string>
-    <string name="widget_empty_refresh">暂无数据，点击打开应用刷新</string>
+    <string name="widget_empty_refresh">今日日程暂无缓存，点击刷新</string>
+    <string name="widget_todo_empty">待办已清空</string>
+    <string name="widget_todo_empty_refresh">待办暂无缓存，点击刷新</string>
 </resources>

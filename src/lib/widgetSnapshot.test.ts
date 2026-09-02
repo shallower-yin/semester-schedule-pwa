@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { EventItem } from "../types";
+import type { EventItem, TodoItem } from "../types";
 import { dateAtProductTime } from "./date";
 import { buildWidgetSnapshot } from "./widgetSnapshot";
 
@@ -32,6 +32,20 @@ function event(overrides: Partial<EventItem>): EventItem {
     reminder_enabled: false,
     reminder_minutes_before: 10,
     timezone: "Asia/Shanghai",
+    ...overrides
+  };
+}
+
+function todo(overrides: Partial<TodoItem>): TodoItem {
+  return {
+    ...baseFields,
+    id: "todo",
+    user_id: "alice",
+    title: "待办",
+    color: "#3157d5",
+    sort_order: 0,
+    is_pinned: false,
+    completed_at: null,
     ...overrides
   };
 }
@@ -123,5 +137,55 @@ describe("Android 小组件日程快照", () => {
     }, dateAtProductTime("2026-08-30", "08:00"), { days: 1 });
 
     expect(snapshot.days[0].items[0]).toMatchObject({ startMinute: 540, endMinute: null });
+  });
+
+  it("保持 schema 1，并在调用方没有提供待办时省略可选字段", () => {
+    const snapshot = buildWidgetSnapshot({
+      ...emptyInput,
+      ownerId: "alice",
+      events: []
+    }, dateAtProductTime("2026-08-30", "08:00"), { days: 1 });
+
+    expect(snapshot.schema).toBe(1);
+    expect(Object.hasOwn(snapshot, "todos")).toBe(false);
+  });
+
+  it("待办按账号隔离，仅投影未完成项，并按置顶、顺序和创建时间取前三条", () => {
+    const snapshot = buildWidgetSnapshot({
+      ...emptyInput,
+      ownerId: "alice",
+      events: [],
+      todos: [
+        todo({ id: "normal-later", title: "普通稍后", sort_order: 1, created_at: "2026-08-03T00:00:00.000Z" }),
+        todo({ id: "pinned-later", title: "置顶稍后", is_pinned: true, sort_order: 8 }),
+        todo({ id: "normal-first", title: "普通第一", sort_order: 1, created_at: "2026-08-02T00:00:00.000Z" }),
+        todo({ id: "pinned-first", title: "置顶第一", is_pinned: true, sort_order: 1 }),
+        todo({ id: "done", title: "已完成", completed_at: "2026-08-03T00:00:00.000Z" }),
+        todo({ id: "deleted", title: "已删除", deleted_at: "2026-08-03T00:00:00.000Z" }),
+        todo({ id: "other", user_id: "bob", title: "其他账号" })
+      ]
+    }, dateAtProductTime("2026-08-30", "08:00"), { days: 1 });
+
+    expect(snapshot.todos).toEqual([
+      { title: "置顶第一" },
+      { title: "置顶稍后" },
+      { title: "普通第一" }
+    ]);
+    expect(Object.keys(snapshot.todos![0])).toEqual(["title"]);
+    expect(JSON.stringify(snapshot)).not.toContain("bob");
+    expect(JSON.stringify(snapshot)).not.toContain("已完成");
+    expect(JSON.stringify(snapshot)).not.toContain("已删除");
+  });
+
+  it("待办空列表仍会发布，从而让新版插件区分已清空与缓存缺失", () => {
+    const snapshot = buildWidgetSnapshot({
+      ...emptyInput,
+      ownerId: "alice",
+      events: [],
+      todos: []
+    }, dateAtProductTime("2026-08-30", "08:00"), { days: 1 });
+
+    expect(Object.hasOwn(snapshot, "todos")).toBe(true);
+    expect(snapshot.todos).toEqual([]);
   });
 });

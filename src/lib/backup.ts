@@ -16,6 +16,7 @@ export const BACKUP_TABLES: SyncTableName[] = [
   "anniversaries",
   "memoFolders",
   "memos",
+  "todos",
   "focusSettings",
   "focusSessions",
   "restSessions",
@@ -23,7 +24,7 @@ export const BACKUP_TABLES: SyncTableName[] = [
   "healthLogs"
 ];
 
-export const OPTIONAL_TABLES_IN_OLD_BACKUPS = new Set<SyncTableName>(["anniversaries", "restSessions", "healthProfiles", "healthLogs"]);
+export const OPTIONAL_TABLES_IN_OLD_BACKUPS = new Set<SyncTableName>(["anniversaries", "restSessions", "healthProfiles", "healthLogs", "todos"]);
 
 export function prepareBackupRecordsForRestore(
   incomingRecords: Array<Record<string, unknown>>,
