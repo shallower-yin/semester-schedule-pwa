@@ -24,6 +24,31 @@ vi.mock("../lib/memoImages", async (importOriginal) => {
   };
 });
 
+function fireMemoPointer(
+  target: HTMLElement,
+  type: "pointerdown" | "pointermove" | "pointercancel",
+  { x, y, pointerType = "mouse", pointerId = 1 }: { x: number; y: number; pointerType?: string; pointerId?: number }
+) {
+  const event = new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y });
+  Object.defineProperties(event, {
+    pointerType: { value: pointerType },
+    pointerId: { value: pointerId }
+  });
+  fireEvent(target, event);
+}
+
+function mockMemoMarkerRect(left = 20, top = 20, width = 12, height = 24) {
+  return vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    if (this instanceof HTMLTextAreaElement && this.getAttribute("aria-label") === "正文") {
+      return new DOMRect(0, 0, 320, 260);
+    }
+    if (this instanceof HTMLElement && this.dataset.memoMarkerCursor) {
+      return new DOMRect(left, top, width, height);
+    }
+    return new DOMRect();
+  });
+}
+
 describe("备忘录视图", () => {
   beforeEach(async () => {
     localStorage.clear();
@@ -218,19 +243,80 @@ describe("备忘录视图", () => {
   });
 
   it("可以直接点击正文里的待办圆圈切换完成状态", async () => {
+    mockMemoMarkerRect();
     render(<MemoPage ownerId="local" />);
 
     fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
     const textarea = screen.getByLabelText("正文") as HTMLTextAreaElement;
 
-    fireEvent.change(textarea, { target: { value: "○ 防晒" } });
-    textarea.setSelectionRange(1, 1);
-    fireEvent.click(textarea);
+    fireEvent.change(textarea, { target: { value: "  ○ 防晒" } });
+    textarea.setSelectionRange(3, 3);
+    fireMemoPointer(textarea, "pointerdown", { x: 26, y: 30 });
+    fireEvent.click(textarea, { detail: 1, clientX: 26, clientY: 30 });
 
-    await waitFor(() => expect(textarea).toHaveValue("● 防晒"));
+    await waitFor(() => expect(textarea).toHaveValue("  ● 防晒"));
+
+    fireEvent.change(textarea, { target: { value: "  ○ 防晒" } });
+    textarea.setSelectionRange(1, 1);
+    fireMemoPointer(textarea, "pointerdown", { x: 60, y: 30 });
+    fireEvent.click(textarea, { detail: 1, clientX: 60, clientY: 30 });
+
+    expect(textarea).toHaveValue("  ○ 防晒");
+
+    fireEvent.change(textarea, { target: { value: "  - [ ] 整理资料" } });
+    textarea.setSelectionRange(6, 6);
+    fireMemoPointer(textarea, "pointerdown", { x: 26, y: 30 });
+    fireEvent.click(textarea, { detail: 1, clientX: 26, clientY: 30 });
+    await waitFor(() => expect(textarea).toHaveValue("  - [x] 整理资料"));
+
     expect(textarea).toHaveClass("memo-textarea");
     expect(document.querySelector(".memo-textarea-visual")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("待办清单")).not.toBeInTheDocument();
+  });
+
+  it("拖选待办正文或收起已有选区时不会切换待办状态", () => {
+    mockMemoMarkerRect();
+    render(<MemoPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
+    const textarea = screen.getByLabelText("正文") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "○ 防晒和鞋垫" } });
+
+    textarea.setSelectionRange(1, 1);
+    fireMemoPointer(textarea, "pointerdown", { x: 26, y: 30 });
+    fireMemoPointer(textarea, "pointermove", { x: 80, y: 30 });
+    textarea.setSelectionRange(1, 6);
+    fireEvent.click(textarea, { detail: 1, clientX: 80, clientY: 30 });
+    expect(textarea).toHaveValue("○ 防晒和鞋垫");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([1, 6]);
+
+    textarea.setSelectionRange(2, 6);
+    fireMemoPointer(textarea, "pointerdown", { x: 26, y: 30 });
+    textarea.setSelectionRange(1, 1);
+    fireEvent.click(textarea, { detail: 1, clientX: 26, clientY: 30 });
+    expect(textarea).toHaveValue("○ 防晒和鞋垫");
+  });
+
+  it("真实双击事件序列不会先切换待办，并且只选择锚点所在行", async () => {
+    mockMemoMarkerRect();
+    render(<MemoPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增备忘录/ }));
+    const textarea = screen.getByLabelText("正文") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "○ 第一行\n2. 第二行\n第三行" } });
+
+    textarea.setSelectionRange(1, 1);
+    fireMemoPointer(textarea, "pointerdown", { x: 26, y: 30 });
+    fireEvent.click(textarea, { detail: 1, clientX: 26, clientY: 30 });
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    fireMemoPointer(textarea, "pointerdown", { x: 26, y: 30 });
+    textarea.setSelectionRange(0, 6);
+    fireEvent.click(textarea, { detail: 2, clientX: 26, clientY: 30 });
+    fireEvent.doubleClick(textarea, { detail: 2, clientX: 26, clientY: 30 });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    expect(textarea).toHaveValue("○ 第一行\n2. 第二行\n第三行");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([0, 5]);
   });
 
   it("桌面双击正文文字选中整行，触摸操作保留原生选区", () => {

@@ -62,41 +62,89 @@
             android:textColor="#FF65708A"
             android:textSize="12sp" />
 
-        <TextView
+        <LinearLayout
             android:id="@+id/widget_item_1"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center_vertical"
-            android:ellipsize="end"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:textColor="#FF17233D"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/widget_item_complete_1"
+                android:layout_width="32dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="○"
+                android:textColor="#FF4967C9"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/widget_item_text_1"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#FF17233D"
+                android:textSize="12sp" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/widget_item_2"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center_vertical"
-            android:ellipsize="end"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:textColor="#FF17233D"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/widget_item_complete_2"
+                android:layout_width="32dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="○"
+                android:textColor="#FF4967C9"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/widget_item_text_2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#FF17233D"
+                android:textSize="12sp" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/widget_item_3"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center_vertical"
-            android:ellipsize="end"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:textColor="#FF17233D"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/widget_item_complete_3"
+                android:layout_width="32dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="○"
+                android:textColor="#FF4967C9"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/widget_item_text_3"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#FF17233D"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
@@ -158,40 +206,88 @@
             android:textColor="#FF756838"
             android:textSize="12sp" />
 
-        <TextView
+        <LinearLayout
             android:id="@+id/widget_todo_item_1"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center_vertical"
-            android:ellipsize="end"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:textColor="#FF332D1B"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/widget_todo_item_complete_1"
+                android:layout_width="32dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="○"
+                android:textColor="#FF9A7100"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/widget_todo_item_text_1"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#FF332D1B"
+                android:textSize="12sp" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/widget_todo_item_2"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center_vertical"
-            android:ellipsize="end"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:textColor="#FF332D1B"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/widget_todo_item_complete_2"
+                android:layout_width="32dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="○"
+                android:textColor="#FF9A7100"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/widget_todo_item_text_2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#FF332D1B"
+                android:textSize="12sp" />
+        </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/widget_todo_item_3"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:gravity="center_vertical"
-            android:ellipsize="end"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:textColor="#FF332D1B"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/widget_todo_item_complete_3"
+                android:layout_width="32dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="○"
+                android:textColor="#FF9A7100"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/widget_todo_item_text_3"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#FF332D1B"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

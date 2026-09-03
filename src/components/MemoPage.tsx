@@ -5,13 +5,14 @@ import { db, putRecordAndQueue } from "../db";
 import { syncFields } from "../lib/identity";
 import { toISODate } from "../lib/date";
 import { hardDeleteLocalRecord, hardDeleteLocalRecords } from "../lib/hardDelete";
-import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistStats, memoLineSelectionRange, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
+import { applyMemoLineFormat, continueMemoListOnEnter, getMemoChecklistMarkerRanges, getMemoChecklistStats, memoLineSelectionRange, toggleMemoChecklistAtCursor } from "../lib/memoFormatting";
 import { getMemoImageUrls, MEMO_IMAGE_LIMIT, normalizeMemoImages, removeMemoImages, uploadMemoImage, validateMemoImage } from "../lib/memoImages";
 import { currentOwnerRecord } from "../lib/liveQueryScope";
 import { findSearchNavigationMatch, normalizeSearchText, searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
 import type { EventItem, Memo, MemoFolder, MemoImage } from "../types";
 import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
+import { MemoImagePreview } from "./MemoImagePreview";
 import { Modal } from "./Modal";
 
 interface MemoPageProps {
@@ -25,6 +26,19 @@ interface MemoPageProps {
 type FolderFilter = "all" | "uncheckedTodos" | string;
 type MemoViewMode = "list" | "grid";
 const GRID_PAGE_SIZE = 9;
+// Keep the single-click action behind the common Windows 500 ms double-click
+// window so a deliberately slow double-click never changes checklist data.
+const MEMO_CHECKLIST_CLICK_DELAY_MS = 550;
+const MEMO_POINTER_DRAG_THRESHOLD_PX = 5;
+
+interface MemoContentPointerGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  markerCursor: number | null;
+  hadSelection: boolean;
+  dragged: boolean;
+}
 
 function useMemoEditorInstanceToken(identity: string, activeTokenRef: React.MutableRefObject<string>): string {
   const previousIdentityRef = useRef("closed");
@@ -430,6 +444,7 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
   const [isPinned, setIsPinned] = useState(memo?.is_pinned ?? false);
   const [images, setImages] = useState<MemoImage[]>(() => normalizeMemoImages(memo?.images));
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [message, setMessage] = useState("");
   const [searchHighlightVisible, setSearchHighlightVisible] = useState(Boolean(searchMatch));
@@ -439,11 +454,19 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
   const contentRef = useRef(content);
   contentRef.current = content;
   const contentPointerTypeRef = useRef("mouse");
+  const contentPointerGestureRef = useRef<MemoContentPointerGesture | null>(null);
+  const pendingChecklistToggleRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const newImagePathsRef = useRef<string[]>([]);
   const removedExistingPathsRef = useRef<string[]>([]);
   const savedRef = useRef(false);
   const savingRef = useRef(false);
+
+  function clearPendingChecklistToggle() {
+    if (pendingChecklistToggleRef.current === null) return;
+    window.clearTimeout(pendingChecklistToggleRef.current);
+    pendingChecklistToggleRef.current = null;
+  }
 
   useEffect(() => {
     let active = true;
@@ -459,6 +482,7 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
 
   useEffect(() => () => {
     mountedRef.current = false;
+    clearPendingChecklistToggle();
     // The database commit may still be using the newly uploaded paths.  Its
     // continuation owns cleanup after it settles; deleting here would leave a
     // successfully saved memo pointing at an object that no longer exists.
@@ -511,6 +535,7 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    clearPendingChecklistToggle();
     if (!title.trim()) {
       setMessage("请填写标题。");
       return;
@@ -612,6 +637,7 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
   }
 
   function applyLineFormat(kind: "numbered" | "checklist") {
+    clearPendingChecklistToggle();
     const textarea = textareaRef.current;
     const edit = applyMemoLineFormat(
       content,
@@ -625,6 +651,7 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
   }
 
   function handleContentKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    clearPendingChecklistToggle();
     if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
     const edit = continueMemoListOnEnter(content, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
     if (!edit) return;
@@ -635,15 +662,38 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
   }
 
   function handleContentClick(event: React.MouseEvent<HTMLTextAreaElement>) {
-    if (event.detail > 1) return;
-    const edit = toggleMemoChecklistAtCursor(content, event.currentTarget.selectionStart);
-    if (!edit) return;
-    dismissSearchHighlight();
-    setContent(edit.content);
-    focusTextareaAt(edit.cursor);
+    if (event.detail > 1) {
+      clearPendingChecklistToggle();
+      contentPointerGestureRef.current = null;
+      return;
+    }
+    const gesture = contentPointerGestureRef.current;
+    contentPointerGestureRef.current = null;
+    if (
+      !gesture
+      || gesture.dragged
+      || gesture.hadSelection
+      || gesture.markerCursor === null
+      || event.currentTarget.selectionStart !== event.currentTarget.selectionEnd
+    ) return;
+
+    const markerCursor = gesture.markerCursor;
+    clearPendingChecklistToggle();
+    pendingChecklistToggleRef.current = window.setTimeout(() => {
+      pendingChecklistToggleRef.current = null;
+      const textarea = textareaRef.current;
+      if (!textarea || textarea.selectionStart !== textarea.selectionEnd) return;
+      const edit = toggleMemoChecklistAtCursor(contentRef.current, markerCursor);
+      if (!edit) return;
+      dismissSearchHighlight();
+      setContent(edit.content);
+      focusTextareaAt(edit.cursor);
+    }, MEMO_CHECKLIST_CLICK_DELAY_MS);
   }
 
   function handleContentDoubleClick(event: React.MouseEvent<HTMLTextAreaElement>) {
+    clearPendingChecklistToggle();
+    contentPointerGestureRef.current = null;
     if (contentPointerTypeRef.current === "touch") return;
     event.preventDefault();
     const range = memoLineSelectionRange(content, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
@@ -727,12 +777,34 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
               aria-label="正文"
               value={content}
               onChange={(event) => {
+                clearPendingChecklistToggle();
                 setContent(event.target.value);
                 dismissSearchHighlight();
               }}
               onPointerDown={(event) => {
+                clearPendingChecklistToggle();
                 contentPointerTypeRef.current = event.pointerType;
+                contentPointerGestureRef.current = {
+                  pointerId: event.pointerId,
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  markerCursor: event.button === 0
+                    ? memoChecklistMarkerAtPoint(event.currentTarget, contentRef.current, event.clientX, event.clientY)
+                    : null,
+                  hadSelection: event.currentTarget.selectionStart !== event.currentTarget.selectionEnd,
+                  dragged: false
+                };
               }}
+              onPointerMove={(event) => {
+                const gesture = contentPointerGestureRef.current;
+                if (!gesture || gesture.pointerId !== event.pointerId || gesture.dragged) return;
+                const distance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+                if (distance >= MEMO_POINTER_DRAG_THRESHOLD_PX) gesture.dragged = true;
+              }}
+              onPointerCancel={() => {
+                contentPointerGestureRef.current = null;
+              }}
+              onBlur={clearPendingChecklistToggle}
               onClick={handleContentClick}
               onDoubleClick={handleContentDoubleClick}
               onKeyDown={handleContentKeyDown}
@@ -745,11 +817,18 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
           </div>
           {images.length > 0 && (
             <div className="memo-image-list" aria-label="已插入图片">
-              {images.map((image) => (
+              {images.map((image, index) => (
                 <figure key={image.path}>
-                  {imageUrls[image.path]
-                    ? <img src={imageUrls[image.path]} alt={image.name} />
-                    : <span className="memo-image-loading"><ImageIcon size={22} />加载中</span>}
+                  <button
+                    type="button"
+                    className="memo-image-thumbnail"
+                    aria-label={`查看图片 ${image.name}`}
+                    onClick={() => setPreviewImageIndex(index)}
+                  >
+                    {imageUrls[image.path]
+                      ? <img src={imageUrls[image.path]} alt="" />
+                      : <span className="memo-image-loading"><ImageIcon size={22} />加载中</span>}
+                  </button>
                   <figcaption title={image.name}>{image.name}</figcaption>
                   <button type="button" className="icon-button" aria-label={`移除图片 ${image.name}`} onClick={() => removeImageFromDraft(image)}><X size={15} /></button>
                 </figure>
@@ -766,8 +845,108 @@ function MemoDialog({ ownerId, folders, memo, searchMatch, initialFolderId, onCl
           {memo && <button type="button" className="button danger-button" disabled={uploadingImages} onClick={() => void remove()}>删除备忘录</button>}
         </div>
       </form>
+      {previewImageIndex !== null && images[previewImageIndex] && (
+        <MemoImagePreview
+          images={images}
+          initialIndex={previewImageIndex}
+          onClose={() => setPreviewImageIndex(null)}
+        />
+      )}
     </Modal>
   );
+}
+
+function memoChecklistMarkerAtPoint(
+  textarea: HTMLTextAreaElement,
+  content: string,
+  clientX: number,
+  clientY: number
+): number | null {
+  const ranges = getMemoChecklistMarkerRanges(content);
+  if (!ranges.length) return null;
+
+  const textareaRect = textarea.getBoundingClientRect();
+  if (textareaRect.width <= 0 || textareaRect.height <= 0) {
+    const caret = textarea.selectionStart;
+    return ranges.find((range) => range.cursor === caret)?.cursor ?? null;
+  }
+
+  const computed = window.getComputedStyle(textarea);
+  const borderLeft = Number.parseFloat(computed.borderLeftWidth) || textarea.clientLeft || 0;
+  const borderTop = Number.parseFloat(computed.borderTopWidth) || textarea.clientTop || 0;
+  const borderRight = Number.parseFloat(computed.borderRightWidth) || borderLeft;
+  const borderBottom = Number.parseFloat(computed.borderBottomWidth) || borderTop;
+  const viewportWidth = textarea.clientWidth || Math.max(1, textareaRect.width - borderLeft - borderRight);
+  const viewportHeight = textarea.clientHeight || Math.max(1, textareaRect.height - borderTop - borderBottom);
+  const mirror = document.createElement("div");
+  mirror.setAttribute("aria-hidden", "true");
+  mirror.dataset.memoChecklistHitMirror = "true";
+  Object.assign(mirror.style, {
+    position: "fixed",
+    zIndex: "-1",
+    left: `${textareaRect.left + borderLeft}px`,
+    top: `${textareaRect.top + borderTop}px`,
+    visibility: "hidden",
+    pointerEvents: "none",
+    overflow: "hidden",
+    boxSizing: "border-box",
+    width: `${viewportWidth}px`,
+    height: `${viewportHeight}px`,
+    margin: "0",
+    border: "0",
+    padding: computed.padding,
+    font: computed.font,
+    fontFamily: computed.fontFamily,
+    fontSize: computed.fontSize,
+    fontWeight: computed.fontWeight,
+    fontStyle: computed.fontStyle,
+    fontVariant: computed.fontVariant,
+    lineHeight: computed.lineHeight,
+    letterSpacing: computed.letterSpacing,
+    textAlign: computed.textAlign,
+    textIndent: computed.textIndent,
+    textTransform: computed.textTransform,
+    direction: computed.direction,
+    tabSize: computed.tabSize,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    wordBreak: computed.wordBreak,
+    userSelect: "none"
+  });
+
+  const markers: Array<{ cursor: number; element: HTMLSpanElement }> = [];
+  let offset = 0;
+  for (const range of ranges) {
+    mirror.append(document.createTextNode(content.slice(offset, range.start)));
+    const marker = document.createElement("span");
+    marker.dataset.memoMarkerCursor = String(range.cursor);
+    marker.textContent = content.slice(range.start, range.end);
+    mirror.append(marker);
+    markers.push({ cursor: range.cursor, element: marker });
+    offset = range.end;
+  }
+  mirror.append(document.createTextNode(`${content.slice(offset)}\u200b`));
+  document.body.append(mirror);
+  mirror.scrollTop = textarea.scrollTop;
+  mirror.scrollLeft = textarea.scrollLeft;
+
+  try {
+    for (const marker of markers) {
+      const rects = Array.from(marker.element.getClientRects());
+      if (!rects.length) rects.push(marker.element.getBoundingClientRect());
+      if (rects.some((rect) => (
+        rect.width > 0
+        && rect.height > 0
+        && clientX >= rect.left
+        && clientX < rect.right
+        && clientY >= rect.top
+        && clientY < rect.bottom
+      ))) return marker.cursor;
+    }
+    return null;
+  } finally {
+    mirror.remove();
+  }
 }
 
 function positionMemoSearchLine(

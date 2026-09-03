@@ -167,11 +167,11 @@ describe("Android 小组件日程快照", () => {
     }, dateAtProductTime("2026-08-30", "08:00"), { days: 1 });
 
     expect(snapshot.todos).toEqual([
-      { title: "置顶第一" },
-      { title: "置顶稍后" },
-      { title: "普通第一" }
+      { title: "置顶第一", targetId: "pinned-first" },
+      { title: "置顶稍后", targetId: "pinned-later" },
+      { title: "普通第一", targetId: "normal-first" }
     ]);
-    expect(Object.keys(snapshot.todos![0])).toEqual(["title"]);
+    expect(Object.keys(snapshot.todos![0])).toEqual(["title", "targetId"]);
     expect(JSON.stringify(snapshot)).not.toContain("bob");
     expect(JSON.stringify(snapshot)).not.toContain("已完成");
     expect(JSON.stringify(snapshot)).not.toContain("已删除");
@@ -187,5 +187,21 @@ describe("Android 小组件日程快照", () => {
 
     expect(Object.hasOwn(snapshot, "todos")).toBe(true);
     expect(snapshot.todos).toEqual([]);
+  });
+
+  it("已完成日程不再投影到组件，未完成日程仍带有可完成目标", () => {
+    const snapshot = buildWidgetSnapshot({
+      ...emptyInput,
+      ownerId: "alice",
+      events: [
+        event({ id: "done", title: "已经完成", completed_at: "2026-08-30T01:00:00.000Z" }),
+        event({ id: "open", title: "尚未完成" })
+      ],
+      todos: []
+    }, dateAtProductTime("2026-08-30", "08:00"), { days: 1 });
+
+    expect(snapshot.days[0].items).toEqual([
+      expect.objectContaining({ kind: "event", targetId: "open", completed: false })
+    ]);
   });
 });

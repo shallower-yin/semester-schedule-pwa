@@ -1943,6 +1943,42 @@
     height: 112px;
   }
 
+  .modal-backdrop:has(.memo-image-preview-modal) {
+    padding: 0;
+  }
+
+  .memo-image-preview-modal {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .memo-image-preview-modal .modal-header {
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px 12px;
+  }
+
+  .memo-image-preview-toolbar {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 7px max(8px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 7px) max(8px, env(safe-area-inset-left, 0px));
+  }
+
+  .memo-image-preview-navigation {
+    flex: 1 1 170px;
+  }
+
+  .memo-image-preview-name {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .memo-image-preview-zoom {
+    flex: 0 0 auto;
+  }
+
   .memo-dialog-actions {
     grid-template-columns: .52fr .95fr 1.14fr 1.08fr;
     gap: 5px;

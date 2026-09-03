@@ -22,6 +22,10 @@ import java.util.TimeZone;
 
 /** Renders the persisted schedule and todo snapshot without starting the WebView. */
 public class TodayScheduleWidgetProvider extends AppWidgetProvider {
+    static final String ACTION_COMPLETE_ITEM = "io.github.shalloweryin.semesterschedule.action.COMPLETE_WIDGET_ITEM";
+    private static final String EXTRA_KIND = "completion_kind";
+    private static final String EXTRA_TARGET_ID = "completion_target_id";
+    private static final String EXTRA_OCCURRENCE_DATE = "completion_occurrence_date";
     private static final TimeZone SHANGHAI = TimeZone.getTimeZone("Asia/Shanghai");
     private static final String DATE_FORMAT = "yyyy-MM-dd";
     private static final int COMPACT_ROWS = 2;
@@ -45,6 +49,31 @@ public class TodayScheduleWidgetProvider extends AppWidgetProvider {
     @Override public void onReceive(Context context, Intent intent) {
         super.onReceive(context, intent);
         String action = intent != null ? intent.getAction() : null;
+        if (ACTION_COMPLETE_ITEM.equals(action)) {
+            String owner = ScheduleWidgetStore.activeOwner(context);
+            String kind = intent.getStringExtra(EXTRA_KIND);
+            String targetId = intent.getStringExtra(EXTRA_TARGET_ID);
+            String occurrenceDate = intent.getStringExtra(EXTRA_OCCURRENCE_DATE);
+            Uri data = intent.getData();
+            String actionId = data == null ? "" : data.getLastPathSegment();
+            if (!ScheduleWidgetStore.completionActionMatches(
+                actionId,
+                owner,
+                kind,
+                targetId,
+                occurrenceDate
+            )) return;
+            boolean accepted = ScheduleWidgetStore.enqueueCompletion(
+                context,
+                owner,
+                kind,
+                targetId,
+                occurrenceDate,
+                new Date()
+            );
+            if (accepted) updateAll(context);
+            return;
+        }
         if (Intent.ACTION_DATE_CHANGED.equals(action) || Intent.ACTION_TIME_CHANGED.equals(action)
             || Intent.ACTION_TIMEZONE_CHANGED.equals(action) || Intent.ACTION_BOOT_COMPLETED.equals(action)
             || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
@@ -83,21 +112,45 @@ public class TodayScheduleWidgetProvider extends AppWidgetProvider {
         setOpenIntent(context, views, R.id.widget_todo_add, "route:todos-create", 3000 + id);
 
         JSONArray scheduleItems = findTodayItems(snapshot);
-        bindScheduleRows(context, views, scheduleItems, rowLimit);
+        String occurrenceDate = todayDate();
+        bindScheduleRows(context, views, scheduleItems, rowLimit, id, occurrenceDate);
 
         JSONArray todos = findTodos(snapshot);
-        bindTodoRows(context, views, todos, rowLimit);
+        bindTodoRows(context, views, todos, rowLimit, id);
 
         manager.updateAppWidget(id, views);
     }
 
-    private static void bindScheduleRows(Context context, RemoteViews views, JSONArray items, int rowLimit) {
+    private static void bindScheduleRows(
+        Context context,
+        RemoteViews views,
+        JSONArray items,
+        int rowLimit,
+        int appWidgetId,
+        String occurrenceDate
+    ) {
         int[] rowIds = {R.id.widget_item_1, R.id.widget_item_2, R.id.widget_item_3};
+        int[] textIds = {R.id.widget_item_text_1, R.id.widget_item_text_2, R.id.widget_item_text_3};
+        int[] completeIds = {R.id.widget_item_complete_1, R.id.widget_item_complete_2, R.id.widget_item_complete_3};
         int count = items == null ? 0 : Math.min(items.length(), rowLimit);
         for (int i = 0; i < rowIds.length; i++) {
             boolean visible = i < count;
             views.setViewVisibility(rowIds[i], visible ? View.VISIBLE : View.GONE);
-            if (visible) views.setTextViewText(rowIds[i], formatScheduleItem(items.optJSONObject(i)));
+            if (!visible) continue;
+            JSONObject item = items.optJSONObject(i);
+            views.setTextViewText(textIds[i], formatScheduleItem(item));
+            setOpenIntent(context, views, textIds[i], "route:today", 4100 + appWidgetId * 10 + i);
+            boolean completable = item != null
+                && ScheduleWidgetStore.KIND_EVENT.equals(item.optString("kind", ""))
+                && !item.optBoolean("completed", false)
+                && !item.optString("targetId", "").isEmpty();
+            views.setViewVisibility(completeIds[i], completable ? View.VISIBLE : View.GONE);
+            if (completable) {
+                String title = truncate(item.optString("title", "未命名日程"), 48, "未命名日程");
+                views.setContentDescription(completeIds[i], context.getString(R.string.widget_complete_named_item, title));
+                setCompleteIntent(context, views, completeIds[i], ScheduleWidgetStore.KIND_EVENT,
+                    item.optString("targetId", ""), occurrenceDate, appWidgetId, i);
+            }
         }
         views.setViewVisibility(R.id.widget_empty, count == 0 ? View.VISIBLE : View.GONE);
         views.setTextViewText(R.id.widget_empty, context.getString(
@@ -105,13 +158,33 @@ public class TodayScheduleWidgetProvider extends AppWidgetProvider {
         ));
     }
 
-    private static void bindTodoRows(Context context, RemoteViews views, JSONArray todos, int rowLimit) {
+    private static void bindTodoRows(
+        Context context,
+        RemoteViews views,
+        JSONArray todos,
+        int rowLimit,
+        int appWidgetId
+    ) {
         int[] rowIds = {R.id.widget_todo_item_1, R.id.widget_todo_item_2, R.id.widget_todo_item_3};
+        int[] textIds = {R.id.widget_todo_item_text_1, R.id.widget_todo_item_text_2, R.id.widget_todo_item_text_3};
+        int[] completeIds = {R.id.widget_todo_item_complete_1, R.id.widget_todo_item_complete_2, R.id.widget_todo_item_complete_3};
         int count = todos == null ? 0 : Math.min(todos.length(), rowLimit);
         for (int i = 0; i < rowIds.length; i++) {
             boolean visible = i < count;
             views.setViewVisibility(rowIds[i], visible ? View.VISIBLE : View.GONE);
-            if (visible) views.setTextViewText(rowIds[i], formatTodo(todos.optJSONObject(i)));
+            if (!visible) continue;
+            JSONObject todo = todos.optJSONObject(i);
+            String title = todo == null ? "未命名待办" : truncate(todo.optString("title", "未命名待办"), 64, "未命名待办");
+            views.setTextViewText(textIds[i], title);
+            setOpenIntent(context, views, textIds[i], "route:todos", 5100 + appWidgetId * 10 + i);
+            String targetId = todo == null ? "" : todo.optString("targetId", "");
+            boolean completable = !targetId.isEmpty();
+            views.setViewVisibility(completeIds[i], completable ? View.VISIBLE : View.GONE);
+            if (completable) {
+                views.setContentDescription(completeIds[i], context.getString(R.string.widget_complete_named_item, title));
+                setCompleteIntent(context, views, completeIds[i], ScheduleWidgetStore.KIND_TODO,
+                    targetId, "", appWidgetId, i);
+            }
         }
         views.setViewVisibility(R.id.widget_todo_empty, count == 0 ? View.VISIBLE : View.GONE);
         views.setTextViewText(R.id.widget_todo_empty, context.getString(
@@ -157,9 +230,10 @@ public class TodayScheduleWidgetProvider extends AppWidgetProvider {
         return time.isEmpty() ? title : time + "  " + title;
     }
 
-    private static String formatTodo(JSONObject item) {
-        if (item == null) return "";
-        return "○  " + truncate(item.optString("title", "未命名待办"), 64, "未命名待办");
+    private static String todayDate() {
+        SimpleDateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT, Locale.US);
+        dateFormat.setTimeZone(SHANGHAI);
+        return dateFormat.format(new Date());
     }
 
     static String truncate(String value, int maxCodePoints, String fallback) {
@@ -199,6 +273,31 @@ public class TodayScheduleWidgetProvider extends AppWidgetProvider {
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("semesterschedule://notification?key=" + Uri.encode(key)));
         intent.setPackage(context.getPackageName());
         PendingIntent pending = PendingIntent.getActivity(context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        views.setOnClickPendingIntent(viewId, pending);
+    }
+
+    private static void setCompleteIntent(
+        Context context,
+        RemoteViews views,
+        int viewId,
+        String kind,
+        String targetId,
+        String occurrenceDate,
+        int appWidgetId,
+        int rowIndex
+    ) {
+        String owner = ScheduleWidgetStore.activeOwner(context);
+        String actionId = ScheduleWidgetStore.completionActionId(owner, kind, targetId, occurrenceDate);
+        if (actionId.isEmpty()) return;
+        Intent intent = new Intent(context, TodayScheduleWidgetProvider.class);
+        intent.setAction(ACTION_COMPLETE_ITEM);
+        intent.setData(Uri.parse("semesterschedule://widget-complete/" + actionId
+            + "?widget=" + appWidgetId + "&row=" + rowIndex));
+        intent.putExtra(EXTRA_KIND, kind);
+        intent.putExtra(EXTRA_TARGET_ID, targetId);
+        if (ScheduleWidgetStore.KIND_EVENT.equals(kind)) intent.putExtra(EXTRA_OCCURRENCE_DATE, occurrenceDate);
+        PendingIntent pending = PendingIntent.getBroadcast(context, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         views.setOnClickPendingIntent(viewId, pending);
     }

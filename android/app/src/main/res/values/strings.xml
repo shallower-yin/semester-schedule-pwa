@@ -11,6 +11,7 @@
     <string name="widget_todo_title">待办</string>
     <string name="widget_open_todos">打开待办</string>
     <string name="widget_todo_add">新增待办</string>
+    <string name="widget_complete_named_item">完成“%1$s”</string>
     <string name="widget_quick_entry_symbol">＋</string>
     <string name="widget_empty">今天没有安排</string>
     <string name="widget_empty_refresh">今日日程暂无缓存，点击刷新</string>

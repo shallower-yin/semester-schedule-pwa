@@ -6,16 +6,20 @@ import android.content.ComponentName;
 import android.os.Build;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Capacitor bridge for publishing a validated, non-sensitive widget snapshot. */
 @CapacitorPlugin(name = "ScheduleWidget")
@@ -103,6 +107,45 @@ public class ScheduleWidgetPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("accepted", accepted);
         result.put("updated", accepted);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void getPendingCompletionActions(PluginCall call) {
+        String owner = digestOwner(ownerFrom(call));
+        JSObject result = new JSObject();
+        boolean accepted = !owner.isEmpty() && owner.equals(ScheduleWidgetStore.activeOwner(getContext()));
+        result.put("accepted", accepted);
+        JSONArray actions = accepted
+            ? ScheduleWidgetStore.pendingCompletions(getContext(), owner)
+            : new JSONArray();
+        try {
+            result.put("actions", new JSArray(actions.toString()));
+        } catch (Exception ignored) {
+            result.put("actions", new JSArray());
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void ackCompletionActions(PluginCall call) {
+        String owner = digestOwner(ownerFrom(call));
+        JSObject result = new JSObject();
+        boolean accepted = !owner.isEmpty() && owner.equals(ScheduleWidgetStore.activeOwner(getContext()));
+        result.put("accepted", accepted);
+        if (!accepted) {
+            result.put("acknowledged", 0);
+            call.resolve(result);
+            return;
+        }
+        Set<String> actionIds = new HashSet<>();
+        JSArray values = call.getArray("actionIds", new JSArray());
+        for (int index = 0; index < values.length() && actionIds.size() < 100; index++) {
+            String actionId = values.optString(index, "").toLowerCase(Locale.US);
+            if (actionId.matches("[0-9a-f]{64}")) actionIds.add(actionId);
+        }
+        int acknowledged = ScheduleWidgetStore.acknowledgeCompletions(getContext(), owner, actionIds);
+        result.put("acknowledged", acknowledged);
         call.resolve(result);
     }
 

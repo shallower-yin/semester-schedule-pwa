@@ -2,6 +2,7 @@ package io.github.shalloweryin.semesterschedule;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -62,6 +63,28 @@ public class TodayScheduleWidgetProviderTest {
             + dp(inset.getAttributeNS(androidNamespace(), "bottom"));
         assertEquals(30, touchWidth - horizontalInset);
         assertEquals(30, touchHeight - verticalInset);
+    }
+
+    @Test
+    public void eventAndTodoRowsExposeDedicatedCompletionTargets() throws Exception {
+        Document layout = parseResource("layout/widget_today_schedule.xml");
+        String[] completionIds = {
+            "@+id/widget_item_complete_1", "@+id/widget_item_complete_2", "@+id/widget_item_complete_3",
+            "@+id/widget_todo_item_complete_1", "@+id/widget_todo_item_complete_2", "@+id/widget_todo_item_complete_3"
+        };
+        for (String id : completionIds) {
+            Element completion = findElementByAndroidId(layout, id);
+            assertNotNull(completion);
+            assertEquals(32, dp(completion.getAttributeNS(androidNamespace(), "layout_width")));
+            assertEquals("○", completion.getAttributeNS(androidNamespace(), "text"));
+        }
+
+        String[] textIds = {
+            "@+id/widget_item_text_1", "@+id/widget_item_text_2", "@+id/widget_item_text_3",
+            "@+id/widget_todo_item_text_1", "@+id/widget_todo_item_text_2", "@+id/widget_todo_item_text_3"
+        };
+        for (String id : textIds) assertNotNull(findElementByAndroidId(layout, id));
+        assertTrue(TodayScheduleWidgetProvider.ACTION_COMPLETE_ITEM.endsWith("COMPLETE_WIDGET_ITEM"));
     }
 
     private static Document parseResource(String relativePath) throws Exception {

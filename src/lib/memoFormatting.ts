@@ -16,6 +16,10 @@ export interface MemoChecklistStats {
   incomplete: number;
 }
 
+export interface MemoChecklistMarkerRange extends MemoSelectionRange {
+  cursor: number;
+}
+
 const uncheckedCircle = "○";
 const checkedCircle = "●";
 
@@ -82,22 +86,41 @@ export function toggleMemoChecklistAtCursor(content: string, cursor: number): Me
   const circleTodo = new RegExp(`^(\\s*)([${uncheckedCircle}◯${checkedCircle}])(\\s*)`).exec(line);
   if (circleTodo) {
     const markerStart = lineStart + circleTodo[1].length;
-    const markerClickEnd = markerStart + circleTodo[2].length + circleTodo[3].length;
-    if (!isMarkerClick(position, lineStart, markerClickEnd)) return null;
+    const markerEnd = markerStart + circleTodo[2].length;
+    if (position !== markerEnd) return null;
     const nextMarker = circleTodo[2] === checkedCircle ? uncheckedCircle : checkedCircle;
-    return replaceRange(content, markerStart, markerStart + circleTodo[2].length, nextMarker, position);
+    return replaceRange(content, markerStart, markerEnd, nextMarker, position);
   }
 
   const markdownTodo = /^(\s*[-*]\s+\[)( |x|X)(\]\s*)/.exec(line);
   if (markdownTodo) {
     const markerStart = lineStart + markdownTodo[1].length;
-    const markerClickEnd = markerStart + markdownTodo[2].length + markdownTodo[3].length;
-    if (!isMarkerClick(position, lineStart, markerClickEnd)) return null;
+    const markerEnd = markerStart + markdownTodo[2].length;
+    if (position !== markerEnd) return null;
     const nextMarker = markdownTodo[2].toLowerCase() === "x" ? " " : "x";
-    return replaceRange(content, markerStart, markerStart + markdownTodo[2].length, nextMarker, position);
+    return replaceRange(content, markerStart, markerEnd, nextMarker, position);
   }
 
   return null;
+}
+
+export function getMemoChecklistMarkerRanges(content: string): MemoChecklistMarkerRange[] {
+  const ranges: MemoChecklistMarkerRange[] = [];
+  const circlePattern = new RegExp(`^([ \\t]*)([${uncheckedCircle}◯${checkedCircle}])`, "gm");
+  const markdownPattern = /^([ \t]*[-*][ \t]+)(\[(?: |x|X)\])/gm;
+
+  for (const match of content.matchAll(circlePattern)) {
+    const start = (match.index ?? 0) + match[1].length;
+    const end = start + match[2].length;
+    ranges.push({ start, end, cursor: end });
+  }
+
+  for (const match of content.matchAll(markdownPattern)) {
+    const start = (match.index ?? 0) + match[1].length;
+    ranges.push({ start, end: start + match[2].length, cursor: start + 2 });
+  }
+
+  return ranges.sort((left, right) => left.start - right.start);
 }
 
 export function stripMemoListPrefix(line: string): string {
@@ -124,12 +147,11 @@ export function getMemoChecklistStats(content: string): MemoChecklistStats {
   }, { total: 0, completed: 0, incomplete: 0 });
 }
 
-export function memoLineSelectionRange(content: string, selectionStart: number, selectionEnd = selectionStart): MemoSelectionRange {
-  const start = clamp(Math.min(selectionStart, selectionEnd), 0, content.length);
-  const end = clamp(Math.max(selectionStart, selectionEnd), 0, content.length);
+export function memoLineSelectionRange(content: string, selectionStart: number, _selectionEnd = selectionStart): MemoSelectionRange {
+  const anchor = clamp(selectionStart, 0, content.length);
   return {
-    start: findLineStart(content, start),
-    end: findLineEnd(content, end)
+    start: findLineStart(content, anchor),
+    end: findLineEnd(content, anchor)
   };
 }
 
@@ -168,10 +190,6 @@ function replaceRange(content: string, start: number, end: number, replacement: 
     content: `${content.slice(0, start)}${replacement}${content.slice(end)}`,
     cursor: clamp(cursor, start, start + replacement.length)
   };
-}
-
-function isMarkerClick(cursor: number, lineStart: number, markerClickEnd: number): boolean {
-  return cursor >= lineStart && cursor <= markerClickEnd;
 }
 
 function nextNumberBefore(content: string, cursor: number): number {

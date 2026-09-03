@@ -36,9 +36,15 @@ export interface WidgetSnapshotDay {
   items: WidgetSnapshotItem[];
 }
 
-/** The native widget only needs a label because every row opens the todo page. */
+/**
+ * Schema 1 originally stored only a title.  targetId stays optional at the
+ * type boundary so a newly installed APK can still render an older cached
+ * projection; new snapshots include it to enable the dedicated completion
+ * target without exposing an account identifier.
+ */
 export interface WidgetSnapshotTodo {
   title: string;
+  targetId?: string;
 }
 
 export interface WidgetSnapshot {
@@ -102,7 +108,10 @@ export function buildWidgetSnapshot(
       .filter((todo) => todo.deleted_at === null && todo.completed_at === null)
       .sort(compareTodos)
       .slice(0, WIDGET_MAX_TODOS)
-      .map((todo) => ({ title: truncate(todo.title, 80, "未命名待办") }));
+      .map((todo) => ({
+        title: truncate(todo.title, 80, "未命名待办"),
+        targetId: todo.id
+      }));
   const todayDate = toISODate(now);
   const days = Array.from({ length: dayCount }, (_, index) => {
     const date = toISODate(addDays(now, index));
@@ -123,7 +132,13 @@ export function buildWidgetSnapshot(
     }, dateNow);
     return {
       date,
-      items: overview.upcomingItems.slice(0, maxItemsPerDay).map((item) => toWidgetItem(item, date))
+      // Completed events leave the widget just like completed standalone
+      // todos. Courses remain because they are informational and deliberately
+      // have no completion action.
+      items: overview.upcomingItems
+        .filter((item) => item.type === "course" || !item.completed)
+        .slice(0, maxItemsPerDay)
+        .map((item) => toWidgetItem(item, date))
     };
   });
 

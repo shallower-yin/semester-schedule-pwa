@@ -122,6 +122,7 @@ import { currentLiveQueryValue, currentOwnerRecord, scopedLiveQueryValue } from 
 import type { SearchNavigationMatch } from "./lib/searchNavigation";
 import { ScheduleWidget } from "./lib/scheduleWidgetPlugin";
 import { buildWidgetSnapshot } from "./lib/widgetSnapshot";
+import { consumePendingWidgetCompletionActions } from "./lib/widgetCompletionActions";
 import { resetAccountFocusPresentation } from "./lib/focusPresentation";
 import {
   clearCapturedInstallPrompt,
@@ -535,14 +536,31 @@ export default function App() {
   // a slow query must never leave another account's schedule on the launcher.
   useEffect(() => {
     if (!isNativeApp() || !authReady) return;
-    void ScheduleWidget.setActiveOwner({ ownerId }).catch(() => {
-      // Older Android shells do not expose this optional bridge.
-    });
+    let cancelled = false;
+    const activateAndConsume = async () => {
+      try {
+        await ScheduleWidget.setActiveOwner({ ownerId });
+        if (!cancelled) await consumePendingWidgetCompletionActions(ownerId);
+      } catch {
+        // Older Android shells do not expose this optional bridge.
+      }
+    };
+    void activateAndConsume();
+    const onForeground = () => {
+      if (document.visibilityState === "visible") void activateAndConsume();
+    };
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("pageshow", onForeground);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onForeground);
+      window.removeEventListener("pageshow", onForeground);
+    };
   }, [authReady, ownerId]);
 
-  // The launcher widget is a native, read-only projection.  Keep all schedule
-  // calculation in the existing Web/Dexie layer and publish only after every
-  // relevant live query has produced its first result for the active account.
+  // The launcher widget remains a native projection. Completion taps enter a
+  // native outbox and are consumed through Dexie above; publish only after all
+  // relevant live queries have produced their first value for this account.
   useEffect(() => {
     if (!isNativeApp() || !widgetDataReady) return;
     let cancelled = false;
