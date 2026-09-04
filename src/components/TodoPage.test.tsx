@@ -106,8 +106,11 @@ describe("独立待办页面", () => {
     ]);
     render(<TodoPage ownerId="local" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "待办“第一项”操作" }));
+    const firstMenuTrigger = await screen.findByRole("button", { name: "待办“第一项”操作" });
+    fireEvent.click(firstMenuTrigger);
+    expect(firstMenuTrigger.closest(".todo-card")).toHaveClass("menu-open");
     fireEvent.click(screen.getByRole("menuitem", { name: "下移" }));
+    expect(firstMenuTrigger.closest(".todo-card")).not.toHaveClass("menu-open");
     await waitFor(async () => {
       expect((await db.todos.get("todo-1"))?.sort_order).toBe(200);
       expect((await db.todos.get("todo-2"))?.sort_order).toBe(100);

@@ -216,6 +216,12 @@
   opacity: 0.58;
 }
 
+.todo-card.menu-open {
+  z-index: 11;
+  transform: none;
+  opacity: 1;
+}
+
 .todo-check-button {
   display: grid;
   width: 52px;
@@ -558,10 +564,16 @@
   .todo-card-menu {
     position: fixed;
     z-index: calc(var(--z-backdrop) - 1);
-    right: 12px;
-    bottom: calc(88px + var(--safe-bottom));
-    top: auto;
+    top: 50%;
+    right: auto;
+    bottom: auto;
+    left: 50%;
     width: min(260px, calc(100vw - 24px));
+    transform: translate(-50%, -50%);
+  }
+
+  .todo-card.menu-open {
+    z-index: auto;
   }
 
   .todo-card-menu button {

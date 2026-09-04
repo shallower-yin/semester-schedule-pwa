@@ -446,7 +446,7 @@ function TodoCard({
   return (
     <article
       role="listitem"
-      className={`todo-card ${completed ? "completed" : ""} ${busy ? "busy" : ""}`}
+      className={`todo-card ${completed ? "completed" : ""} ${busy ? "busy" : ""} ${menuOpen ? "menu-open" : ""}`}
       style={{ "--todo-card-color": normalizeTodoColor(todo.color) } as CSSProperties}
     >
       <button
