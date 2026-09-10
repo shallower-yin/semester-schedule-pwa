@@ -1,16 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { signInWithPasswordMock } = vi.hoisted(() => ({
-  signInWithPasswordMock: vi.fn()
+const { signInWithPasswordMock, signUpMock, resetPasswordForEmailMock } = vi.hoisted(() => ({
+  signInWithPasswordMock: vi.fn(),
+  signUpMock: vi.fn(),
+  resetPasswordForEmailMock: vi.fn()
 }));
 
 vi.mock("../lib/supabase", () => ({
   supabase: {
     auth: {
       signInWithPassword: signInWithPasswordMock,
-      signUp: vi.fn(),
-      resetPasswordForEmail: vi.fn(),
+      signUp: signUpMock,
+      resetPasswordForEmail: resetPasswordForEmailMock,
       updateUser: vi.fn()
     }
   }
@@ -21,6 +23,8 @@ import { AuthDialog } from "./AuthDialog";
 describe("账号密码登录", () => {
   beforeEach(() => {
     signInWithPasswordMock.mockReset().mockResolvedValue({ error: null });
+    signUpMock.mockReset().mockResolvedValue({ data: { session: null }, error: null });
+    resetPasswordForEmailMock.mockReset().mockResolvedValue({ error: null });
   });
 
   afterEach(() => {
@@ -47,5 +51,30 @@ describe("账号密码登录", () => {
       password: "password123"
     }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("注册确认和找回密码都返回当前域名根路径", async () => {
+    const expectedAppUrl = new URL("/", window.location.origin).toString();
+    const { unmount } = render(<AuthDialog initialMode="register" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "user@example.com" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "注册账号" }));
+
+    await waitFor(() => expect(signUpMock).toHaveBeenCalledWith({
+      email: "user@example.com",
+      password: "password123",
+      options: { emailRedirectTo: expectedAppUrl }
+    }));
+    unmount();
+
+    render(<AuthDialog initialMode="forgot" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: "user@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "找回密码" }));
+
+    await waitFor(() => expect(resetPasswordForEmailMock).toHaveBeenCalledWith(
+      "user@example.com",
+      { redirectTo: `${expectedAppUrl}?password-recovery=1` }
+    ));
   });
 });

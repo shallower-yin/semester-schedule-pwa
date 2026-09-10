@@ -4,7 +4,7 @@
 
 ## 在线使用
 
-[打开日程计划表](https://shallower-yin.github.io/semester-schedule-pwa/)
+[打开日程计划表](https://schedule.nfsg.eu.cc/)
 
 在 Android Edge/Chrome 或 Windows Edge/Chrome 打开后，可通过“设置 → 安装到设备”或浏览器菜单安装。Android Edge 和 Chrome 都可以将应用添加到手机桌面；Windows 安装后一定会出现在开始菜单，但浏览器不一定自动创建桌面图标。
 

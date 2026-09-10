@@ -56,7 +56,9 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
-          VITE_APP_URL: https://shallower-yin.github.io/semester-schedule-pwa/
+          VITE_APP_BASE: /
+          VITE_APP_START_URL: /
+          VITE_APP_URL: https://schedule.nfsg.eu.cc/
           VITE_APP_ASSET_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/
         run: npm run build
 
@@ -96,9 +98,9 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
-          VITE_APP_BASE: /semester-schedule-pwa/
-          VITE_APP_START_URL: /semester-schedule-pwa/
-          VITE_APP_URL: https://shallower-yin.github.io/semester-schedule-pwa/
+          VITE_APP_BASE: /
+          VITE_APP_START_URL: /
+          VITE_APP_URL: https://schedule.nfsg.eu.cc/
           VITE_APP_ASSET_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/
           VITE_OUT_DIR: dist-mirror
         run: npm run build

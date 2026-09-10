@@ -439,7 +439,7 @@
 
   <script>
     (function () {
-      var GITHUB_PAGES = "https://shallower-yin.github.io/semester-schedule-pwa/";
+      var APP_HOME = "https://schedule.nfsg.eu.cc/";
       var MIRROR_BASE = "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/";
       var DEFAULT_APK = MIRROR_BASE + "android/semester-schedule.apk";
 
@@ -450,13 +450,7 @@
       var statusEl = document.getElementById("status");
       var mirrorLink = document.getElementById("mirror-link");
 
-      var webUrl = (function () {
-        try {
-          var u = new URL("./", location.href);
-          if (/github\.io|app-hosting/i.test(u.href)) return u.href;
-        } catch (e) {}
-        return GITHUB_PAGES;
-      })();
+      var webUrl = APP_HOME;
       openWeb.href = webUrl;
       openWeb2.href = webUrl;
       downloadApk.href = DEFAULT_APK;
@@ -505,7 +499,7 @@
         var candidates = [
           new URL("release.json", location.href).href + "?t=" + Date.now(),
           MIRROR_BASE + "release.json?t=" + Date.now(),
-          GITHUB_PAGES + "release.json?t=" + Date.now()
+          APP_HOME + "release.json?t=" + Date.now()
         ];
         var lastErr = null;
         for (var i = 0; i < candidates.length; i++) {

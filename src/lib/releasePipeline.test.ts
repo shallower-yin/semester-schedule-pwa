@@ -4,9 +4,14 @@ import { describe, expect, it } from "vitest";
 
 const viteConfig = readFileSync(resolve(process.cwd(), "vite.config.ts"), "utf8");
 const mirrorScript = readFileSync(resolve(process.cwd(), "scripts/deploy-static-mirror.mjs"), "utf8");
+const pagesWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/deploy-pages.yml"), "utf8");
 const apkWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/publish-apk-mirror.yml"), "utf8");
 const androidBuild = readFileSync(resolve(process.cwd(), "android/app/build.gradle"), "utf8");
 const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+const appHostingSource = readFileSync(resolve(process.cwd(), "src/lib/appHosting.ts"), "utf8");
+const downloadPage = readFileSync(resolve(process.cwd(), "public/download.html"), "utf8");
+
+const productionAppUrl = "https://schedule.nfsg.eu.cc/";
 
 describe("Web 与 APK 发布版本隔离", () => {
   it("APK 清单记录实际打包的版本、提交和更新说明", () => {
@@ -30,5 +35,18 @@ describe("Web 与 APK 发布版本隔离", () => {
 
   it("只有 Service Worker 待接管时也能进入刷新流程", () => {
     expect(appSource).toContain("if (!release && !needRefresh) return;");
+  });
+
+  it("生产网页、登录、提醒、下载与上传统一使用自定义域名根路径", () => {
+    for (const source of [
+      pagesWorkflow,
+      appHostingSource,
+      downloadPage
+    ]) {
+      expect(source).toContain(productionAppUrl.replace(/\/$/, ""));
+    }
+    expect(pagesWorkflow.match(/^\s+VITE_APP_BASE: \/$/gm)).toHaveLength(2);
+    expect(pagesWorkflow.match(/^\s+VITE_APP_START_URL: \/$/gm)).toHaveLength(2);
+    expect(viteConfig).not.toContain("/semester-schedule-pwa/");
   });
 });

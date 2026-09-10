@@ -10,7 +10,7 @@ type WorkerListener = (event: {
   waitUntil: (operation: Promise<unknown>) => void;
 }) => void;
 
-function loadNotificationClickListener(scope = "https://example.com/semester-schedule-pwa/") {
+function loadNotificationClickListener(scope = "https://example.com/") {
   const listeners = new Map<string, WorkerListener>();
   const openWindow = vi.fn();
   const matchAll = vi.fn().mockResolvedValue([]);
@@ -33,13 +33,13 @@ describe("通知点击跳转", () => {
     const { listener, openWindow, matchAll } = loadNotificationClickListener();
     const focus = vi.fn().mockResolvedValue(undefined);
     const navigate = vi.fn().mockResolvedValue(undefined);
-    matchAll.mockResolvedValue([{ url: "https://example.com/semester-schedule-pwa/", focus, navigate }]);
+    matchAll.mockResolvedValue([{ url: "https://example.com/", focus, navigate }]);
     let completion: Promise<unknown> | undefined;
 
     listener({
       notification: {
         close: vi.fn(),
-        data: { url: "https://example.com/semester-schedule-pwa/" }
+        data: { url: "https://example.com/" }
       },
       waitUntil: (operation) => {
         completion = operation;
@@ -62,7 +62,7 @@ describe("通知点击跳转", () => {
     listener({
       notification: {
         close: vi.fn(),
-        data: { url: "https://example.com/semester-schedule-pwa/" }
+        data: { url: "https://example.com/" }
       },
       waitUntil: (operation) => {
         completion = operation;
@@ -70,7 +70,7 @@ describe("通知点击跳转", () => {
     });
     await completion;
 
-    expect(openWindow).toHaveBeenCalledWith("https://example.com/semester-schedule-pwa/");
+    expect(openWindow).toHaveBeenCalledWith("https://example.com/");
     expect(focus).toHaveBeenCalledOnce();
   });
 
@@ -90,6 +90,6 @@ describe("通知点击跳转", () => {
     });
     await completion;
 
-    expect(openWindow).toHaveBeenCalledWith("https://example.com/semester-schedule-pwa/");
+    expect(openWindow).toHaveBeenCalledWith("https://example.com/");
   });
 });

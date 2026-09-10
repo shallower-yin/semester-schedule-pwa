@@ -60,9 +60,9 @@ AI 助手权限需要执行：
 - Redirect URLs：
   - `http://127.0.0.1:5173/**`
   - `http://localhost:5173/**`
-  - `https://shallower-yin.github.io/semester-schedule-pwa/**`
+  - `https://schedule.nfsg.eu.cc/**`
 
-正式 Site URL：`https://shallower-yin.github.io/semester-schedule-pwa/`
+正式 Site URL：`https://schedule.nfsg.eu.cc/`
 
 ## 首次账号测试
 

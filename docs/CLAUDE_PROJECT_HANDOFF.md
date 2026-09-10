@@ -19,7 +19,7 @@ D:\semester-schedule-pwa
 - GitHub 仓库：`shallower-yin/semester-schedule-pwa`
 - 当前分支：`main`
 - 当前已部署提交：`b09c3d1 ci: isolate AI smoke test usage`
-- 在线 PWA：<https://shallower-yin.github.io/semester-schedule-pwa/>
+- 在线 PWA：<https://schedule.nfsg.eu.cc/>
 - 最近一次 Pages、Supabase Functions、AI 权限冒烟测试均已通过。
 - 当前本地包含尚未发布的维护改动：删除中文路径专用 Gradle 绕过项、更新 README、增加本交接说明。
 - `history/` 以及根目录中带任务 UUID 后缀的 Markdown 是用户本地会话资料，已加入 `.gitignore`；不要删除、读取后外传或提交。

@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 
 export default defineConfig(({ mode }) => {
   const isAndroid = mode === "android";
-  const base = isAndroid ? "/" : process.env.VITE_APP_BASE?.trim() || (process.env.GITHUB_ACTIONS ? "/semester-schedule-pwa/" : "/");
+  const base = isAndroid ? "/" : process.env.VITE_APP_BASE?.trim() || "/";
   const appStartUrl = process.env.VITE_APP_START_URL?.trim() || base;
   const appUrl = process.env.VITE_APP_URL?.trim() || "";
   const outDir = process.env.VITE_OUT_DIR?.trim() || "dist";

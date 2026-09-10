@@ -1,4 +1,4 @@
-const DEFAULT_APP_URL = "https://shallower-yin.github.io/semester-schedule-pwa/";
+const DEFAULT_APP_URL = "https://schedule.nfsg.eu.cc/";
 const DEFAULT_ASSET_MIRROR_URL = "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/";
 
 export const appInstallUrl = import.meta.env.VITE_APP_URL?.trim() || DEFAULT_APP_URL;
