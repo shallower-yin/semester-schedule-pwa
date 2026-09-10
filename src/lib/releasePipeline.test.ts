@@ -5,11 +5,14 @@ import { describe, expect, it } from "vitest";
 const viteConfig = readFileSync(resolve(process.cwd(), "vite.config.ts"), "utf8");
 const mirrorScript = readFileSync(resolve(process.cwd(), "scripts/deploy-static-mirror.mjs"), "utf8");
 const pagesWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/deploy-pages.yml"), "utf8");
+const functionsWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/deploy-supabase-functions.yml"), "utf8");
 const apkWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/publish-apk-mirror.yml"), "utf8");
+const reminderWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/send-reminders.yml"), "utf8");
 const androidBuild = readFileSync(resolve(process.cwd(), "android/app/build.gradle"), "utf8");
 const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
 const appHostingSource = readFileSync(resolve(process.cwd(), "src/lib/appHosting.ts"), "utf8");
 const downloadPage = readFileSync(resolve(process.cwd(), "public/download.html"), "utf8");
+const r2Config = readFileSync(resolve(process.cwd(), "scripts/configure-r2.mjs"), "utf8");
 
 const productionAppUrl = "https://schedule.nfsg.eu.cc/";
 
@@ -40,8 +43,12 @@ describe("Web 与 APK 发布版本隔离", () => {
   it("生产网页、登录、提醒、下载与上传统一使用自定义域名根路径", () => {
     for (const source of [
       pagesWorkflow,
+      functionsWorkflow,
+      apkWorkflow,
+      reminderWorkflow,
       appHostingSource,
-      downloadPage
+      downloadPage,
+      r2Config
     ]) {
       expect(source).toContain(productionAppUrl.replace(/\/$/, ""));
     }

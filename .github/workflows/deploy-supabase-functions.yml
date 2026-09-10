@@ -58,6 +58,55 @@ jobs:
       - name: Apply pending database migrations once
         run: node scripts/apply-supabase-migrations.mjs
 
+      - name: Configure production auth URLs
+        env:
+          APP_URL: https://schedule.nfsg.eu.cc/
+          APP_REDIRECT_URL: https://schedule.nfsg.eu.cc/**
+          LEGACY_APP_URL: https://shallower-yin.github.io/semester-schedule-pwa/
+          LEGACY_APP_REDIRECT_URL: https://shallower-yin.github.io/semester-schedule-pwa/**
+        run: |
+          set -euo pipefail
+          auth_config="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN")"
+          allow_list="$(printf '%s' "$auth_config" | jq -r \
+            --arg app_redirect "$APP_REDIRECT_URL" \
+            --arg legacy_url "$LEGACY_APP_URL" \
+            --arg legacy_redirect "$LEGACY_APP_REDIRECT_URL" \
+            '((.uri_allow_list // "") | split(",")
+              | map(gsub("^\\s+|\\s+$"; ""))
+              | map(select(length > 0 and . != $legacy_url and . != $legacy_redirect))
+              | . + [$app_redirect]
+              | unique
+              | join(","))')"
+          jq -n \
+            --arg site_url "$APP_URL" \
+            --arg uri_allow_list "$allow_list" \
+            '{site_url: $site_url, uri_allow_list: $uri_allow_list}' \
+            > /tmp/auth-domain-config.json
+          curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --request PATCH \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/auth-domain-config.json \
+            > /dev/null
+          verified_config="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN")"
+          printf '%s' "$verified_config" | jq -e \
+            --arg site_url "$APP_URL" \
+            --arg app_redirect "$APP_REDIRECT_URL" \
+            --arg legacy_url "$LEGACY_APP_URL" \
+            --arg legacy_redirect "$LEGACY_APP_REDIRECT_URL" \
+            '((.uri_allow_list // "") | split(",") | map(gsub("^\\s+|\\s+$"; ""))) as $allow_list
+              | .site_url == $site_url
+              and (($allow_list | index($app_redirect)) != null)
+              and (($allow_list | index($legacy_url)) == null)
+              and (($allow_list | index($legacy_redirect)) == null)' \
+            > /dev/null
+          echo "Supabase Auth Site URL and redirect allow-list now use $APP_URL"
+
       - name: Prepare private reminder credential
         env:
           CONFIGURED_REMINDER_DISPATCHER_TOKEN: ${{ secrets.REMINDER_DISPATCHER_TOKEN }}
@@ -106,7 +155,7 @@ jobs:
             REMINDER_DISPATCHER_TOKEN="$REMINDER_DISPATCHER_TOKEN" \
             VAPID_PUBLIC_KEY="${{ vars.VITE_VAPID_PUBLIC_KEY }}" \
             VAPID_PRIVATE_KEY="${{ secrets.VAPID_PRIVATE_KEY }}" \
-            APP_URL="https://shallower-yin.github.io/semester-schedule-pwa/" \
+            APP_URL="https://schedule.nfsg.eu.cc/" \
             AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_DAILY_LIMIT" \
             AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT="$AI_ASSISTANT_ACCESS_CODE_WEEKLY_LIMIT" \
             AI_ASSISTANT_MEMBER_DAILY_LIMIT="$AI_ASSISTANT_MEMBER_DAILY_LIMIT" \

@@ -3,7 +3,7 @@
     {
       "allowed": {
         "origins": [
-          "https://shallower-yin.github.io",
+          "https://schedule.nfsg.eu.cc",
           "https://localhost",
           "capacitor://localhost",
           "http://127.0.0.1:4173",

@@ -2,7 +2,7 @@ const bucket = "app-hosting";
 const functionName = "app-hosting";
 const supabaseUrl = requiredSecret("SUPABASE_URL").replace(/\/$/, "");
 const serviceRoleKey = requiredSecret("SUPABASE_SERVICE_ROLE_KEY");
-const githubPagesBase = "https://shallower-yin.github.io/semester-schedule-pwa/";
+const appBase = "https://schedule.nfsg.eu.cc/";
 
 /**
  * Supabase hosted Edge Functions rewrite GET text/html → text/plain (anti-phishing)
@@ -108,7 +108,7 @@ async function serveHtmlDocumentNavigation(requestUrl: URL, objectPath: string):
   headers.set("content-type", "text/plain; charset=utf-8");
   headers.set("cache-control", "no-store, max-age=0");
   headers.set("x-content-type-options", "nosniff");
-  headers.set("link", `<${githubPagesBase}download.html>; rel="alternate"; type="text/html"`);
+  headers.set("link", `<${appBase}download.html>; rel="alternate"; type="text/html"`);
 
   return new Response(`\uFEFF${body}`, { status: 200, headers });
 }
@@ -117,7 +117,7 @@ function buildDownloadLandingText(mirrorBase: string, release: ReleaseInfo | nul
   const version = release?.version || "—";
   const title = release?.title || "日程计划表";
   const apkUrl = resolveApkUrl(release, mirrorBase);
-  const webUrl = (release?.appUrl || githubPagesBase).replace(/\/?$/, "/");
+  const webUrl = (release?.appUrl || appBase).replace(/\/?$/, "/");
   const notes = Array.isArray(release?.notes) ? release!.notes! : [];
   const published = formatPublished(release?.publishedAt);
   const code = release?.apkVersionCode != null ? String(release.apkVersionCode) : "—";
@@ -144,7 +144,7 @@ function buildDownloadLandingText(mirrorBase: string, release: ReleaseInfo | nul
     "",
     "【打开网页版】",
     webUrl,
-    "（若 GitHub Pages 在当前网络不可用，请直接使用上方 APK）",
+    "（若网页版在当前网络不可用，请直接使用上方 APK）",
     "",
     "【图文完整介绍页】",
     `${webUrl}download.html`,
@@ -166,7 +166,7 @@ function buildGenericHtmlLandingText(
   mirrorBase: string,
   release: ReleaseInfo | null
 ): string {
-  const webUrl = (release?.appUrl || githubPagesBase).replace(/\/?$/, "/");
+  const webUrl = (release?.appUrl || appBase).replace(/\/?$/, "/");
   const apkUrl = resolveApkUrl(release, mirrorBase);
   return [
     "日程计划表 · 静态镜像",

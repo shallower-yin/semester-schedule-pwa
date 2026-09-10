@@ -33,5 +33,5 @@ jobs:
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           REMINDER_DISPATCHER_TOKEN: ${{ secrets.REMINDER_DISPATCHER_TOKEN }}
-          APP_URL: https://shallower-yin.github.io/semester-schedule-pwa/
+          APP_URL: https://schedule.nfsg.eu.cc/
         run: node scripts/send-reminders.mjs
