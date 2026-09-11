@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:android": "tsc -b && vite build --mode android",
+    "build:cloudflare": "tsc -b && vite build --mode cloudflare",
     "android:sync": "npm run build:android && cap sync android",
     "preview": "vite preview",
     "test": "vitest run",

@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 const viteConfig = readFileSync(resolve(process.cwd(), "vite.config.ts"), "utf8");
 const mirrorScript = readFileSync(resolve(process.cwd(), "scripts/deploy-static-mirror.mjs"), "utf8");
 const pagesWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/deploy-pages.yml"), "utf8");
+const cloudflareConfig = readFileSync(resolve(process.cwd(), "wrangler.pwa.jsonc"), "utf8");
+const cloudflareWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/deploy-cloudflare-pwa.yml"), "utf8");
 const functionsWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/deploy-supabase-functions.yml"), "utf8");
 const apkWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/publish-apk-mirror.yml"), "utf8");
 const reminderWorkflow = readFileSync(resolve(process.cwd(), ".github/workflows/send-reminders.yml"), "utf8");
@@ -52,8 +54,14 @@ describe("Web 与 APK 发布版本隔离", () => {
     ]) {
       expect(source).toContain(productionAppUrl.replace(/\/$/, ""));
     }
-    expect(pagesWorkflow.match(/^\s+VITE_APP_BASE: \/$/gm)).toHaveLength(2);
-    expect(pagesWorkflow.match(/^\s+VITE_APP_START_URL: \/$/gm)).toHaveLength(2);
+    expect(pagesWorkflow).toContain("VITE_APP_BASE: /semester-schedule-pwa/");
+    expect(pagesWorkflow).toContain("VITE_APP_START_URL: /semester-schedule-pwa/");
+    expect(pagesWorkflow).toContain("VITE_APP_URL: https://schedule.nfsg.eu.cc/");
+    expect(cloudflareConfig).toContain('"pattern": "schedule.nfsg.eu.cc"');
+    expect(cloudflareConfig).toContain('"custom_domain": true');
+    expect(cloudflareConfig).toContain('"directory": "./dist-cloudflare"');
+    expect(cloudflareWorkflow).toContain("npm run build:cloudflare");
+    expect(cloudflareWorkflow).toContain("wrangler@4.130.0 deploy --config wrangler.pwa.jsonc");
     expect(viteConfig).not.toContain("/semester-schedule-pwa/");
   });
 });

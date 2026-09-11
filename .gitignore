@@ -1,6 +1,7 @@
 node_modules
 dist
 dist-mirror
+dist-cloudflare
 dev-dist
 .DS_Store
 *.local

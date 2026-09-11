@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "semester-schedule-pwa",
+  "compatibility_date": "2026-09-11",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "schedule.nfsg.eu.cc",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./dist-cloudflare",
+    "not_found_handling": "single-page-application"
+  }
+}
