@@ -233,6 +233,7 @@ textarea:focus-visible {
 .sync-status {
   display: flex;
   min-width: var(--control-min-size);
+  max-width: 260px;
   min-height: var(--control-min-size);
   align-items: center;
   gap: 7px;
@@ -243,6 +244,13 @@ textarea:focus-visible {
   background: #fafbfc;
   font-size: 0.75rem;
   cursor: pointer;
+}
+
+.sync-status span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sync-status.connected {

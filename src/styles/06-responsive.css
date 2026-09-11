@@ -1,6 +1,6 @@
 /* Tablet / compact desktop: preserve every desktop destination, but give the
    brand/tools and the full navigation their own rows. */
-@media (min-width: 901px) and (max-width: 1599.98px) {
+@media (min-width: 901px) and (max-width: 1919.98px) {
   .app-header {
     grid-template:
       "brand status" auto
@@ -18,16 +18,6 @@
   .header-status {
     grid-area: status;
     min-width: 0;
-  }
-
-  .sync-status {
-    max-width: 260px;
-  }
-
-  .sync-status span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .desktop-nav {
