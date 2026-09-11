@@ -19,10 +19,10 @@ describe("字体大小弹窗", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /偏大/ }));
     expect(onChange).toHaveBeenLastCalledWith("large");
-    expect(localStorage.getItem("semester-schedule-font-size-v1")).toBeNull();
+    expect(localStorage.getItem("semester-schedule-font-size-v2")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "保存字号" }));
-    expect(localStorage.getItem("semester-schedule-font-size-v1")).toBe("large");
+    expect(localStorage.getItem("semester-schedule-font-size-v2")).toBe("large");
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -34,6 +34,14 @@ describe("字体大小弹窗", () => {
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
     expect(onChange).toHaveBeenLastCalledWith("compact");
-    expect(localStorage.getItem("semester-schedule-font-size-v1")).toBeNull();
+    expect(localStorage.getItem("semester-schedule-font-size-v2")).toBeNull();
+  });
+
+  it("标准选项使用新的紧凑默认字号示例", () => {
+    render(<FontSizeDialog value="standard" onChange={() => undefined} onClose={() => undefined} />);
+
+    const standardOption = screen.getByText("标准", { selector: "strong" }).closest("button");
+    expect(standardOption?.querySelector(".font-size-sample"))
+      .toHaveStyle({ fontSize: "14px" });
   });
 });

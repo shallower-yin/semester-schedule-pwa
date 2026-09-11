@@ -7,21 +7,48 @@ export interface AppFontSizeOption {
   scale: number;
 }
 
-const STORAGE_KEY = "semester-schedule-font-size-v1";
+const STORAGE_KEY = "semester-schedule-font-size-v2";
+const LEGACY_STORAGE_KEY = "semester-schedule-font-size-v1";
 const CSS_BASE_FONT_SIZE = 16;
 
 export const APP_FONT_SIZES: AppFontSizeOption[] = [
-  { id: "compact", name: "偏小", description: "信息更紧凑，适合系统字体已经调大的设备", scale: 0.88 },
-  { id: "standard", name: "标准", description: "按应用设计字号显示，并自动抵消浏览器额外放大", scale: 1 },
-  { id: "large", name: "偏大", description: "文字放大约 12%，按钮和卡片尺寸保持不变", scale: 1.12 },
-  { id: "extra-large", name: "特大", description: "文字放大约 25%，适合需要更清晰文字时使用", scale: 1.25 }
+  { id: "compact", name: "偏小", description: "信息更紧凑，适合系统字体较大或希望一屏显示更多内容", scale: 0.8 },
+  { id: "standard", name: "标准", description: "推荐的日常字号，兼顾信息密度与可读性", scale: 0.88 },
+  { id: "large", name: "偏大", description: "比标准放大约 14%，适合希望更清晰阅读", scale: 1 },
+  { id: "extra-large", name: "特大", description: "比标准放大约 27%，适合需要更清晰文字时使用", scale: 1.12 }
 ];
 
 export const DEFAULT_APP_FONT_SIZE: AppFontSizeId = "standard";
 
 export function loadAppFontSize(): AppFontSizeId {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  return isAppFontSizeId(stored) ? stored : DEFAULT_APP_FONT_SIZE;
+  let stored: string | null;
+  try {
+    stored = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // Some private or restricted WebViews deny storage access entirely.
+    return DEFAULT_APP_FONT_SIZE;
+  }
+  if (isAppFontSizeId(stored)) return stored;
+
+  // The v2 presets are intentionally smaller. Preserve a user who had
+  // explicitly selected the old compact preset by moving that choice to the
+  // new standard preset, whose visual size is exactly the old compact size.
+  let legacy: string | null;
+  try {
+    legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+  } catch {
+    return DEFAULT_APP_FONT_SIZE;
+  }
+  const migrated = legacy === "compact"
+    ? DEFAULT_APP_FONT_SIZE
+    : isAppFontSizeId(legacy) ? legacy : DEFAULT_APP_FONT_SIZE;
+  try {
+    localStorage.setItem(STORAGE_KEY, migrated);
+  } catch {
+    // Reading the setting is still useful in restricted/private storage
+    // contexts; the next successful save can persist the v2 key.
+  }
+  return migrated;
 }
 
 export function saveAppFontSize(id: AppFontSizeId): AppFontSizeId {

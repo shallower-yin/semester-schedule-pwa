@@ -935,6 +935,33 @@
   }
 }
 
+@media (max-width: 420px) {
+  .calendar-toolbar > .toolbar-actions {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .calendar-toolbar > .toolbar-actions .button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .calendar-toolbar > .toolbar-actions .button:nth-child(1),
+  .calendar-toolbar > .toolbar-actions .button:nth-child(3) {
+    grid-column: span 1;
+  }
+
+  .calendar-toolbar > .toolbar-actions .button:nth-child(2) {
+    grid-column: span 4;
+  }
+
+  .calendar-toolbar > .toolbar-actions .button:nth-child(4),
+  .calendar-toolbar > .toolbar-actions .button:nth-child(5) {
+    grid-column: span 3;
+  }
+}
+
 @media (max-width: 900px), (pointer: coarse) {
   .attachment-paste-hint {
     display: none;
