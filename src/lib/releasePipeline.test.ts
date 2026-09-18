@@ -38,6 +38,12 @@ describe("Web 与 APK 发布版本隔离", () => {
     expect(apkWorkflow).toContain('test "$actual_sha" = "$EXPECTED_APK_SHA"');
   });
 
+  it("APK 发布环境安装当前 Android 36 构建依赖", () => {
+    expect(apkWorkflow).toContain("build-tools;36.0.0");
+    expect(apkWorkflow).toContain("platforms;android-36");
+    expect(apkWorkflow).not.toMatch(/packages: tools\b/);
+  });
+
   it("只有 Service Worker 待接管时也能进入刷新流程", () => {
     expect(appSource).toContain("if (!release && !needRefresh) return;");
   });
