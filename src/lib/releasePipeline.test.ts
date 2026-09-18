@@ -39,8 +39,7 @@ describe("Web 与 APK 发布版本隔离", () => {
   });
 
   it("APK 发布环境安装当前 Android 36 构建依赖", () => {
-    expect(apkWorkflow).toContain("build-tools;36.0.0");
-    expect(apkWorkflow).toContain("platforms;android-36");
+    expect(apkWorkflow).toContain("packages: platform-tools build-tools;36.0.0 platforms;android-36");
     expect(apkWorkflow).not.toMatch(/packages: tools\b/);
   });
 
