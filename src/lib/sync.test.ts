@@ -22,7 +22,10 @@ describe("同步健康检查", () => {
       color: "#cfeeff",
       sort_order: 1,
       is_pinned: false,
-      completed_at: null
+      completed_at: null,
+      reminder_enabled: false,
+      reminder_at: null,
+      reminder_sent_at: null
     };
     await db.todos.put(todo);
 

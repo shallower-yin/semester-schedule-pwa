@@ -182,7 +182,10 @@ function todoRecord(): TodoItem {
     color: "#ccecf7",
     sort_order: 100,
     is_pinned: false,
-    completed_at: null
+    completed_at: null,
+    reminder_enabled: false,
+    reminder_at: null,
+    reminder_sent_at: null
   };
 }
 

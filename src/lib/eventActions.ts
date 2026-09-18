@@ -3,7 +3,7 @@ import type { EventItem, EventOccurrenceState } from "../types";
 import { addDays, differenceInCalendarDays, parseLocalDate, toISODate } from "./date";
 import { buildEventCompletionRecord, eventCompletionForDate } from "./eventCompletion";
 import { syncFields } from "./identity";
-import { resetSentRemindersForChangedEvent } from "./notifications";
+import { refreshNativeReminderSchedule, resetSentRemindersForChangedEvent } from "./notifications";
 
 export async function setEventCompletedForDate(
   eventItem: EventItem,
@@ -15,6 +15,7 @@ export async function setEventCompletedForDate(
   if (!completion.occurs) return;
   const record = buildEventCompletionRecord(eventItem, completion.occurrenceDate, completed, completion.state);
   await putRecordAndQueue("eventOccurrenceStates", record);
+  await refreshNativeReminderSchedule(eventItem.user_id);
 }
 
 export async function postponeEventToDate(eventItem: EventItem, targetDate: string): Promise<EventItem> {
@@ -28,5 +29,6 @@ export async function postponeEventToDate(eventItem: EventItem, targetDate: stri
   };
   await putRecordAndQueue("events", next);
   await resetSentRemindersForChangedEvent(eventItem, next);
+  await refreshNativeReminderSchedule(eventItem.user_id);
   return next;
 }

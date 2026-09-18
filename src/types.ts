@@ -134,6 +134,9 @@ export interface TodoItem extends SyncFields {
   sort_order: number;
   is_pinned: boolean;
   completed_at: ISODateTime | null;
+  reminder_enabled: boolean;
+  reminder_at: ISODateTime | null;
+  reminder_sent_at: ISODateTime | null;
 }
 
 export type FocusMode = "stopwatch" | "countdown" | "pomodoro" | "lock";

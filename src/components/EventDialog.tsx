@@ -10,7 +10,7 @@ import { validateEventDraft } from "../lib/eventValidation";
 import { deleteEventTemplate, loadEventTemplates, saveEventTemplate } from "../lib/eventTemplates";
 import { hardDeleteEventsCascade } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
-import { enableNotifications, resetSentRemindersForChangedEvent } from "../lib/notifications";
+import { enableNotifications, refreshNativeReminderSchedule, resetSentRemindersForChangedEvent } from "../lib/notifications";
 import { isNativeApp } from "../lib/nativeApp";
 import { searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
@@ -277,6 +277,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     }
     await putRecordAndQueue("events", record);
     await resetSentRemindersForChangedEvent(eventItem, record);
+    await refreshNativeReminderSchedule(ownerId);
     setSaving(false);
     onClose();
   }
@@ -331,6 +332,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   async function remove() {
     if (!eventItem || !window.confirm(`确定彻底删除${itemLabel}“${eventItem.title}”吗？相关完成状态和提醒记录会一并删除，且无法恢复。`)) return;
     await hardDeleteEventsCascade([eventItem.id]);
+    await refreshNativeReminderSchedule(ownerId);
     showToast(`已彻底删除${itemLabel}。`, "success");
     onClose();
   }
@@ -365,6 +367,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       completed_at: completedAt
     };
     await putRecordAndQueue("events", updated);
+    await refreshNativeReminderSchedule(ownerId);
     setEntireCompletedAt(completedAt);
     setCompletionMessage(completed ? "已完成整个事项，全部日期均标记为完成。" : "已恢复整个事项，可继续按日期完成。");
     showToast(completed ? "已完成整个事项。" : "已恢复整个事项。", "success");

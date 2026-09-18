@@ -18,6 +18,8 @@ describe("独立待办页面", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete (navigator as { serviceWorker?: unknown }).serviceWorker;
   });
 
   it("从空态新增待办，弹窗不会自动聚焦输入框", async () => {
@@ -39,7 +41,10 @@ describe("独立待办页面", () => {
         user_id: "local",
         color: "#fff0aa",
         is_pinned: true,
-        completed_at: null
+        completed_at: null,
+        reminder_enabled: false,
+        reminder_at: null,
+        reminder_sent_at: null
       });
       expect(saved?.sort_order).toBeGreaterThan(0);
     });
@@ -80,6 +85,67 @@ describe("独立待办页面", () => {
     fireEvent.click(screen.getByRole("button", { name: "编辑待办 已经整理书签" }));
     expect(screen.getByRole("dialog", { name: "编辑待办" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "待办内容" })).toHaveValue("已经整理书签");
+  });
+
+  it("编辑已有待办时可以更改为自定义颜色", async () => {
+    await db.todos.add(todoRecord("todo-1", "更新实验报告", 100));
+    render(<TodoPage ownerId="local" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "编辑待办 更新实验报告" }));
+    fireEvent.change(screen.getByLabelText("自定义颜色"), { target: { value: "#12ab34" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存待办" }));
+
+    await waitFor(async () => expect((await db.todos.get("todo-1"))?.color).toBe("#12ab34"));
+    await waitFor(() => {
+      const card = screen.getByRole("button", { name: "编辑待办 更新实验报告" }).closest(".todo-card") as HTMLElement;
+      expect(card.style.getPropertyValue("--todo-card-color")).toBe("#12ab34");
+    });
+  });
+
+  it("可以为待办设置未来提醒，并在卡片显示提醒时间", async () => {
+    vi.stubGlobal("Notification", { permission: "granted" });
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {} });
+    await db.todos.add(todoRecord("todo-1", "提交周报", 100));
+    render(<TodoPage ownerId="local" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "编辑待办 提交周报" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /提醒我/ }));
+    fireEvent.change(screen.getByLabelText("提醒时间"), { target: { value: "2099-09-18T11:30" } });
+    fireEvent.click(await screen.findByRole("button", { name: "保存待办" }));
+
+    await waitFor(async () => expect(await db.todos.get("todo-1")).toMatchObject({
+      reminder_enabled: true,
+      reminder_at: "2099-09-18T03:30:00.000Z",
+      reminder_sent_at: null
+    }));
+    expect(await screen.findByText("2099-09-18 11:30")).toBeInTheDocument();
+  });
+
+  it("拒绝保存过去的待办提醒时间", async () => {
+    vi.stubGlobal("Notification", { permission: "granted" });
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {} });
+    render(<TodoPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "新增第一项" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "待办内容" }), { target: { value: "过期提醒" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /提醒我/ }));
+    fireEvent.change(screen.getByLabelText("提醒时间"), { target: { value: "2000-01-01T09:00" } });
+    fireEvent.click(await screen.findByRole("button", { name: "保存待办" }));
+
+    expect(await screen.findByText("提醒时间必须晚于现在。")).toBeInTheDocument();
+    expect(await db.todos.count()).toBe(0);
+  });
+
+  it("通知定位可以打开指定待办编辑器", async () => {
+    await db.todos.bulkAdd([
+      todoRecord("todo-1", "第一项", 100),
+      todoRecord("todo-2", "第二项", 200)
+    ]);
+
+    render(<TodoPage ownerId="local" openTodoId="todo-2" />);
+
+    expect(await screen.findByRole("dialog", { name: "编辑待办" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "待办内容" })).toHaveValue("第二项");
   });
 
   it("未完成清空后给出完成语义，完成历史按完成时间倒序且不显示排序操作", async () => {
@@ -202,6 +268,9 @@ function todoRecord(id: string, title: string, sortOrder: number): TodoItem {
     color: "#ccecf7",
     sort_order: sortOrder,
     is_pinned: false,
-    completed_at: null
+    completed_at: null,
+    reminder_enabled: false,
+    reminder_at: null,
+    reminder_sent_at: null
   };
 }

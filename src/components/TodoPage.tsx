@@ -1,5 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
+  Bell,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -16,7 +17,9 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { db, putRecordAndQueue } from "../db";
+import { dateAtProductTime, productDateTimeParts } from "../lib/date";
 import { syncFields } from "../lib/identity";
+import { enableNotifications, refreshNativeReminderSchedule } from "../lib/notifications";
 import { showToast } from "../lib/toast";
 import type { TodoItem } from "../types";
 import { Modal } from "./Modal";
@@ -28,6 +31,9 @@ interface TodoPageProps {
   /** A one-shot token used by warm deep links, such as a widget add button. */
   openCreateRequest?: string | null;
   onOpenCreateConsumed?: () => void;
+  /** Opens an existing todo after a notification deep link resolves. */
+  openTodoId?: string | null;
+  onOpenTodoConsumed?: () => void;
 }
 
 interface UndoCompletion {
@@ -44,7 +50,9 @@ export function TodoPage({
   ownerId,
   openCreateOnMount = false,
   openCreateRequest,
-  onOpenCreateConsumed
+  onOpenCreateConsumed,
+  openTodoId,
+  onOpenTodoConsumed
 }: TodoPageProps) {
   const todos = useLiveQuery(
     () => db.todos.where("user_id").equals(ownerId).filter((item) => !item.deleted_at).toArray(),
@@ -60,6 +68,7 @@ export function TodoPage({
   const [undoCompletion, setUndoCompletion] = useState<UndoCompletion | null>(null);
   const previousOwnerIdRef = useRef(ownerId);
   const consumedCreateRequestRef = useRef<string | null>(null);
+  const consumedTodoIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!openCreateRequest || consumedCreateRequestRef.current === openCreateRequest) return;
@@ -68,6 +77,16 @@ export function TodoPage({
     setTodoToEdit(null);
     onOpenCreateConsumed?.();
   }, [onOpenCreateConsumed, openCreateRequest]);
+
+  useEffect(() => {
+    if (!openTodoId || consumedTodoIdRef.current === openTodoId) return;
+    const target = todos.find((todo) => todo.id === openTodoId && todo.user_id === ownerId);
+    if (!target) return;
+    consumedTodoIdRef.current = openTodoId;
+    setOpenMenuId(null);
+    setTodoToEdit(target);
+    onOpenTodoConsumed?.();
+  }, [onOpenTodoConsumed, openTodoId, ownerId, todos]);
 
   useEffect(() => {
     if (previousOwnerIdRef.current === ownerId) return;
@@ -80,6 +99,7 @@ export function TodoPage({
     setOpenMenuId(null);
     setBusyId(null);
     setUndoCompletion(null);
+    consumedTodoIdRef.current = null;
   }, [ownerId]);
 
   useEffect(() => {
@@ -141,6 +161,7 @@ export function TodoPage({
         completed_at: completing ? new Date().toISOString() : null
       };
       await putRecordAndQueue("todos", updated);
+      await refreshNativeReminderSchedule(ownerId);
       setOpenMenuId(null);
       if (completing) {
         setUndoCompletion({ todoId: todo.id, title: todo.title });
@@ -159,6 +180,7 @@ export function TodoPage({
     if (!todo || todo.user_id !== ownerId || todo.deleted_at || !todo.completed_at) return;
     await runTodoAction(todo, async () => {
       await putRecordAndQueue("todos", { ...todo, ...syncFields(todo), completed_at: null });
+      await refreshNativeReminderSchedule(ownerId);
       showToast("已撤销完成。", "success");
     }, "撤销失败，请稍后重试。");
   }
@@ -180,7 +202,10 @@ export function TodoPage({
         color: normalizeTodoColor(todo.color),
         is_pinned: false,
         sort_order: nextSortOrder(todos),
-        completed_at: null
+        completed_at: null,
+        reminder_enabled: false,
+        reminder_at: null,
+        reminder_sent_at: null
       };
       await putRecordAndQueue("todos", copy);
       setIncompleteOpen(true);
@@ -198,6 +223,7 @@ export function TodoPage({
         deleted_at: new Date().toISOString()
       };
       await putRecordAndQueue("todos", deleted, "delete");
+      await refreshNativeReminderSchedule(ownerId);
       setUndoCompletion((current) => current?.todoId === todo.id ? null : current);
       showToast("待办已删除。", "success");
     }, "删除待办失败，请稍后重试。");
@@ -443,6 +469,9 @@ function TodoCard({
   onMove
 }: TodoCardProps) {
   const completed = Boolean(todo.completed_at);
+  const reminderText = todo.reminder_enabled && todo.reminder_at && !completed
+    ? formatTodoReminderLabel(todo.reminder_at)
+    : "";
   return (
     <article
       role="listitem"
@@ -460,7 +489,12 @@ function TodoCard({
       </button>
       <button type="button" className="todo-card-body" disabled={busy} aria-label={`编辑待办 ${todo.title}`} onClick={onEdit}>
         <span className="todo-card-title">{todo.title}</span>
-        {todo.is_pinned && <small><Pin size={12} />置顶</small>}
+        {(todo.is_pinned || reminderText) && (
+          <span className="todo-card-meta">
+            {todo.is_pinned && <small><Pin size={12} />置顶</small>}
+            {reminderText && <small><Bell size={12} />{reminderText}</small>}
+          </span>
+        )}
       </button>
       <div className="todo-card-menu-shell">
         <button
@@ -501,26 +535,91 @@ function TodoEditor({ ownerId, todo, allTodos, onClose }: TodoEditorProps) {
   const [color, setColor] = useState(normalizeTodoColor(todo?.color));
   const [pinned, setPinned] = useState(todo?.is_pinned ?? false);
   const [completed, setCompleted] = useState(Boolean(todo?.completed_at));
+  const [reminderEnabled, setReminderEnabled] = useState(Boolean(todo?.reminder_enabled && !todo?.completed_at));
+  const [reminderInput, setReminderInput] = useState(toDatetimeLocalInput(todo?.reminder_at) ?? defaultReminderInputValue());
+  const [reminderMessage, setReminderMessage] = useState("");
+  const [reminderError, setReminderError] = useState("");
+  const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
+  const selectedColor = normalizeTodoColor(color);
+  const customColorSelected = !TODO_COLORS.some((option) => option.toLowerCase() === selectedColor.toLowerCase());
+
+  async function toggleReminder(enabled: boolean) {
+    setReminderError("");
+    setReminderMessage("");
+    if (!enabled) {
+      setReminderEnabled(false);
+      return;
+    }
+    setReminderEnabled(true);
+    if (!reminderInput) setReminderInput(defaultReminderInputValue());
+    setEnablingReminder(true);
+    try {
+      const result = await enableNotifications((stage) => {
+        setReminderMessage({
+          permission: "正在检查系统通知权限…",
+          "service-worker": "正在启动应用后台服务…",
+          "push-service": "正在连接手机系统推送服务…",
+          cloud: "正在保存云端推送订阅…"
+        }[stage]);
+      });
+      if (result === "denied") {
+        setReminderEnabled(false);
+        setReminderMessage("未获得通知权限，请在系统或浏览器设置中允许通知后重试。");
+      } else if (result === "unsupported") {
+        setReminderEnabled(false);
+        setReminderMessage("当前环境不支持系统通知。");
+      } else if (result === "local-only") {
+        setReminderMessage("已启用提醒；登录并完成云端通知配置后，可在应用关闭时接收。");
+      } else {
+        setReminderMessage("系统提醒已启用。");
+      }
+    } catch (error) {
+      setReminderMessage(errorMessage(error, "通知启用失败。应用打开时仍会尝试本地提醒。"));
+    } finally {
+      setEnablingReminder(false);
+    }
+  }
 
   async function save() {
     const normalizedTitle = title.trim();
+    setReminderError("");
     if (!normalizedTitle) {
       showToast("请填写待办内容。", "error");
       return;
     }
+    const reminderAt = reminderEnabled && !completed ? parseReminderInput(reminderInput) : null;
+    if (reminderEnabled && !completed) {
+      if (!reminderAt) {
+        setReminderError("请选择提醒日期和时间。");
+        return;
+      }
+      if (reminderAt.getTime() <= Date.now()) {
+        setReminderError("提醒时间必须晚于现在。");
+        return;
+      }
+    }
     if (saving) return;
     setSaving(true);
     try {
+      const nextReminderAt = reminderAt?.toISOString() ?? null;
+      const reminderChanged = todo
+        ? Boolean(todo.reminder_enabled) !== Boolean(reminderEnabled && !completed)
+          || (todo.reminder_at ?? null) !== nextReminderAt
+        : Boolean(reminderEnabled && !completed);
       const record: TodoItem = {
         ...syncFields(todo, ownerId),
         title: normalizedTitle,
         color: normalizeTodoColor(color),
         is_pinned: pinned,
         sort_order: todo?.sort_order ?? nextSortOrder(allTodos),
-        completed_at: completed ? (todo?.completed_at ?? new Date().toISOString()) : null
+        completed_at: completed ? (todo?.completed_at ?? new Date().toISOString()) : null,
+        reminder_enabled: reminderEnabled && !completed,
+        reminder_at: nextReminderAt,
+        reminder_sent_at: reminderChanged ? null : (todo?.reminder_sent_at ?? null)
       };
       await putRecordAndQueue("todos", record);
+      await refreshNativeReminderSchedule(ownerId);
       showToast(todo ? "待办已保存。" : "待办已添加。", "success");
       onClose();
     } catch (error) {
@@ -551,28 +650,49 @@ function TodoEditor({ ownerId, todo, allTodos, onClose }: TodoEditorProps) {
               <button
                 key={option}
                 type="button"
-                className={color.toLowerCase() === option.toLowerCase() ? "selected" : ""}
+                className={selectedColor.toLowerCase() === option.toLowerCase() ? "selected" : ""}
                 style={{ backgroundColor: option }}
                 aria-label={`选择颜色 ${option}`}
-                aria-pressed={color.toLowerCase() === option.toLowerCase()}
+                aria-pressed={selectedColor.toLowerCase() === option.toLowerCase()}
                 onClick={() => setColor(option)}
               >
-                {color.toLowerCase() === option.toLowerCase() && <Check size={15} />}
+                {selectedColor.toLowerCase() === option.toLowerCase() && <Check size={15} />}
               </button>
             ))}
-            <label className="todo-custom-color" title="自定义颜色">
+            <label
+              className={`todo-custom-color ${customColorSelected ? "selected" : ""}`}
+              style={{ "--todo-custom-selected-color": selectedColor } as CSSProperties}
+              title="自定义颜色"
+            >
               <span className="todo-visually-hidden">自定义颜色</span>
-              <input type="color" aria-label="自定义颜色" value={color} onChange={(event) => setColor(event.target.value)} />
+              {customColorSelected && <Check size={15} />}
+              <input type="color" aria-label="自定义颜色" value={selectedColor} onChange={(event) => setColor(event.target.value)} />
             </label>
           </div>
         </fieldset>
         <div className="todo-editor-switches">
           <label className="checkbox-label"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} />置顶显示</label>
           <label className="checkbox-label"><input type="checkbox" checked={completed} onChange={(event) => setCompleted(event.target.checked)} />标记为已完成</label>
+          <label className="checkbox-label"><input type="checkbox" checked={reminderEnabled} disabled={completed || enablingReminder} onChange={(event) => void toggleReminder(event.target.checked)} /><Bell size={16} />提醒我</label>
         </div>
+        {reminderEnabled && !completed && (
+          <label>
+            提醒时间
+            <input
+              type="datetime-local"
+              value={reminderInput}
+              onChange={(event) => {
+                setReminderInput(event.target.value);
+                setReminderError("");
+              }}
+            />
+          </label>
+        )}
+        {reminderMessage && <p className="todo-reminder-message">{reminderMessage}</p>}
+        {reminderError && <p className="auth-message error">{reminderError}</p>}
         <div className="form-actions">
-          <button type="button" className="button secondary" disabled={saving} onClick={onClose}>取消</button>
-          <button type="submit" className="button primary" disabled={saving}>{saving ? "保存中…" : "保存待办"}</button>
+          <button type="button" className="button secondary" disabled={saving || enablingReminder} onClick={onClose}>取消</button>
+          <button type="submit" className="button primary" disabled={saving || enablingReminder}>{saving ? "保存中…" : enablingReminder ? "正在启用提醒…" : "保存待办"}</button>
         </div>
       </form>
     </Modal>
@@ -597,6 +717,36 @@ function nextSortOrder(todos: TodoItem[]): number {
 
 function normalizeTodoColor(color?: string): string {
   return color && /^#[\da-f]{6}$/i.test(color) ? color : DEFAULT_TODO_COLOR;
+}
+
+function parseReminderInput(value: string): Date | null {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = dateAtProductTime(match[1], match[2]);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toDatetimeLocalInput(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = productDateTimeParts(date);
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}`;
+}
+
+function defaultReminderInputValue(): string {
+  const date = new Date(Date.now() + 60 * 60_000);
+  const parts = productDateTimeParts(date);
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}`;
+}
+
+function formatTodoReminderLabel(value: string): string {
+  const input = toDatetimeLocalInput(value);
+  return input ? input.replace("T", " ") : "已设置提醒";
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
 function errorMessage(error: unknown, fallback: string): string {

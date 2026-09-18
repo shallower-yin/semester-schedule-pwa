@@ -9,6 +9,7 @@ import {
   type ScheduleWidgetPlugin
 } from "./scheduleWidgetPlugin";
 import { syncFields } from "./identity";
+import { refreshNativeReminderSchedule } from "./notifications";
 
 type CompletionBridge = Pick<ScheduleWidgetPlugin, "getPendingCompletionActions" | "ackCompletionActions">;
 
@@ -85,6 +86,7 @@ async function applyCompletionAction(ownerId: string, action: ScheduleWidgetComp
       ...syncFields(todo),
       completed_at: completedAt
     });
+    await refreshNativeReminderSchedule(ownerId);
     return true;
   }
 

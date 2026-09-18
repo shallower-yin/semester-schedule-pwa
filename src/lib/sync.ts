@@ -268,7 +268,10 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
       color: normalizeTodoColor(record.color),
       sort_order: Number(record.sort_order ?? 0),
       is_pinned: Boolean(record.is_pinned),
-      completed_at: record.completed_at ?? null
+      completed_at: record.completed_at ?? null,
+      reminder_enabled: Boolean(record.reminder_enabled),
+      reminder_at: normalizeNullableDateTime(record.reminder_at),
+      reminder_sent_at: normalizeNullableDateTime(record.reminder_sent_at)
     };
   }
   if (table === "healthProfiles") {
@@ -358,7 +361,10 @@ function normalizeUploadPayload(table: SyncTableName, record: Record<string, unk
       color: normalizeTodoColor(payload.color),
       sort_order: Number(payload.sort_order ?? 0),
       is_pinned: Boolean(payload.is_pinned),
-      completed_at: payload.completed_at ?? null
+      completed_at: payload.completed_at ?? null,
+      reminder_enabled: Boolean(payload.reminder_enabled),
+      reminder_at: normalizeNullableDateTime(payload.reminder_at),
+      reminder_sent_at: normalizeNullableDateTime(payload.reminder_sent_at)
     };
   }
   if (table === "focusSessions") {
@@ -405,6 +411,12 @@ function normalizeExerciseItems(value: unknown): string[] {
 function normalizeTodoColor(value: unknown): string {
   const color = String(value ?? "").trim();
   return /^#[0-9a-f]{6}$/i.test(color) ? color : "#cfeeff";
+}
+
+function normalizeNullableDateTime(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function emptyDeleteMap(): Map<SyncTableName, Set<string>> {

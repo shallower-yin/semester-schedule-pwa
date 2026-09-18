@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
+import type { Anniversary, EventItem, EventOccurrenceState, TodoItem } from "../types";
 import { dateAtProductTime, productDateTimeParts } from "./date";
 import {
   computeScheduledReminders,
@@ -76,6 +76,27 @@ function occurrenceState(overrides: Partial<EventOccurrenceState>): EventOccurre
   };
 }
 
+function todo(overrides: Partial<TodoItem> = {}): TodoItem {
+  return {
+    id: "todo-1",
+    user_id: "local",
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    deleted_at: null,
+    version: 1,
+    device_id: "device-1",
+    title: "交作业",
+    color: "#ccecf7",
+    sort_order: 100,
+    is_pinned: false,
+    completed_at: null,
+    reminder_enabled: true,
+    reminder_at: "2026-07-05T12:00:00.000Z",
+    reminder_sent_at: null,
+    ...overrides
+  };
+}
+
 const NOW = dateAtProductTime("2026-07-05", "08:00");
 
 describe("computeScheduledReminders", () => {
@@ -87,6 +108,29 @@ describe("computeScheduledReminders", () => {
     expect(result[0].id).toBe(reminderNotificationId(key));
     expect(result[0].title).toBe("开会");
     expect(productDateTimeParts(result[0].at)).toMatchObject({ hour: 8, minute: 50 });
+  });
+
+  it("事项提醒正文包含时间和地点，地点为空时保持原格式", () => {
+    expect(computeScheduledReminders({
+      events: [event({ location: "图书馆二楼" })],
+      anniversaries: [],
+      occurrenceStates: [],
+      now: NOW
+    })[0].body).toBe("2026-07-05 09:00 开始 · 图书馆二楼");
+
+    expect(computeScheduledReminders({
+      events: [event({ location: "   " })],
+      anniversaries: [],
+      occurrenceStates: [],
+      now: NOW
+    })[0].body).toBe("2026-07-05 09:00 开始");
+
+    expect(computeScheduledReminders({
+      events: [event({ all_day: true, start_time: null, location: "线上" })],
+      anniversaries: [],
+      occurrenceStates: [],
+      now: NOW
+    })[0].body).toBe("2026-07-05 全天事项 · 线上");
   });
 
   it("跳过关闭提醒、已完成、已删除的事项", () => {
@@ -133,6 +177,30 @@ describe("computeScheduledReminders", () => {
     expect(productDateTimeParts(scheduled[0].at)).toMatchObject({ hour: 9, minute: 0 });
 
     expect(computeScheduledReminders({ events: [], anniversaries: [anniversary({ reminder_enabled: false })], occurrenceStates: [], now: NOW })).toHaveLength(0);
+  });
+
+  it("为未来待办生成一次性提醒，并跳过完成、删除、已发送或关闭提醒的待办", () => {
+    const scheduled = computeScheduledReminders({
+      events: [],
+      anniversaries: [],
+      occurrenceStates: [],
+      todos: [todo()],
+      now: NOW
+    });
+
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]).toMatchObject({
+      key: "todo:todo-1",
+      id: reminderNotificationId("todo:todo-1"),
+      title: "交作业",
+      body: "2026-07-05 20:00 待办提醒"
+    });
+    expect(productDateTimeParts(scheduled[0].at)).toMatchObject({ hour: 20, minute: 0 });
+
+    expect(computeScheduledReminders({ events: [], anniversaries: [], occurrenceStates: [], todos: [todo({ completed_at: "2026-07-05T00:00:00.000Z" })], now: NOW })).toHaveLength(0);
+    expect(computeScheduledReminders({ events: [], anniversaries: [], occurrenceStates: [], todos: [todo({ deleted_at: "2026-07-05T00:00:00.000Z" })], now: NOW })).toHaveLength(0);
+    expect(computeScheduledReminders({ events: [], anniversaries: [], occurrenceStates: [], todos: [todo({ reminder_enabled: false })], now: NOW })).toHaveLength(0);
+    expect(computeScheduledReminders({ events: [], anniversaries: [], occurrenceStates: [], todos: [todo({ reminder_sent_at: "2026-07-05T12:00:00.000Z" })], now: NOW })).toHaveLength(0);
   });
 });
 

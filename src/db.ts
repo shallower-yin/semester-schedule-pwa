@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from "dexie";
+import Dexie, { type EntityTable, type Transaction } from "dexie";
 import type {
   Anniversary,
   BackupFile,
@@ -27,7 +27,7 @@ import { getCurrentUserId, getDeviceId, syncFields } from "./lib/identity";
 import type { AiAttachmentContextRecord } from "./lib/assistantAttachments";
 
 /**
- * Keep the two newest schemas reusable by migration tests.  Version 14 only
+ * Keep the newest schemas reusable by migration tests.  Version 14 only
  * adds the standalone todo store; every pre-existing store and index stays
  * byte-for-byte compatible with version 13 so a cached v13 bundle can still
  * open the database through Dexie's higher-native-version fallback.
@@ -57,6 +57,11 @@ export const SCHEDULE_DB_V13_STORES = {
 export const SCHEDULE_DB_V14_STORES = {
   ...SCHEDULE_DB_V13_STORES,
   todos: "id, user_id, [user_id+sort_order], updated_at, deleted_at"
+} as const;
+
+export const SCHEDULE_DB_V15_STORES = {
+  ...SCHEDULE_DB_V14_STORES,
+  todos: "id, user_id, [user_id+sort_order], reminder_enabled, reminder_at, updated_at, deleted_at"
 } as const;
 
 class ScheduleDatabase extends Dexie {
@@ -495,6 +500,43 @@ class ScheduleDatabase extends Dexie {
         }
       });
     this.version(14).stores(SCHEDULE_DB_V14_STORES);
+    this.version(15)
+      .stores(SCHEDULE_DB_V15_STORES)
+      .upgrade(upgradeTodosForReminderFields);
+  }
+}
+
+export async function upgradeTodosForReminderFields(transaction: Transaction): Promise<void> {
+  const now = new Date().toISOString();
+  const todoTable = transaction.table("todos");
+  const queueTable = transaction.table("syncQueue");
+  const todos = await todoTable.toArray() as Array<Partial<TodoItem> & { id: string; user_id?: string }>;
+  for (const todo of todos) {
+    const ownerId = typeof todo.user_id === "string" && todo.user_id.trim()
+      ? todo.user_id
+      : getCurrentUserId();
+    const needsMigration = typeof todo.reminder_enabled !== "boolean"
+      || !("reminder_at" in todo)
+      || !("reminder_sent_at" in todo);
+    if (!needsMigration) continue;
+    await todoTable.put({
+      ...todo,
+      reminder_enabled: Boolean(todo.reminder_enabled),
+      reminder_at: todo.reminder_at ?? null,
+      reminder_sent_at: todo.reminder_sent_at ?? null,
+      updated_at: now,
+      version: Number(todo.version ?? 0) + 1
+    });
+    await queueTable.put({
+      id: crypto.randomUUID(),
+      owner_id: ownerId,
+      table_name: "todos",
+      record_id: todo.id,
+      operation: "upsert",
+      queued_at: now,
+      attempts: 0,
+      last_error: null
+    });
   }
 }
 

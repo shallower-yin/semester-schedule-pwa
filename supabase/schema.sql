@@ -223,12 +223,23 @@ create table if not exists public.todos (
   sort_order integer not null default 0,
   is_pinned boolean not null default false,
   completed_at timestamptz,
+  reminder_enabled boolean not null default false,
+  reminder_at timestamptz,
+  reminder_sent_at timestamptz,
   unique (id, user_id)
 );
 
 create index if not exists todos_user_active_sort_idx
 on public.todos (user_id, is_pinned desc, sort_order asc, created_at asc)
 where deleted_at is null;
+
+create index if not exists todos_user_due_reminders_idx
+on public.todos (user_id, reminder_at)
+where deleted_at is null
+  and completed_at is null
+  and reminder_enabled
+  and reminder_at is not null
+  and reminder_sent_at is null;
 
 alter table public.memos
 add column if not exists images jsonb not null default '[]'::jsonb;

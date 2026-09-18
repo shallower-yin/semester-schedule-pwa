@@ -4,7 +4,7 @@ import { eventOccursOn, toISODate } from "./date";
 import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
 import { reminderIsDue } from "./reminderTime";
 import { supabase } from "./supabase";
-import type { Anniversary, EventItem, EventOccurrenceState, HealthProfile } from "../types";
+import type { Anniversary, EventItem, EventOccurrenceState, HealthProfile, TodoItem } from "../types";
 import { isNativeApp } from "./nativeApp";
 import {
   cancelAllNativeReminders,
@@ -18,7 +18,14 @@ import {
   syncNativeHealthReminder,
   syncNativeReminders
 } from "./nativeReminders";
-import { computeScheduledReminders, HEALTH_NOTIFICATION_ID, TEST_NOTIFICATION_ID } from "./reminderSchedule";
+import {
+  computeScheduledReminders,
+  formatEventReminderBody,
+  formatTodoReminderBody,
+  HEALTH_NOTIFICATION_ID,
+  TEST_NOTIFICATION_ID,
+  todoReminderTime
+} from "./reminderSchedule";
 import { withTimeout } from "./asyncTimeout";
 import { computeNextHealthReminder } from "./healthReminderSchedule";
 
@@ -166,8 +173,10 @@ export async function disableNotificationsForCurrentDevice(): Promise<void> {
   await subscription.unsubscribe();
 }
 
-async function showReminder(title: string, body: string, tag: string) {
+async function showReminder(title: string, body: string, tag: string, notificationKey?: string) {
   const registration = await navigator.serviceWorker.ready;
+  const url = new URL(import.meta.env.BASE_URL, window.location.origin);
+  if (notificationKey) url.searchParams.set("notification", notificationKey);
   const options: NotificationOptions & { renotify?: boolean; timestamp?: number } = {
     body,
     tag,
@@ -176,7 +185,7 @@ async function showReminder(title: string, body: string, tag: string) {
     requireInteraction: true,
     renotify: true,
     timestamp: Date.now(),
-    data: { url: new URL(import.meta.env.BASE_URL, window.location.origin).toString() }
+    data: { url: url.toString() }
   };
   await registration.showNotification(title, options);
 }
@@ -194,7 +203,8 @@ export async function showHealthMovementReminder(): Promise<void> {
   await showReminder(
     "起来活动一下",
     "喝口水，活动肩颈或走动几分钟。完成后可在健康页记录。",
-    "health-movement-reminder"
+    "health-movement-reminder",
+    "health"
   );
 }
 
@@ -405,6 +415,21 @@ export function eventReminderCanSend(event: Pick<EventItem, "deleted_at" | "remi
   return !event.deleted_at && event.reminder_enabled && !event.completed_at;
 }
 
+export function todoReminderCanSend(todo: Pick<TodoItem, "deleted_at" | "reminder_enabled" | "reminder_at" | "reminder_sent_at" | "completed_at">): boolean {
+  return !todo.deleted_at
+    && todo.reminder_enabled
+    && Boolean(todo.reminder_at)
+    && !todo.reminder_sent_at
+    && !todo.completed_at;
+}
+
+export function todoReminderIsDue(todo: Pick<TodoItem, "reminder_at">, now = new Date()): boolean {
+  const reminderAt = todoReminderTime(todo);
+  if (!reminderAt) return false;
+  const graceEnd = new Date(reminderAt.getTime() + 15 * 60_000);
+  return now >= reminderAt && now <= graceEnd;
+}
+
 export async function resetSentRemindersForChangedEvent(
   previous: EventItem | undefined,
   next: EventItem
@@ -474,14 +499,15 @@ async function rescheduleNativeRemindersForGeneration(ownerId: string, generatio
   if (!isCurrent()) return 0;
   if ((await ensureNativeReminderPermission(false)) !== "granted") return 0;
   if (!isCurrent()) return 0;
-  const [events, anniversaries, occurrenceStates, healthProfile] = await Promise.all([
+  const [events, anniversaries, occurrenceStates, healthProfile, todos] = await Promise.all([
     db.events.filter((event) => event.user_id === ownerId).toArray(),
     db.anniversaries.filter((anniversary) => anniversary.user_id === ownerId).toArray(),
     db.eventOccurrenceStates.filter((state) => state.user_id === ownerId).toArray(),
-    db.healthProfiles.filter((profile) => profile.user_id === ownerId && !profile.deleted_at).first()
+    db.healthProfiles.filter((profile) => profile.user_id === ownerId && !profile.deleted_at).first(),
+    db.todos.filter((todo) => todo.user_id === ownerId).toArray()
   ]);
   if (!isCurrent()) return 0;
-  const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates });
+  const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates, todos });
   const scheduledCount = await syncNativeReminders(reminders);
   // A newer owner refresh is queued behind this one.  Let it become the final
   // OS state and do not let the stale run replace the shared health schedule.
@@ -527,7 +553,6 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
       const occurrenceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
       if (!eventOccursOn(event, occurrenceDate) || !reminderIsDue(event, occurrenceDate, now)) continue;
       const date = toISODate(occurrenceDate);
-      const startTime = event.start_time ?? "09:00";
       const existing = await db.eventOccurrenceStates
         .where("[event_id+occurrence_date]")
         .equals([event.id, date])
@@ -537,8 +562,9 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
 
       await showReminder(
         event.title,
-        event.all_day ? `${date} 全天事项` : `${date} ${startTime} 开始`,
-        `event-${event.id}-${date}`
+        formatEventReminderBody(event, date),
+        `event-${event.id}-${date}`,
+        `event:${event.id}:${date}`
       );
       const state = {
         ...syncFields(existing, event.user_id),
@@ -564,7 +590,8 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
     await showReminder(
       anniversary.title,
       formatAnniversaryReminderBody(anniversary, occurrence, now),
-      `anniversary-${anniversary.id}-${occurrenceDate}`
+      `anniversary-${anniversary.id}-${occurrenceDate}`,
+      `anniversary:${anniversary.id}:${occurrenceDate}`
     );
     const updated: Anniversary = {
       ...anniversary,
@@ -572,6 +599,27 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
       reminder_sent_for: occurrenceDate
     };
     await putRecordAndQueue("anniversaries", updated);
+    sent += 1;
+  }
+
+  const todos = await db.todos
+    .filter((todo) => todo.user_id === ownerId && todoReminderCanSend(todo))
+    .toArray();
+  for (const todo of todos) {
+    const reminderAt = todoReminderTime(todo);
+    if (!reminderAt || !todoReminderIsDue(todo, now)) continue;
+    await showReminder(
+      todo.title || "待办提醒",
+      formatTodoReminderBody(todo, reminderAt),
+      `todo-${todo.id}`,
+      `todo:${todo.id}`
+    );
+    const updated: TodoItem = {
+      ...todo,
+      ...syncFields(todo),
+      reminder_sent_at: new Date().toISOString()
+    };
+    await putRecordAndQueue("todos", updated);
     sent += 1;
   }
   return sent;

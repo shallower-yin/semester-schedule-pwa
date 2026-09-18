@@ -46,6 +46,9 @@ function todo(overrides: Partial<TodoItem>): TodoItem {
     sort_order: 0,
     is_pinned: false,
     completed_at: null,
+    reminder_enabled: false,
+    reminder_at: null,
+    reminder_sent_at: null,
     ...overrides
   };
 }

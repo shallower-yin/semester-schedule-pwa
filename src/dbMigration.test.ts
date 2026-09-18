@@ -1,6 +1,12 @@
 import Dexie from "dexie";
 import { describe, expect, it } from "vitest";
-import { inferBackupOwnerId, SCHEDULE_DB_V13_STORES, SCHEDULE_DB_V14_STORES } from "./db";
+import {
+  inferBackupOwnerId,
+  SCHEDULE_DB_V13_STORES,
+  SCHEDULE_DB_V14_STORES,
+  SCHEDULE_DB_V15_STORES,
+  upgradeTodosForReminderFields
+} from "./db";
 import type { BackupFile } from "./types";
 
 function backup(records: Array<{ user_id: string }>, ownerId?: string): BackupFile {
@@ -101,6 +107,64 @@ describe("待办数据库升级兼容", () => {
       expect(await reopened.table("todos").get("todo-after-upgrade")).toMatchObject({ title: "升级后待办" });
       expect(await reopened.table("categories").get("category-from-v13")).toMatchObject({ name: "旧版期间写入" });
       expect(await reopened.table("syncQueue").get("todo-queue")).toMatchObject({ record_id: "todo-after-upgrade" });
+    } finally {
+      for (const connection of connections) connection.close();
+      await Dexie.delete(databaseName);
+    }
+  });
+
+  it("v14 升到 v15 时为旧待办补提醒字段并加入同步队列", async () => {
+    const databaseName = `semester-schedule-todo-reminder-${crypto.randomUUID()}`;
+    const connections: Dexie[] = [];
+    const makeV14 = () => {
+      const database = new Dexie(databaseName);
+      database.version(13).stores(SCHEDULE_DB_V13_STORES);
+      database.version(14).stores(SCHEDULE_DB_V14_STORES);
+      connections.push(database);
+      return database;
+    };
+    const makeV15 = () => {
+      const database = new Dexie(databaseName);
+      database.version(13).stores(SCHEDULE_DB_V13_STORES);
+      database.version(14).stores(SCHEDULE_DB_V14_STORES);
+      database.version(15).stores(SCHEDULE_DB_V15_STORES).upgrade(upgradeTodosForReminderFields);
+      connections.push(database);
+      return database;
+    };
+
+    try {
+      const legacy = makeV14();
+      await legacy.open();
+      await legacy.table("todos").put({
+        id: "todo-legacy",
+        user_id: "local",
+        title: "旧待办",
+        color: "#ccecf7",
+        sort_order: 100,
+        is_pinned: false,
+        completed_at: null,
+        created_at: "2026-09-02T00:00:00.000Z",
+        updated_at: "2026-09-02T00:00:00.000Z",
+        deleted_at: null,
+        version: 1,
+        device_id: "test-device"
+      });
+      legacy.close();
+
+      const upgraded = makeV15();
+      await upgraded.open();
+
+      expect(await upgraded.table("todos").get("todo-legacy")).toMatchObject({
+        reminder_enabled: false,
+        reminder_at: null,
+        reminder_sent_at: null,
+        version: 2
+      });
+      expect(await upgraded.table("syncQueue").where("record_id").equals("todo-legacy").first()).toMatchObject({
+        owner_id: "local",
+        table_name: "todos",
+        operation: "upsert"
+      });
     } finally {
       for (const connection of connections) connection.close();
       await Dexie.delete(databaseName);

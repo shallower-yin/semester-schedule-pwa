@@ -166,7 +166,10 @@ function todo(id: string): TodoItem {
     color: "#cfeeff",
     sort_order: 2,
     is_pinned: true,
-    completed_at: null
+    completed_at: null,
+    reminder_enabled: true,
+    reminder_at: "2026-09-20T02:00:00.000Z",
+    reminder_sent_at: null
   };
 }
 
@@ -271,7 +274,10 @@ describe("上传前自动修复历史重复队列", () => {
       color: item.color,
       sort_order: item.sort_order,
       is_pinned: true,
-      completed_at: null
+      completed_at: null,
+      reminder_enabled: true,
+      reminder_at: item.reminder_at,
+      reminder_sent_at: null
     })]);
     expect(result.uploaded).toBe(1);
     expect(await db.syncQueue.where("owner_id").equals(USER_ID).count()).toBe(0);

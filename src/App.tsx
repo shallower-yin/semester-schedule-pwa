@@ -194,6 +194,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("today");
   const [nativeNotificationKey, setNativeNotificationKey] = useState<string | null>(() => consumePendingNativeNotificationKey());
   const [todoCreateRequest, setTodoCreateRequest] = useState<string | null>(null);
+  const [todoToOpen, setTodoToOpen] = useState<string | null>(null);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [overviewNow, setOverviewNow] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => weekdayOf(new Date()) - 1);
@@ -324,6 +325,7 @@ export default function App() {
     setAnniversaryToOpen(null);
     setMemoToOpen(null);
     setTodoCreateRequest(null);
+    setTodoToOpen(null);
     setCourseSearchMatch(null);
     setEventSearchMatch(null);
     setAnniversarySearchMatch(null);
@@ -630,6 +632,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const consumeNotificationFromUrl = () => {
+      const url = new URL(window.location.href);
+      const key = url.searchParams.get("notification")?.trim();
+      if (!key) return;
+      url.searchParams.delete("notification");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      setNativeNotificationKey(key);
+    };
+    consumeNotificationFromUrl();
+    window.addEventListener("popstate", consumeNotificationFromUrl);
+    return () => window.removeEventListener("popstate", consumeNotificationFromUrl);
+  }, []);
+
+  useEffect(() => {
     if (!nativeNotificationKey) return;
     if (nativeNotificationKey === "route:quick-entry") {
       if (!authReady) return;
@@ -683,9 +699,21 @@ export default function App() {
       setNativeNotificationKey(null);
       return;
     }
+    const todoMatch = /^todo:([^:]+)$/.exec(nativeNotificationKey);
+    if (todoMatch) {
+      if (!authReady || todosQuery === undefined) return;
+      navigate("todos");
+      if (todosQuery.some((item) => item.id === todoMatch[1] && item.user_id === ownerId)) {
+        setTodoToOpen(todoMatch[1]);
+      } else {
+        showToast("这条提醒对应的待办已被删除。", "info");
+      }
+      setNativeNotificationKey(null);
+      return;
+    }
     if (nativeNotificationKey === "health") navigate("health");
     setNativeNotificationKey(null);
-  }, [anniversariesQuery, authReady, eventsQuery, nativeNotificationKey, ownerId]);
+  }, [anniversariesQuery, authReady, eventsQuery, nativeNotificationKey, ownerId, todosQuery]);
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
     if (eventStatusFilter !== "all") return [];
@@ -1352,6 +1380,8 @@ export default function App() {
             ownerId={ownerId}
             openCreateRequest={todoCreateRequest}
             onOpenCreateConsumed={() => setTodoCreateRequest(null)}
+            openTodoId={todoToOpen}
+            onOpenTodoConsumed={() => setTodoToOpen(null)}
           />
         ) : page === "memos" ? (
           <MemoPage

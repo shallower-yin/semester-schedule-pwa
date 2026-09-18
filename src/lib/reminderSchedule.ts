@@ -1,10 +1,17 @@
-import type { Anniversary, EventItem, EventOccurrenceState } from "../types";
+import type { Anniversary, EventItem, EventOccurrenceState, TodoItem } from "../types";
 import {
   anniversaryReminderTimeForOccurrence,
   formatAnniversaryReminderBody,
   nextAnniversaryOccurrence
 } from "./anniversaries";
-import { addDays, dateAtProductTime, eventOccursOn, parseLocalDate, toISODate } from "./date";
+import {
+  addDays,
+  dateAtProductTime,
+  eventOccursOn,
+  parseLocalDate,
+  productDateTimeParts,
+  toISODate
+} from "./date";
 import { reminderTimeForOccurrence } from "./reminderTime";
 
 // Android can persist hundreds of one-shot alarms cheaply. A one-year rolling horizon avoids silently
@@ -31,6 +38,7 @@ export interface ComputeRemindersInput {
   events: EventItem[];
   anniversaries: Anniversary[];
   occurrenceStates: EventOccurrenceState[];
+  todos?: TodoItem[];
   now?: Date;
   horizonDays?: number;
   max?: number;
@@ -50,6 +58,29 @@ export function reminderNotificationId(key: string): number {
 
 function eventReminderActive(event: EventItem): boolean {
   return !event.deleted_at && event.reminder_enabled && !event.completed_at;
+}
+
+export function formatEventReminderBody(
+  event: Pick<EventItem, "all_day" | "start_time" | "location">,
+  occurrenceDate: string
+): string {
+  const timeText = event.all_day ? "全天事项" : `${event.start_time ?? "09:00"} 开始`;
+  const location = event.location?.trim();
+  return location ? `${occurrenceDate} ${timeText} · ${location}` : `${occurrenceDate} ${timeText}`;
+}
+
+export function todoReminderTime(todo: Pick<TodoItem, "reminder_at">): Date | null {
+  if (!todo.reminder_at) return null;
+  const at = new Date(todo.reminder_at);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+export function formatTodoReminderBody(todo: Pick<TodoItem, "reminder_at">, at = todoReminderTime(todo)): string {
+  if (!at) return "待办提醒";
+  const parts = productDateTimeParts(at);
+  const date = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  const time = `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+  return `${date} ${time} 待办提醒`;
 }
 
 // Expands events (with recurrence) and anniversaries into the concrete future reminders due within the
@@ -89,7 +120,7 @@ export function computeScheduledReminders(input: ComputeRemindersInput): Schedul
         key,
         id: reminderNotificationId(key),
         title: event.title || "日程提醒",
-        body: event.all_day ? `${iso} 全天事项` : `${iso} ${startTime} 开始`,
+        body: formatEventReminderBody({ ...event, start_time: startTime }, iso),
         at
       });
     }
@@ -108,6 +139,22 @@ export function computeScheduledReminders(input: ComputeRemindersInput): Schedul
       id: reminderNotificationId(key),
       title: anniversary.title || "纪念日提醒",
       body: formatAnniversaryReminderBody(anniversary, occurrence, at),
+      at
+    });
+  }
+
+  for (const todo of input.todos ?? []) {
+    if (todo.deleted_at || !todo.reminder_enabled || todo.completed_at || todo.reminder_sent_at) continue;
+    const at = todoReminderTime(todo);
+    if (!at) continue;
+    const atMs = at.getTime();
+    if (atMs <= nowMs || atMs > horizonEnd) continue;
+    const key = `todo:${todo.id}`;
+    reminders.push({
+      key,
+      id: reminderNotificationId(key),
+      title: todo.title || "待办提醒",
+      body: formatTodoReminderBody(todo, at),
       at
     });
   }
