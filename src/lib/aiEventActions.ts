@@ -7,6 +7,84 @@ export type AiCreatedRecord =
   | { table: "anniversaries"; record: Anniversary }
   | { table: "memos"; record: Memo };
 
+export type AiUpdatedRecord = { original: EventItem; updated: EventItem };
+
+export interface AiUnmatchedAction {
+  action: "update" | "delete";
+  title: string;
+}
+
+export interface AiActionResults {
+  created: AiCreatedRecord[];
+  updated: AiUpdatedRecord[];
+  deleted: EventItem[];
+  unmatched: AiUnmatchedAction[];
+}
+
+/**
+ * Match existing events by title, optionally narrowed to a single date.
+ *
+ * Exact (case/space/punctuation-insensitive) matches win. When there is no exact
+ * match, a partial match is accepted only if it points at exactly one distinct
+ * title, so a vague name cannot silently rewrite or delete unrelated records.
+ */
+export function matchEventsByTitle(events: EventItem[], title: string, date?: string | null): EventItem[] {
+  const target = normalizeEventTitle(title);
+  if (!target) return [];
+  const candidates = events.filter((event) => {
+    if (event.deleted_at) return false;
+    if (date && event.start_date !== date && event.end_date !== date) return false;
+    return true;
+  });
+  const exact = candidates.filter((event) => normalizeEventTitle(event.title) === target);
+  if (exact.length) return exact;
+  const partial = candidates.filter((event) => {
+    const candidate = normalizeEventTitle(event.title);
+    return Boolean(candidate) && (candidate.includes(target) || target.includes(candidate));
+  });
+  const distinctTitles = new Set(partial.map((event) => normalizeEventTitle(event.title)));
+  return distinctTitles.size === 1 ? partial : [];
+}
+
+function normalizeEventTitle(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s·・,，、.。:：;；!！?？'"“”‘’()（）\-—_/\\]/g, "");
+}
+
+/**
+ * Merge an AI update into an existing event.
+ *
+ * The model sends `null` for every field it is not changing, so `null` must mean
+ * "leave as is". Time handling follows the editor's rules: an explicit time makes
+ * the item timed, `allDay: true` clears the times, and a timed item always keeps a
+ * usable start/end pair.
+ */
+export function applyEventUpdate(original: EventItem, action: Extract<DeepSeekAssistantAction, { type: "update_event" }>): EventItem {
+  const next: EventItem = { ...original };
+  if (action.newTitle?.trim()) next.title = action.newTitle.trim();
+  if (action.startDate) next.start_date = action.startDate;
+  if (action.endDate) next.end_date = action.endDate;
+  if (typeof action.location === "string") next.location = action.location;
+  if (typeof action.note === "string") next.note = action.note;
+  if (typeof action.reminderEnabled === "boolean") next.reminder_enabled = action.reminderEnabled;
+  if (typeof action.reminderMinutesBefore === "number") next.reminder_minutes_before = action.reminderMinutesBefore;
+
+  if (action.allDay === true) {
+    next.all_day = true;
+    next.start_time = null;
+    next.end_time = null;
+  } else if (action.allDay === false || action.startTime) {
+    const startTime = action.startTime ?? original.start_time ?? "09:00";
+    next.all_day = false;
+    next.start_time = startTime;
+    next.end_time = action.endTime ?? (original.end_time && original.end_time >= startTime ? original.end_time : startTime);
+  } else if (action.endTime) {
+    next.end_time = action.endTime;
+  }
+
+  if (next.end_date < next.start_date) next.end_date = next.start_date;
+  return next;
+}
+
 export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceText: string, ownerId: string, now?: Date): EventItem | null {
   if (action.type !== "create_event") return null;
   const title = action.title.trim();

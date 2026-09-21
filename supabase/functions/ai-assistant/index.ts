@@ -107,7 +107,7 @@ interface AiAccessRow {
 
 type AnniversaryKind = "anniversary" | "birthday" | "holiday";
 type EventRecurrenceType = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction;
+type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction | AiUpdateEventAction | AiDeleteEventAction;
 
 interface AiCreateEventAction {
   type: "create_event";
@@ -143,6 +143,28 @@ interface AiCreateMemoAction {
   title: string;
   content?: string | null;
   isPinned?: boolean;
+}
+
+interface AiUpdateEventAction {
+  type: "update_event";
+  title: string;
+  date?: string | null;
+  newTitle?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  allDay?: boolean | null;
+  location?: string | null;
+  note?: string | null;
+  reminderEnabled?: boolean | null;
+  reminderMinutesBefore?: number | null;
+}
+
+interface AiDeleteEventAction {
+  type: "delete_event";
+  title: string;
+  date?: string | null;
 }
 
 interface AiAssistantResponse {
@@ -326,7 +348,7 @@ const PUBLIC_PRODUCT_RULES = [
   "本机自动备份保存在当前浏览器并保留最近 3 份；可从备份弹窗把最近快照下载为 JSON 文件长期保存或跨设备导入，没有另一种独立的备份格式。",
   "删除是永久删除，同步后其他设备也会删除；只能通过之前导出的 JSON 备份恢复。",
   "日程助手是本机规则查询，不需要 AI 权限也不消耗 AI 额度；AI 助手使用云端智能问答，可理解自由表达并创建记录。",
-  "AI 助手当前可查询用户提供的日程上下文，并创建普通事项、习惯、纪念日、生日、节日和备忘录；不能直接修改、删除或完成已有记录，也不能更改账号、权限、额度或系统设置。",
+  "AI 助手当前可查询用户提供的日程上下文，并新增、修改和删除普通事项、习惯、纪念日、生日、节日和备忘录；不能更改账号、权限、额度或系统设置。",
   "AI 权限分普通用户、会员和管理员：普通用户与会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验，不会把账号变成会员。",
   "编辑已发送的用户消息会从该轮重新生成并截断其后的旧对话，每次重新发送都按一次新的成功请求计入额度。",
   "管理员可在后台统一选择 AI 提供商和模型；选择支持附件的模型后，AI 助手可读取图片，以及从 PDF、DOCX、TXT、Markdown、CSV 中提取的文字来创建记录。",
@@ -1936,6 +1958,10 @@ async function askConfiguredProvider(
             "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
             "如果用户说创建春节、端午节、中秋节、清明节、除夕、母亲节、父亲节等常见节日，应按北京时间所在年份或用户指定年份给出对应公历日期；如果没有把握，可以返回 create_anniversary 且 date 为 null，应用会用内置日历校准常见节日。",
             "如果用户创建习惯并指定每天、工作日、每周、每月或每隔几天，必须写入 recurrenceType；指定结束日期时写入 recurrenceUntil。没有指定重复时 recurrenceType 为 none。",
+            "修改已存在事项使用 update_event，格式：{\"type\":\"update_event\",\"title\":\"要修改的事项标题\",\"date\":\"YYYY-MM-DD 或 null\",\"newTitle\":\"新标题或 null\",\"startDate\":\"新日期或 null\",\"endDate\":\"新日期或 null\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":true/false/null,\"location\":\"新地点或 null\",\"note\":\"新备注或 null\",\"reminderEnabled\":true/false/null,\"reminderMinutesBefore\":数字或 null}。只填写需要修改的字段，不需要修改的字段设为 null；title 用于匹配已有事项，date 可进一步限定匹配范围。",
+            "删除已存在事项使用 delete_event，格式：{\"type\":\"delete_event\",\"title\":\"要删除的事项标题\",\"date\":\"YYYY-MM-DD 或 null\"}。title 用于匹配，date 可限定范围。",
+            "当用户要求修改、更改、调整、更新已有事项的时间、地点、提醒等属性时使用 update_event；当用户要求删除、取消、移除已有事项时使用 delete_event。不要把修改请求创建为新事项，也不要把删除请求忽略。",
+            "update_event 和 delete_event 的 title 必须原样使用日历上下文或最近对话中已经存在的事项标题，不要改写、缩写或翻译标题；拿不准是哪一个事项时，在 answer 里先问清楚，不要输出 action。",
             "如果事项缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
             "如果事项给了日期但没有时间，创建全天事项，startTime/endTime 为 null，allDay 为 true。",
             "必须区分“可办理/开放的日期范围”和“用户要创建的事项持续时间”：开放窗口不能直接变成跨多天事项。只有用户明确说事项连续持续到某日，才让 endDate 晚于 startDate。",
@@ -3959,6 +3985,8 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
   const record = action as Record<string, unknown>;
   if (record.type === "create_anniversary") return sanitizeAnniversaryAction(record);
   if (record.type === "create_memo") return sanitizeMemoAction(record);
+  if (record.type === "update_event") return sanitizeUpdateEventAction(record);
+  if (record.type === "delete_event") return sanitizeDeleteEventAction(record);
   if (record.type !== "create_event") return [];
   const title = typeof record.title === "string" ? record.title.trim() : "";
   const startDate = typeof record.startDate === "string" ? record.startDate.trim() : "";
@@ -4014,6 +4042,36 @@ function sanitizeMemoAction(record: Record<string, unknown>): AiAssistantAction[
     title,
     content: typeof record.content === "string" ? record.content.slice(0, 10_000) : "",
     isPinned: Boolean(record.isPinned)
+  }];
+}
+
+function sanitizeUpdateEventAction(record: Record<string, unknown>): AiAssistantAction[] {
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  if (!title) return [];
+  return [{
+    type: "update_event",
+    title,
+    date: isoDateValue(record.date),
+    newTitle: typeof record.newTitle === "string" ? record.newTitle.trim().slice(0, 200) || null : null,
+    startDate: isoDateValue(record.startDate),
+    endDate: isoDateValue(record.endDate),
+    startTime: normalizeTime(record.startTime),
+    endTime: normalizeTime(record.endTime),
+    allDay: typeof record.allDay === "boolean" ? record.allDay : null,
+    location: typeof record.location === "string" ? record.location.trim().slice(0, 200) : null,
+    note: typeof record.note === "string" ? record.note.slice(0, 500) : null,
+    reminderEnabled: typeof record.reminderEnabled === "boolean" ? record.reminderEnabled : null,
+    reminderMinutesBefore: typeof record.reminderMinutesBefore === "number" ? clampNumber(record.reminderMinutesBefore, 0, 7 * 24 * 60, 10) : null
+  }];
+}
+
+function sanitizeDeleteEventAction(record: Record<string, unknown>): AiAssistantAction[] {
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  if (!title) return [];
+  return [{
+    type: "delete_event",
+    title,
+    date: isoDateValue(record.date)
   }];
 }
 

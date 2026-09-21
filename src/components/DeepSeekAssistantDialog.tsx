@@ -1,11 +1,11 @@
 import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Sparkles, Square, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
-import { db, putRecordAndQueue } from "../db";
+import { db } from "../db";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { extractClipboardFiles } from "../lib/clipboardFiles";
-import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantAction, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
-import { recordsFromAiActions, type AiCreatedRecord } from "../lib/aiEventActions";
+import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
+import { actionResultsSummary, applyActionsToLocalRecords } from "../lib/aiActionRunner";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
@@ -118,15 +118,16 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       successMessage: "AI 助手已回答，点击可查看当前对话。",
       run: async () => {
         const result = await askDeepSeekAssistant(trimmed, requestContext, accessCode.trim(), history, effectiveAttachments);
-        const created = await createRecordsFromActions(result.actions ?? [], trimmed, ownerId);
+        const actionResults = await applyActionsToLocalRecords(result.actions ?? [], trimmed, ownerId);
+        const summary = actionResultsSummary(actionResults);
         return {
           access: result.access,
-          created,
-          content: [result.answer, created.length ? createdSummary(created) : ""].filter(Boolean).join("\n"),
+          actionResults,
+          content: [result.answer, summary].filter(Boolean).join("\n"),
           processedAttachments: result.processedAttachments
         };
       },
-      onSuccess: ({ access, created, content, processedAttachments }) => {
+      onSuccess: ({ access, actionResults, content, processedAttachments }) => {
         const next = [...messagesWithQuestion, { id: `a-${Date.now()}`, role: "assistant" as const, content }];
         saveAssistantHistory(ownerId, next);
         setMessages(next);
@@ -136,7 +137,11 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           void saveAttachmentContext(ownerId, nextAttachments);
         }
         if (access === "access-code") setAccessCode("");
-        if (created.length) showToast(createdSummary(created).replace(/\n/g, "；"), "success");
+        const summary = actionResultsSummary(actionResults);
+        if (summary) {
+          const applied = actionResults.created.length + actionResults.updated.length + actionResults.deleted.length;
+          showToast(summary.replace(/\n/g, "；"), applied ? "success" : "error");
+        }
       },
       onError: (error) => {
         const next = [...messagesWithQuestion, {
@@ -479,26 +484,4 @@ function copyTextFallback(content: string) {
   textarea.select();
   document.execCommand("copy");
   textarea.remove();
-}
-
-async function createRecordsFromActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string): Promise<AiCreatedRecord[]> {
-  const created = recordsFromAiActions(actions, sourceText, ownerId);
-  for (const item of created) {
-    await putRecordAndQueue(item.table, item.record);
-  }
-  return created;
-}
-
-function createdSummary(created: AiCreatedRecord[]): string {
-  const labels = {
-    events: "事项",
-    anniversaries: "日子",
-    memos: "备忘录"
-  } as const;
-  return Object.entries(labels).flatMap(([table, label]) => {
-    const titles = created
-      .filter((item) => item.table === table)
-      .map((item) => item.record.title);
-    return titles.length ? [`已创建${label}：${titles.join("、")}`] : [];
-  }).join("\n");
 }

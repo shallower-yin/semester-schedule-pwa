@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { anniversaryFromAiAction, eventItemFromAiAction, memoFromAiAction, recordsFromAiActions, resolveHoliday, resolveHolidays } from "./aiEventActions";
+import { anniversaryFromAiAction, applyEventUpdate, eventItemFromAiAction, matchEventsByTitle, memoFromAiAction, recordsFromAiActions, resolveHoliday, resolveHolidays } from "./aiEventActions";
+import type { EventItem } from "../types";
 
 describe("AI 助手创建动作", () => {
   it("把 AI 返回的定时事项转换为本地事项", () => {
@@ -224,5 +225,137 @@ describe("AI 助手创建动作", () => {
     }], "创建 2026 年春节、端午节和清明节", "user-1");
 
     expect(records.map((item) => item.record.title)).toEqual(["清明节", "春节", "端午节"]);
+  });
+});
+
+describe("AI 助手修改和删除动作", () => {
+  const baseEvent: EventItem = {
+    id: "event-1",
+    user_id: "user-1",
+    event_type: "event",
+    title: "设计与制造基础3课程设计",
+    start_date: "2026-09-21",
+    end_date: "2026-09-21",
+    start_time: "08:00",
+    end_time: "10:00",
+    all_day: false,
+    category_id: null,
+    color: "#e36b32",
+    location: "",
+    note: "",
+    recurrence_type: "none",
+    recurrence_until: null,
+    recurrence_interval: 1,
+    reminder_enabled: true,
+    reminder_minutes_before: 10,
+    timezone: "Asia/Shanghai",
+    completed_at: null,
+    created_at: "2026-09-20T00:00:00.000Z",
+    updated_at: "2026-09-20T00:00:00.000Z",
+    deleted_at: null,
+    version: 1,
+    device_id: "device-1"
+  };
+
+  it("按标题匹配已有事项，并可用日期进一步限定", () => {
+    const other = { ...baseEvent, id: "event-2", start_date: "2026-09-23", end_date: "2026-09-23" };
+    const different = { ...baseEvent, id: "event-3", title: "其他课程" };
+
+    expect(matchEventsByTitle([baseEvent, other, different], "设计与制造基础3课程设计")).toHaveLength(2);
+    expect(matchEventsByTitle([baseEvent, other, different], "设计与制造基础3课程设计", "2026-09-23").map((item) => item.id)).toEqual(["event-2"]);
+    expect(matchEventsByTitle([baseEvent, other, different], "不存在的课程")).toHaveLength(0);
+  });
+
+  it("忽略已删除事项", () => {
+    const removed = { ...baseEvent, id: "event-4", deleted_at: "2026-09-20T00:00:00.000Z" };
+    expect(matchEventsByTitle([baseEvent, removed], "设计与制造基础3课程设计").map((item) => item.id)).toEqual(["event-1"]);
+  });
+
+  it("只修改用户指定的字段，其余保持不变", () => {
+    const updated = applyEventUpdate(baseEvent, {
+      type: "update_event",
+      title: "设计与制造基础3课程设计",
+      startTime: "10:00",
+      endTime: "12:00",
+      reminderMinutesBefore: 15
+    });
+
+    expect(updated).toMatchObject({
+      title: "设计与制造基础3课程设计",
+      start_date: "2026-09-21",
+      start_time: "10:00",
+      end_time: "12:00",
+      reminder_minutes_before: 15,
+      location: ""
+    });
+  });
+
+  it("支持重命名并调整日期、地点和提醒", () => {
+    const updated = applyEventUpdate(baseEvent, {
+      type: "update_event",
+      title: "设计与制造基础3课程设计",
+      newTitle: "设计与制造课程设计",
+      startDate: "2026-09-22",
+      endDate: "2026-09-22",
+      allDay: true,
+      location: "工程训练中心",
+      reminderEnabled: false
+    });
+
+    expect(updated).toMatchObject({
+      title: "设计与制造课程设计",
+      start_date: "2026-09-22",
+      end_date: "2026-09-22",
+      all_day: true,
+      location: "工程训练中心",
+      reminder_enabled: false
+    });
+    expect(updated.start_time).toBeNull();
+    expect(updated.end_time).toBeNull();
+  });
+
+  it("模型未指定的 null 字段不会被当成清空", () => {
+    const updated = applyEventUpdate(baseEvent, {
+      type: "update_event",
+      title: "设计与制造基础3课程设计",
+      startTime: null,
+      endTime: null,
+      startDate: null,
+      allDay: null,
+      location: null,
+      note: null,
+      reminderMinutesBefore: null
+    });
+
+    expect(updated).toMatchObject({
+      start_date: "2026-09-21",
+      start_time: "08:00",
+      end_time: "10:00",
+      all_day: false,
+      location: "",
+      reminder_minutes_before: 10
+    });
+  });
+
+  it("只改开始时间时为定时事项保持可用的结束时间", () => {
+    const updated = applyEventUpdate(baseEvent, {
+      type: "update_event",
+      title: "设计与制造基础3课程设计",
+      startTime: "11:00"
+    });
+
+    expect(updated).toMatchObject({ all_day: false, start_time: "11:00" });
+    expect(updated.end_time && updated.end_time >= "11:00").toBe(true);
+  });
+
+  it("保持结束日期不早于开始日期", () => {
+    const updated = applyEventUpdate(baseEvent, {
+      type: "update_event",
+      title: "设计与制造基础3课程设计",
+      endDate: "2026-09-01"
+    });
+
+    expect(updated.start_date).toBe("2026-09-21");
+    expect(updated.end_date).toBe("2026-09-21");
   });
 });

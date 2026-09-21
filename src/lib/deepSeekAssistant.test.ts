@@ -28,7 +28,7 @@ describe("AI 助手上下文", () => {
     expect(context.appGuide.join(" ")).toContain("常见节日");
     expect(context.appGuide.join(" ")).toContain("普通用户和会员");
     expect(context.appGuide.join(" ")).toContain("重新发送会计入一次额度");
-    expect(context.appGuide.join(" ")).toContain("不能直接修改、删除或完成已有记录");
+    expect(context.appGuide.join(" ")).toContain("可以新增、修改和删除普通事项");
   });
 
   it("本周请求只提供本周实际发生的课程，不暴露全量课程模板", () => {
@@ -68,6 +68,48 @@ describe("AI 助手上下文", () => {
       startDate: "2026-07-20",
       endDate: "2026-07-26"
     });
+  });
+
+  it("修改请求能看到几周之后的事项，便于按标题匹配", () => {
+    const now = new Date(2026, 6, 17);
+    const sync = {
+      user_id: "user-1",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+      deleted_at: null,
+      version: 1,
+      device_id: "device-1"
+    };
+    const farAway = {
+      ...sync,
+      id: "event-far",
+      event_type: "event" as const,
+      title: "设计与制造基础3课程设计",
+      start_date: "2026-09-21",
+      end_date: "2026-09-21",
+      start_time: "08:00",
+      end_time: "10:00",
+      all_day: false,
+      category_id: null,
+      color: "#e36b32",
+      location: "",
+      note: "",
+      recurrence_type: "none" as const,
+      recurrence_until: null,
+      recurrence_interval: 1,
+      reminder_enabled: true,
+      reminder_minutes_before: 15,
+      timezone: "Asia/Shanghai",
+      completed_at: null
+    };
+    const context = buildDeepSeekScheduleContext({
+      ...emptyInput,
+      now,
+      events: [farAway]
+    }, "把设计与制造基础3课程设计的上课时间改成上午十点");
+
+    expect(context.requestedTimeScope).toBeNull();
+    expect(context.recentEvents.map((item) => item.title)).toContain("设计与制造基础3课程设计");
   });
 
   it("识别具体星期和明确日期", () => {

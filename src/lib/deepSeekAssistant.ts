@@ -34,7 +34,7 @@ export interface DeepSeekAssistantQuotaStatus {
   weekly: { used: number | null; limit: number | null; remaining: number | null };
 }
 
-export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction;
+export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction | DeepSeekUpdateEventAction | DeepSeekDeleteEventAction;
 
 export interface DeepSeekCreateEventAction {
   type: "create_event";
@@ -72,6 +72,28 @@ export interface DeepSeekCreateMemoAction {
   isPinned?: boolean;
 }
 
+export interface DeepSeekUpdateEventAction {
+  type: "update_event";
+  title: string;
+  date?: string | null;
+  newTitle?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  allDay?: boolean | null;
+  location?: string | null;
+  note?: string | null;
+  reminderEnabled?: boolean | null;
+  reminderMinutesBefore?: number | null;
+}
+
+export interface DeepSeekDeleteEventAction {
+  type: "delete_event";
+  title: string;
+  date?: string | null;
+}
+
 export interface DeepSeekAssistantHistoryMessage {
   role: "user" | "assistant";
   content: string;
@@ -90,6 +112,11 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, ques
   const requestedTimeScope = resolveAiRequestedTimeScope(question, beijingToday);
   const calendarFrom = requestedTimeScope ? parseLocalDate(requestedTimeScope.startDate) : addDays(beijingToday, -7);
   const calendarTo = requestedTimeScope ? parseLocalDate(requestedTimeScope.endDate) : addDays(beijingToday, 14);
+  // Editing/deleting needs to find records beyond the immediate calendar window
+  // (for example a course series created several weeks out), so it uses a wider
+  // list than the day-by-day calendar used for "what's on this week" questions.
+  const editableFrom = toISODate(addDays(beijingToday, -30));
+  const editableTo = toISODate(addDays(beijingToday, 150));
   const semester = input.semester;
   const courseMap = new Map(input.courses.filter((course) => !course.deleted_at).map((course) => [course.id, course]));
   const categoryMap = new Map(input.categories.filter((category) => !category.deleted_at).map((category) => [category.id, category]));
@@ -146,7 +173,7 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, ques
       "AI 助手可以查询日程、检查冲突、查未完成、汇总专注，也可以回答本工具怎么使用。",
       "可以创建普通事项、习惯、纪念日、生日、节日和备忘录。",
       "AI 思维导图使用当前管理员选择的 AI 模型，把主题、图片或文档整理成可缩放和导出的树形脑图，每次成功生成会计入一次 AI 额度。",
-      "AI 助手不能直接修改、删除或完成已有记录，也不能更改账号、权限、额度或系统设置。",
+      "AI 助手可以新增、修改和删除普通事项、习惯、纪念日、生日、节日和备忘录；不能更改账号、权限、额度或系统设置。",
       "日程助手只在本机按规则查询，不需要 AI 权限且不消耗 AI 额度；AI 助手是云端智能问答，每次成功请求会计入额度。",
       "普通用户和会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验。",
       "编辑已发送的用户消息会从该轮重新生成并截断后续旧对话，重新发送会计入一次额度。",
@@ -179,7 +206,7 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, ques
       }))
     })),
     calendarDays,
-    recentEvents: requestedTimeScope ? [] : input.events.filter((eventItem) => !eventItem.deleted_at && eventItem.end_date >= toISODate(calendarFrom) && eventItem.start_date <= toISODate(calendarTo)).slice(0, 120).map((eventItem) => ({
+    recentEvents: requestedTimeScope ? [] : input.events.filter((eventItem) => !eventItem.deleted_at && eventItem.end_date >= editableFrom && eventItem.start_date <= editableTo).slice(0, 200).map((eventItem) => ({
       title: eventItem.title,
       type: eventItem.event_type,
       startDate: eventItem.start_date,

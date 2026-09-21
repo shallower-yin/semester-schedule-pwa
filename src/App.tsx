@@ -109,7 +109,7 @@ import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
 import { AI_TASK_OPEN_EVENT, type AiTaskFeature } from "./lib/aiBackgroundTasks";
-import { appHistoryLayer, appHistoryPage, initializeAppHistory, navigateAppHistory } from "./lib/appHistory";
+import { appHistoryLayer, appHistoryPage, initializeAppHistory, isAppHistoryUnwinding, navigateAppHistory } from "./lib/appHistory";
 import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { appMirrorApkUrl } from "./lib/appHosting";
@@ -260,6 +260,10 @@ export default function App() {
   useEffect(() => {
     initializeAppHistory(pageRef.current);
     const handlePageHistory = (event: PopStateEvent) => {
+      // A dialog closing removes its own history entry with a programmatic
+      // back navigation. Following that entry here would silently jump the
+      // page, so ignore unwinds the app started itself.
+      if (isAppHistoryUnwinding()) return;
       const targetPage = appHistoryPage(event.state);
       if (!targetPage) return;
       pageRef.current = targetPage;
@@ -278,6 +282,7 @@ export default function App() {
       if (feature === "audio_transcription") setShowAudioTranscription(true);
     };
     const consumeFeatureFromUrl = () => {
+      if (isAppHistoryUnwinding()) return;
       const url = new URL(window.location.href);
       const feature = url.searchParams.get("ai");
       if (feature !== "assistant" && feature !== "translation" && feature !== "mind_map" && feature !== "audio_transcription") return;
@@ -633,6 +638,7 @@ export default function App() {
 
   useEffect(() => {
     const consumeNotificationFromUrl = () => {
+      if (isAppHistoryUnwinding()) return;
       const url = new URL(window.location.href);
       const key = url.searchParams.get("notification")?.trim();
       if (!key) return;
@@ -1754,20 +1760,22 @@ export default function App() {
           courseAvailable={Boolean(semester)}
           onAddCourse={() => {
             setShowAddSchedule(false);
-            if (semester) setCourseToEdit(null);
-            else setSemesterToEdit(null);
+            setTimeout(() => {
+              if (semester) setCourseToEdit(null);
+              else setSemesterToEdit(null);
+            }, 80);
           }}
           onAddEvent={() => {
             setShowAddSchedule(false);
-            openNewEvent(toISODate(dates[selectedDay]), "09:00", "10:00");
+            setTimeout(() => openNewEvent(toISODate(dates[selectedDay]), "09:00", "10:00"), 80);
           }}
           onAddHabit={() => {
             setShowAddSchedule(false);
-            openNewEvent(toISODate(dates[selectedDay]), "09:00", "09:10", false, "habit");
+            setTimeout(() => openNewEvent(toISODate(dates[selectedDay]), "09:00", "09:10", false, "habit"), 80);
           }}
           onQuickEntry={() => {
             setShowAddSchedule(false);
-            setShowQuickEntry(true);
+            setTimeout(() => setShowQuickEntry(true), 80);
           }}
           onClose={() => setShowAddSchedule(false)}
         />
@@ -1778,11 +1786,13 @@ export default function App() {
           schedules={schedules}
           onAdd={() => {
             setShowCourseManager(false);
-            setCourseToEdit(null);
+            // Delay to let CourseManagerDialog Modal cleanup finish before CourseDialog mounts
+            setTimeout(() => setCourseToEdit(null), 80);
           }}
           onEdit={(course) => {
             setShowCourseManager(false);
-            setCourseToEdit(course);
+            // Delay to let CourseManagerDialog Modal cleanup finish before CourseDialog mounts
+            setTimeout(() => setCourseToEdit(course), 80);
           }}
           onClose={() => setShowCourseManager(false)}
         />

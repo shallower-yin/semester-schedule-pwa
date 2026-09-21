@@ -32,6 +32,30 @@ describe("弹窗返回历史", () => {
     expect(back).toHaveBeenCalledTimes(1);
   });
 
+  it("弹窗自己触发的返回不会关掉紧接着打开的弹窗", async () => {
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
+    back.mockClear();
+    const first = render(<Modal title="课程管理" onClose={() => undefined}>第一个弹窗</Modal>);
+    await waitFor(() => expect(appHistoryLayer(window.history.state)).toMatch(/^modal-/));
+
+    // Closing 课程管理 removes its own history entry, which fires popstate.
+    first.unmount();
+    expect(back).toHaveBeenCalledTimes(1);
+
+    const onCloseSecond = vi.fn();
+    const second = render(<Modal title="新增课程" onClose={onCloseSecond}>第二个弹窗</Modal>);
+    await waitFor(() => expect(appHistoryLayer(window.history.state)).toMatch(/^modal-/));
+
+    // The stray popstate from the first dialog's unwind must not read as "back".
+    const state = { __semesterSchedule: { page: "today" } };
+    window.history.replaceState(state, "");
+    window.dispatchEvent(new PopStateEvent("popstate", { state }));
+
+    expect(onCloseSecond).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "新增课程" })).toBeInTheDocument();
+    second.unmount();
+  });
+
   it("挂载到 body、锁住页面滚动并在关闭后恢复焦点", async () => {
     const before = document.createElement("button");
     before.textContent = "打开前";
