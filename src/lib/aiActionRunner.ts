@@ -1,10 +1,14 @@
 import { db, putRecordAndQueue } from "../db";
 import type { DeepSeekAssistantAction } from "./deepSeekAssistant";
 import {
+  applyAnniversaryUpdate,
   applyEventUpdate,
+  inferAnniversaryUpdateAction,
+  matchAnniversariesByAction,
   matchEventsByTitle,
   recordsFromAiActions,
   type AiActionResults,
+  type AiUpdatedAnniversaryRecord,
   type AiUnmatchedAction,
   type AiUpdatedRecord
 } from "./aiEventActions";
@@ -15,27 +19,33 @@ import type { EventItem } from "../types";
 /**
  * Apply every AI action to local storage and the sync queue.
  *
- * Creates go through the existing `recordsFromAiActions` converter; updates and
- * deletes match existing events by title (optionally narrowed by date) so the
- * assistant can correct or remove records it previously created instead of
- * stacking duplicates.
+ * Creates go through the existing `recordsFromAiActions` converter. Updates
+ * match existing events or anniversaries so the assistant can correct records
+ * it previously created instead of stacking duplicates.
  */
 export async function applyActionsToLocalRecords(
   actions: DeepSeekAssistantAction[],
   sourceText: string,
   ownerId: string
 ): Promise<AiActionResults> {
-  const createActions = actions.filter((action) =>
+  const inferredAnniversaryUpdate = actions.some((action) => action.type === "update_anniversary")
+    ? null
+    : inferAnniversaryUpdateAction(sourceText);
+  const effectiveActions = inferredAnniversaryUpdate ? [...actions, inferredAnniversaryUpdate] : actions;
+  const createActions = effectiveActions.filter((action) =>
     action.type === "create_event" || action.type === "create_anniversary" || action.type === "create_memo"
   );
-  const updateActions = actions.filter(
+  const updateActions = effectiveActions.filter(
     (action): action is Extract<DeepSeekAssistantAction, { type: "update_event" }> => action.type === "update_event"
   );
-  const deleteActions = actions.filter(
+  const updateAnniversaryActions = effectiveActions.filter(
+    (action): action is Extract<DeepSeekAssistantAction, { type: "update_anniversary" }> => action.type === "update_anniversary"
+  );
+  const deleteActions = effectiveActions.filter(
     (action): action is Extract<DeepSeekAssistantAction, { type: "delete_event" }> => action.type === "delete_event"
   );
   const created = recordsFromAiActions(createActions, sourceText, ownerId);
-  const updated: AiUpdatedRecord[] = [];
+  const updated: Array<AiUpdatedRecord | AiUpdatedAnniversaryRecord> = [];
   const deleted: EventItem[] = [];
   const unmatched: AiUnmatchedAction[] = [];
   if (updateActions.length || deleteActions.length) {
@@ -64,6 +74,22 @@ export async function applyActionsToLocalRecords(
     if (deleteIds.length) await hardDeleteEventsCascade(deleteIds);
     if (updated.length || deleted.length) await refreshNativeReminderSchedule(ownerId);
   }
+  if (updateAnniversaryActions.length) {
+    const existing = await db.anniversaries.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray();
+    let updatedAnniversaryCount = 0;
+    for (const action of updateAnniversaryActions) {
+      const matches = matchAnniversariesByAction(existing, action);
+      if (!matches.length) unmatched.push({ action: "update", title: action.title ?? action.scope ?? "纪念日" });
+      for (const original of matches) {
+        if (updated.some((item) => !("event_type" in item.original) && item.original.id === original.id)) continue;
+        const next = applyAnniversaryUpdate(original, action);
+        await putRecordAndQueue("anniversaries", next);
+        updated.push({ original, updated: next });
+        updatedAnniversaryCount += 1;
+      }
+    }
+    if (updatedAnniversaryCount) await refreshNativeReminderSchedule(ownerId);
+  }
   for (const item of created) {
     await putRecordAndQueue(item.table, item.record);
   }
@@ -84,8 +110,10 @@ export function actionResultsSummary(results: AiActionResults): string {
     if (!titles.length) continue;
     lines.push("已创建" + label + "：" + mergedTitles(titles));
   }
-  const updatedTitles = results.updated.map((item) => item.updated.title);
-  if (updatedTitles.length) lines.push("已修改事项：" + mergedTitles(updatedTitles));
+  const updatedEventTitles = results.updated.filter((item): item is AiUpdatedRecord => "event_type" in item.updated).map((item) => item.updated.title);
+  const updatedAnniversaryTitles = results.updated.filter((item): item is AiUpdatedAnniversaryRecord => !("event_type" in item.updated)).map((item) => item.updated.title);
+  if (updatedEventTitles.length) lines.push("已修改事项：" + mergedTitles(updatedEventTitles));
+  if (updatedAnniversaryTitles.length) lines.push("已修改日子：" + mergedTitles(updatedAnniversaryTitles));
   const deletedTitles = results.deleted.map((item) => item.title);
   if (deletedTitles.length) lines.push("已删除事项：" + mergedTitles(deletedTitles));
   const missingUpdates = results.unmatched.filter((item) => item.action === "update").map((item) => item.title);

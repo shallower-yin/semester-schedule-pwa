@@ -1,6 +1,7 @@
 import { syncFields } from "./identity";
-import type { DeepSeekAssistantAction } from "./deepSeekAssistant";
-import type { Anniversary, AnniversaryKind, EventItem, EventRecurrenceType, Memo } from "../types";
+import type { AnniversaryUpdateScope, DeepSeekAssistantAction } from "./deepSeekAssistant";
+import type { Anniversary, AnniversaryCalendarType, AnniversaryKind, EventItem, EventRecurrenceType, Memo } from "../types";
+import { gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, LUNAR_MONTHS } from "./lunarCalendar";
 
 export type AiCreatedRecord =
   | { table: "events"; record: EventItem }
@@ -8,6 +9,7 @@ export type AiCreatedRecord =
   | { table: "memos"; record: Memo };
 
 export type AiUpdatedRecord = { original: EventItem; updated: EventItem };
+export type AiUpdatedAnniversaryRecord = { original: Anniversary; updated: Anniversary };
 
 export interface AiUnmatchedAction {
   action: "update" | "delete";
@@ -16,9 +18,19 @@ export interface AiUnmatchedAction {
 
 export interface AiActionResults {
   created: AiCreatedRecord[];
-  updated: AiUpdatedRecord[];
+  updated: Array<AiUpdatedRecord | AiUpdatedAnniversaryRecord>;
   deleted: EventItem[];
   unmatched: AiUnmatchedAction[];
+}
+
+export function inferAnniversaryUpdateAction(sourceText: string): Extract<DeepSeekAssistantAction, { type: "update_anniversary" }> | null {
+  const normalized = sourceText.replace(/\s+/g, "");
+  const requestsUpdate = /(改成|改为|转换成|转换为|调整为|设为)/.test(normalized);
+  const requestsAll = /(全部|所有|批量)/.test(normalized);
+  if (requestsUpdate && requestsAll && /(农历节日|传统节日)/.test(normalized) && /农历/.test(normalized)) {
+    return { type: "update_anniversary", scope: "all_lunar_holidays", calendarType: "lunar" };
+  }
+  return null;
 }
 
 /**
@@ -85,6 +97,69 @@ export function applyEventUpdate(original: EventItem, action: Extract<DeepSeekAs
   return next;
 }
 
+export function matchAnniversariesByAction(
+  anniversaries: Anniversary[],
+  action: Extract<DeepSeekAssistantAction, { type: "update_anniversary" }>
+): Anniversary[] {
+  const candidates = anniversaries.filter((item) => !item.deleted_at && (!action.kind || item.kind === action.kind));
+  if (action.scope === "all_lunar_holidays") {
+    return candidates.filter((item) => item.kind === "holiday" && item.calendar_type !== "lunar" && Boolean(knownLunarHoliday(item.title)));
+  }
+  if (action.scope === "all_holidays") return candidates.filter((item) => item.kind === "holiday");
+  const target = normalizeEventTitle(action.title ?? "");
+  if (!target) return [];
+  const exact = candidates.filter((item) => normalizeEventTitle(item.title) === target);
+  if (exact.length) return exact;
+  const partial = candidates.filter((item) => {
+    const candidate = normalizeEventTitle(item.title);
+    return Boolean(candidate) && (candidate.includes(target) || target.includes(candidate));
+  });
+  const distinctTitles = new Set(partial.map((item) => normalizeEventTitle(item.title)));
+  return distinctTitles.size === 1 ? partial : [];
+}
+
+export function applyAnniversaryUpdate(
+  original: Anniversary,
+  action: Extract<DeepSeekAssistantAction, { type: "update_anniversary" }>
+): Anniversary {
+  const next: Anniversary = { ...original };
+  if (action.newTitle?.trim()) next.title = action.newTitle.trim();
+  if (typeof action.reminderEnabled === "boolean") next.reminder_enabled = action.reminderEnabled;
+  if (typeof action.reminderDaysBefore === "number") next.reminder_days_before = clampNumber(action.reminderDaysBefore, 0, 365, next.reminder_days_before);
+  if (typeof action.reminderTime === "string") next.reminder_time = normalizeTime(action.reminderTime) ?? next.reminder_time;
+  if (action.calendarType === "solar") {
+    const date = action.date && isISODate(action.date) ? action.date : next.date;
+    next.calendar_type = "solar";
+    next.date = date;
+    next.lunar_year = null;
+    next.lunar_month = null;
+    next.lunar_day = null;
+    next.lunar_is_leap_month = false;
+    next.lunar_occurrence_dates = [];
+    if (next.date !== original.date || next.calendar_type !== original.calendar_type || next.lunar_year !== original.lunar_year || next.lunar_month !== original.lunar_month || next.lunar_day !== original.lunar_day || next.lunar_is_leap_month !== original.lunar_is_leap_month) next.reminder_sent_for = null;
+    return next;
+  }
+  if (action.calendarType === "lunar" || action.scope === "all_lunar_holidays") {
+    const known = knownLunarHoliday(next.title);
+    const lunarYear = action.lunarYear ?? next.lunar_year ?? inferLunarYear(next);
+    const lunarMonth = action.lunarMonth ?? next.lunar_month ?? known?.month ?? null;
+    const lunarDay = action.lunarDay ?? next.lunar_day ?? known?.day ?? null;
+    if (!lunarYear || !lunarMonth || !lunarDay) return next;
+    const isLeapMonth = action.lunarIsLeapMonth ?? Boolean(next.lunar_is_leap_month);
+    const date = gregorianDateForLunarDate(lunarYear, lunarMonth, lunarDay, isLeapMonth);
+    if (!date) return next;
+    next.calendar_type = "lunar";
+    next.date = date;
+    next.lunar_year = lunarYear;
+    next.lunar_month = lunarMonth;
+    next.lunar_day = lunarDay;
+    next.lunar_is_leap_month = isLeapMonth;
+    next.lunar_occurrence_dates = lunarOccurrenceDates(lunarYear, lunarMonth, lunarDay, isLeapMonth);
+  }
+  if (next.date !== original.date || next.calendar_type !== original.calendar_type || next.lunar_year !== original.lunar_year || next.lunar_month !== original.lunar_month || next.lunar_day !== original.lunar_day || next.lunar_is_leap_month !== original.lunar_is_leap_month) next.reminder_sent_for = null;
+  return next;
+}
+
 export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceText: string, ownerId: string, now?: Date): EventItem | null {
   if (action.type !== "create_event") return null;
   const title = action.title.trim();
@@ -136,7 +211,29 @@ export function anniversaryFromAiAction(action: DeepSeekAssistantAction, sourceT
   if (action.type !== "create_anniversary") return null;
   const title = action.title.trim();
   const resolvedHoliday = resolveHoliday(title || sourceText, now);
-  const date = action.date && isISODate(action.date) ? action.date : resolvedHoliday?.date;
+  const lunar = resolvedHoliday?.calendarType === "lunar"
+    ? resolvedHoliday
+    : resolveLunarDateFromText(sourceText, now);
+  const actionLunar = action.calendarType === "lunar" && action.lunarYear && action.lunarMonth && action.lunarDay
+    ? {
+      lunarYear: action.lunarYear,
+      lunarMonth: action.lunarMonth,
+      lunarDay: action.lunarDay,
+      lunarIsLeapMonth: Boolean(action.lunarIsLeapMonth)
+    }
+    : null;
+  const lunarFields = lunar ?? actionLunar;
+  const calendarType: AnniversaryCalendarType = lunarFields ? "lunar" : "solar";
+  const lunarYear = lunarFields?.lunarYear ?? null;
+  const lunarMonth = lunarFields?.lunarMonth ?? null;
+  const lunarDay = lunarFields?.lunarDay ?? null;
+  const lunarIsLeapMonth = lunarFields?.lunarIsLeapMonth ?? false;
+  const lunarDate = lunarYear && lunarMonth && lunarDay
+    ? gregorianDateForLunarDate(lunarYear, lunarMonth, lunarDay, lunarIsLeapMonth)
+    : null;
+  const date = calendarType === "lunar"
+    ? lunarDate
+    : action.date && isISODate(action.date) ? action.date : resolvedHoliday?.date;
   if (!title || !date) return null;
   const kind = normalizeAnniversaryKind(action.kind) ?? resolvedHoliday?.kind ?? "anniversary";
   return {
@@ -144,6 +241,14 @@ export function anniversaryFromAiAction(action: DeepSeekAssistantAction, sourceT
     kind,
     title: resolvedHoliday?.title && isHolidayText(title) ? resolvedHoliday.title : title,
     date,
+    calendar_type: calendarType,
+    lunar_year: calendarType === "lunar" ? lunarYear : null,
+    lunar_month: calendarType === "lunar" ? lunarMonth : null,
+    lunar_day: calendarType === "lunar" ? lunarDay : null,
+    lunar_is_leap_month: calendarType === "lunar" && lunarIsLeapMonth,
+    lunar_occurrence_dates: calendarType === "lunar"
+      ? lunarOccurrenceDates(lunarYear!, lunarMonth!, lunarDay!, lunarIsLeapMonth)
+      : [],
     color: anniversaryColor(kind),
     note: conciseAiNote(action.note),
     reminder_enabled: Boolean(action.reminderEnabled),
@@ -203,6 +308,11 @@ function expandHolidayActions(actions: DeepSeekAssistantAction[], sourceText: st
       title: holiday.title,
       kind: holiday.kind,
       date: holiday.date,
+      calendarType: holiday.calendarType,
+      lunarYear: holiday.lunarYear,
+      lunarMonth: holiday.lunarMonth,
+      lunarDay: holiday.lunarDay,
+      lunarIsLeapMonth: holiday.lunarIsLeapMonth,
       reminderEnabled: false,
       reminderDaysBefore: 0,
       reminderTime: "09:00"
@@ -280,8 +390,13 @@ function anniversaryColor(kind: AnniversaryKind): string {
 
 interface ResolvedHoliday {
   title: string;
-  kind: "holiday";
+  kind: AnniversaryKind;
   date: string;
+  calendarType: AnniversaryCalendarType;
+  lunarYear?: number;
+  lunarMonth?: number;
+  lunarDay?: number;
+  lunarIsLeapMonth?: boolean;
 }
 
 const SOLAR_HOLIDAYS: Array<{ names: string[]; title: string; month: number; day: number }> = [
@@ -309,6 +424,23 @@ const LUNAR_HOLIDAYS: Array<{ names: string[]; title: string; month: string; day
   { names: ["腊八节", "腊八"], title: "腊八节", month: "腊月", day: 8 }
 ];
 
+export function knownLunarHoliday(title: string): { month: number; day: number } | null {
+  const normalized = title.replace(/\s+/g, "");
+  const holiday = LUNAR_HOLIDAYS.find((item) => item.names.some((name) => normalized.includes(name)));
+  if (!holiday) return null;
+  return {
+    month: LUNAR_MONTHS.indexOf(holiday.month as typeof LUNAR_MONTHS[number]) + 1,
+    day: holiday.day
+  };
+}
+
+function inferLunarYear(anniversary: Anniversary): number {
+  const [year, month] = anniversary.date.split("-").map(Number);
+  // Lunar twelfth-month dates often occur in January/February of the next
+  // Gregorian year (除夕/腊八 are the common examples).
+  return knownLunarHoliday(anniversary.title)?.month === 12 && month <= 2 ? year - 1 : year;
+}
+
 const WEEKDAY_HOLIDAYS: Array<{ names: string[]; title: string; month: number; weekday: number; nth: number }> = [
   { names: ["母亲节", "母亲"], title: "母亲节", month: 5, weekday: 0, nth: 2 },
   { names: ["父亲节", "父亲"], title: "父亲节", month: 6, weekday: 0, nth: 3 }
@@ -324,12 +456,12 @@ export function resolveHolidays(text: string, now = new Date()): ResolvedHoliday
   const holidays: ResolvedHoliday[] = [];
   for (const solar of SOLAR_HOLIDAYS) {
     if (solar.names.some((name) => normalized.includes(name))) {
-      holidays.push({ title: solar.title, kind: "holiday", date: formatDate(year, solar.month, solar.day) });
+      holidays.push({ title: solar.title, kind: "holiday", date: formatDate(year, solar.month, solar.day), calendarType: "solar" });
     }
   }
 
   if (/清明节|清明/.test(normalized)) {
-    holidays.push({ title: "清明节", kind: "holiday", date: formatDate(year, 4, qingmingDay(year)) });
+    holidays.push({ title: "清明节", kind: "holiday", date: formatDate(year, 4, qingmingDay(year)), calendarType: "solar" });
   }
 
   if (/(除夕|大年三十)/.test(normalized)) {
@@ -337,14 +469,17 @@ export function resolveHolidays(text: string, now = new Date()): ResolvedHoliday
     if (spring) {
       const date = new Date(`${spring}T00:00:00+08:00`);
       date.setDate(date.getDate() - 1);
-      holidays.push({ title: "除夕", kind: "holiday", date: toISODateInBeijing(date) });
+      const occurrenceDate = toISODateInBeijing(date);
+      const lunarParts = lunarDateParts(new Date(`${occurrenceDate}T12:00:00+08:00`));
+      holidays.push({ title: "除夕", kind: "holiday", date: occurrenceDate, calendarType: "lunar", lunarYear: lunarParts.relatedYear, lunarMonth: lunarParts.month, lunarDay: lunarParts.day, lunarIsLeapMonth: lunarParts.isLeapMonth });
     }
   }
 
   for (const lunar of LUNAR_HOLIDAYS) {
     if (!lunar.names.some((name) => normalized.includes(name))) continue;
-    const date = lunarDateInGregorianYear(year, lunar.month, lunar.day);
-    if (date) holidays.push({ title: lunar.title, kind: "holiday", date });
+    const lunarMonth = LUNAR_MONTHS.indexOf(lunar.month as typeof LUNAR_MONTHS[number]) + 1;
+    const date = gregorianDateForLunarDate(year, lunarMonth, lunar.day);
+    if (date) holidays.push({ title: lunar.title, kind: "holiday", date, calendarType: "lunar", lunarYear: year, lunarMonth, lunarDay: lunar.day });
   }
 
   for (const holiday of WEEKDAY_HOLIDAYS) {
@@ -352,7 +487,8 @@ export function resolveHolidays(text: string, now = new Date()): ResolvedHoliday
     holidays.push({
       title: holiday.title,
       kind: "holiday",
-      date: nthWeekdayOfMonth(year, holiday.month, holiday.weekday, holiday.nth)
+      date: nthWeekdayOfMonth(year, holiday.month, holiday.weekday, holiday.nth),
+      calendarType: "solar"
     });
   }
 
@@ -392,6 +528,36 @@ function uniqueHolidays(holidays: ResolvedHoliday[]): ResolvedHoliday[] {
     seen.add(key);
     return true;
   });
+}
+
+function resolveLunarDateFromText(text: string, now: Date): ResolvedHoliday | null {
+  const normalized = text.replace(/\s+/g, "");
+  if (!/(农历|阴历|旧历)/.test(normalized)) return null;
+  const year = extractYear(normalized, now);
+  const monthMatch = /(闰)?(正|一|二|三|四|五|六|七|八|九|十|冬|腊|1[0-2]|[1-9])月/.exec(normalized);
+  if (!monthMatch) return null;
+  const monthText = monthMatch[0];
+  const monthStart = monthMatch.index ?? 0;
+  const dayMatch = /(初一|初二|初三|初四|初五|初六|初七|初八|初九|初十|十一|十二|十三|十四|十五|十六|十七|十八|十九|二十|廿一|廿二|廿三|廿四|廿五|廿六|廿七|廿八|廿九|三十|[一二三四五六七八九十廿]{1,3}|\d{1,2})日?/.exec(normalized.slice(monthStart + monthText.length));
+  if (!dayMatch) return null;
+  const dayText = dayMatch[1];
+  const month = /^\d+$/.test(monthMatch[2]) ? Number(monthMatch[2]) : { 正: 1, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 冬: 11, 腊: 12 }[monthMatch[2]];
+  const numericDay = /^\d+$/.test(dayText) ? Number(dayText) : null;
+  const parsedDay = numericDay ?? (dayText === "三十" ? 30 : dayText === "二十" ? 20 : dayText.startsWith("廿") ? 20 + chineseNumber(dayText.slice(1)) : dayText.startsWith("十") ? (dayText === "十" ? 10 : 10 + chineseNumber(dayText.slice(1))) : dayText.startsWith("初") ? chineseNumber(dayText.slice(1)) : chineseNumber(dayText));
+  const day = parsedDay;
+  if (!month || !Number.isInteger(day) || day < 1 || day > 30) return null;
+  const date = gregorianDateForLunarDate(year, month, day, Boolean(monthMatch[1]));
+  if (!date) return null;
+  return { title: "农历日子", kind: "anniversary", date, calendarType: "lunar", lunarYear: year, lunarMonth: month, lunarDay: day, lunarIsLeapMonth: Boolean(monthMatch[1]) };
+}
+
+function chineseNumber(value: string): number {
+  const map: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (value.length === 1) return map[value] ?? 0;
+  if (value === "十") return 10;
+  if (value.startsWith("十")) return 10 + (map[value.slice(1)] ?? 0);
+  if (value.startsWith("二十")) return 20 + (map[value.slice(2)] ?? 0);
+  return 0;
 }
 
 function lunarDateInGregorianYear(year: number, monthName: string, day: number): string | null {

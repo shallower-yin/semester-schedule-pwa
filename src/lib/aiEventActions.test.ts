@@ -170,7 +170,7 @@ describe("AI 助手创建动作", () => {
 
   it("自动解析常见农历节日并创建节日", () => {
     const holiday = resolveHoliday("创建 2026 年端午节");
-    expect(holiday).toEqual({
+    expect(holiday).toMatchObject({
       title: "端午节",
       kind: "holiday",
       date: "2026-06-19"
@@ -200,15 +200,19 @@ describe("AI 助手创建动作", () => {
   });
 
   it("支持省略节字的清明、除夕和按星期计算的节日", () => {
-    expect(resolveHoliday("创建 2026 年清明")).toEqual({
+    expect(resolveHoliday("创建 2026 年清明")).toMatchObject({
       title: "清明节",
       kind: "holiday",
       date: "2026-04-05"
     });
-    expect(resolveHoliday("创建 2026 年除夕")).toEqual({
+    expect(resolveHoliday("创建 2026 年除夕")).toMatchObject({
       title: "除夕",
       kind: "holiday",
-      date: "2026-02-16"
+      date: "2026-02-16",
+      calendarType: "lunar",
+      lunarYear: 2025,
+      lunarMonth: 12,
+      lunarDay: 29
     });
     expect(resolveHolidays("创建 2026 年母亲节和父亲节").map((item) => `${item.title}:${item.date}`)).toEqual([
       "母亲节:2026-05-10",
@@ -225,6 +229,43 @@ describe("AI 助手创建动作", () => {
     }], "创建 2026 年春节、端午节和清明节", "user-1");
 
     expect(records.map((item) => item.record.title)).toEqual(["清明节", "春节", "端午节"]);
+  });
+
+  it("即使模型误把中秋写成公历 8 月 15 日，也按农历保存", () => {
+    const records = recordsFromAiActions([{
+      type: "create_anniversary",
+      title: "中秋节",
+      kind: "holiday",
+      date: "2026-08-15"
+    }], "创建中秋节", "user-1", new Date("2026-07-09T08:00:00+08:00"));
+
+    expect(records[0].record).toMatchObject({
+      title: "中秋节",
+      calendar_type: "lunar",
+      lunar_year: 2026,
+      lunar_month: 8,
+      lunar_day: 15,
+      date: "2026-09-25"
+    });
+  });
+
+  it("能从明确的农历数字日期创建日子", () => {
+    const records = recordsFromAiActions([{
+      type: "create_anniversary",
+      title: "妈妈生日",
+      kind: "birthday",
+      calendarType: "lunar",
+      lunarYear: 2026,
+      lunarMonth: 8,
+      lunarDay: 15
+    }], "创建 2026 年农历 8 月 15 日妈妈生日", "user-1");
+    expect(records[0]?.record).toMatchObject({
+      calendar_type: "lunar",
+      lunar_year: 2026,
+      lunar_month: 8,
+      lunar_day: 15,
+      date: "2026-09-25"
+    });
   });
 });
 

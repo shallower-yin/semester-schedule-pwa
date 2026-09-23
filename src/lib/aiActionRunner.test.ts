@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db";
 import { setCurrentUserId } from "./identity";
 import { actionResultsSummary, applyActionsToLocalRecords } from "./aiActionRunner";
-import type { EventItem, SyncFields } from "../types";
+import type { Anniversary, AnniversaryKind, EventItem, SyncFields } from "../types";
 
 const userId = "33333333-3333-4333-8333-333333333333";
 const createdAt = "2026-09-20T00:00:00.000Z";
@@ -43,11 +43,28 @@ function event(id: string, startDate: string, owner = userId): EventItem {
   };
 }
 
+function anniversary(id: string, title: string, kind: AnniversaryKind = "holiday", owner = userId): Anniversary {
+  return {
+    ...fields(id, owner),
+    kind,
+    title,
+    date: "2026-08-15",
+    color: "#059669",
+    note: "",
+    reminder_enabled: false,
+    reminder_days_before: 0,
+    reminder_time: "09:00",
+    reminder_sent_for: null,
+    timezone: "Asia/Shanghai"
+  };
+}
+
 describe("AI 动作执行器", () => {
   beforeEach(async () => {
     localStorage.clear();
     setCurrentUserId(userId);
     await db.events.clear();
+    await db.anniversaries.clear();
     await db.eventOccurrenceStates.clear();
     await db.focusSessions.clear();
     await db.syncQueue.clear();
@@ -179,6 +196,53 @@ describe("AI 动作执行器", () => {
     expect(ambiguous.deleted).toHaveLength(0);
     expect(ambiguous.unmatched).toEqual([{ action: "delete", title: "高等数学" }]);
     expect(await db.events.count()).toBe(2);
+  });
+
+  it("可让 AI 把已有农历节日批量从固定公历转换为农历", async () => {
+    await db.anniversaries.bulkPut([
+      anniversary("mid-autumn", "中秋节"),
+      anniversary("dragon-boat", "端午节"),
+      anniversary("national-day", "国庆节"),
+      anniversary("birthday", "妈妈生日", "birthday")
+    ]);
+
+    // Even if the model only answers in prose, this unambiguous bulk command
+    // is recovered locally instead of silently doing nothing.
+    const results = await applyActionsToLocalRecords([], "把农历节日全部从公历改成农历", userId);
+
+    expect(results.updated.map((item) => item.updated.title).sort()).toEqual(["中秋节", "端午节"]);
+    expect(await db.anniversaries.get("mid-autumn")).toMatchObject({
+      calendar_type: "lunar",
+      lunar_year: 2026,
+      lunar_month: 8,
+      lunar_day: 15,
+      date: "2026-09-25"
+    });
+    expect(await db.anniversaries.get("dragon-boat")).toMatchObject({ calendar_type: "lunar", lunar_month: 5, lunar_day: 5 });
+    expect((await db.anniversaries.get("national-day"))?.calendar_type).toBeUndefined();
+    expect((await db.anniversaries.get("birthday"))?.calendar_type).toBeUndefined();
+  });
+
+  it("按标题修改农历生日，不依赖内置节日名称", async () => {
+    await db.anniversaries.put(anniversary("birthday", "妈妈生日", "birthday"));
+
+    const results = await applyActionsToLocalRecords([{
+      type: "update_anniversary",
+      scope: "title",
+      title: "妈妈生日",
+      calendarType: "lunar",
+      lunarYear: 2026,
+      lunarMonth: 8,
+      lunarDay: 15
+    }], "把妈妈生日改成农历八月十五", userId);
+
+    expect(results.updated).toHaveLength(1);
+    expect(await db.anniversaries.get("birthday")).toMatchObject({
+      calendar_type: "lunar",
+      lunar_month: 8,
+      lunar_day: 15,
+      date: "2026-09-25"
+    });
   });
 });
 

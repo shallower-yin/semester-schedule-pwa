@@ -92,11 +92,19 @@ export interface EventOccurrenceState extends SyncFields {
 }
 
 export type AnniversaryKind = "anniversary" | "birthday" | "holiday";
+export type AnniversaryCalendarType = "solar" | "lunar";
 
 export interface Anniversary extends SyncFields {
   kind: AnniversaryKind;
   title: string;
   date: ISODate;
+  /** New records persist the source calendar; old records default to solar. */
+  calendar_type?: AnniversaryCalendarType;
+  lunar_year?: number | null;
+  lunar_month?: number | null;
+  lunar_day?: number | null;
+  lunar_is_leap_month?: boolean;
+  lunar_occurrence_dates?: ISODate[];
   color: string;
   note: string;
   reminder_enabled: boolean;

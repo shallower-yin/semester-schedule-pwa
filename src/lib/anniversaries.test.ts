@@ -7,6 +7,7 @@ import {
   formatAnniversaryReminderLead,
   nextAnniversaryOccurrence
 } from "./anniversaries";
+import { gregorianDateForLunarDate } from "./lunarCalendar";
 import { dateAtProductTime, parseLocalDate, productDateTimeParts, toISODate } from "./date";
 
 describe("纪念日日期和提醒", () => {
@@ -53,6 +54,20 @@ describe("纪念日日期和提醒", () => {
     expect(anniversaryDistanceLabel({ kind: "anniversary", date: "2026-03-27" }, now)).toBe("103 天前");
     expect(anniversaryDistanceLabel({ kind: "birthday", date: "2000-10-18" }, now)).toBe("102 天后");
     expect(anniversaryDistanceLabel({ kind: "holiday", date: "2026-01-01" }, now)).toBe("177 天后");
+  });
+
+  it("农历日按农历年换算，而不是固定公历月日", () => {
+    expect(gregorianDateForLunarDate(2026, 8, 15)).toBe("2026-09-25");
+    expect(gregorianDateForLunarDate(2027, 8, 15)).toBe("2027-09-15");
+    expect(toISODate(nextAnniversaryOccurrence({
+      date: "2026-09-25",
+      calendar_type: "lunar",
+      lunar_year: 2026,
+      lunar_month: 8,
+      lunar_day: 15,
+      lunar_is_leap_month: false
+    }, dateAtProductTime("2026-09-26")))).toBe("2027-09-15");
+    expect(gregorianDateForLunarDate(2026, 12, 8)).toBe("2027-01-15");
   });
 });
 

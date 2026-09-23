@@ -1631,6 +1631,20 @@
   align-items: start;
 }
 
+.lunar-date-editor {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #dbe5f6;
+  border-radius: 11px;
+  background: #fbfcff;
+}
+
+.lunar-leap-checkbox {
+  align-self: end;
+  min-height: 42px;
+}
+
 .anniversary-reminder-grid {
   width: 100%;
 }

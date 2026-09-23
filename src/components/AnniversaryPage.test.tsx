@@ -52,6 +52,29 @@ describe("纪念日页面", () => {
     });
   });
 
+  it("新增农历日子时保存农历字段和换算后的公历日期", async () => {
+    render(<AnniversaryPage ownerId="local" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新增日子/ }));
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "中秋节" } });
+    fireEvent.change(screen.getByLabelText("历法"), { target: { value: "lunar" } });
+    fireEvent.change(screen.getByLabelText("农历年份"), { target: { value: "2026" } });
+    fireEvent.change(screen.getByLabelText("农历月份"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("农历日期"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(async () => {
+      const saved = await db.anniversaries.filter((item) => item.title === "中秋节").first();
+      expect(saved).toEqual(expect.objectContaining({
+        calendar_type: "lunar",
+        lunar_year: 2026,
+        lunar_month: 8,
+        lunar_day: 15,
+        date: "2026-09-25"
+      }));
+    });
+  });
+
   it("跨标签切换共享身份后，新建日子仍归属打开弹窗的账号", async () => {
     setCurrentUserId("alice");
     render(<AnniversaryPage ownerId="alice" />);

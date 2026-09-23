@@ -107,7 +107,7 @@ interface AiAccessRow {
 
 type AnniversaryKind = "anniversary" | "birthday" | "holiday";
 type EventRecurrenceType = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction | AiUpdateEventAction | AiDeleteEventAction;
+type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction | AiUpdateEventAction | AiDeleteEventAction | AiUpdateAnniversaryAction;
 
 interface AiCreateEventAction {
   type: "create_event";
@@ -132,6 +132,11 @@ interface AiCreateAnniversaryAction {
   title: string;
   kind?: AnniversaryKind;
   date?: string | null;
+  calendarType?: "solar" | "lunar";
+  lunarYear?: number | null;
+  lunarMonth?: number | null;
+  lunarDay?: number | null;
+  lunarIsLeapMonth?: boolean;
   note?: string | null;
   reminderEnabled?: boolean;
   reminderDaysBefore?: number;
@@ -165,6 +170,23 @@ interface AiDeleteEventAction {
   type: "delete_event";
   title: string;
   date?: string | null;
+}
+
+interface AiUpdateAnniversaryAction {
+  type: "update_anniversary";
+  scope?: "title" | "all_lunar_holidays" | "all_holidays";
+  title?: string | null;
+  newTitle?: string | null;
+  kind?: AnniversaryKind | null;
+  calendarType?: "solar" | "lunar" | null;
+  date?: string | null;
+  lunarYear?: number | null;
+  lunarMonth?: number | null;
+  lunarDay?: number | null;
+  lunarIsLeapMonth?: boolean | null;
+  reminderEnabled?: boolean | null;
+  reminderDaysBefore?: number | null;
+  reminderTime?: string | null;
 }
 
 interface AiAssistantResponse {
@@ -1954,12 +1976,14 @@ async function askConfiguredProvider(
             "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"location\":\"地点，可空\",\"note\":\"备注\",\"recurrenceType\":\"none|daily|weekdays|weekly|monthly|interval\",\"recurrenceUntil\":\"YYYY-MM-DD 或 null\",\"recurrenceInterval\":1,\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
             "action 的 note 只写与该事项直接相关的背景摘要，尽量控制在 80 个汉字内。不要复述用户的命令、情绪或身份，不要写‘由 AI 助手创建’；没有有用背景时留空。",
             "过去日期同样允许创建事项。用户要求补录、记录或创建已经发生的活动时，必须按原日期和时间返回 create_event；禁止以“日期已过”为由拒绝，也不要擅自改成备忘录。过去事项必须设置 reminderEnabled=false。",
-            "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"date\":\"YYYY-MM-DD\",\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
+            "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"calendarType\":\"solar|lunar\",\"date\":\"YYYY-MM-DD 或 null\",\"lunarYear\":2026,\"lunarMonth\":8,\"lunarDay\":15,\"lunarIsLeapMonth\":false,\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
             "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
-            "如果用户说创建春节、端午节、中秋节、清明节、除夕、母亲节、父亲节等常见节日，应按北京时间所在年份或用户指定年份给出对应公历日期；如果没有把握，可以返回 create_anniversary 且 date 为 null，应用会用内置日历校准常见节日。",
+            "春节、端午节、中秋节、除夕、元宵、七夕、重阳、腊八和农历生日必须使用 calendarType=lunar，并填写农历年份、月份、日期；不要把农历八月十五写成固定公历 8 月 15 日。date 可以为 null，应用会按农历换算每年的公历发生日。清明节、元旦、国庆节、母亲节、父亲节等公历或按星期计算的节日使用 calendarType=solar。",
             "如果用户创建习惯并指定每天、工作日、每周、每月或每隔几天，必须写入 recurrenceType；指定结束日期时写入 recurrenceUntil。没有指定重复时 recurrenceType 为 none。",
             "修改已存在事项使用 update_event，格式：{\"type\":\"update_event\",\"title\":\"要修改的事项标题\",\"date\":\"YYYY-MM-DD 或 null\",\"newTitle\":\"新标题或 null\",\"startDate\":\"新日期或 null\",\"endDate\":\"新日期或 null\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":true/false/null,\"location\":\"新地点或 null\",\"note\":\"新备注或 null\",\"reminderEnabled\":true/false/null,\"reminderMinutesBefore\":数字或 null}。只填写需要修改的字段，不需要修改的字段设为 null；title 用于匹配已有事项，date 可进一步限定匹配范围。",
+            "修改已有纪念日、生日或节日使用 update_anniversary，格式：{\"type\":\"update_anniversary\",\"scope\":\"title|all_lunar_holidays|all_holidays\",\"title\":\"目标标题或 null\",\"newTitle\":\"新标题或 null\",\"kind\":\"anniversary|birthday|holiday 或 null\",\"calendarType\":\"solar|lunar 或 null\",\"date\":\"YYYY-MM-DD 或 null\",\"lunarYear\":2026,\"lunarMonth\":8,\"lunarDay\":15,\"lunarIsLeapMonth\":false,\"reminderEnabled\":true/false/null,\"reminderDaysBefore\":数字或 null,\"reminderTime\":\"HH:mm 或 null\"}。只填写要改的字段；scope=all_lunar_holidays 用于‘把农历节日全部改成农历’，会按现有节日标题识别春节、端午、中秋、除夕、元宵、七夕、重阳、腊八。",
             "删除已存在事项使用 delete_event，格式：{\"type\":\"delete_event\",\"title\":\"要删除的事项标题\",\"date\":\"YYYY-MM-DD 或 null\"}。title 用于匹配，date 可限定范围。",
+            "当用户要求修改、更改、调整已有纪念日、生日或节日（包括修改历法、农历年月日、标题、提醒）时使用 update_anniversary，不要创建重复日子。用户说‘全部/所有农历节日’时，使用 scope=all_lunar_holidays；用户只说一个标题时使用 scope=title 并原样保留标题。",
             "当用户要求修改、更改、调整、更新已有事项的时间、地点、提醒等属性时使用 update_event；当用户要求删除、取消、移除已有事项时使用 delete_event。不要把修改请求创建为新事项，也不要把删除请求忽略。",
             "update_event 和 delete_event 的 title 必须原样使用日历上下文或最近对话中已经存在的事项标题，不要改写、缩写或翻译标题；拿不准是哪一个事项时，在 answer 里先问清楚，不要输出 action。",
             "如果事项缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
@@ -3986,6 +4010,7 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
   if (record.type === "create_anniversary") return sanitizeAnniversaryAction(record);
   if (record.type === "create_memo") return sanitizeMemoAction(record);
   if (record.type === "update_event") return sanitizeUpdateEventAction(record);
+  if (record.type === "update_anniversary") return sanitizeUpdateAnniversaryAction(record);
   if (record.type === "delete_event") return sanitizeDeleteEventAction(record);
   if (record.type !== "create_event") return [];
   const title = typeof record.title === "string" ? record.title.trim() : "";
@@ -4021,12 +4046,18 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
 function sanitizeAnniversaryAction(record: Record<string, unknown>): AiAssistantAction[] {
   const title = typeof record.title === "string" ? record.title.trim() : "";
   const date = typeof record.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(record.date.trim()) ? record.date.trim() : null;
+  const calendarType = record.calendarType === "lunar" ? "lunar" : "solar";
   if (!title) return [];
   return [{
     type: "create_anniversary",
     title,
     kind: normalizeAnniversaryKind(record.kind),
     date,
+    calendarType,
+    lunarYear: clampNumber(record.lunarYear, 1900, 2100, 0) || null,
+    lunarMonth: clampNumber(record.lunarMonth, 1, 12, 0) || null,
+    lunarDay: clampNumber(record.lunarDay, 1, 30, 0) || null,
+    lunarIsLeapMonth: Boolean(record.lunarIsLeapMonth),
     note: typeof record.note === "string" ? record.note.slice(0, 500) : "",
     reminderEnabled: Boolean(record.reminderEnabled),
     reminderDaysBefore: clampNumber(record.reminderDaysBefore, 0, 365, 0),
@@ -4072,6 +4103,30 @@ function sanitizeDeleteEventAction(record: Record<string, unknown>): AiAssistant
     type: "delete_event",
     title,
     date: isoDateValue(record.date)
+  }];
+}
+
+function sanitizeUpdateAnniversaryAction(record: Record<string, unknown>): AiAssistantAction[] {
+  const scope = record.scope === "all_lunar_holidays" || record.scope === "all_holidays" || record.scope === "title"
+    ? record.scope
+    : (typeof record.title === "string" && record.title.trim() ? "title" : null);
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  if (!scope || (scope === "title" && !title)) return [];
+  return [{
+    type: "update_anniversary",
+    scope,
+    title: title || null,
+    newTitle: typeof record.newTitle === "string" ? record.newTitle.trim().slice(0, 200) || null : null,
+    kind: record.kind === "anniversary" || record.kind === "birthday" || record.kind === "holiday" ? record.kind : null,
+    calendarType: record.calendarType === "solar" || record.calendarType === "lunar" ? record.calendarType : null,
+    date: isoDateValue(record.date),
+    lunarYear: clampNumber(record.lunarYear, 1900, 2100, 0) || null,
+    lunarMonth: clampNumber(record.lunarMonth, 1, 12, 0) || null,
+    lunarDay: clampNumber(record.lunarDay, 1, 30, 0) || null,
+    lunarIsLeapMonth: typeof record.lunarIsLeapMonth === "boolean" ? record.lunarIsLeapMonth : null,
+    reminderEnabled: typeof record.reminderEnabled === "boolean" ? record.reminderEnabled : null,
+    reminderDaysBefore: typeof record.reminderDaysBefore === "number" ? clampNumber(record.reminderDaysBefore, 0, 365, 0) : null,
+    reminderTime: normalizeTime(record.reminderTime)
   }];
 }
 

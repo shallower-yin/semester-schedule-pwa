@@ -1,7 +1,7 @@
 import { Bell, BookOpen, CalendarHeart, CheckCircle2, FileText, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Anniversary, Category, Course, EventItem, Memo } from "../types";
-import { anniversaryKindLabel } from "../lib/anniversaries";
+import { anniversaryKindLabel, anniversarySourceDateLabel } from "../lib/anniversaries";
 import { findSearchNavigationMatch, type SearchNavigationMatch, type SearchableField } from "../lib/searchNavigation";
 import { Modal } from "./Modal";
 
@@ -64,7 +64,7 @@ export function GlobalSearchDialog({ courses, events, categories, anniversaries,
       type: "anniversary" as const,
       id: anniversary.id,
       title: anniversary.title,
-      subtitle: `${anniversaryKindLabel(anniversary.kind)} · ${anniversary.date}`,
+      subtitle: `${anniversaryKindLabel(anniversary.kind)} · ${anniversarySourceDateLabel(anniversary)}`,
       fields: [
         { field: "title", label: "标题", value: anniversary.title },
         { field: "note", label: "备注", value: anniversary.note },

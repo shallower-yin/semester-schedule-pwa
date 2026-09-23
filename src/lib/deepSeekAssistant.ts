@@ -3,7 +3,7 @@ import type { ScheduleAssistantInput } from "./scheduleAssistant";
 import { addDays, courseScheduleOccursOn, eventOccursOn, parseLocalDate, startOfWeek, toISODate } from "./date";
 import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
-import type { AnniversaryKind, EventRecurrenceType } from "../types";
+import type { AnniversaryCalendarType, AnniversaryKind, EventRecurrenceType } from "../types";
 import type { AiAssistantAttachment } from "./assistantAttachments";
 import { aiModelSupportsAttachments, defaultAiModel, type AiProvider, type AudioProvider } from "./aiModels";
 
@@ -34,7 +34,7 @@ export interface DeepSeekAssistantQuotaStatus {
   weekly: { used: number | null; limit: number | null; remaining: number | null };
 }
 
-export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction | DeepSeekUpdateEventAction | DeepSeekDeleteEventAction;
+export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction | DeepSeekUpdateEventAction | DeepSeekDeleteEventAction | DeepSeekUpdateAnniversaryAction;
 
 export interface DeepSeekCreateEventAction {
   type: "create_event";
@@ -59,6 +59,11 @@ export interface DeepSeekCreateAnniversaryAction {
   title: string;
   kind?: AnniversaryKind;
   date?: string | null;
+  calendarType?: AnniversaryCalendarType;
+  lunarYear?: number | null;
+  lunarMonth?: number | null;
+  lunarDay?: number | null;
+  lunarIsLeapMonth?: boolean;
   note?: string | null;
   reminderEnabled?: boolean;
   reminderDaysBefore?: number;
@@ -92,6 +97,25 @@ export interface DeepSeekDeleteEventAction {
   type: "delete_event";
   title: string;
   date?: string | null;
+}
+
+export type AnniversaryUpdateScope = "title" | "all_lunar_holidays" | "all_holidays";
+
+export interface DeepSeekUpdateAnniversaryAction {
+  type: "update_anniversary";
+  scope?: AnniversaryUpdateScope;
+  title?: string | null;
+  newTitle?: string | null;
+  kind?: AnniversaryKind | null;
+  calendarType?: AnniversaryCalendarType | null;
+  date?: string | null;
+  lunarYear?: number | null;
+  lunarMonth?: number | null;
+  lunarDay?: number | null;
+  lunarIsLeapMonth?: boolean | null;
+  reminderEnabled?: boolean | null;
+  reminderDaysBefore?: number | null;
+  reminderTime?: string | null;
 }
 
 export interface DeepSeekAssistantHistoryMessage {
@@ -177,7 +201,8 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, ques
       "日程助手只在本机按规则查询，不需要 AI 权限且不消耗 AI 额度；AI 助手是云端智能问答，每次成功请求会计入额度。",
       "普通用户和会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验。",
       "编辑已发送的用户消息会从该轮重新生成并截断后续旧对话，重新发送会计入一次额度。",
-      "创建春节、端午节、中秋节、清明节、除夕等常见节日时，按北京时间所在年份或用户指定年份换算公历日期。",
+      "创建常见节日（春节、端午节、中秋节、除夕、元宵、七夕、重阳、腊八）、农历生日时，必须保存为农历年月日，不能把农历八月十五写成固定公历 8 月 15 日；清明、元旦、国庆、母亲节和父亲节等使用公历规则。",
+      "可以修改已有纪念日、生日和节日；例如把旧的公历中秋、春节等转换成对应农历，也可以按标题或‘全部农历节日’批量修改。",
       "学期是可选功能；没有学期也能使用今天、日程、习惯、纪念日、备忘录、专注和设置。",
       "普通事项支持日期、时间、全天、完成状态、重复、地点和提醒。",
       "事项提醒支持开始时和提前 5、10、15、30 分钟、1 小时、1、3、5、7 天。",
@@ -222,6 +247,11 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, ques
       title: item.title,
       kind: item.kind,
       date: item.date,
+      calendarType: item.calendar_type ?? "solar",
+      lunarYear: item.lunar_year ?? null,
+      lunarMonth: item.lunar_month ?? null,
+      lunarDay: item.lunar_day ?? null,
+      lunarIsLeapMonth: Boolean(item.lunar_is_leap_month),
       reminder: item.reminder_enabled ? `${item.reminder_days_before} 天前 ${item.reminder_time}` : "未提醒",
       note: item.note
     })),

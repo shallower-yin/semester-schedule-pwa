@@ -6,6 +6,7 @@ import { getCurrentUserId, syncFields } from "./identity";
 import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
 import { normalizeMemoImages } from "./memoImages";
 import { supabase } from "./supabase";
+import { lunarOccurrenceDates } from "./lunarCalendar";
 
 export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: string }> = [
   { local: "semesters", remote: "semesters", label: "学期" },
@@ -244,6 +245,14 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
     return {
       ...record,
       kind: record.kind ?? "anniversary",
+      calendar_type: record.calendar_type === "lunar" ? "lunar" : "solar",
+      lunar_year: record.lunar_year == null ? null : Number(record.lunar_year),
+      lunar_month: record.lunar_month == null ? null : Number(record.lunar_month),
+      lunar_day: record.lunar_day == null ? null : Number(record.lunar_day),
+      lunar_is_leap_month: Boolean(record.lunar_is_leap_month),
+      lunar_occurrence_dates: Array.isArray(record.lunar_occurrence_dates)
+        ? record.lunar_occurrence_dates.filter((value): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))
+        : [],
       color: String(record.color ?? "#d97706"),
       note: String(record.note ?? ""),
       reminder_enabled: Boolean(record.reminder_enabled),
@@ -339,6 +348,22 @@ function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unkn
 function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
   const { server_updated_at: _serverUpdatedAt, ...payload } = record;
   if (table === "events" || table === "anniversaries") {
+    if (table === "anniversaries" && payload.calendar_type === "lunar"
+      && Number.isInteger(payload.lunar_year)
+      && Number.isInteger(payload.lunar_month)
+      && Number.isInteger(payload.lunar_day)) {
+      const dates = Array.isArray(payload.lunar_occurrence_dates) ? payload.lunar_occurrence_dates : [];
+      return {
+        ...payload,
+        timezone: "Asia/Shanghai",
+        lunar_occurrence_dates: dates.length ? dates : lunarOccurrenceDates(
+          Number(payload.lunar_year),
+          Number(payload.lunar_month),
+          Number(payload.lunar_day),
+          Boolean(payload.lunar_is_leap_month)
+        )
+      };
+    }
     return { ...payload, timezone: "Asia/Shanghai" };
   }
   if (table === "healthProfiles") {
