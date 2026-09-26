@@ -19,6 +19,30 @@
 
 完整的架构、数据流和关键取舍见 [DESIGN.md](DESIGN.md)。
 
+## 应用截图
+
+以下截图均为独立文件，展示电脑端和手机端的实际界面。
+
+| 功能 | 电脑端 | 手机端 |
+| --- | --- | --- |
+| 今天 | [查看截图](screenshots/desktop_today.png) | [查看截图](screenshots/mobile_today.png) |
+| 日程 | [查看截图](screenshots/desktop_schedule.png) | [查看截图](screenshots/mobile_schedule.jpg) |
+| 待办 | [查看截图](screenshots/desktop_todos.png) | [查看截图](screenshots/mobile_todos.png) |
+| 习惯 | [查看截图](screenshots/desktop_habits.png) | — |
+| 纪念日 | [查看截图](screenshots/desktop_anniversaries.png) | — |
+| 备忘录 | [查看截图](screenshots/desktop_memos.png) | [查看截图](screenshots/mobile_memos.png) |
+| 专注 | [查看截图](screenshots/desktop_focus.png) | [查看截图](screenshots/mobile_focus.jpg) |
+| 健康 | [查看截图](screenshots/desktop_health.png) | — |
+| 设置 | [查看截图](screenshots/desktop_settings.png) | [查看截图](screenshots/mobile_settings.jpg) |
+| 使用说明 | [查看截图](screenshots/desktop_help.png) | — |
+| 日程助手 | [查看截图](screenshots/desktop_schedule_assistant.png) | [查看截图](screenshots/mobile_schedule_assistant.jpg) |
+| AI 助手 | [查看截图](screenshots/desktop_ai_assistant.png) | [查看截图](screenshots/mobile_ai_assistant.jpg) |
+| 翻译助手 | [查看截图](screenshots/desktop_translation.png) | — |
+| AI 思维导图 | [查看截图](screenshots/desktop_mind_map.png) | — |
+| AI 音频转写 | [查看截图](screenshots/desktop_audio_transcription.png) | — |
+| 全局搜索 | [查看截图](screenshots/desktop_search.png) | — |
+| 快速录入 | — | [查看截图](screenshots/mobile_quick_entry.jpg) |
+
 ## 在线使用
 
 [打开日程计划表](https://schedule.nfsg.eu.cc/)
