@@ -43,6 +43,13 @@
 | 全局搜索 | [查看截图](screenshots/desktop_search.png) | — |
 | 快速录入 | — | [查看截图](screenshots/mobile_quick_entry.jpg) |
 
+## 比赛提交材料
+
+- [项目简介](README.md)
+- [技术设计文档](DESIGN.md)
+- [电脑端和手机端演示截图](screenshots/)
+- [版权合规承诺书（本人手签扫描 PDF）](版权合规承诺书.pdf)
+
 ## 在线使用
 
 [打开日程计划表](https://schedule.nfsg.eu.cc/)
