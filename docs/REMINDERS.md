@@ -7,7 +7,7 @@
 ## 两层提醒
 
 1. 应用打开或恢复到前台时，每 30 秒检查本地 IndexedDB，并通过 Service Worker 显示系统通知。
-2. 应用完全关闭时，Supabase `pg_cron` 每分钟调用 Edge Function，领取到期提醒并通过 Web Push 发送到已订阅设备；GitHub Actions 保留为手动排障入口。
+2. 应用完全关闭时，Supabase `pg_cron` 每两分钟调用 Edge Function，领取到期提醒并通过 Web Push 发送到已订阅设备；GitHub Actions 保留为手动排障入口。
 
 后台调度受 Supabase 定时任务、浏览器推送服务、操作系统省电策略和网络影响，不承诺秒级准时。
 单次 Web Push 发送失败时，调度器会在 15 分钟有效窗口内按分钟重试；失效的设备订阅会自动移除。
