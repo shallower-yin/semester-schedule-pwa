@@ -360,4 +360,4 @@ jobs:
         run: |
           config="$(supabase postgres-config get --project-ref "$PROJECT_REF" --experimental)"
           echo "$config"
-          echo "$config" | grep -Eq 'cron\.log_statement[=:][[:space:]]*false'
+          echo "$config" | grep -Eq 'cron\.log_statement[[:space:]]*\|[[:space:]]*false'
