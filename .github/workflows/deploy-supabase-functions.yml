@@ -55,14 +55,6 @@ jobs:
         with:
           version: 2.110.0
 
-      - name: Disable routine pg_cron statement logs
-        if: steps.reminder_changes.outputs.changed == 'true'
-        run: |
-          supabase postgres-config update \
-            --project-ref "$PROJECT_REF" \
-            --experimental \
-            --config cron.log_statement=false
-
       - name: Apply pending database migrations once
         run: node scripts/apply-supabase-migrations.mjs
 
@@ -354,3 +346,18 @@ jobs:
             and .[0].function_status_code == 200
             and .[0].function_error == null
           '
+
+      - name: Disable routine pg_cron statement logs
+        if: steps.reminder_changes.outputs.changed == 'true'
+        run: |
+          supabase postgres-config update \
+            --project-ref "$PROJECT_REF" \
+            --experimental \
+            --config cron.log_statement=false
+
+      - name: Verify pg_cron log override
+        if: steps.reminder_changes.outputs.changed == 'true'
+        run: |
+          config="$(supabase postgres-config get --project-ref "$PROJECT_REF" --experimental)"
+          echo "$config"
+          echo "$config" | grep -Eq 'cron\.log_statement[=:][[:space:]]*false'
