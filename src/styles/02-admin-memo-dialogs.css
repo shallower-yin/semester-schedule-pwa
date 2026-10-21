@@ -3,12 +3,12 @@
 }
 
 .semester-list-row:hover {
-  background: #f8faff;
+  background: var(--surface);
 }
 
 .semester-list-row.active {
   color: var(--primary);
-  background: #f1f5ff;
+  background: var(--surface-soft);
 }
 
 .semester-list-main {
@@ -63,7 +63,7 @@
   padding: 46px;
   border: 1px solid var(--border);
   border-radius: 20px;
-  background: white;
+  background: var(--surface);
   box-shadow: var(--shadow);
 }
 
@@ -74,7 +74,7 @@
   place-items: center;
   border-radius: 20px;
   color: var(--primary);
-  background: #edf2ff;
+  background: var(--surface-soft);
 }
 
 .empty-state h1,
@@ -97,11 +97,11 @@
 .compact-empty {
   margin-top: 40px;
   padding: 45px;
-  color: #748095;
+  color: var(--muted);
 }
 
 .compact-empty h2 {
-  color: #283143;
+  color: var(--text);
   font-size: 1.1875rem;
 }
 
@@ -122,7 +122,7 @@
   max-height: calc(100vh - 48px);
   overflow: auto;
   border-radius: 16px;
-  background: white;
+  background: var(--surface);
   box-shadow: 0 24px 70px rgb(10 20 42 / 28%);
 }
 
@@ -168,6 +168,19 @@
   flex: 0 0 auto;
 }
 
+.event-dialog .modal-header-extra {
+  flex: 0 0 auto;
+}
+
+.event-completion-toggle {
+  color: var(--primary);
+}
+
+.event-completion-toggle[aria-pressed="true"] {
+  color: #237447;
+  background: #edf8f0;
+}
+
 .icon-button {
   display: grid;
   width: var(--control-min-size);
@@ -181,7 +194,7 @@
 }
 
 .icon-button:hover {
-  background: #f1f3f7;
+  background: var(--surface-soft);
 }
 
 .icon-button.danger {
@@ -205,7 +218,7 @@
   min-width: 0;
   flex-direction: column;
   gap: 7px;
-  color: #394355;
+  color: var(--text);
   font-size: 0.8125rem;
   font-weight: 650;
 }
@@ -218,8 +231,8 @@ textarea {
   padding: 8px 10px;
   border: 1px solid #cfd6e2;
   border-radius: 9px;
-  color: #20293a;
-  background: white;
+  color: var(--text);
+  background: var(--surface);
 }
 
 textarea {
@@ -259,7 +272,7 @@ textarea {
   padding: 12px;
   border: 1px solid #dbe5f6;
   border-radius: 11px;
-  background: #fbfcff;
+  background: var(--surface);
 }
 
 .event-completion-editor strong,
@@ -279,7 +292,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #25324a;
+  color: var(--text);
 }
 
 .event-completion-editor span,
@@ -303,13 +316,13 @@ textarea {
   padding: 13px;
   border: 1px solid #dce4f5;
   border-radius: 11px;
-  background: #f7f9ff;
+  background: var(--surface);
 }
 
 .reminder-editor > p {
   grid-column: 1 / -1;
   margin: 0;
-  color: #52637e;
+  color: var(--muted);
   font-size: 0.75rem;
   line-height: 1.45;
 }
@@ -323,7 +336,7 @@ textarea {
 }
 
 .reminder-status strong {
-  color: #465168;
+  color: var(--muted);
 }
 
 .reminder-status.active strong {
@@ -331,7 +344,7 @@ textarea {
 }
 
 .reminder-status span {
-  color: #52637e;
+  color: var(--muted);
 }
 
 .form-hint {
@@ -375,7 +388,7 @@ textarea {
   padding: 14px;
   border: 1px solid #dce2ed;
   border-radius: 12px;
-  background: #fafbfe;
+  background: var(--surface);
 }
 
 .schedule-row {
@@ -390,7 +403,7 @@ textarea {
   margin: 15px 0 8px;
   align-items: center;
   justify-content: space-between;
-  color: #4f596b;
+  color: var(--muted);
   font-size: 0.75rem;
   font-weight: 650;
 }
@@ -415,8 +428,8 @@ textarea {
   padding: 0;
   border: 1px solid #d5dbe6;
   border-radius: 7px;
-  color: #5c6677;
-  background: white;
+  color: var(--muted);
+  background: var(--surface);
   font-size: 0.75rem;
   cursor: pointer;
 }
@@ -439,14 +452,14 @@ textarea {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: white;
+  background: var(--surface);
   cursor: pointer;
 }
 
 .weekday-tabs button.active {
   border-color: var(--primary);
   color: var(--primary);
-  background: #edf2ff;
+  background: var(--surface-soft);
 }
 
 .period-table {
@@ -520,8 +533,8 @@ textarea {
 }
 
 .period-table-head {
-  color: #667085;
-  background: #f6f8fb;
+  color: var(--muted);
+  background: var(--surface-soft);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -574,8 +587,8 @@ textarea {
   margin: 0 0 4px;
   padding: 9px 11px;
   border-radius: 8px;
-  color: #35506f;
-  background: #eef5ff;
+  color: var(--muted);
+  background: var(--surface-soft);
 }
 
 .backup-method-row {
@@ -670,7 +683,7 @@ textarea {
   padding: 10px;
   border: 1px solid #e3e8f2;
   border-radius: 10px;
-  background: #fbfcff;
+  background: var(--surface);
 }
 
 .backup-preview-table strong,
@@ -728,7 +741,7 @@ textarea {
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f3f6fb;
+  background: var(--surface-soft);
 }
 
 .admin-section-tabs button {
@@ -740,7 +753,7 @@ textarea {
   padding: 6px 10px;
   border: 0;
   border-radius: 6px;
-  color: #647085;
+  color: var(--muted);
   background: transparent;
   font-size: 0.75rem;
   font-weight: 750;
@@ -749,7 +762,7 @@ textarea {
 
 .admin-section-tabs button.active {
   color: var(--primary);
-  background: white;
+  background: var(--surface);
   box-shadow: 0 1px 4px rgb(30 48 88 / 10%);
 }
 
@@ -759,7 +772,7 @@ textarea {
 .admin-record-section {
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .admin-user-list {
@@ -778,14 +791,14 @@ textarea {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--surface);
   color: inherit;
   text-align: left;
 }
 
 .admin-user-card.active {
   border-color: var(--primary);
-  background: #eef2ff;
+  background: var(--surface-soft);
 }
 
 .admin-user-card strong,
@@ -804,8 +817,8 @@ textarea {
   width: fit-content;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--surface-soft);
+  color: var(--text);
   font-size: 0.75rem;
   font-weight: 800;
 }
@@ -889,7 +902,7 @@ textarea {
   gap: 2px;
   padding: 10px;
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--surface);
   text-align: center;
 }
 
@@ -915,7 +928,7 @@ textarea {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--surface);
 }
 
 .admin-ai-usage-card span {
@@ -1215,8 +1228,8 @@ textarea {
 }
 
 .admin-feature-quota-header {
-  color: #647085;
-  background: #f6f8fc;
+  color: var(--muted);
+  background: var(--surface-soft);
   font-size: 0.75rem;
   font-weight: 750;
 }
@@ -1249,7 +1262,7 @@ textarea {
 .admin-cleanup-controls label {
   display: grid;
   gap: 5px;
-  color: #536174;
+  color: var(--muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -1304,7 +1317,7 @@ textarea {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--surface);
 }
 
 .admin-record-list span {
@@ -1347,7 +1360,7 @@ textarea {
   padding: 12px;
   border: 1px solid #dfe6f3;
   border-radius: 10px;
-  background: #f8faff;
+  background: var(--surface);
 }
 
 .import-options label {
@@ -1355,7 +1368,7 @@ textarea {
   min-width: 0;
   flex-direction: column;
   gap: 6px;
-  color: #394355;
+  color: var(--text);
   font-size: 0.8125rem;
   font-weight: 650;
 }
@@ -1379,7 +1392,7 @@ textarea {
   padding: 10px;
   border: 1px solid #e2e7f0;
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .import-preview-summary article.warning {
@@ -1393,7 +1406,7 @@ textarea {
 }
 
 .import-preview-summary strong {
-  color: #1f2937;
+  color: var(--text);
   font-size: 1.25rem;
 }
 
@@ -1437,11 +1450,11 @@ textarea {
   padding: 10px 12px;
   border: 1px solid #e2e7f0;
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .import-preview-list strong {
-  color: #172033;
+  color: var(--text);
 }
 
 .import-preview-list span,
@@ -1492,7 +1505,7 @@ textarea {
 .focus-side section {
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: white;
+  background: var(--surface);
   box-shadow: 0 8px 24px rgb(30 48 88 / 6%);
 }
 
@@ -1508,7 +1521,7 @@ textarea {
   padding: 0 10px;
   border: 1px solid #d7ddea;
   border-radius: 12px;
-  background: #fbfcff;
+  background: var(--surface);
 }
 
 .memo-search input {
@@ -1524,7 +1537,7 @@ textarea {
 
 .memo-sidebar-section > span,
 .memo-sidebar-title > span {
-  color: #8a93a3;
+  color: var(--muted);
   font-size: 0.8125rem;
   font-weight: 700;
 }
@@ -1540,7 +1553,7 @@ textarea {
   grid-template-columns: repeat(2, 1fr);
   padding: 4px;
   border-radius: 12px;
-  background: #f3f5f9;
+  background: var(--surface-soft);
 }
 
 .memo-view-toggle button {
@@ -1579,7 +1592,7 @@ textarea {
 .memo-sidebar-section > button.active,
 .memo-sidebar-section > button:hover {
   color: var(--primary);
-  background: #edf2ff;
+  background: var(--surface-soft);
 }
 
 .memo-sidebar-section > button span {
@@ -1589,7 +1602,7 @@ textarea {
 }
 
 .memo-sidebar-section small {
-  color: #8791a1;
+  color: var(--muted);
 }
 
 .memo-folder-edit,
@@ -1667,7 +1680,7 @@ textarea {
 }
 
 .memo-card:hover {
-  border-color: #c8d3ef;
+  border-color: var(--border);
   box-shadow: 0 12px 28px rgb(30 48 88 / 10%);
 }
 
@@ -1679,7 +1692,7 @@ textarea {
 }
 
 .memo-card time {
-  color: #98a1af;
+  color: var(--muted);
   font-size: 0.8125rem;
 }
 
@@ -1709,8 +1722,8 @@ textarea {
   margin-bottom: 8px;
   padding: 4px 8px;
   border-radius: 999px;
-  color: #2563eb;
-  background: #eaf2ff;
+  color: var(--muted);
+  background: var(--surface-soft);
   font-size: 0.75rem;
   font-weight: 750;
 }
@@ -1737,7 +1750,7 @@ textarea {
   display: -webkit-box;
   overflow: hidden;
   margin: 0;
-  color: #707989;
+  color: var(--muted);
   line-height: 1.6;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1786,9 +1799,9 @@ textarea {
 }
 
 .memo-grid-empty button:hover {
-  border-color: #9fb0df;
+  border-color: var(--border);
   color: var(--primary);
-  background: #f8faff;
+  background: var(--surface);
 }
 
 .memo-textarea {
@@ -1874,13 +1887,13 @@ textarea {
   position: relative;
   z-index: 1;
   min-height: 260px;
-  color: #20293a;
-  background: white;
+  color: var(--text);
+  background: var(--surface);
   caret-color: #20293a;
 }
 
 .memo-textarea-shell .memo-textarea::selection {
-  color: #20293a;
+  color: var(--text);
   background: rgb(var(--primary-rgb) / 18%);
 }
 
@@ -1892,7 +1905,7 @@ textarea {
   padding: 9px 11px;
   border: 1px solid transparent;
   border-radius: 9px;
-  color: #20293a;
+  color: var(--text);
   pointer-events: none;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1903,9 +1916,9 @@ textarea {
 }
 
 .memo-visual-marker {
-  color: #334155;
+  color: var(--text);
 }
 
 .memo-visual-marker.checked {
-  color: #60a5fa;
+  color: var(--muted);
 }

@@ -6,7 +6,7 @@
 
 [打开日程计划表](https://schedule.nfsg.eu.cc/)
 
-在 Android Edge/Chrome 或 Windows Edge/Chrome 打开后，可通过“设置 → 安装到设备”或浏览器菜单安装。Android Edge 和 Chrome 都可以将应用添加到手机桌面；Windows 安装后一定会出现在开始菜单，但浏览器不一定自动创建桌面图标。
+打开后，可通过“设置 → 安装到设备”查看安装方式。Windows Edge/Chrome 点击网址栏右侧的安装按钮，再在弹出的窗口中确认安装；Android Edge/Chrome 可通过浏览器菜单添加到主屏幕。Windows 安装后可从开始菜单打开，浏览器不一定自动创建桌面图标。
 
 ## 已实现
 

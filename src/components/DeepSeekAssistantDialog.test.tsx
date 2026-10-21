@@ -124,9 +124,9 @@ describe("AI 助手消息编辑", () => {
     expect(screen.queryByText("应被截断的旧回答")).not.toBeInTheDocument();
   });
 
-  it("只有 MiMo 2.5 模式显示图片和文档入口", async () => {
+  it.each(["mimo-v2.6-flash", "mimo-v2.6-pro"])("%s 根据服务端能力显示图片和文档入口", async (model) => {
     setMobileMode(true);
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model, supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
 
     const attachmentButton = await screen.findByRole("button", { name: "导入图片或文档" });
@@ -142,7 +142,7 @@ describe("AI 助手消息编辑", () => {
   });
 
   it("从剪贴板读取浏览器提供的图片或文档文件", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-paste" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "导入图片或文档" });
     const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
@@ -162,7 +162,7 @@ describe("AI 助手消息编辑", () => {
   });
 
   it("纯文字粘贴保持浏览器默认输入行为", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-text-paste" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "导入图片或文档" });
 
@@ -209,7 +209,7 @@ describe("AI 助手消息编辑", () => {
   });
 
   it("附件保存在本地上下文并自动用于后续问题", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     askDeepSeekAssistantMock
       .mockResolvedValueOnce({ answer: "已读取文件", actions: [] })
       .mockResolvedValueOnce({ answer: "后续回答", actions: [] });

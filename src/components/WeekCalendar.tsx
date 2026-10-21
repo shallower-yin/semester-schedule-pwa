@@ -1,4 +1,4 @@
-import { Ban, BookOpen, CheckCircle2, Circle } from "lucide-react";
+import { Ban, BookOpen, CheckCircle2, Circle, Plus } from "lucide-react";
 import type { CSSProperties, PointerEvent, TouchEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { WEEKDAY_NAMES } from "../data/defaults";
@@ -25,6 +25,7 @@ import type {
   EventOccurrenceState,
   Semester
 } from "../types";
+import { Modal } from "./Modal";
 
 interface WeekCalendarProps {
   dates: Date[];
@@ -60,6 +61,8 @@ interface OverlapLayout {
 }
 
 const MOBILE_STACK_STEP = 52;
+const MOBILE_SLOT_HEIGHT = 48;
+const MOBILE_MIN_CARD_HEIGHT = 44;
 
 export function WeekCalendar(props: WeekCalendarProps) {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
@@ -213,6 +216,19 @@ export function WeekCalendar(props: WeekCalendarProps) {
     return "overlap-entry overlap-many";
   }
 
+  if (isMobile) {
+    return (
+      <MobileWeekCalendar
+        {...props}
+        onBlankClick={handleBlankCellClick}
+        onBlankPointerDown={startQuickAdd}
+        onBlankPointerMove={moveQuickAdd}
+        onBlankPointerEnd={clearQuickAddTimer}
+        onToggleClassCancellation={toggleClassCancellation}
+      />
+    );
+  }
+
   return (
     <section
       className="calendar-shell"
@@ -328,8 +344,8 @@ export function WeekCalendar(props: WeekCalendarProps) {
                 style={entryStyle(occurrenceKey, {
                   gridColumn: dayIndex + 2,
                   gridRow: `${firstRow + 3} / ${endRow + 3}`,
-                  backgroundColor: course.color
-                })}
+                  "--course-color": course.color
+                } as CSSProperties)}
                 onClick={() => props.onEditCourse(course)}
               >
                 <div className="entry-title"><BookOpen size={14} />{canceled ? `已停课 · ${course.name}` : course.name}</div>
@@ -400,6 +416,438 @@ export function WeekCalendar(props: WeekCalendarProps) {
       </div>
     </section>
   );
+}
+
+interface MobileCalendarEntry {
+  key: string;
+  dayIndex: number;
+  title: string;
+  location: string;
+  time: string;
+  start: number;
+  end: number;
+  color: string;
+  allDay: boolean;
+  completed: boolean;
+  canceled: boolean;
+  event?: EventItem;
+  course?: Course;
+  schedule?: CourseSchedule;
+}
+
+interface MobileTimeGroup {
+  dayIndex: number;
+  start: number;
+  end: number;
+  entries: MobileCalendarEntry[];
+}
+
+interface MobileWeekCalendarProps extends WeekCalendarProps {
+  onBlankClick: (date: string, start: string, end: string, allDay?: boolean) => void;
+  onBlankPointerDown: (event: PointerEvent<HTMLButtonElement>, date: string, start: string, end: string, allDay?: boolean) => void;
+  onBlankPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
+  onBlankPointerEnd: () => void;
+  onToggleClassCancellation: (schedule: CourseSchedule, date: Date, courseName: string) => Promise<void>;
+}
+
+function MobileWeekCalendar(props: MobileWeekCalendarProps) {
+  const rows = buildDisplayRows(props.periods);
+  const entries = buildMobileEntries(props);
+  const [selectedSlot, setSelectedSlot] = useState<{
+    dayIndex: number;
+    rowIndex: number;
+    entryKeys?: string[];
+    rangeStart?: number;
+    rangeEnd?: number;
+  } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const initializedWeek = useRef("");
+  const slots = rows.map((row, rowIndex) => ({ ...row, rowIndex, start: minutesOf(row.startTime), end: minutesOf(row.endTime) }));
+  const separators = slots.filter((row) => row.kind !== "period");
+  const timeTop = (minute: number) => {
+    const rowIndex = slots.findIndex((row) => minute < row.end);
+    if (rowIndex < 0) return slots.length * MOBILE_SLOT_HEIGHT;
+    const row = slots[rowIndex];
+    return (rowIndex + Math.min(1, Math.max(0, (minute - row.start) / Math.max(1, row.end - row.start)))) * MOBILE_SLOT_HEIGHT;
+  };
+  const weekKey = props.dates[0] ? toISODate(props.dates[0]) : "";
+  const firstEntry = Math.min(...entries.filter((entry) => !entry.allDay).map((entry) => entry.start));
+  const firstRowIndex = slots.findIndex((row) => row.end > (Number.isFinite(firstEntry) ? firstEntry : 8 * 60));
+  const initialScrollTop = Math.max(0, firstRowIndex - 1) * MOBILE_SLOT_HEIGHT;
+  useEffect(() => {
+    if (initializedWeek.current === weekKey || !scrollRef.current) return;
+    initializedWeek.current = weekKey;
+    scrollRef.current.scrollTop = initialScrollTop;
+  }, [initialScrollTop, weekKey]);
+  const overlapGroups: MobileTimeGroup[] = [];
+  props.dates.forEach((_, dayIndex) => {
+    const timed = entries.filter((entry) => entry.dayIndex === dayIndex && !entry.allDay)
+      .sort((left, right) => left.start - right.start || left.end - right.end);
+    let current: MobileTimeGroup | undefined;
+    timed.forEach((entry) => {
+      if (!current || entry.start >= current.end) {
+        current = { dayIndex, start: entry.start, end: entry.end, entries: [entry] };
+        overlapGroups.push(current);
+      } else {
+        current.entries.push(entry);
+        current.end = Math.max(current.end, entry.end);
+      }
+    });
+  });
+  const groups = overlapGroups.flatMap((group) => {
+    const cuts = [...new Set([
+      group.start,
+      ...separators.map((row) => row.start)
+        .filter((point) => point > group.start && point < group.end),
+      group.end
+    ])].sort((left, right) => left - right);
+    return cuts.slice(0, -1).map((start, index) => ({
+      dayIndex: group.dayIndex,
+      start,
+      end: cuts[index + 1],
+      entries: group.entries.filter((entry) => entry.start < cuts[index + 1] && entry.end > start)
+    }));
+  });
+  const displayGroups: Array<MobileTimeGroup & { top: number; height: number }> = [];
+  for (const group of groups) {
+    const startTop = timeTop(group.start);
+    const endTop = Math.max(startTop + 1, timeTop(group.end));
+    const height = Math.max(MOBILE_MIN_CARD_HEIGHT, endTop - startTop);
+    const top = Math.max(0, Math.min(startTop, Math.ceil(endTop / MOBILE_SLOT_HEIGHT) * MOBILE_SLOT_HEIGHT - height));
+    const previous = displayGroups.at(-1);
+    if (previous?.dayIndex === group.dayIndex && top < previous.top + previous.height - 0.1) {
+      const bottom = Math.max(previous.top + previous.height, top + height);
+      previous.top = Math.min(previous.top, top);
+      previous.height = bottom - previous.top;
+      previous.start = Math.min(previous.start, group.start);
+      previous.end = Math.max(previous.end, group.end);
+      previous.entries = [...new Map([...previous.entries, ...group.entries].map((entry) => [entry.key, entry])).values()];
+    } else {
+      displayGroups.push({ ...group, top, height });
+    }
+  }
+  const timelineHeight = slots.length * MOBILE_SLOT_HEIGHT;
+  const allDayCount = Math.max(0, ...props.dates.map((_, dayIndex) => entries.filter((entry) => entry.dayIndex === dayIndex && entry.allDay).length));
+  const allDayHeight = allDayCount ? allDayCount * 52 : 26;
+  const entriesForSlot = (dayIndex: number, rowIndex: number) => entries.filter((entry) => {
+    if (entry.dayIndex !== dayIndex || entry.allDay) return false;
+    const top = timeTop(entry.start);
+    const bottom = Math.max(top + 1, timeTop(entry.end));
+    return top < (rowIndex + 1) * MOBILE_SLOT_HEIGHT && bottom > rowIndex * MOBILE_SLOT_HEIGHT;
+  });
+  const selectedRow = selectedSlot ? slots[selectedSlot.rowIndex] : undefined;
+  const selectedEntries = selectedSlot?.entryKeys
+    ? entries.filter((entry) => selectedSlot.entryKeys!.includes(entry.key))
+    : selectedSlot ? entriesForSlot(selectedSlot.dayIndex, selectedSlot.rowIndex) : [];
+  const slotTime = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+  // HTML time inputs cannot represent 24:00. The final slot keeps its actual
+  // boundary while a new draft gets the last selectable minute of this date.
+  const draftEnd = (end: number) => slotTime(Math.min(1439, end));
+  const selectedStart = selectedSlot?.rangeStart !== undefined ? slotTime(selectedSlot.rangeStart) : selectedRow?.startTime;
+  const selectedEnd = selectedSlot?.rangeEnd !== undefined ? slotTime(selectedSlot.rangeEnd) : selectedRow?.endTime;
+
+  function openGroupEntries(group: MobileTimeGroup, items: MobileCalendarEntry[]) {
+    const start = Math.min(...items.map((entry) => entry.start));
+    const end = Math.max(...items.map((entry) => entry.end));
+    setSelectedSlot({
+      dayIndex: group.dayIndex,
+      rowIndex: Math.max(0, slots.findIndex((row) => start < row.end)),
+      entryKeys: items.map((entry) => entry.key),
+      rangeStart: start,
+      rangeEnd: end
+    });
+  }
+
+  function renderLayerCard(entry: MobileCalendarEntry, role: "base" | "front", top: number, height: number, captionHeight: number, index = 0) {
+    const isBase = role === "base";
+    return (
+      <button
+        key={entry.key}
+        type="button"
+        className={`mobile-week-card mobile-week-visual-card mobile-week-layer-card mobile-week-layer-${role} ${isBase ? "" : "short"} ${entry.completed ? "completed" : ""} ${entry.canceled ? "canceled" : ""}`}
+        data-layer-role={role}
+        data-entry-key={entry.key}
+        style={{
+          "--entry-color": entry.color,
+          top,
+          height,
+          left: isBase || index % 2 ? 2 : 6,
+          right: !isBase && index % 2 ? 6 : 2,
+          zIndex: isBase ? 1 : 2 + index
+        } as CSSProperties}
+        aria-label={`编辑${entry.event ? "事项" : "课程"}：${entry.title}`}
+        title={[entry.title, entry.time, entry.location].filter(Boolean).join(" · ")}
+        onClick={() => entry.event ? props.onEditEvent(entry.event) : entry.course && props.onEditCourse(entry.course)}
+      >
+        <span className="mobile-week-layer-caption" style={{ height: captionHeight }}>
+          <span className="mobile-week-card-title">{entry.canceled ? "已停课 · " : ""}{entry.title}</span>
+          {(!isBase || captionHeight >= 64) && <span className="mobile-week-card-time"><span>{slotTime(entry.start)}</span><span>–{entry.time.split("–")[1]}</span></span>}
+        </span>
+      </button>
+    );
+  }
+
+  function renderCard(entry: MobileCalendarEntry, continuation = false) {
+    const date = props.dates[entry.dayIndex];
+    const [displayStart, displayEnd] = entry.time.split("–");
+    return (
+      <article
+        key={entry.key}
+        className={`mobile-week-card ${entry.event ? "mobile-event-card" : "mobile-course-card"} ${entry.allDay ? "mobile-all-day-card" : ""} ${entry.completed ? "completed" : ""} ${entry.canceled ? "canceled" : ""}`}
+        style={{ "--entry-color": entry.color } as CSSProperties}
+        data-occurrence-date={toISODate(date)}
+      >
+        <button
+          type="button"
+          className="mobile-week-card-open"
+          onClick={() => entry.event ? props.onEditEvent(entry.event) : entry.course && props.onEditCourse(entry.course)}
+          aria-label={`编辑${entry.event ? "事项" : "课程"}：${entry.title}`}
+          title={[entry.title, entry.time, entry.location].filter(Boolean).join(" · ")}
+        >
+          <span className="mobile-week-card-title">{continuation ? "续 · " : ""}{entry.canceled ? "已停课 · " : ""}{entry.title}</span>
+          {!entry.allDay && <span className="mobile-week-card-time"><span>{formatMobileTime(minutesOf(displayStart))}</span><span>–{formatMobileTime(minutesOf(displayEnd))}</span></span>}
+          {entry.location && <span className="mobile-week-card-location" title={entry.location}>{entry.location}</span>}
+        </button>
+        {!continuation && (entry.event ? (
+          <button
+            type="button"
+            className="mobile-week-card-action"
+            onClick={() => props.onToggleEventCompleted(entry.event!, date, !entry.completed)}
+            aria-label={`将 ${entry.title} 标记为${entry.completed ? "未完成" : "已完成"}`}
+            title={entry.completed ? "标记未完成" : "标记完成"}
+          >
+            {entry.completed ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+          </button>
+        ) : entry.schedule && entry.course && (
+          <button
+            type="button"
+            className="mobile-week-card-action"
+            onClick={() => void props.onToggleClassCancellation(entry.schedule!, date, entry.course!.name)}
+            aria-label={`${entry.canceled ? "恢复" : "停课"}：${entry.title} ${toISODate(date)}`}
+            title={entry.canceled ? "恢复本次课程" : "本次停课"}
+          >
+            <Ban size={12} /><span>{entry.canceled ? "恢复" : "停课"}</span>
+          </button>
+        ))}
+      </article>
+    );
+  }
+
+  return (
+    <section className="calendar-shell mobile-week-calendar" aria-label="一周日程">
+      <div className="mobile-week-scroll" ref={scrollRef}>
+        <div className="mobile-week-dates">
+          <span className="mobile-week-unit">按时段</span>
+          {props.dates.map((date, dayIndex) => (
+            <button
+              key={toISODate(date)}
+              type="button"
+              className={dateIsToday(date) ? "today" : ""}
+              aria-label={`${formatMonthDay(date)} ${WEEKDAY_NAMES[dayIndex]}`}
+              aria-current={dateIsToday(date) ? "date" : undefined}
+              aria-pressed={dayIndex === props.selectedDay}
+              onClick={() => props.onSelectedDayChange(dayIndex)}
+            >
+              <span>{WEEKDAY_NAMES[dayIndex].replace("星期", "周")}</span>
+              <strong>{date.getDate()}</strong>
+            </button>
+          ))}
+        </div>
+        <div className="mobile-week-all-day" style={{ minHeight: allDayHeight }}>
+          {props.dates.map((date, dayIndex) => (
+            <div key={toISODate(date)} className={`mobile-week-all-day-column ${entries.some((entry) => entry.dayIndex === dayIndex && entry.allDay) ? "has-items" : ""}`}>
+              <button
+                type="button"
+                className="mobile-week-all-day-add"
+                aria-label={`${formatMonthDay(date)}新增全天事项`}
+                onClick={() => props.onBlankClick(toISODate(date), "09:00", "10:00", true)}
+              ><Plus size={11} /><span>全天</span></button>
+              {entries.filter((entry) => entry.dayIndex === dayIndex && entry.allDay).map((entry) => renderCard(entry))}
+            </div>
+          ))}
+        </div>
+        <div className="mobile-week-timeline" style={{ height: timelineHeight }}>
+          {slots.map((row) => (
+            <div
+              key={row.key}
+              className={`mobile-week-time-band mobile-week-slot-row ${row.kind !== "period" ? "rest-slot" : ""}`}
+              data-start-minute={row.start}
+              data-end-minute={row.end}
+              style={{ top: row.rowIndex * MOBILE_SLOT_HEIGHT, height: MOBILE_SLOT_HEIGHT }}
+            >
+              {row.kind !== "period" && (
+                <div
+                  className="mobile-week-time-band mobile-week-time-separator rest"
+                  role="separator"
+                  aria-label={`${row.name} ${row.startTime}–${row.endTime}`}
+                  style={{ top: 0, height: MOBILE_SLOT_HEIGHT }}
+                >
+                  <span className="mobile-week-band-label">{row.name} <span>{row.startTime}–{row.endTime}</span></span>
+                </div>
+              )}
+              {props.dates.map((date, dayIndex) => {
+                const matching = entriesForSlot(dayIndex, row.rowIndex);
+                const label = `${formatMonthDay(date)} ${row.startTime}–${row.endTime}`;
+                return (
+                <button
+                  type="button"
+                  key={toISODate(date)}
+                  className={`mobile-week-blank ${matching.length ? "has-entries" : ""}`}
+                  aria-label={`${label}${matching.length ? `查看${matching.length}项日程` : "新增事项"}`}
+                  onClick={() => matching.length ? setSelectedSlot({ dayIndex, rowIndex: row.rowIndex }) : props.onBlankClick(toISODate(date), row.startTime, draftEnd(row.end))}
+                  onPointerDown={(event) => !matching.length && props.onBlankPointerDown(event, toISODate(date), row.startTime, draftEnd(row.end))}
+                  onPointerMove={props.onBlankPointerMove}
+                  onPointerUp={props.onBlankPointerEnd}
+                  onPointerCancel={props.onBlankPointerEnd}
+                  onPointerLeave={props.onBlankPointerEnd}
+                >
+                  <span className="mobile-week-slot-time">{row.startTime}</span>
+                </button>
+                );
+              })}
+            </div>
+          ))}
+          {displayGroups.map((group) => {
+            const ordered = [...group.entries].sort((left, right) =>
+              (right.end - right.start) - (left.end - left.start) || left.start - right.start || left.key.localeCompare(right.key)
+            );
+            const base = ordered[0];
+            const fronts = ordered.slice(1).sort((left, right) =>
+              (left.end - left.start) - (right.end - right.start) || left.start - right.start || left.key.localeCompare(right.key)
+            );
+            const capacity = Math.max(0, Math.floor((group.height - MOBILE_MIN_CARD_HEIGHT) / (MOBILE_MIN_CARD_HEIGHT + 4)));
+            const layered = group.entries.length > 1 && capacity > 0;
+            const visibleFronts = fronts.length <= capacity ? fronts : fronts.slice(0, Math.max(0, capacity - 1));
+            const hiddenFronts = fronts.slice(visibleFronts.length);
+            const foregroundCount = visibleFronts.length + (hiddenFronts.length ? 1 : 0);
+            const captionHeight = Math.max(MOBILE_MIN_CARD_HEIGHT, Math.min(72, group.height - foregroundCount * (MOBILE_MIN_CARD_HEIGHT + 4)));
+            return (
+            <div
+              key={`${group.dayIndex}-${group.start}`}
+              className={`mobile-week-time-group ${group.entries.length > 1 ? "overlapping" : ""} ${layered ? "layered" : ""}`}
+              role={group.entries.length > 1 ? "group" : undefined}
+              aria-label={group.entries.length > 1 ? `${formatMobileTime(group.start)}–${formatMobileTime(group.end)}，${group.entries.length}项安排` : undefined}
+              data-start-minute={group.start}
+              data-end-minute={group.end}
+              style={{
+                "--day-index": group.dayIndex,
+                top: group.top,
+                height: group.height
+              } as CSSProperties}
+            >
+              {layered ? (
+                <>
+                  {renderLayerCard(base, "base", 0, group.height, captionHeight)}
+                  {visibleFronts.map((entry, index) => renderLayerCard(entry, "front", captionHeight + 4 + index * (MOBILE_MIN_CARD_HEIGHT + 4), MOBILE_MIN_CARD_HEIGHT, MOBILE_MIN_CARD_HEIGHT, index))}
+                  {hiddenFronts.length > 0 && (
+                    <button
+                      type="button"
+                      className="mobile-week-layer-summary"
+                      aria-label={`查看另外${hiddenFronts.length}项安排`}
+                      style={{ top: captionHeight + 4 + visibleFronts.length * (MOBILE_MIN_CARD_HEIGHT + 4), height: MOBILE_MIN_CARD_HEIGHT, left: visibleFronts.length % 2 ? 2 : 6, right: visibleFronts.length % 2 ? 6 : 2 }}
+                      onClick={() => openGroupEntries(group, hiddenFronts)}
+                    >另{hiddenFronts.length}项</button>
+                  )}
+                </>
+              ) : group.entries.length > 1 ? (
+                <button type="button" className="mobile-week-overlap-summary" aria-label={`查看${group.entries.length}项安排`} onClick={() => openGroupEntries(group, group.entries)}>{group.entries.length}项安排</button>
+              ) : group.entries.map((entry) => {
+                const height = group.height;
+                const startsInRest = slots.find((row) => group.start < row.end)?.kind !== "period";
+                return (
+                  <article
+                    key={entry.key}
+                    className={`mobile-week-card mobile-week-visual-card ${height < 72 || startsInRest ? "short" : ""} ${entry.completed ? "completed" : ""} ${entry.canceled ? "canceled" : ""}`}
+                    style={{ "--entry-color": entry.color } as CSSProperties}
+                    data-occurrence-date={toISODate(props.dates[entry.dayIndex])}
+                  >
+                    <span className="mobile-week-card-title">{entry.start < group.start ? "续 · " : ""}{entry.canceled ? "已停课 · " : ""}{entry.title}</span>
+                    <span className="mobile-week-card-time"><span>{slotTime(entry.start)}</span><span>–{entry.time.split("–")[1]}</span></span>
+                    {height >= 96 && !startsInRest && entry.location && <span className="mobile-week-card-location">{entry.location}</span>}
+                  </article>
+                );
+              })}
+            </div>
+          );
+          })}
+        </div>
+      </div>
+      {selectedSlot && selectedRow && (
+        <Modal title="选择日程" className="mobile-week-selection" onClose={() => setSelectedSlot(null)}>
+          <p className="mobile-week-selection-range">{formatMonthDay(props.dates[selectedSlot.dayIndex])} {selectedStart}–{selectedEnd}</p>
+          <div className="mobile-week-selection-list">
+            {selectedEntries.map((entry) => (
+              <article key={entry.key} className={`${entry.completed ? "completed" : ""} ${entry.canceled ? "canceled" : ""}`} style={{ "--entry-color": entry.color } as CSSProperties}>
+                <button type="button" className="mobile-week-selection-edit" aria-label={`编辑${entry.event ? "事项" : "课程"}：${entry.title}`} onClick={() => {
+                  setSelectedSlot(null);
+                  if (entry.event) props.onEditEvent(entry.event);
+                  else if (entry.course) props.onEditCourse(entry.course);
+                }}>
+                  <strong>{entry.title}</strong>
+                  <span>{entry.time}{entry.location ? ` · ${entry.location}` : ""}</span>
+                </button>
+                {entry.event ? (
+                  <button type="button" className="button secondary compact" aria-label={`将 ${entry.title} 标记为${entry.completed ? "未完成" : "已完成"}`} onClick={() => props.onToggleEventCompleted(entry.event!, props.dates[selectedSlot.dayIndex], !entry.completed)}>
+                    {entry.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}{entry.completed ? "标记未完成" : "标记完成"}
+                  </button>
+                ) : entry.course && entry.schedule && (
+                  <button type="button" className="button secondary compact" aria-label={`${entry.canceled ? "恢复" : "停课"}：${entry.title} ${toISODate(props.dates[selectedSlot.dayIndex])}`} onClick={() => void props.onToggleClassCancellation(entry.schedule!, props.dates[selectedSlot.dayIndex], entry.course!.name)}>
+                    <Ban size={15} />{entry.canceled ? "恢复本次课程" : "本次停课"}
+                  </button>
+                )}
+              </article>
+            ))}
+          </div>
+          <div className="form-actions"><button type="button" className="button primary" onClick={() => {
+            props.onBlankClick(toISODate(props.dates[selectedSlot.dayIndex]), selectedStart!, draftEnd(selectedSlot.rangeEnd ?? selectedRow.end));
+            setSelectedSlot(null);
+          }}><Plus size={17} />新增事项</button></div>
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+function buildMobileEntries(props: WeekCalendarProps): MobileCalendarEntry[] {
+  const entries: MobileCalendarEntry[] = [];
+  const courseMap = new Map(props.courses.map((course) => [course.id, course]));
+  const categoryMap = new Map(props.categories.map((category) => [category.id, category]));
+  props.dates.forEach((date, dayIndex) => {
+    const dateText = toISODate(date);
+    if (props.semester) props.schedules.forEach((schedule) => {
+      if (!courseScheduleOccursOn(schedule, props.semester!, date)) return;
+      const course = courseMap.get(schedule.course_id);
+      if (!course || course.deleted_at) return;
+      const start = props.periods.find((period) => !period.deleted_at && period.weekday === schedule.weekday && period.period_number === schedule.start_period);
+      const end = props.periods.find((period) => !period.deleted_at && period.weekday === schedule.weekday && period.period_number === schedule.end_period);
+      if (!start || !end) return;
+      entries.push({
+        key: `${schedule.id}-${dateText}`, dayIndex, title: course.name, location: course.classroom ?? "",
+        start: minutesOf(start.start_time), end: Math.max(minutesOf(start.start_time) + 1, minutesOf(end.end_time)),
+        time: `${start.start_time.slice(0, 5)}–${end.end_time.slice(0, 5)}`, color: course.color, allDay: false, completed: false,
+        canceled: props.cancellations.some((item) => !item.deleted_at && item.course_schedule_id === schedule.id && item.occurrence_date === dateText),
+        course, schedule
+      });
+    });
+    props.events.forEach((event) => {
+      if (event.deleted_at || !eventOccursOn(event, date)) return;
+      const completed = eventCompletionForDate(event, props.occurrenceStates, date).completed;
+      if (!eventOccurrenceMatchesStatus(completed, props.eventStatusFilter)) return;
+      const start = Math.min(1439, Math.max(0, minutesOf(event.start_time ?? "00:00")));
+      const end = Math.min(1440, Math.max(start + 1, minutesOf(event.end_time ?? event.start_time ?? "00:00")));
+      entries.push({
+        key: `${event.id}-${dateText}`, dayIndex, title: event.title, location: event.location?.trim() ?? "",
+        start, end, time: event.all_day ? "全天" : `${event.start_time?.slice(0, 5) ?? "00:00"}–${event.end_time?.slice(0, 5) ?? event.start_time?.slice(0, 5) ?? "00:00"}`,
+        color: event.color || categoryMap.get(event.category_id ?? "")?.color || "var(--brand-primary)",
+        allDay: event.all_day, completed, canceled: false, event
+      });
+    });
+  });
+  return entries;
+}
+
+function formatMobileTime(value: number): string {
+  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
 }
 
 function buildStackedRowLayout(

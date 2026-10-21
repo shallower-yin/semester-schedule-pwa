@@ -46,7 +46,8 @@ export function ScheduleSnapshotDialog({ mode, input, skinId, onClose }: Schedul
       const days = buildSnapshotDays(input, dates);
       const title = mode === "day" ? `${formatMonthDay(dates[0])} 日程` : `${formatMonthDay(dates[0])} - ${formatMonthDay(dates[6])} 周日程`;
       const fileName = mode === "day" ? `日快照-${toISODate(dates[0])}` : `周快照-${toISODate(dates[0])}`;
-      await exportScheduleSnapshot({ mode, days, skinId, title, fileName });
+      const layout = window.matchMedia("(max-width: 900px)").matches ? "mobile" : "desktop";
+      await exportScheduleSnapshot({ mode, days, skinId, title, fileName, layout });
       onClose();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "快照生成失败，请稍后重试。");

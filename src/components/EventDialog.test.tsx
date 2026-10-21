@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
-import { toISODate } from "../lib/date";
+import { addDays, toISODate } from "../lib/date";
 import { setCurrentUserId, syncFields } from "../lib/identity";
 import type { EventItem } from "../types";
 import { EventDialog } from "./EventDialog";
@@ -46,6 +46,41 @@ describe("事项编辑弹窗", () => {
     const queued = await db.syncQueue.where("table_name").equals("eventOccurrenceStates").first();
     expect(queued?.record_id).toBeTruthy();
     expect(screen.getByText("已标记今天完成。")).toBeInTheDocument();
+  });
+
+  it("标题旁可完成非今天的单日事项，并恢复未完成", async () => {
+    const date = toISODate(addDays(new Date(), 3));
+    const eventItem = eventRecord({ start_date: date, end_date: date });
+    const state = {
+      ...syncFields(undefined, "local"),
+      event_id: eventItem.id,
+      occurrence_date: date,
+      completed: false,
+      reminder_sent_at: "2026-07-07T00:50:00.000Z"
+    };
+    await db.events.put(eventItem);
+    await db.eventOccurrenceStates.put(state);
+    const onClose = vi.fn();
+    render(<EventDialog eventItem={eventItem} initialDate={date} ownerId="local" occurrenceStates={[state]} onClose={onClose} />);
+
+    const complete = screen.getByRole("button", { name: "标记完成" });
+    expect(complete.closest("header")).toContainElement(screen.getByRole("heading", { name: "编辑事项" }));
+    expect(complete).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(complete);
+
+    await waitFor(async () => expect(await db.eventOccurrenceStates.get(state.id)).toMatchObject({
+      completed: true,
+      occurrence_date: date,
+      reminder_sent_at: state.reminder_sent_at
+    }));
+    const restore = await screen.findByRole("button", { name: "标记未完成" });
+    await waitFor(() => expect(restore).not.toBeDisabled());
+    expect(restore).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(restore);
+
+    await waitFor(async () => expect((await db.eventOccurrenceStates.get(state.id))?.completed).toBe(false));
+    expect((await db.events.get(eventItem.id))?.completed_at).toBeFalsy();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("新增普通事项时保存开始到结束日期的每日范围", async () => {
@@ -181,7 +216,9 @@ describe("事项编辑弹窗", () => {
     await db.events.put(eventItem);
     render(<EventDialog eventItem={eventItem} initialDate={today} ownerId="local" occurrenceStates={[]} onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "完成整个事项" }));
+    const complete = screen.getByRole("button", { name: "完成整个事项" });
+    expect(complete.closest("header")).toContainElement(screen.getByRole("heading", { name: "编辑事项" }));
+    fireEvent.click(complete);
     await waitFor(async () => expect((await db.events.get(eventItem.id))?.completed_at).toBeTruthy());
     await waitFor(() => expect(screen.getByRole("button", { name: "整项已完成" })).toBeDisabled());
 

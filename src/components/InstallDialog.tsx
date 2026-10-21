@@ -34,21 +34,6 @@ export function InstallDialog({
   return (
     <Modal title="安装日程计划表" onClose={onClose}>
       <div className="install-guide">
-        <section className="install-overview">
-          <div>
-            <Download size={19} />
-            <span>安装应用</span>
-          </div>
-          <div>
-            <Home size={19} />
-            <span>桌面打开</span>
-          </div>
-          <div>
-            <LogIn size={19} />
-            <span>登录同步</span>
-          </div>
-        </section>
-
         {installed && (
           <div className="install-result success">
             <CheckCircle2 size={20} />
@@ -73,12 +58,11 @@ export function InstallDialog({
               <Monitor size={22} />
               <div>
                 <h3>Windows Edge / Chrome</h3>
-                <p>适合电脑常用，安装后像普通应用一样打开。</p>
               </div>
             </header>
             <div className="install-steps">
-              <article><span>1</span><Menu size={17} /><p>打开浏览器右上角菜单。</p></article>
-              <article><span>2</span><Download size={17} /><p>选择“应用 / 安装此站点作为应用”。</p></article>
+              <article><span>1</span><Download size={17} /><p>点击浏览器网址栏右侧的安装按钮。</p></article>
+              <article><span>2</span><CheckCircle2 size={17} /><p>在弹出的窗口中点击“安装”。</p></article>
               <article><span>3</span><Search size={17} /><p>在开始菜单搜索“日程计划表”。</p></article>
               <article><span>4</span><Home size={17} /><p>需要桌面图标时，在 <code>edge://apps</code> 或 <code>chrome://apps</code> 创建快捷方式。</p></article>
             </div>

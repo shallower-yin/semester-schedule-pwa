@@ -35,9 +35,9 @@ export function useHistoryLayer(open: boolean, onBack: () => void, prefix = "lay
 
   return useCallback(() => {
     if (pushedRef.current && isCurrentAppHistoryLayer(layerIdRef.current)) {
+      pushedRef.current = false;
       markAppHistoryUnwind();
       window.history.back();
-      return;
     }
     onBackRef.current();
   }, []);

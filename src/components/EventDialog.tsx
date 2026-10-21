@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BellRing, CalendarCheck, Copy, FileText } from "lucide-react";
+import { BellRing, CalendarCheck, Check, Copy, FileText, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
@@ -71,6 +71,8 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [validationMessage, setValidationMessage] = useState("");
   const [completionMessage, setCompletionMessage] = useState("");
   const [entireCompletedAt, setEntireCompletedAt] = useState(eventItem?.completed_at ?? null);
+  const [completionOverride, setCompletionOverride] = useState<EventOccurrenceState | null>(null);
+  const [completing, setCompleting] = useState(false);
   const [conflictMessage, setConflictMessage] = useState("");
   const [suggestedSlot, setSuggestedSlot] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
   const [templates, setTemplates] = useState(() => loadEventTemplates());
@@ -78,12 +80,22 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const [enablingReminder, setEnablingReminder] = useState(false);
   const [saving, setSaving] = useState(false);
   const effectiveEventItem = eventItem ? { ...eventItem, completed_at: entireCompletedAt } : null;
-  const todayCompletion = effectiveEventItem ? eventCompletionForDate(effectiveEventItem, occurrenceStates, new Date()) : null;
+  const currentOccurrenceStates = completionOverride
+    ? [completionOverride, ...occurrenceStates.filter((state) => state.event_id !== completionOverride.event_id || state.occurrence_date !== completionOverride.occurrence_date)]
+    : occurrenceStates;
+  const todayCompletion = effectiveEventItem ? eventCompletionForDate(effectiveEventItem, currentOccurrenceStates, new Date()) : null;
   const canCompleteEntireItem = Boolean(eventItem && (
     eventItem.event_type === "habit"
     || eventItem.recurrence_type !== "none"
     || eventItem.end_date > eventItem.start_date
   ));
+  const itemCompletion = effectiveEventItem
+    ? eventCompletionForDate(effectiveEventItem, currentOccurrenceStates, parseLocalDate(effectiveEventItem.start_date))
+    : null;
+  const headerCompleted = canCompleteEntireItem ? Boolean(entireCompletedAt) : Boolean(itemCompletion?.completed);
+  const headerCompletionLabel = canCompleteEntireItem
+    ? headerCompleted ? "恢复整个事项" : "完成整个事项"
+    : headerCompleted ? "标记未完成" : "标记完成";
   const itemLabel = eventType === "habit" ? "习惯" : "事项";
   const usesDateRange = recurrence === "none" && endDate > date;
   const reminderSummary = reminderEnabled
@@ -354,6 +366,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     if (!eventItem || !todayCompletion?.occurs) return;
     const record = buildEventCompletionRecord(eventItem, todayCompletion.occurrenceDate, completed, todayCompletion.state);
     await putRecordAndQueue("eventOccurrenceStates", record);
+    setCompletionOverride(record);
     setCompletionMessage(completed ? "已标记今天完成。" : "已标记今天未完成。");
     showToast(completed ? "已标记今天完成。" : "已标记今天未完成。", "success");
   }
@@ -371,6 +384,28 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
     setEntireCompletedAt(completedAt);
     setCompletionMessage(completed ? "已完成整个事项，全部日期均标记为完成。" : "已恢复整个事项，可继续按日期完成。");
     showToast(completed ? "已完成整个事项。" : "已恢复整个事项。", "success");
+  }
+
+  async function toggleHeaderCompleted() {
+    if (!eventItem || !itemCompletion || completing) return;
+    setCompleting(true);
+    try {
+      if (canCompleteEntireItem) {
+        await setEntireItemCompleted(!headerCompleted);
+      } else {
+        const completed = !headerCompleted;
+        if (entireCompletedAt) await setEntireItemCompleted(false);
+        const record = buildEventCompletionRecord(eventItem, itemCompletion.occurrenceDate, completed, itemCompletion.state);
+        await putRecordAndQueue("eventOccurrenceStates", record);
+        setCompletionOverride(record);
+        setCompletionMessage(completed ? "已标记完成。" : "已标记未完成。");
+        showToast(completed ? "已标记完成。" : "已标记未完成。", "success");
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "更新完成状态失败，请重试。", "error");
+    } finally {
+      setCompleting(false);
+    }
   }
 
   async function createMemoFromEvent() {
@@ -392,7 +427,24 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   }
 
   return (
-    <Modal title={eventItem ? `编辑${itemLabel}` : `新增${itemLabel}`} onClose={onClose}>
+    <Modal
+      title={eventItem ? `编辑${itemLabel}` : `新增${itemLabel}`}
+      onClose={onClose}
+      className="event-dialog"
+      headerExtra={eventItem && (
+        <button
+          type="button"
+          className="icon-button event-completion-toggle"
+          aria-label={headerCompletionLabel}
+          title={headerCompletionLabel}
+          aria-pressed={headerCompleted}
+          disabled={saving || completing}
+          onClick={() => void toggleHeaderCompleted()}
+        >
+          {headerCompleted ? <Undo2 size={19} /> : <Check size={19} />}
+        </button>
+      )}
+    >
       <form ref={formRef} className="form-stack" onSubmit={save}>
         <label data-search-field="title" className={searchMatchFieldClass(searchMatch, "title")}>标题<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <div className="template-toolbar">
@@ -460,20 +512,11 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
               <button
                 type="button"
                 className="button secondary compact"
-                disabled={!todayCompletion.occurs || Boolean(entireCompletedAt)}
+                disabled={!todayCompletion.occurs || Boolean(entireCompletedAt) || completing}
                 onClick={() => void setTodayCompleted(!todayCompletion.completed)}
               >
                 {entireCompletedAt ? "整项已完成" : todayCompletion.completed ? "标记今天未完成" : "标记今天完成"}
               </button>
-              {canCompleteEntireItem && (
-                <button
-                  type="button"
-                  className={entireCompletedAt ? "button secondary compact" : "button primary compact"}
-                  onClick={() => void setEntireItemCompleted(!entireCompletedAt)}
-                >
-                  {entireCompletedAt ? "恢复整个事项" : "完成整个事项"}
-                </button>
-              )}
             </div>
             {completionMessage && <p>{completionMessage}</p>}
           </section>
@@ -526,7 +569,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </div>
           <div className="inline-actions">
             <button type="button" className="button secondary" onClick={onClose}>取消</button>
-            <button className="button primary" disabled={saving || enablingReminder}>
+            <button className="button primary" disabled={saving || enablingReminder || completing}>
               {saving ? "保存中…" : enablingReminder ? "正在启用提醒…" : `保存${itemLabel}`}
             </button>
           </div>

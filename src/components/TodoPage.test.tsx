@@ -46,9 +46,45 @@ describe("独立待办页面", () => {
         reminder_at: null,
         reminder_sent_at: null
       });
-      expect(saved?.sort_order).toBeGreaterThan(0);
     });
     expect(await screen.findByText("整理课程资料")).toBeInTheDocument();
+  });
+
+  it("连续新增待办排在普通列表最上方，保留置顶与手动顺序且刷新后不变", async () => {
+    await db.todos.bulkAdd([
+      { ...todoRecord("pinned", "置顶事项", 300), is_pinned: true },
+      todoRecord("manual-first", "已上移事项", -100),
+      todoRecord("manual-second", "旧事项", 200)
+    ]);
+    const { unmount } = render(<TodoPage ownerId="local" />);
+    await screen.findByText("旧事项");
+
+    for (const title of ["新增第一项", "新增第二项"]) {
+      fireEvent.click(screen.getAllByRole("button", { name: "新增待办" })[0]);
+      fireEvent.change(screen.getByRole("textbox", { name: "待办内容" }), { target: { value: title } });
+      fireEvent.click(screen.getByRole("button", { name: "保存待办" }));
+      await screen.findByRole("button", { name: `编辑待办 ${title}` });
+    }
+
+    const expectedOrder = ["置顶事项", "新增第二项", "新增第一项", "已上移事项", "旧事项"];
+    const displayedTitles = () => screen.getAllByRole("listitem").map((item) => (
+      item.querySelector(".todo-card-title")?.textContent
+    ));
+    expect(displayedTitles()).toEqual(expectedOrder);
+    const firstAdded = await db.todos.filter((item) => item.title === "新增第一项").first();
+    const secondAdded = await db.todos.filter((item) => item.title === "新增第二项").first();
+    expect(firstAdded?.sort_order).toBeLessThan(-100);
+    expect(secondAdded?.sort_order).toBeLessThan(firstAdded!.sort_order);
+    expect(await db.syncQueue.where("record_id").equals(secondAdded!.id).first()).toMatchObject({
+      table_name: "todos", owner_id: "local", operation: "upsert"
+    });
+    expect((await db.todos.get("manual-first"))?.sort_order).toBe(-100);
+    expect((await db.todos.get("manual-second"))?.sort_order).toBe(200);
+
+    unmount();
+    render(<TodoPage ownerId="local" />);
+    await screen.findByText("新增第二项");
+    expect(displayedTitles()).toEqual(expectedOrder);
   });
 
   it("完成后显示约三秒的撤销入口，并能恢复为未完成", async () => {
@@ -189,6 +225,8 @@ describe("独立待办页面", () => {
     fireEvent.click(screen.getByRole("button", { name: "待办“第二项”操作" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "复制" }));
     expect(await screen.findByText("第二项（副本）")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem").map((item) => item.querySelector(".todo-card-title")?.textContent))
+      .toEqual(["第一项", "第二项（副本）", "第二项"]);
 
     vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "待办“第二项”操作" }));

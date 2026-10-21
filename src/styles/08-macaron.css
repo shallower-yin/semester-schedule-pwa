@@ -1,0 +1,405 @@
+/* Shared light palette. Route styles above continue to own layout and sizing. */
+:root,
+.app-shell {
+  --primary: var(--brand-primary);
+  --primary-hover: var(--brand-primary-hover);
+  --primary-rgb: var(--brand-primary-rgb);
+  --text: var(--color-text);
+  --muted: var(--color-text-muted);
+  --surface: var(--color-surface);
+  --surface-soft: var(--color-surface-soft);
+  --app-bg: var(--color-canvas);
+  --border: var(--color-border);
+  --accent-soft: var(--brand-accent-soft);
+  --danger: var(--color-danger);
+  --success: var(--color-success);
+  --warning: var(--color-warning);
+  --shadow: var(--shadow-soft);
+  color: var(--text);
+  color-scheme: light;
+}
+
+html,
+body,
+.app-shell {
+  background: var(--app-bg);
+}
+
+::selection {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.app-header,
+.app-shell:not([data-skin="default"]) .app-header,
+.mobile-bottom-nav,
+.mobile-sidebar,
+.modal-header {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+}
+
+.desktop-nav,
+.mobile-day-switcher,
+.memo-view-toggle,
+.segmented-control {
+  background: var(--surface-soft);
+}
+
+.desktop-nav button,
+.mobile-bottom-nav button,
+.mobile-sidebar nav button,
+.mobile-day-switcher button {
+  color: var(--muted);
+}
+
+.desktop-nav button.active,
+.mobile-bottom-nav button.active,
+.mobile-sidebar nav button.active,
+.mobile-day-switcher button.selected,
+.mobile-day-switcher button.today:not(.selected),
+.memo-view-toggle button.active,
+.segmented-control button.active {
+  color: var(--text);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+.brand-mark,
+.mobile-fab,
+.todo-floating-add,
+.todo-heading-icon,
+.focus-audio-play,
+.account-avatar.no-image,
+.theme-skin-check,
+.font-size-check,
+.install-steps article > span,
+.update-notes-dialog > header > span {
+  color: var(--text);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-soft);
+}
+
+.button.primary,
+.button.primary:hover,
+.week-picker button.selected,
+.focus-mode-tabs button.active,
+.focus-mode-tabs button.selected {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-soft);
+}
+
+.button.primary:hover:not(:disabled),
+.mobile-fab:hover,
+.todo-floating-add:hover {
+  background: var(--brand-accent-hover);
+}
+
+.button.secondary,
+.icon-button,
+.week-picker button {
+  border-color: var(--border);
+  color: var(--text);
+  background-color: var(--surface);
+}
+
+.button.secondary:hover:not(:disabled),
+.icon-button:hover:not(:disabled),
+.attachment-source-menu > button:hover,
+.todo-card-menu button:hover:not(:disabled) {
+  background-color: var(--surface-soft);
+}
+
+.button.danger,
+.button.danger:hover,
+.button.danger-ghost {
+  border-color: color-mix(in srgb, var(--color-danger) 22%, var(--surface));
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  box-shadow: none;
+}
+
+.button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 15%, var(--surface));
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+select,
+textarea {
+  border-color: var(--border);
+  color: var(--text);
+  background-color: var(--surface);
+  caret-color: var(--text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  accent-color: var(--primary);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-color: var(--color-focus-ring);
+}
+
+.modal,
+.update-notes-dialog,
+.overview-stat,
+.overview-list,
+.overview-trend,
+.calendar-shell,
+.habit-card,
+.habit-stats article,
+.today-stats article,
+.focus-panel,
+.focus-side,
+.settings-card,
+.settings-panel,
+.settings-section,
+.memo-card,
+.memo-sidebar,
+.memo-editor-panel,
+.anniversary-card,
+.health-band,
+.health-secondary-summary article,
+.health-settings-panel,
+.theme-skin-card,
+.font-size-option,
+.translation-learning,
+.translation-summary-result,
+.audio-transcription-panel,
+.attachment-source-menu,
+.todo-card-menu {
+  border-color: var(--border);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.modal,
+.update-notes-dialog,
+.attachment-source-menu,
+.todo-card-menu {
+  box-shadow: var(--shadow-raised);
+}
+
+.modal-backdrop,
+.mobile-sidebar-backdrop {
+  background: var(--color-overlay);
+}
+
+.overview-stat.primary-stat,
+.health-water-summary,
+.translation-learning {
+  border-color: var(--border);
+  color: var(--text);
+  background: linear-gradient(135deg, var(--surface-soft), var(--surface));
+}
+
+.overview-stat.primary-stat small {
+  color: var(--muted);
+}
+
+.overview-stat svg,
+.overview-stat.primary-stat svg,
+.habit-stats svg,
+.today-stats svg {
+  color: var(--primary-hover);
+  background: var(--surface-soft);
+}
+
+.overview-stat-button:hover,
+.habit-card:hover,
+.memo-card:hover,
+.theme-skin-card.active,
+.font-size-option.active {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  box-shadow: var(--shadow-soft);
+}
+
+.todo-card,
+.todo-card:hover {
+  border-color: color-mix(in srgb, var(--todo-card-color) 30%, var(--border));
+  background: color-mix(in srgb, var(--todo-card-color) 40%, var(--surface));
+  box-shadow: var(--shadow-soft);
+}
+
+.todo-check-button > span {
+  border-color: color-mix(in srgb, var(--text) 55%, var(--surface));
+}
+
+.todo-card.completed .todo-check-button > span {
+  border-color: var(--color-success);
+  color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.todo-card-body small,
+.todo-card-menu button,
+.todo-card-menu-trigger,
+.todo-color-fieldset legend {
+  color: var(--text);
+}
+
+.todo-card-menu button.danger {
+  color: var(--color-danger);
+}
+
+.habit-check.done,
+.todo-cleared-state,
+.app-toast.success {
+  border-color: color-mix(in srgb, var(--color-success) 20%, var(--surface));
+  color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.app-toast.error,
+.auth-message.error {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.assistant-messages {
+  background: var(--app-bg);
+}
+
+.assistant-messages article.user p,
+.audio-followup > p.user {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.assistant-messages article.user .assistant-inline-actions .icon-button {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.focus-ring {
+  background:
+    radial-gradient(circle at center, var(--surface) 0 62%, transparent 63%),
+    conic-gradient(var(--chart-primary) var(--progress), var(--surface-soft) 0);
+}
+
+.health-water-ring {
+  background: conic-gradient(var(--chart-primary) var(--health-water-progress), var(--surface-soft) 0);
+}
+
+.health-progress > span,
+.focus-week-chart span,
+.focus-chart span,
+.stats-focus-chart i,
+.overview-trend-bars i,
+.overview-trend-bars .today i,
+.habit-progress i {
+  background: var(--chart-primary);
+}
+
+.habit-heatmap span { background: var(--surface-soft); }
+.habit-heatmap .level-1 { background: color-mix(in srgb, var(--primary) 15%, var(--surface)); }
+.habit-heatmap .level-2 { background: color-mix(in srgb, var(--primary) 28%, var(--surface)); }
+.habit-heatmap .level-3 { background: color-mix(in srgb, var(--primary) 45%, var(--surface)); }
+.habit-heatmap .level-4 { background: color-mix(in srgb, var(--primary) 68%, var(--surface)); }
+
+.theme-skin-preview-default { --skin-preview-bg: #eef7ff; --skin-preview-accent: #dceeff; }
+.theme-skin-preview-cake { --skin-preview-bg: #fff6ed; --skin-preview-accent: #fde3d0; }
+.theme-skin-preview-linen { --skin-preview-bg: #effbf6; --skin-preview-accent: #d9f1e3; }
+.theme-skin-preview-space { --skin-preview-bg: #f6f2ff; --skin-preview-accent: #e9e0fb; }
+.theme-skin-preview-cherry { --skin-preview-bg: #fff3f5; --skin-preview-accent: #f7dce4; }
+.theme-skin-preview-peace { --skin-preview-bg: #fffbee; --skin-preview-accent: #f6ebc5; }
+
+.theme-skin-card .theme-skin-preview,
+.theme-skin-card .theme-skin-preview i {
+  background: linear-gradient(135deg, var(--skin-preview-accent), var(--skin-preview-bg));
+}
+
+/* Media keeps its content while the surrounding controls use the light skin. */
+.memo-image-preview-content,
+.memo-image-preview-viewport,
+.memo-image-preview-status,
+.memo-image-preview-toolbar {
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.memo-image-preview-status.error {
+  color: var(--color-danger);
+}
+
+.memo-image-preview-status .button,
+.memo-image-preview-toolbar .icon-button,
+.memo-image-preview-zoom-value {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.memo-image-preview-name,
+.memo-image-preview-zoom {
+  color: var(--muted);
+}
+
+.focus-lock-overlay,
+.focus-fullscreen {
+  color: var(--text);
+  background-color: var(--app-bg);
+}
+
+.focus-lock-overlay {
+  background-image: linear-gradient(150deg, var(--app-bg), var(--accent-soft));
+}
+
+.focus-lock-card {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.focus-lock-card > span,
+.focus-lock-card p,
+.focus-fs-date,
+.focus-fs-quote {
+  color: var(--muted);
+  text-shadow: none;
+}
+
+.focus-lock-card.focus-lock-minimal > strong,
+.focus-fs-time,
+.focus-fs-task {
+  color: var(--text);
+  text-shadow: none;
+}
+
+.focus-fullscreen-scrim {
+  background: color-mix(in srgb, var(--app-bg) 88%, transparent);
+}
+
+.focus-fs-icon,
+.focus-fs-label,
+.button.ghost-light {
+  border-color: var(--border);
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.button.ghost-light.danger {
+  border-color: color-mix(in srgb, var(--color-danger) 22%, var(--surface));
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.focus-fs-ring {
+  background:
+    radial-gradient(circle at center, var(--surface) 0 60%, transparent 61%),
+    conic-gradient(var(--chart-primary) var(--progress), var(--surface-soft) 0);
+}

@@ -123,7 +123,7 @@ describe("AI 思维导图", () => {
   });
 
   it("生成失败后保留附件，直到用户主动移除", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     askAiMindMapMock.mockRejectedValueOnce(new Error("生成失败"));
     render(<MindMapDialog input={emptyInput} ownerId="user-pdf" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "选择脑图附件来源" });
@@ -137,7 +137,7 @@ describe("AI 思维导图", () => {
   });
 
   it("支持粘贴截图或浏览器提供的文档文件并保留选择器", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     render(<MindMapDialog input={emptyInput} ownerId="user-paste" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "选择脑图附件来源" });
     const pastedImage = new File(["image"], "剪贴板截图.png", { type: "image/png" });
@@ -160,7 +160,7 @@ describe("AI 思维导图", () => {
   });
 
   it("最终生成失败后重试会复用已经读取的 PDF 文字", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     prepareAiAssistantAttachmentMock.mockResolvedValueOnce({
       name: "长讲义.pdf",
       mimeType: "application/pdf",

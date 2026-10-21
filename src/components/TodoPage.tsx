@@ -711,8 +711,8 @@ function compareCompletedTodos(left: TodoItem, right: TodoItem): number {
 }
 
 function nextSortOrder(todos: TodoItem[]): number {
-  const maximum = todos.reduce((current, item) => Math.max(current, Number.isFinite(item.sort_order) ? item.sort_order : 0), 0);
-  return maximum + SORT_ORDER_STEP;
+  const minimum = todos.reduce((current, item) => Math.min(current, Number.isFinite(item.sort_order) ? item.sort_order : 0), 0);
+  return minimum - SORT_ORDER_STEP;
 }
 
 function normalizeTodoColor(color?: string): string {

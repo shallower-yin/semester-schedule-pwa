@@ -1,18 +1,36 @@
 :root {
+  color-scheme: light;
   /* Neutral/theme axis */
-  --color-text: #172033;
-  --color-text-muted: #697386;
-  --color-canvas: #f5f7fb;
+  --color-text: #203d58;
+  --color-text-muted: #516c83;
+  --color-canvas: #eef7ff;
   --color-surface: #ffffff;
-  --color-surface-soft: #f1f3f8;
-  --color-border: #dfe4ee;
-  --color-focus-ring: rgb(49 87 213 / 58%);
+  --color-surface-soft: #e5f2ff;
+  --color-border: #d4e6f5;
+  --color-focus-ring: rgb(57 115 166 / 48%);
 
   /* Brand/skin axis */
-  --brand-primary: #3157d5;
-  --brand-primary-hover: #2649bd;
-  --brand-primary-rgb: 49 87 213;
-  --brand-accent-soft: #edf2ff;
+  --brand-primary: #3973a6;
+  --brand-primary-hover: #2e689d;
+  --brand-primary-rgb: 57 115 166;
+  --brand-accent-soft: #dceeff;
+  --brand-accent-hover: #cde6fb;
+
+  /* Status colors remain consistent across all six light skins. */
+  --color-success: #287a55;
+  --color-success-soft: #e8f4ee;
+  --color-danger: #a84050;
+  --color-danger-soft: #fae9ec;
+  --color-warning: #916122;
+  --color-warning-soft: #faf0dc;
+  --color-info: #356d99;
+  --color-info-soft: #e8f2fb;
+  --color-overlay: rgb(32 61 88 / 25%);
+  --shadow-soft: 0 1px 2px rgb(41 83 117 / 2.5%), 0 5px 18px rgb(41 83 117 / 4.5%);
+  --shadow-raised: 0 4px 10px rgb(41 83 117 / 4%), 0 14px 36px rgb(41 83 117 / 8%);
+  --chart-primary: color-mix(in srgb, var(--brand-primary) 58%, white);
+  --chart-secondary: #c5b5df;
+  --chart-success: #a9d5bd;
 
   /* Stable scales used by later UI migration stages */
   --radius-xs: 6px;
@@ -35,4 +53,84 @@
   --z-preview: 2200;
   --z-task-center: 2300;
   --z-toast: 3000;
+}
+
+:root[data-skin="cake"],
+.app-shell[data-skin="cake"] {
+  --color-text: #5d4335;
+  --color-text-muted: #806250;
+  --color-canvas: #fff6ed;
+  --color-surface: #fffefd;
+  --color-surface-soft: #ffead8;
+  --color-border: #f2d8c3;
+  --color-focus-ring: rgb(174 93 56 / 48%);
+  --brand-primary: #ae5d38;
+  --brand-primary-hover: #9d4d2d;
+  --brand-primary-rgb: 174 93 56;
+  --brand-accent-soft: #fde3d0;
+  --brand-accent-hover: #f6d6bc;
+}
+
+:root[data-skin="linen"],
+.app-shell[data-skin="linen"] {
+  --color-text: #24483b;
+  --color-text-muted: #526f62;
+  --color-canvas: #effbf6;
+  --color-surface: #fcfffd;
+  --color-surface-soft: #e1f4eb;
+  --color-border: #cfe7da;
+  --color-focus-ring: rgb(56 128 96 / 48%);
+  --brand-primary: #388060;
+  --brand-primary-hover: #2f7052;
+  --brand-primary-rgb: 56 128 96;
+  --brand-accent-soft: #d9f1e3;
+  --brand-accent-hover: #cbe8d8;
+}
+
+:root[data-skin="space"],
+.app-shell[data-skin="space"] {
+  --color-text: #403963;
+  --color-text-muted: #696081;
+  --color-canvas: #f6f2ff;
+  --color-surface: #fffefe;
+  --color-surface-soft: #eee8fc;
+  --color-border: #dfd6f2;
+  --color-focus-ring: rgb(111 85 173 / 48%);
+  --brand-primary: #6f55ad;
+  --brand-primary-hover: #60489b;
+  --brand-primary-rgb: 111 85 173;
+  --brand-accent-soft: #e9e0fb;
+  --brand-accent-hover: #ded2f5;
+}
+
+:root[data-skin="cherry"],
+.app-shell[data-skin="cherry"] {
+  --color-text: #553443;
+  --color-text-muted: #785b68;
+  --color-canvas: #fff3f5;
+  --color-surface: #fffdfd;
+  --color-surface-soft: #fbe5ea;
+  --color-border: #f0d6dd;
+  --color-focus-ring: rgb(176 80 108 / 48%);
+  --brand-primary: #b0506c;
+  --brand-primary-hover: #96435e;
+  --brand-primary-rgb: 176 80 108;
+  --brand-accent-soft: #f7dce4;
+  --brand-accent-hover: #f0ced9;
+}
+
+:root[data-skin="peace"],
+.app-shell[data-skin="peace"] {
+  --color-text: #55492e;
+  --color-text-muted: #78693d;
+  --color-canvas: #fffbee;
+  --color-surface: #fffefa;
+  --color-surface-soft: #faf2d9;
+  --color-border: #ede1ba;
+  --color-focus-ring: rgb(145 112 44 / 48%);
+  --brand-primary: #91702c;
+  --brand-primary-hover: #7a5c21;
+  --brand-primary-rgb: 145 112 44;
+  --brand-accent-soft: #f6ebc5;
+  --brand-accent-hover: #eddfad;
 }

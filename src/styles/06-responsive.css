@@ -174,7 +174,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
-    background: #f8fafc;
+    background: var(--surface);
     font-weight: 750;
   }
 
@@ -244,7 +244,7 @@
     padding: 6px 2px;
     border: 0;
     border-radius: 16px;
-    color: #667085;
+    color: var(--muted);
     background: transparent;
     font-size: 0.75rem;
     font-weight: 700;
@@ -334,7 +334,7 @@
     grid-template-columns: repeat(7, 1fr);
     padding: 8px;
     border-bottom: 1px solid var(--border);
-    background: #fafbfe;
+    background: var(--surface);
   }
 
   .mobile-day-switcher button {
@@ -346,7 +346,7 @@
     padding: 7px 2px;
     border: 0;
     border-radius: 9px;
-    color: #6b7484;
+    color: var(--muted);
     background: transparent;
     font-size: 0.75rem;
   }
@@ -362,7 +362,7 @@
 
   .mobile-day-switcher button.today:not(.selected) {
     color: var(--primary);
-    background: #eaf0ff;
+    background: var(--surface-soft);
   }
 
   .calendar-shell {
@@ -407,7 +407,7 @@
     margin-top: 4px;
     margin-bottom: 4px;
     border-left-width: 6px;
-    background: white;
+    background: var(--surface);
   }
 
   .calendar-entry.day-column.mobile-selected .entry-title {
@@ -452,7 +452,7 @@
   }
 
   .event-entry.day-column.mobile-selected .entry-icon-button {
-    background: #eef2f8;
+    background: var(--surface-soft);
   }
 
   .event-entry.day-column.mobile-selected .event-complete-button {
@@ -517,7 +517,7 @@
   }
 
   .calendar-cell.day-column.mobile-selected:active {
-    background: #eef3ff;
+    background: var(--surface-soft);
     box-shadow: inset 0 0 0 2px rgb(49 87 213 / 14%);
   }
 
@@ -1225,11 +1225,11 @@
   }
 
   .add-type-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .add-type-grid > button {
-    min-height: 110px;
+    min-height: 88px;
   }
 
   .focus-stats {
@@ -1589,7 +1589,7 @@
     position: sticky;
     bottom: 0;
     z-index: 2;
-    background: white;
+    background: var(--surface);
     box-shadow: 0 -6px 16px rgb(15 23 42 / 6%);
   }
 
@@ -2449,7 +2449,7 @@
   padding: 5px 8px 5px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--surface);
 }
 
 .health-exercise-add-row {

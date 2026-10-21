@@ -1,0 +1,715 @@
+/* Course colors remain saved as chosen; only their rendered surface is light. */
+.calendar-entry.course-entry {
+  border-color: color-mix(in srgb, var(--course-color, var(--primary)) 22%, var(--border));
+  border-left: 4px solid var(--course-color, var(--primary));
+  color: var(--text);
+  background: color-mix(in srgb, var(--course-color, var(--primary)) 14%, var(--surface));
+}
+
+.calendar-entry.course-entry .entry-meta,
+.calendar-entry.course-entry .entry-time {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.calendar-entry.course-entry .entry-icon-button {
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.calendar-entry.course-entry.canceled {
+  opacity: 1;
+  background-image: repeating-linear-gradient(135deg, transparent, transparent 8px, color-mix(in srgb, var(--course-color, var(--primary)) 6%, transparent) 8px, color-mix(in srgb, var(--course-color, var(--primary)) 6%, transparent) 13px);
+}
+
+.calendar-control-panel {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.calendar-toolbar-disclosure > summary {
+  display: none;
+  list-style: none;
+}
+
+.calendar-toolbar-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.calendar-more-disclosure,
+.calendar-more-disclosure > .calendar-disclosure-content {
+  display: contents;
+}
+
+@media (max-width: 900px) {
+  .calendar-control-panel {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 6px;
+    margin-bottom: 10px;
+  }
+
+  .calendar-control-panel .calendar-toolbar {
+    display: contents;
+  }
+
+  .calendar-control-panel .calendar-title-actions {
+    grid-column: 1 / -1;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .calendar-control-panel .week-title h1 {
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .calendar-control-panel .week-title > span {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .calendar-control-panel .snapshot-toolbar-actions {
+    gap: 5px;
+  }
+
+  .calendar-control-panel .snapshot-toolbar-actions .button {
+    min-height: 34px;
+    gap: 4px;
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+
+  .calendar-control-panel .snapshot-toolbar-actions svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .calendar-toolbar > .toolbar-actions.calendar-week-actions {
+    display: grid;
+    width: 100%;
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: 36px minmax(64px, 1fr) 36px auto;
+    gap: 5px;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .calendar-toolbar > .toolbar-actions.calendar-week-actions > .button {
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    grid-column: auto;
+    padding: 5px 6px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .calendar-toolbar-disclosure > summary {
+    display: flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    background: var(--surface);
+    font-size: 11px;
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .calendar-toolbar-disclosure.active > summary {
+    border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+    color: var(--primary);
+    background: var(--accent-soft);
+  }
+
+  .calendar-more-disclosure {
+    position: relative;
+    display: block;
+  }
+
+  .calendar-more-disclosure > .calendar-disclosure-content {
+    position: absolute;
+    z-index: 15;
+    top: calc(100% + 5px);
+    right: 0;
+    display: grid;
+    min-width: 150px;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .calendar-more-disclosure .button {
+    justify-content: flex-start;
+  }
+
+  .calendar-filter-disclosure {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+  }
+
+  .calendar-filter-disclosure > .calendar-disclosure-content {
+    position: absolute;
+    z-index: 15;
+    top: calc(100% + 5px);
+    right: 0;
+    left: 0;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .calendar-control-panel .schedule-filter-bar {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 0;
+  }
+
+  .calendar-control-panel .schedule-filter-bar > input,
+  .calendar-control-panel .schedule-filter-bar > button {
+    grid-column: 1 / -1;
+  }
+
+  .calendar-control-panel .schedule-filter-bar input,
+  .calendar-control-panel .schedule-filter-bar select {
+    min-width: 0;
+    min-height: 38px;
+    font-size: 12px;
+  }
+
+  .calendar-shell.mobile-week-calendar {
+    --mobile-week-line: color-mix(in srgb, var(--color-border) 42%, transparent);
+    overflow: hidden;
+    border-color: var(--color-border);
+    border-radius: 16px;
+    background: var(--color-surface);
+    box-shadow: 0 4px 18px rgb(40 52 68 / 4%);
+  }
+
+  .mobile-week-scroll {
+    max-height: max(340px, calc(100dvh - 245px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+    touch-action: pan-y;
+  }
+
+  .mobile-week-dates {
+    position: sticky;
+    z-index: 8;
+    top: 0;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    padding: 5px 0;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+    height: 73px;
+  }
+
+  .mobile-week-dates .mobile-week-unit {
+    grid-column: 1 / -1;
+    justify-self: end;
+    padding: 0 6px 2px;
+    color: var(--color-text-muted);
+    font-size: 9px;
+    line-height: 12px;
+  }
+
+  .mobile-week-dates button {
+    display: flex;
+    min-width: 0;
+    min-height: 48px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 2px;
+    border: 0;
+    border-radius: 12px;
+    color: var(--color-text-muted);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .mobile-week-dates span {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .mobile-week-dates strong {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border-radius: 9px;
+    color: var(--color-text);
+    font-size: 13px;
+  }
+
+  .mobile-week-dates button.today strong {
+    color: var(--brand-primary);
+    background: var(--brand-accent-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 20%, transparent);
+  }
+
+  .mobile-week-dates button[aria-pressed="true"] {
+    background: var(--brand-accent-soft);
+  }
+
+  .mobile-week-all-day,
+  .mobile-week-time-band {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .mobile-week-all-day {
+    position: sticky;
+    z-index: 7;
+    top: 73px;
+    border-bottom: 1px solid var(--mobile-week-line);
+    background: color-mix(in srgb, var(--brand-accent-soft) 20%, var(--color-surface));
+  }
+
+  .mobile-week-all-day-column {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 2px;
+    border-right: 1px solid var(--mobile-week-line);
+  }
+
+  .mobile-week-all-day-add {
+    display: flex;
+    min-width: 0;
+    min-height: 26px;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 0;
+    border: 0;
+    color: var(--color-text-muted);
+    background: transparent;
+    font-size: 9px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .mobile-week-all-day .mobile-week-card {
+    min-height: 48px;
+    max-height: 48px;
+    flex: 0 0 48px;
+  }
+
+  .mobile-week-all-day-column.has-items .mobile-week-all-day-add {
+    position: absolute;
+    z-index: 3;
+    right: 3px;
+    bottom: 3px;
+    width: 20px;
+    min-height: 22px;
+    height: 22px;
+    border-radius: 5px;
+  }
+
+  .mobile-week-all-day-column.has-items .mobile-week-all-day-add > span,
+  .mobile-all-day-card .mobile-week-card-location {
+    display: none;
+  }
+
+  .mobile-all-day-card .mobile-week-card-open {
+    padding: 3px 3px 1px;
+  }
+
+  .mobile-all-day-card .mobile-week-card-title {
+    font-size: 10px;
+    line-height: 1.3;
+    -webkit-line-clamp: 1;
+  }
+
+  .mobile-all-day-card .mobile-week-card-action {
+    min-height: 23px;
+    flex-basis: 23px;
+  }
+
+  .mobile-week-all-day-column.has-items .mobile-week-card:last-child .mobile-week-card-action {
+    justify-content: flex-start;
+    padding-right: 20px;
+    padding-left: 4px;
+  }
+
+  .mobile-week-timeline {
+    position: relative;
+    background: color-mix(in srgb, var(--brand-accent-soft) 12%, var(--color-surface));
+  }
+
+  .mobile-week-time-band {
+    position: absolute;
+    right: 0;
+    left: 0;
+    border-bottom: 1px solid var(--mobile-week-line);
+  }
+
+  .mobile-week-time-band.mobile-week-time-separator {
+    z-index: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-top: 1px solid var(--mobile-week-line);
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .mobile-week-band-label {
+    position: absolute;
+    z-index: 0;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--color-text-muted);
+    background: transparent;
+    font-size: 9px;
+    line-height: 12px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .mobile-week-band-label > span {
+    margin-left: 5px;
+    font-size: 8px;
+  }
+
+  .mobile-week-blank {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-right: 1px solid var(--mobile-week-line);
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+    touch-action: pan-y;
+  }
+
+  .mobile-week-blank:active {
+    background: var(--brand-accent-soft);
+  }
+
+  .mobile-week-slot-time {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    color: var(--color-text-muted);
+    font-size: 8px;
+    line-height: 1;
+    opacity: 0.65;
+  }
+
+  .mobile-week-blank:not(:first-child) .mobile-week-slot-time {
+    visibility: hidden;
+  }
+
+  .mobile-week-slot-row.rest-slot .mobile-week-slot-time {
+    visibility: hidden;
+  }
+
+  .mobile-week-time-group {
+    position: absolute;
+    z-index: 2;
+    left: calc(var(--day-index) * 100% / 7);
+    display: block;
+    width: calc(100% / 7);
+    min-width: 0;
+    padding: 0 2px;
+    pointer-events: none;
+  }
+
+  .mobile-week-time-group.overlapping {
+    border-radius: 10px;
+    background: var(--color-surface-soft);
+    box-shadow: inset 0 0 0 1px var(--color-border);
+  }
+
+  .mobile-week-overlap-summary {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    padding: 1px;
+    color: var(--color-text);
+    font-size: 9px;
+    font-weight: 650;
+    line-height: 1.25;
+    text-align: center;
+    border: 0;
+    border-radius: 10px;
+    background: var(--color-surface-soft);
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  .mobile-week-time-group.layered {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .mobile-week-time-group .mobile-week-visual-card.mobile-week-layer-card {
+    position: absolute;
+    min-height: 44px;
+    padding: 0;
+    text-align: left;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  .mobile-week-layer-caption {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+    padding: 3px 2px;
+    pointer-events: none;
+  }
+
+  .mobile-week-layer-base .mobile-week-card-title {
+    font-size: 10px;
+    line-height: 12px;
+    -webkit-line-clamp: 3;
+  }
+
+  .mobile-week-layer-base .mobile-week-card-time {
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  .mobile-week-layer-front,
+  .mobile-week-layer-summary {
+    box-shadow: 0 2px 6px rgb(32 61 88 / 12%);
+  }
+
+  .mobile-week-layer-summary {
+    position: absolute;
+    z-index: 5;
+    min-height: 44px;
+    padding: 2px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    color: var(--color-text);
+    background: var(--color-surface);
+    font-size: 10px;
+    font-weight: 650;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  .mobile-week-layer-card:focus-visible,
+  .mobile-week-layer-summary:focus-visible,
+  .mobile-week-overlap-summary:focus-visible {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: -2px;
+  }
+
+  .mobile-week-card {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--entry-color) 20%, var(--color-border));
+    border-top: 3px solid color-mix(in srgb, var(--entry-color) 65%, var(--color-surface));
+    border-radius: 9px;
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--entry-color) 13%, var(--color-surface));
+  }
+
+  .mobile-week-card-open {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    padding: 5px 3px 2px;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mobile-week-visual-card {
+    height: 100%;
+    min-height: 0;
+    gap: 3px;
+    padding: 4px 3px;
+    border-top-width: 1px;
+    border-left: 3px solid var(--entry-color);
+  }
+
+  .mobile-week-visual-card.short {
+    gap: 0;
+    padding: 0 1px;
+  }
+
+  .mobile-week-visual-card.short .mobile-week-card-title {
+    min-height: 12px;
+    font-size: 10px;
+    line-height: 1.2;
+    -webkit-line-clamp: 1;
+  }
+
+  .mobile-week-visual-card.short .mobile-week-card-time {
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  .mobile-week-card-title {
+    display: -webkit-box;
+    min-height: 13px;
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.35;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-week-card-time {
+    display: flex;
+    flex-direction: column;
+    color: var(--color-text-muted);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+
+  .mobile-week-card-location {
+    overflow: hidden;
+    color: var(--color-text-muted);
+    font-size: 9px;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: keep-all;
+    overflow-wrap: normal;
+  }
+
+  .mobile-week-card-action {
+    display: flex;
+    min-height: 27px;
+    flex: 0 0 27px;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 2px 0;
+    border: 0;
+    border-top: 1px solid color-mix(in srgb, var(--entry-color) 12%, transparent);
+    color: var(--color-text-muted);
+    background: transparent;
+    font-size: 8px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .mobile-week-card.completed .mobile-week-card-title,
+  .mobile-week-card.canceled .mobile-week-card-title {
+    text-decoration: line-through;
+  }
+
+  .mobile-week-card.completed .mobile-week-card-action {
+    color: var(--brand-primary);
+    background: var(--brand-accent-soft);
+  }
+
+  .mobile-week-card.canceled {
+    background: var(--color-surface-soft);
+  }
+
+  .mobile-week-card button:focus-visible,
+  .mobile-week-dates button:focus-visible,
+  .mobile-week-blank:focus-visible {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: -2px;
+  }
+
+  .mobile-week-selection-range {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .mobile-week-selection-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobile-week-selection-list > article {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--entry-color);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--entry-color) 8%, var(--surface));
+  }
+
+  .mobile-week-selection-edit {
+    display: grid;
+    min-width: 0;
+    min-height: 44px;
+    gap: 4px;
+    padding: 2px;
+    border: 0;
+    color: var(--text);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mobile-week-selection-edit strong {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .mobile-week-selection-edit span {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .mobile-week-selection-list .button {
+    gap: 4px;
+    padding-inline: 8px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .mobile-week-selection-list .completed strong,
+  .mobile-week-selection-list .canceled strong {
+    text-decoration: line-through;
+  }
+}

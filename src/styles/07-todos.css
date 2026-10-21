@@ -318,7 +318,7 @@
   place-items: center;
   border: 0;
   border-radius: 11px;
-  color: #4c5668;
+  color: var(--muted);
   background: transparent;
   cursor: pointer;
 }
@@ -339,7 +339,7 @@
   padding: 5px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: white;
+  background: var(--surface);
   box-shadow: 0 14px 36px rgb(20 31 52 / 20%);
 }
 
@@ -351,7 +351,7 @@
   padding: 6px 10px;
   border: 0;
   border-radius: 8px;
-  color: #303a4c;
+  color: var(--text);
   background: transparent;
   font-size: 0.8125rem;
   font-weight: 650;
@@ -360,7 +360,7 @@
 }
 
 .todo-card-menu button:hover:not(:disabled) {
-  background: #f3f5f9;
+  background: var(--surface-soft);
 }
 
 .todo-card-menu button:disabled {
@@ -440,7 +440,7 @@
 
 .todo-color-fieldset legend {
   margin-bottom: 9px;
-  color: #394355;
+  color: var(--text);
   font-size: 0.8125rem;
   font-weight: 650;
 }
@@ -461,7 +461,7 @@
   place-items: center;
   border: 2px solid transparent;
   border-radius: 12px;
-  color: #303a4c;
+  color: var(--text);
   cursor: pointer;
 }
 

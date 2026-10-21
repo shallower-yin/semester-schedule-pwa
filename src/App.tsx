@@ -1443,6 +1443,7 @@ export default function App() {
           />
         ) : page === "calendar" ? (
           <>
+            <section className="calendar-control-panel">
             <section className="calendar-toolbar">
               <div className="calendar-title-actions">
                 <div className="week-title">
@@ -1454,15 +1455,22 @@ export default function App() {
                   <button className="button secondary compact" onClick={() => setSnapshotMode("week")}><CalendarDays size={17} />周快照</button>
                 </div>
               </div>
-              <div className="toolbar-actions">
+              <div className="toolbar-actions calendar-week-actions">
                 <button className="button secondary compact" onClick={() => moveWeek(-1)} aria-label="上一周"><ChevronLeft size={18} /><span>上一周</span></button>
                 <button className="button secondary compact" onClick={goToday}>回到本周</button>
                 <button className="button secondary compact" onClick={() => moveWeek(1)} aria-label="下一周"><span>下一周</span><ChevronRight size={18} /></button>
-                <button className="button secondary compact" onClick={() => semester ? setShowCourseManager(true) : setSemesterToEdit(null)}><BookOpen size={18} />课程管理</button>
-                <button className="button secondary compact" onClick={() => setShowBatchEvents(true)}>批量事项</button>
+                <CalendarToolbarDisclosure label="更多" className="calendar-more-disclosure" closeOnAction>
+                  <button className="button secondary compact" onClick={() => semester ? setShowCourseManager(true) : setSemesterToEdit(null)}><BookOpen size={18} />课程管理</button>
+                  <button className="button secondary compact" onClick={() => setShowBatchEvents(true)}>批量事项</button>
+                </CalendarToolbarDisclosure>
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
+            <CalendarToolbarDisclosure
+              label={scheduleQuery || scheduleFilter !== "all" || eventStatusFilter !== "all" ? "已筛选" : "筛选"}
+              className="calendar-filter-disclosure"
+              active={Boolean(scheduleQuery || scheduleFilter !== "all" || eventStatusFilter !== "all")}
+            >
             <section className="schedule-filter-bar" aria-label="日程搜索和筛选">
               <input
                 value={scheduleQuery}
@@ -1489,6 +1497,8 @@ export default function App() {
                   清除筛选
                 </button>
               )}
+            </section>
+            </CalendarToolbarDisclosure>
             </section>
             <WeekCalendar
               dates={dates}
@@ -1556,7 +1566,7 @@ export default function App() {
                     })}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
-                    <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
+                    <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowFontSizeSettings(true)}>
                     <Type /><span><strong>字体大小</strong><small>{appFontSizeLabel(fontSize)} · APK、PWA 和网页独立保存</small></span><ChevronRight />
@@ -1868,5 +1878,34 @@ export default function App() {
       <AiTaskCenter />
       <ToastHost />
     </div>
+  );
+}
+
+function CalendarToolbarDisclosure({ label, className, active = false, closeOnAction = false, children }: {
+  label: string;
+  className: string;
+  active?: boolean;
+  closeOnAction?: boolean;
+  children: ReactNode;
+}) {
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setMobile(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return (
+    <details
+      className={`calendar-toolbar-disclosure ${className}${active ? " active" : ""}`}
+      open={!mobile || expanded}
+      onToggle={(event) => mobile && setExpanded(event.currentTarget.open)}
+    >
+      <summary>{label}</summary>
+      <div className="calendar-disclosure-content" onClick={(event) => {
+        if (mobile && closeOnAction && event.target instanceof Element && event.target.closest("button")) setExpanded(false);
+      }}>{children}</div>
+    </details>
   );
 }

@@ -40,7 +40,6 @@ export function ThemeSkinDialog({ value, onChange, onClose }: ThemeSkinDialogPro
               </span>
               <span className="theme-skin-meta">
                 <strong>{skin.name}</strong>
-                <small>{skin.description}</small>
               </span>
               <span className="theme-skin-swatches">
                 {skin.colors.map((color) => <i key={color} style={{ background: color }} />)}

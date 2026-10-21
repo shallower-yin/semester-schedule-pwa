@@ -5,18 +5,19 @@ export interface ThemeSkin {
   name: string;
   description: string;
   themeColor: string;
+  /** Shared with schedule image export: accent foreground, canvas, surface. */
   colors: [string, string, string];
 }
 
 const STORAGE_KEY = "semester-schedule-theme-skin";
 
 export const THEME_SKINS: ThemeSkin[] = [
-  { id: "default", name: "默认清爽", description: "干净蓝白，适合长期使用", themeColor: "#3157d5", colors: ["#3157d5", "#f5f7fb", "#ffffff"] },
-  { id: "cake", name: "蛋糕物语", description: "粉紫糖霜和奶油感卡片", themeColor: "#b83275", colors: ["#f47aa5", "#f4e8ff", "#fff7fb"] },
-  { id: "linen", name: "素色如锦", description: "柔和米白和植物绿", themeColor: "#477342", colors: ["#7aa874", "#f7f1e6", "#fffdf7"] },
-  { id: "space", name: "太空宇航人", description: "浅紫星空和安静蓝", themeColor: "#6863d9", colors: ["#6c63ff", "#ecebff", "#f8f7ff"] },
-  { id: "cherry", name: "樱桃啵啵", description: "樱粉、浅红和软糖色", themeColor: "#b43d60", colors: ["#ef6f8f", "#fff0f4", "#fff9fb"] },
-  { id: "peace", name: "平安喜乐", description: "喜庆红与暖金点缀", themeColor: "#9e1f2f", colors: ["#9e1f2f", "#fff1dc", "#fffaf2"] }
+  { id: "default", name: "晴空蓝", description: "浅蓝背景、蓝色强调", themeColor: "#eef7ff", colors: ["#3973a6", "#eef7ff", "#ffffff"] },
+  { id: "cake", name: "奶杏橙", description: "奶杏背景、暖橙强调", themeColor: "#fff6ed", colors: ["#ae5d38", "#fff6ed", "#fffefd"] },
+  { id: "linen", name: "薄荷绿", description: "浅绿背景、薄荷强调", themeColor: "#effbf6", colors: ["#388060", "#effbf6", "#fcfffd"] },
+  { id: "space", name: "雾紫", description: "浅紫背景、雾紫强调", themeColor: "#f6f2ff", colors: ["#6f55ad", "#f6f2ff", "#fffefe"] },
+  { id: "cherry", name: "樱花粉", description: "浅粉背景、樱粉强调", themeColor: "#fff3f5", colors: ["#b0506c", "#fff3f5", "#fffdfd"] },
+  { id: "peace", name: "奶油黄", description: "奶黄背景、暖金强调", themeColor: "#fffbee", colors: ["#91702c", "#fffbee", "#fffefa"] }
 ];
 
 export const DEFAULT_THEME_SKIN: ThemeSkinId = "default";

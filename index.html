@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#3157d5" />
+    <meta name="theme-color" content="#eef7ff" />
     <meta name="description" content="本地优先、可离线使用的日程计划表" />
     <link rel="icon" href="%BASE_URL%favicon.svg" />
     <title>日程计划表</title>
@@ -32,7 +32,7 @@
             var banner = document.createElement("div");
             banner.id = "boot-recover-banner";
             banner.setAttribute("role", actionable ? "alert" : "status");
-            banner.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#f7f8fc;color:#172033;font:600 15px/1.5 system-ui,sans-serif;text-align:center;";
+            banner.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#eef7ff;color:#203d58;font:600 15px/1.5 system-ui,sans-serif;text-align:center;";
             var message = document.createElement("div");
             message.setAttribute("data-boot-message", "");
             message.textContent = text;
@@ -51,7 +51,7 @@
               var clear = document.createElement("button");
               clear.type = "button";
               clear.textContent = "清缓存重载";
-              clear.style.cssText = "min-height:44px;border:0;border-radius:10px;padding:9px 18px;background:#3157d5;color:#fff;font:600 14px system-ui,sans-serif;cursor:pointer;";
+              clear.style.cssText = "min-height:44px;border:0;border-radius:10px;padding:9px 18px;background:#dceeff;color:#203d58;font:600 14px system-ui,sans-serif;cursor:pointer;";
               clear.onclick = function () { recover(true); };
               actions.appendChild(reload);
               actions.appendChild(clear);
