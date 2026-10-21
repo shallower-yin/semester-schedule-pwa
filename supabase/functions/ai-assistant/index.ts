@@ -2,6 +2,7 @@ import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectComm
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
 import { estimateMp3BytesPerSecond, extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MAX_ASR_AUDIO_CHUNK_DURATION_MS, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
+import { MIMO_CHAT_MODELS, mimoModelSupportsAttachments, normalizeMimoModel } from "../_shared/mimoModels.ts";
 
 interface AiAssistantRequest {
   action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "transcribe_audio_range" | "transcribe_audio_part" | "plan_audio_transcription" | "plan_audio_parts" | "finalize_audio_transcription" | "summarize_audio_transcript" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
@@ -340,7 +341,7 @@ class PublicHttpError extends Error {
 
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"],
+  mimo: MIMO_CHAT_MODELS,
   siliconflow: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"],
   tju: ["tju-llm"]
 } as const;
@@ -1746,7 +1747,7 @@ async function summarizeTranslationHistoryWithProvider(
     const chinese = item.direction === "zh-en" ? item.sourceText : item.translation;
     return `${index + 1}. 中文：${chinese}\n英语：${english}`;
   }).join("\n\n");
-  const supportsJsonOutput = provider === "deepseek" || model === "mimo-v2.5" || model === "mimo-v2.5-pro";
+  const supportsJsonOutput = provider === "deepseek" || (provider === "mimo" && (model === "mimo-v2.6-flash" || model === "mimo-v2.6-pro"));
   const response = await fetch(credentials.endpoint, {
     method: "POST",
     headers: {
@@ -1925,7 +1926,7 @@ async function askConfiguredProvider(
     ]
     : userText;
   const completionLimit = mode === "mind_map" ? mindMapConfig.maxTokens : 1400;
-  const supportsJsonOutput = provider === "deepseek" || model === "mimo-v2.5" || model === "mimo-v2.5-pro";
+  const supportsJsonOutput = provider === "deepseek" || (provider === "mimo" && (model === "mimo-v2.6-flash" || model === "mimo-v2.6-pro"));
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -2384,13 +2385,15 @@ function sanitizeHistory(history: unknown): AiAssistantHistoryMessage[] {
 
 function configuredModel(settings: AiSettingsRow | null): string {
   const relayModel = settings?.text_relay?.supports_text ? settings.text_relay.text_model?.trim() : "";
-  if (relayModel) return relayModel;
+  if (relayModel) return settings?.text_relay?.protocol === "mimo" ? normalizeMimoModel(relayModel) : relayModel;
   const provider = configuredProvider(settings);
-  const stored = settings?.model?.trim();
+  const storedModel = settings?.model?.trim() ?? "";
+  const stored = provider === "mimo" ? normalizeMimoModel(storedModel) : storedModel;
   if (stored && (AI_MODELS[provider] as readonly string[]).includes(stored)) return stored;
-  const secretModel = optionalSecret(providerModelEnvName(provider));
+  const environmentModel = optionalSecret(providerModelEnvName(provider));
+  const secretModel = provider === "mimo" ? normalizeMimoModel(environmentModel) : environmentModel;
   if (secretModel && (AI_MODELS[provider] as readonly string[]).includes(secretModel)) return secretModel;
-  if (provider === "mimo") return "mimo-v2.5";
+  if (provider === "mimo") return "mimo-v2.6-flash";
   if (provider === "siliconflow") return "Qwen/Qwen3-32B";
   if (provider === "tju") return "tju-llm";
   return "deepseek-v4-flash";
@@ -3749,7 +3752,7 @@ function configuredProviderCredentials(provider: AiProvider, settings: AiSetting
       apiKey: relay.api_key,
       endpoint: customRelayEndpoint(relay.base_url, "chat/completions"),
       provider: relay.protocol === "mimo" ? "mimo" : relay.protocol === "deepseek" ? "deepseek" : "siliconflow",
-      model: relay.text_model
+      model: configuredModel(settings)
     };
   }
   if (provider === "deepseek") {
@@ -3886,7 +3889,7 @@ function isTokenPlanBaseUrl(value: string): boolean {
 }
 
 function modelSupportsAttachments(provider: AiProvider, model: string): boolean {
-  return provider === "mimo" && model === "mimo-v2.5";
+  return provider === "mimo" && mimoModelSupportsAttachments(model);
 }
 
 function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): AiAssistantAttachment[] {

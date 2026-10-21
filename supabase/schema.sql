@@ -371,7 +371,7 @@ create table if not exists public.ai_assistant_settings (
   constraint ai_assistant_settings_model_catalog_check check (
     (provider = 'deepseek' and model in ('deepseek-v4-flash', 'deepseek-v4-pro'))
     or
-    (provider = 'mimo' and model in ('mimo-v2.5', 'mimo-v2.5-pro', 'mimo-v2.5-pro-ultraspeed'))
+    (provider = 'mimo' and model in ('mimo-v2.6-flash', 'mimo-v2.6-pro', 'mimo-v2.5-pro-ultraspeed', 'mimo-v2.5', 'mimo-v2.5-pro'))
     or
     (provider = 'siliconflow' and model in ('Qwen/Qwen3-32B', 'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1'))
     or

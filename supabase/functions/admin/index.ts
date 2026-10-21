@@ -1,3 +1,5 @@
+import { MIMO_CHAT_MODELS, normalizeMimoModel } from "../_shared/mimoModels.ts";
+
 type AdminAction =
   | "whoami"
   | "summary"
@@ -85,7 +87,7 @@ interface AiRelayRuntime extends AiRelayRow {
 
 const ADMIN_AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"],
+  mimo: MIMO_CHAT_MODELS,
   siliconflow: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"],
   tju: ["tju-llm"]
 } as const;
@@ -753,7 +755,8 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
   const memberDailyLimit = featureQuotas.assistant.member_daily_limit;
   const memberWeeklyLimit = featureQuotas.assistant.member_weekly_limit;
   const provider = normalizeAdminAiProvider(settings?.provider);
-  const model = settings?.model?.trim() ?? "";
+  const requestedModel = settings?.model?.trim() ?? "";
+  const model = provider === "mimo" ? normalizeMimoModel(requestedModel) : requestedModel;
   const mimoChannel = settings?.mimoChannel === "token_plan" ? "token_plan" : "payg";
   const audioProvider = settings?.audioProvider === "siliconflow" ? "siliconflow" : "mimo";
   const audioModel = settings?.audioModel?.trim() ?? "";
@@ -837,7 +840,8 @@ async function saveAiRelay(relay: AdminRequest["relay"], serviceRoleKey: string)
   const baseUrl = await validatePublicRelayBaseUrl(relay?.baseUrl);
   const supportsText = Boolean(relay?.supportsText);
   const supportsAudio = Boolean(relay?.supportsAudio);
-  const textModel = supportsText ? relay?.textModel?.trim() ?? "" : "";
+  const requestedTextModel = supportsText ? relay?.textModel?.trim() ?? "" : "";
+  const textModel = protocol === "mimo" ? normalizeMimoModel(requestedTextModel) : requestedTextModel;
   const audioModel = supportsAudio ? relay?.audioModel?.trim() ?? "" : "";
   if (!name || name.length > 80) throw new Error("中转站名称需为 1–80 个字符。");
   if (!supportsText && !supportsAudio) throw new Error("请至少启用文本 AI 或音频转写。");
