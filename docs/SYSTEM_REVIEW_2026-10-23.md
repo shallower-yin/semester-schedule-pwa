@@ -177,3 +177,14 @@ PGlite 固定版本用于测试，不增加网页运行依赖。内存 PostgreSQ
 - 线上新浏览器会话：1280宽桌面和390×844手机首屏正常、无水平溢出；在线时控制台0错误；Service Worker接管后断网重载成功，PDF worker可离线获取。断网产生的远端请求失败仅属于预期离线行为。
 - 发布提交未纳入旧工作区相对main的提醒cron回退，保留远端两分钟配置和日志限制；未修改Android版本、签名或分发包。未创建PR。
 - 真实付费OCR/ASR、大文件音频、真实用户跨设备同步及Android真机后台/通知验收仍未执行。这些不包含在本次发布授权中，不能宣称整个长期目标已全量验收。
+
+## 2026-10-23 APK 37 发布结果
+
+- 用户另行授权发布 APK 后，使用独立发布工作区提交 `abce3560d08cf988c70dcc6510ff111553f3c308`，native versionCode=37、versionName=0.1.0.37；包内网页版本为2026.10.23.4。
+- 正式 APK workflow [39949926439](https://github.com/shallower-yin/semester-schedule-pwa/actions/runs/39949926439) 全部成功。本次提交只触发APK流程，没有重新部署主站、Pages或后端，也未执行付费测试。
+- 修正APK发布隔离：只上传APK和APK元数据，保留既有网页全部字段与asset-manifest，不清理网页资源；APK更新说明不再单独触发Pages发布。主站与镜像网页仍为2026.10.23.2 / fc908f9，asset-manifest仍为42个文件。
+- 本地验收：119个测试文件、656项测试通过；Android专用资源构建与Capacitor同步通过；原生4个测试类、16项单测通过，Release Java编译成功。
+- 独立下载线上安装包4819698字节，SHA-256=`2db4e81ea29df358a677b34590df1c449aabf8b84df12cd9e9c034413b7a5c28`，与更新清单完全一致。
+- APK签名证书SHA-256=`98e610edcfa3d9e4f34752da158ea48e48592f08481543ad0ac26f85294a3e24`，与既有OTA证书一致；非debuggable，包名io.github.shalloweryin.semesterschedule，实际manifest版本37。
+- 解包核实assets/public/release.json为2026.10.23.4 / abce356；包含本地网页资源，没有server.url或PWA Service Worker。
+- 未连接Android设备，未进行真机覆盖安装、进程清理／重启后的提醒或后台计时验收；没有把编译与签名检查当作真机验证。原D:/semester-schedule-pwa工作区及其用户修改仍保留。
