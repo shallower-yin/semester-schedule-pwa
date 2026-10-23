@@ -95,8 +95,9 @@ export async function prepare(directory, apkPath, releasePath) {
 export async function verifyRange(url, expected, request = fetch) {
   const head = await request(url, { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(20_000) });
   const etag = head.headers.get("etag");
+  const headLength = head.headers.get("content-length");
   if (!head.ok || !etag || etag.startsWith("W/") || !etag.startsWith('"')
-    || Number(head.headers.get("content-length")) !== expected.length) throw new Error("Static APK HEAD/ETag verification failed");
+    || (headLength !== null && Number(headLength) !== expected.length)) throw new Error("Static APK HEAD/ETag verification failed");
   const end = Math.min(15, expected.length - 1);
   const response = await request(url, { headers: { Range: `bytes=0-${end}`, "If-Range": etag }, signal: AbortSignal.timeout(20_000) });
   const actual = Buffer.from(await response.arrayBuffer());

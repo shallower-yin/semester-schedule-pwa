@@ -64,3 +64,16 @@ test("public resume check requires exact range, ETag and response bytes", async 
   await assert.rejects(verifyRange("https://static.test/apk", bytes, async (_url, options) => options.method === "HEAD"
     ? requester(_url, options) : new Response(bytes)), /Range verification failed/);
 });
+
+test("HEAD without Content-Length still requires exact verified Range totals and bytes", async () => {
+  const requester = async (_url, options) => options.method === "HEAD"
+    ? new Response(null, { headers: { etag: '"stable"' } })
+    : new Response(bytes.subarray(0, 16), { status: 206, headers: { etag: '"stable"', "content-range": `bytes 0-15/${bytes.length}` } });
+  await verifyRange("https://static.test/apk", bytes, requester);
+  await assert.rejects(verifyRange("https://static.test/apk", bytes, async (_url, options) => options.method === "HEAD"
+    ? new Response(null, { headers: { etag: '"stable"', "content-length": String(bytes.length + 1) } })
+    : requester(_url, options)), /HEAD\/ETag verification failed/);
+  await assert.rejects(verifyRange("https://static.test/apk", bytes, async (_url, options) => options.method === "HEAD"
+    ? requester(_url, options)
+    : new Response(bytes.subarray(0, 16), { status: 206, headers: { etag: '"stable"', "content-range": `bytes 0-15/${bytes.length + 1}` } })), /Range verification failed/);
+});
