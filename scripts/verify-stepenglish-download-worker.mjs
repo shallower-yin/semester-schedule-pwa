@@ -56,4 +56,21 @@ assert.equal(manifest.headers.get('Cache-Control'), 'no-store, max-age=0');
 assert.match(manifest.headers.get('Content-Type'), /application\/json/);
 assert.equal((await request('android/9.9.9/StepEnglish-v9.9.9.apk')).status, 404);
 assert.equal((await worker.fetch(new Request(prefix + key), { ...env, STEPENGLISH_RELEASES: { async head() { throw new Error('unavailable'); } } })).status, 503);
+const scheduleAssetEnv = {
+  ...env,
+  ASSETS: { async fetch(request) {
+    assert.equal(request.headers.has('Range'), false, 'Only full static asset responses may be sliced');
+    return new Response('0123456789', { headers: { ETag: '"static-apk"', 'Content-Type': 'application/vnd.android.package-archive' } });
+  } },
+};
+const scheduleApk = 'https://schedule.nfsg.eu.cc/android/semester-schedule-v38.apk';
+const resumed = await worker.fetch(new Request(scheduleApk, { headers: { Range: 'bytes=3-6', 'If-Range': '"static-apk"' } }), scheduleAssetEnv);
+assert.equal(resumed.status, 206);
+assert.equal(resumed.headers.get('Content-Range'), 'bytes 3-6/10');
+assert.equal(resumed.headers.get('Content-Length'), '4');
+assert.equal(await resumed.text(), '3456');
+assert.equal((await worker.fetch(new Request(scheduleApk, { headers: { Range: 'bytes=99-' } }), scheduleAssetEnv)).status, 416);
+const restarted = await worker.fetch(new Request(scheduleApk, { headers: { Range: 'bytes=3-', 'If-Range': '"old-apk"' } }), scheduleAssetEnv);
+assert.equal(restarted.status, 200);
+assert.equal(await restarted.text(), '0123456789');
 console.log('StepEnglish download worker: asset routing, key isolation, GET/HEAD/CORS, resumable ranges, conditional requests and failures passed');

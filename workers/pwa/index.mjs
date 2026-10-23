@@ -29,9 +29,44 @@ function byteRange(value, size) {
   return { offset: start, length: end - start + 1 };
 }
 
+async function rangedScheduleApk(request, env) {
+  if (request.method !== 'GET' || !request.headers.has('Range')) return env.ASSETS.fetch(request);
+  // Workers Static Assets can return the full file for a Range request. Keep
+  // first downloads streaming, and slice only these small, versioned APKs for
+  // a resume. SHA verification in the client still covers the complete file.
+  const cleanHeaders = new Headers(request.headers);
+  for (const name of ['Range', 'If-Range', 'If-Match', 'If-None-Match']) cleanHeaders.delete(name);
+  const full = await env.ASSETS.fetch(new Request(request.url, { method: 'GET', headers: cleanHeaders }));
+  if (full.status !== 200) return full;
+  const headers = new Headers(full.headers);
+  const etag = headers.get('ETag');
+  const ifMatch = request.headers.get('If-Match');
+  if (ifMatch && ifMatch !== '*' && ifMatch !== etag) {
+    await full.body?.cancel();
+    return new Response(null, { status: 412, headers: publicHeaders() });
+  }
+  const ifRange = request.headers.get('If-Range');
+  if (ifRange && ifRange !== etag) return full;
+  const bytes = await full.arrayBuffer();
+  const range = byteRange(request.headers.get('Range'), bytes.byteLength);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Expose-Headers', 'ETag, Content-Range, Accept-Ranges, Content-Length');
+  if (!range) {
+    headers.delete('Content-Length');
+    headers.set('Content-Range', `bytes */${bytes.byteLength}`);
+    return new Response(null, { status: 416, headers });
+  }
+  headers.delete('Content-Encoding');
+  headers.set('Content-Length', String(range.length));
+  headers.set('Content-Range', `bytes ${range.offset}-${range.offset + range.length - 1}/${bytes.byteLength}`);
+  return new Response(bytes.slice(range.offset, range.offset + range.length), { status: 206, headers });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (/^\/android\/semester-schedule-v[1-9]\d*\.apk$/.test(url.pathname)) return rangedScheduleApk(request, env);
     if (!url.pathname.startsWith(PREFIX)) return env.ASSETS.fetch(request);
     const headers = publicHeaders();
     headers.set('Cache-Control', 'no-store, max-age=0');
