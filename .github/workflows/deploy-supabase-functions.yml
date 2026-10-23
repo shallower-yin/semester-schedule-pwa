@@ -255,6 +255,29 @@ jobs:
       - name: Deploy AI assistant function
         run: supabase functions deploy ai-assistant --project-ref "$PROJECT_REF"
 
+      - name: Verify audio submission migration without provider calls
+        run: |
+          set -euo pipefail
+          query="select
+            exists (select 1 from public.app_schema_migrations where name = '20261023_audio_submission_quota.sql') as migration_applied,
+            to_regprocedure('public.begin_ai_audio_submission_task(uuid,uuid,jsonb,text,text,uuid,text,text,integer,integer)') is not null as begin_rpc_present,
+            to_regprocedure('public.finish_ai_audio_submission_task(uuid,uuid,text,uuid,jsonb)') is not null as finish_rpc_present,
+            to_regprocedure('public.close_ai_audio_submission(uuid,uuid)') is not null as close_rpc_present,
+            (select bool_and(relrowsecurity) from pg_class where oid in ('public.ai_audio_submissions'::regclass, 'public.ai_audio_submission_tasks'::regclass)) as rls_enabled,
+            not has_table_privilege('authenticated','public.ai_audio_submissions','SELECT')
+              and not has_table_privilege('anon','public.ai_audio_submissions','SELECT')
+              and not has_table_privilege('authenticated','public.ai_audio_submission_tasks','SELECT')
+              and not has_function_privilege('authenticated','public.begin_ai_audio_submission_task(uuid,uuid,jsonb,text,text,uuid,text,text,integer,integer)','EXECUTE') as private_access_only;"
+          jq -n --arg query "$query" '{query: $query}' > /tmp/audio-submission-status.json
+          response="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/audio-submission-status.json)"
+          printf '%s\n' "$response" | jq .
+          printf '%s\n' "$response" | jq -e 'length == 1 and (.[0] | all(. == true))' > /dev/null
+
       - name: Configure R2 CORS and lifecycle
         continue-on-error: true
         env:

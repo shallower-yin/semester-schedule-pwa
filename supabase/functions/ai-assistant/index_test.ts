@@ -210,6 +210,52 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
         assertEquals(unexpectedCalls, []);
       });
     }
+    await t.step("client document usage cannot poison the global AI budget", async () => {
+      const loggedUsage: Array<Record<string, unknown>> = [];
+      const unexpectedCalls: string[] = [];
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (url.pathname === "/rest/v1/rpc/get_ai_runtime_settings") {
+          return Response.json({ provider: "mimo", model: "mimo-v2.6-flash", mimo_channel: "payg" });
+        }
+        if (url.pathname === "/auth/v1/user") return Response.json({ id: "test-user-id" });
+        if (url.pathname === "/rest/v1/ai_assistant_access") {
+          return Response.json([{ enabled: true, role: "member", expires_at: null }]);
+        }
+        if (url.pathname === "/rest/v1/rpc/check_ai_global_budget") return Response.json({ allowed: true });
+        if (url.pathname === "/rest/v1/rpc/reserve_ai_usage") {
+          return Response.json({ allowed: true, todayRequests: 0, weekRequests: 0 });
+        }
+        if (url.pathname === "/rest/v1/ai_assistant_usage") {
+          loggedUsage.push(await request.json());
+          return new Response(null, { status: 204 });
+        }
+        if (request.url === "https://mimo-provider.invalid/v1/chat/completions") {
+          return Response.json({
+            choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "文档回答", actions: [] }) } }],
+            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          });
+        }
+        unexpectedCalls.push(request.url);
+        throw new Error(`Unexpected mocked request: ${request.url}`);
+      };
+      await invoke({
+        question: "总结文档",
+        attachments: [{
+          kind: "document",
+          name: "processed.pdf",
+          text: "已提取的文档内容",
+          processedPageCount: 25,
+          processingUsage: { prompt_tokens: 50_000_000, completion_tokens: 50_000_000, total_tokens: 100_000_000 },
+        }],
+      });
+      assertEquals(loggedUsage.length, 1);
+      assertEquals(loggedUsage[0].total_tokens, 30, "Only usage observed server-side in this request may be charged");
+      assertEquals(loggedUsage[0].prompt_tokens, 20);
+      assertEquals(loggedUsage[0].completion_tokens, 10);
+      assertEquals(unexpectedCalls, []);
+    });
   } finally {
     Deno.serve = originalServe;
     globalThis.fetch = originalFetch;

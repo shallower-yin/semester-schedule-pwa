@@ -26,13 +26,15 @@ let userId = "";
 const temporaryKeys = [];
 let conversionDir = "";
 let succeeded = false;
+let token = "";
+let audioSubmission;
 try {
   const user = await createSmokeUser();
   userId = user.id;
-  // Disposable smoke users are admins so the exact 38-leaf-file regression is not hidden by a
-  // low member quota; production signed leaf calls themselves do not consume per-part quota.
+  // Keep the real-file regression independent of configured member limits;
+  // assert the actual quota_counted rows below even for this disposable admin.
   await grantAccess(userId);
-  const token = await signIn();
+  token = await signIn();
 
   const mp3Metadata = await r2.send(new HeadObjectCommand({ Bucket: bucket, Key: sourceKeys[0] }));
   const mp3 = {
@@ -78,6 +80,8 @@ try {
     aacAudios.push(audio);
   }
 
+  const audios = [mp3, ...aacAudios];
+  audioSubmission = { id: crypto.randomUUID(), audios, language: "zh", summarize: true };
   const mp3Plan = await callAi(token, {
     action: "plan_audio_transcription",
     audios: [mp3],
@@ -90,6 +94,7 @@ try {
   for (const task of [...mp3Plan.tasks].sort((a, b) => a.chunkIndex - b.chunkIndex)) {
     const part = await callAi(token, {
       action: "transcribe_audio_range",
+      audioSubmission,
       audioRangeSignature: task.signature,
       audioRange: task
     }, { "x-audio-range-signature": task.signature });
@@ -109,6 +114,7 @@ try {
   for (const task of [...aacPlan.tasks].sort((a, b) => a.partIndex - b.partIndex)) {
     const part = await callAi(token, {
       action: "transcribe_audio_part",
+      audioSubmission,
       audioPartSignature: task.signature,
       audioPart: task
     }, { "x-audio-part-signature": task.signature });
@@ -116,13 +122,13 @@ try {
     aacSegments.push(part.transcript.trim());
   }
 
-  const audios = [mp3, ...aacAudios];
   const audioSegmentResults = [
     { name: mp3.name, objectKey: mp3.objectKey, segments: mp3Segments },
     ...aacAudios.map((audio, index) => ({ name: audio.name, objectKey: audio.objectKey, segments: [aacSegments[index]] }))
   ];
   const finalized = await callAi(token, {
     action: "finalize_audio_transcription",
+    audioSubmission,
     audios,
     audioSegmentResults,
     summarizeAudio: true,
@@ -138,9 +144,20 @@ try {
   if (typeof finalized?.summary !== "string" || finalized.summary.trim().length < 20) {
     throw new Error("audio smoke did not return a usable summary");
   }
+  const quotaResponse = await fetch(
+    `${supabaseUrl}/rest/v1/ai_assistant_usage?user_id=eq.${encodeURIComponent(userId)}&feature_key=eq.audio_transcription&quota_counted=eq.true&select=diagnostic_id`,
+    { headers: serviceHeaders() }
+  );
+  const counted = await readJson(quotaResponse);
+  if (!quotaResponse.ok || !Array.isArray(counted) || counted.length !== 1) {
+    throw new Error(`complete audio submission must consume exactly one quota attempt (found ${Array.isArray(counted) ? counted.length : "unknown"})`);
+  }
   succeeded = true;
   console.log(`PASS exact ordered audio smoke: MP3 ${mp3Segments.length} parts, M4A ${aacSegments.length} parts, ${transcript.length} characters, model ${finalized.model}`);
 } finally {
+  if (audioSubmission && token) {
+    await callAi(token, { action: "close_audio_submission", audioSubmissionId: audioSubmission.id }, {}, AbortSignal.timeout(5000)).catch(() => undefined);
+  }
   await Promise.all(temporaryKeys.map((key) => r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined)));
   if (succeeded) await Promise.all(sourceKeys.map((key) => r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined)));
   if (conversionDir) await rm(conversionDir, { recursive: true, force: true }).catch(() => undefined);
@@ -149,9 +166,10 @@ try {
   }
 }
 
-async function callAi(token, body, extraHeaders = {}) {
+async function callAi(token, body, extraHeaders = {}, signal) {
   const response = await fetch(`${supabaseUrl}/functions/v1/ai-assistant`, {
     method: "POST",
+    signal,
     headers: { apikey: publishableKey, authorization: `Bearer ${token}`, "content-type": "application/json", ...extraHeaders },
     body: JSON.stringify(body)
   });
