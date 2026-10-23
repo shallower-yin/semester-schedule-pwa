@@ -1,7 +1,7 @@
 name: Publish APK to app-hosting mirror
 
-# Rebuilds the Android APK, publishes it to Supabase app-hosting, and updates
-# release.json so in-app OTA update works without a PC cable.
+# Rebuilds the Android APK and updates only APK metadata in Supabase app-hosting.
+# The already deployed web release and assets remain unchanged.
 on:
   workflow_dispatch:
   push:
@@ -12,7 +12,7 @@ on:
 
 concurrency:
   group: publish-apk-mirror
-  # Do not cancel an in-flight APK/web mirror publish; the job-level
+  # Do not cancel an in-flight APK mirror publish; the job-level
   # app-hosting-mirror group serializes it with Pages mirror uploads.
   cancel-in-progress: false
 
@@ -87,8 +87,10 @@ jobs:
         id: published
         run: |
           set -euo pipefail
-          RELEASE_URL="https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/release.json"
-          PUBLISHED_CODE="$(curl --fail --silent --show-error "$RELEASE_URL" | python3 -c 'import json,sys; value=int(json.load(sys.stdin).get("apkVersionCode") or 0); assert value > 0, value; print(value)')"
+          MIRROR_URL="https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting"
+          curl --fail --silent --show-error "$MIRROR_URL/release.json?ts=$(date +%s)" -o /tmp/published-web-release.json
+          curl --fail --silent --show-error "$MIRROR_URL/asset-manifest.json?ts=$(date +%s)" -o /tmp/published-web-asset-manifest.json
+          PUBLISHED_CODE="$(python3 -c 'import json; data=json.load(open("/tmp/published-web-release.json",encoding="utf-8")); value=int(data.get("apkVersionCode") or 0); assert value > 0, value; assert data.get("version") and data.get("commit") and isinstance(data.get("notes"),list), "Invalid published web release"; print(value)')"
           echo "code=$PUBLISHED_CODE" >> "$GITHUB_OUTPUT"
           echo "Published APK versionCode=$PUBLISHED_CODE"
 
@@ -146,28 +148,15 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "APK versionCode=$CODE sha256=$SHA size=$(wc -c < "$OUT")"
 
-      - name: Build mirror web package with APK metadata
+      - name: Stage APK release metadata without rebuilding the web mirror
         env:
-          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
-          REQUIRE_RELEASE_NOTES: "true"
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
-          VITE_APP_BASE: /
-          VITE_APP_START_URL: /
-          VITE_APP_URL: https://schedule.nfsg.eu.cc/
-          VITE_APP_ASSET_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/
-          VITE_OUT_DIR: dist-mirror
           VITE_APK_VERSION_CODE: ${{ steps.apk.outputs.code }}
           VITE_APK_SHA256: ${{ steps.apk.outputs.sha }}
           VITE_APK_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/android/semester-schedule.apk?code=${{ steps.apk.outputs.code }}&sha=${{ steps.apk.outputs.sha }}
         run: |
           set -euo pipefail
-          # Preserve staged APK across vite clean of outDir
-          cp dist-mirror/android/semester-schedule.apk /tmp/semester-schedule.apk
-          npm run build
-          mkdir -p dist-mirror/android
-          cp /tmp/semester-schedule.apk dist-mirror/android/semester-schedule.apk
+          # Use the manifest packaged inside this APK, not a second web build.
+          cp dist/release.json dist-mirror/release.json
           test -f dist-mirror/android/semester-schedule.apk
           test -f dist-mirror/release.json
           python3 - <<'PY'
@@ -187,11 +176,12 @@ jobs:
           print(json.dumps({k:data.get(k) for k in ("version","apkVersion","apkCommit","apkVersionCode","apkUrl","apkSha256")}, ensure_ascii=False))
           PY
 
-      - name: Deploy mirror (web + APK)
+      - name: Publish APK without changing the web mirror
         env:
           SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           STATIC_SOURCE_DIR: dist-mirror
+          STATIC_APK_ONLY: "true"
           VITE_APP_ASSET_MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/
         run: node scripts/deploy-static-mirror.mjs
 
@@ -205,8 +195,26 @@ jobs:
           code=$(curl -sS -o /dev/null -w "%{http_code}" -I "$URL")
           echo "APK HEAD status=$code"
           test "$code" = "200"
-          rel=$(curl -sS "https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting/release.json")
-          apk_url=$(echo "$rel" | python3 -c 'import os,sys,json; d=json.load(sys.stdin); expected=os.environ["EXPECTED_APK_SHA"].lower(); assert int(d.get("apkVersionCode") or 0)==int(os.environ["EXPECTED_APK_CODE"]), d; assert str(d.get("apkSha256") or "").lower()==expected, d; assert d.get("apkVersion")==d.get("version"), d; assert d.get("apkCommit")==d.get("commit"), d; print(d["apkUrl"])')
+          MIRROR_URL="https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting"
+          curl --fail --silent --show-error "$MIRROR_URL/release.json?ts=$(date +%s)" -o /tmp/current-mirror-release.json
+          apk_url=$(python3 - <<'PY'
+          import json, os
+          data=json.load(open("/tmp/current-mirror-release.json",encoding="utf-8"))
+          previous=json.load(open("/tmp/published-web-release.json",encoding="utf-8"))
+          expected=json.load(open("dist-mirror/release.json",encoding="utf-8"))
+          apk_fields=("apkUrl","apkVersionCode","apkSha256","apkVersion","apkCommit","apkTitle","apkNotes","apkPublishedAt")
+          assert {k:v for k,v in data.items() if k not in apk_fields} == {k:v for k,v in previous.items() if k not in apk_fields}, "Web release metadata changed"
+          for field in apk_fields:
+              assert data.get(field)==expected.get(field), f"Published {field} does not match this APK build"
+          assert data["apkVersionCode"]==int(os.environ["EXPECTED_APK_CODE"]), "APK versionCode mismatch"
+          assert data["apkSha256"]==os.environ["EXPECTED_APK_SHA"].lower(), "APK checksum metadata mismatch"
+          assert data["apkVersion"]==expected["version"], "APK bundled version mismatch"
+          assert data["apkCommit"]==expected["commit"]==os.environ["GITHUB_SHA"][:7], "APK commit mismatch"
+          print(data["apkUrl"])
+          PY
+          )
+          curl --fail --silent --show-error "$MIRROR_URL/asset-manifest.json?ts=$(date +%s)" -o /tmp/current-web-asset-manifest.json
+          cmp /tmp/published-web-asset-manifest.json /tmp/current-web-asset-manifest.json
           curl --fail --location --silent --show-error "$apk_url" -o /tmp/published-semester-schedule.apk
           actual_sha=$(sha256sum /tmp/published-semester-schedule.apk | awk '{print tolower($1)}')
           test "$actual_sha" = "$EXPECTED_APK_SHA"

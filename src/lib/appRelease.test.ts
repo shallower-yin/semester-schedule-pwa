@@ -64,6 +64,16 @@ describe("版本更新说明", () => {
     )).toBe(false);
   });
 
+  it("仅发布新版APK时不向网页提示更新，但旧APK能发现升级", () => {
+    const webOnly = { ...release, apkUrl: undefined, apkVersionCode: undefined, apkVersion: undefined };
+    const apkOnly = { ...release, apkVersionCode: 37, apkVersion: "2026.10.23.4", apkCommit: "new-apk" };
+    const combined = combineLatestReleases([webOnly, apkOnly]);
+    expect(shouldShowRelease(release.version, combined)).toBe(false);
+    const native = nativeReleaseDetails(combined);
+    expect(native).toMatchObject({ version: "2026.10.23.4", commit: "new-apk", apkVersionCode: 37 });
+    expect(shouldShowNativeRelease({ versionCode: 36, versionName: "0.1.0.36" }, native)).toBe(true);
+  });
+
   it("没有 APK 元数据时不向安卓声称存在安装包更新", () => {
     const webOnly = { ...release, apkUrl: undefined, apkVersionCode: undefined };
     expect(shouldShowNativeRelease({ versionCode: 1, versionName: "0.1.0" }, webOnly)).toBe(false);

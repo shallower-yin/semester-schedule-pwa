@@ -33,9 +33,23 @@ describe("Web 与 APK 发布版本隔离", () => {
     }
   });
 
-  it("新安装包使用高于线上 35 的 versionCode", () => {
-    expect(androidBuild).toMatch(/versionCode\s+36\b/);
-    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.36"/);
+  it("新安装包使用高于上一版 36 的 versionCode", () => {
+    expect(androidBuild).toMatch(/versionCode\s+37\b/);
+    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.37"/);
+  });
+
+  it("APK版本和更新说明变化不会自动触发网页发布", () => {
+    const paths = pagesWorkflow.match(/paths:\s*\n([\s\S]*?)\n\s*workflow_dispatch:/)?.[1] ?? "";
+    expect(paths).not.toMatch(/^\s*-\s*["'](?:android\/\*\*|capacitor\.config\.ts|release-notes\.json)["']/m);
+    expect(paths).toContain('"src/**"');
+    expect(pagesWorkflow).toContain("workflow_dispatch:");
+  });
+
+  it("APK流水线只发布安装包元数据并核验网页清单不变", () => {
+    expect(apkWorkflow).toContain('STATIC_APK_ONLY: "true"');
+    expect(apkWorkflow).toContain("cp dist/release.json dist-mirror/release.json");
+    expect(apkWorkflow).toContain("cmp /tmp/published-web-asset-manifest.json /tmp/current-web-asset-manifest.json");
+    expect(apkWorkflow).not.toContain("npm run build\n");
   });
 
   it("APK 发布后下载镜像文件并核对实际 SHA-256", () => {

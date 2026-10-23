@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 
@@ -9,99 +10,146 @@ const bucket = process.env.STATIC_BUCKET || "app-hosting";
 const client = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false }
 });
+const apkFields = [
+  "apkUrl", "apkVersionCode", "apkSha256", "apkVersion", "apkCommit",
+  "apkTitle", "apkNotes", "apkPublishedAt"
+];
 
-const { data: buckets, error: listError } = await client.storage.listBuckets();
-if (listError) throw listError;
-if (!buckets.some((item) => item.id === bucket)) {
-  const { error } = await client.storage.createBucket(bucket, {
-    public: false,
-    // Allow APK packages (~10–40 MB) next to web mirror assets.
-    fileSizeLimit: 50 * 1024 * 1024
-  });
-  if (error) throw error;
-} else {
-  // Some projects reject updateBucket fileSizeLimit changes with storage 413.
-  // The bucket already exists in production; skip hard-failing size updates.
-  const { error } = await client.storage.updateBucket(bucket, { public: false });
-  if (error) {
-    console.warn(`Skipping bucket update (${error.message}); continuing with existing bucket settings.`);
+if (process.env.STATIC_APK_ONLY === "true") await deployApkOnly();
+else await deployWebMirror();
+
+async function deployApkOnly() {
+  const paths = (await walk(sourceDir))
+    .map((path) => relative(sourceDir, path).split(sep).join("/"))
+    .sort();
+  if (paths.length !== 2 || paths[0] !== "android/semester-schedule.apk" || paths[1] !== "release.json") {
+    throw new Error("APK-only source must contain only android/semester-schedule.apk and release.json");
   }
-}
-
-let files = await walk(sourceDir);
-const release = JSON.parse(await readFile(join(sourceDir, "release.json"), "utf8"));
-// Old APK clients do not resolve relative apkUrl; always publish an absolute HTTPS link.
-const mirrorBase = (process.env.VITE_APP_ASSET_MIRROR_URL?.trim()
-  || `${supabaseUrl}/functions/v1/app-hosting/`).replace(/\/?$/, "/");
-// Web-only CI builds omit APK fields; merge the last published APK metadata so phone OTA survives.
-if (!release.apkUrl && !release.apkVersionCode) {
+  const release = JSON.parse(await readFile(join(sourceDir, "release.json"), "utf8"));
+  if (!Number.isSafeInteger(release.apkVersionCode) || release.apkVersionCode <= 0
+    || !/^https:\/\//i.test(release.apkUrl || "")
+    || !/^[0-9a-f]{64}$/i.test(release.apkSha256 || "")
+    || ["apkVersion", "apkCommit", "apkTitle", "apkPublishedAt"].some((field) => typeof release[field] !== "string" || !release[field].trim())
+    || !Array.isArray(release.apkNotes) || !release.apkNotes.every((note) => typeof note === "string")) {
+    throw new Error("APK-only source has incomplete or invalid APK metadata");
+  }
+  const apkContent = await readFile(join(sourceDir, "android/semester-schedule.apk"));
+  const apkSha256 = createHash("sha256").update(apkContent).digest("hex");
+  if (!apkContent.length || apkSha256 !== release.apkSha256.toLowerCase()) {
+    throw new Error("APK-only source checksum does not match apkSha256");
+  }
   const previous = await downloadJsonObject("release.json");
-  if (previous?.apkVersionCode || previous?.apkUrl) {
-    for (const field of [
-      "apkUrl",
-      "apkVersionCode",
-      "apkSha256",
-      "apkVersion",
-      "apkCommit",
-      "apkTitle",
-      "apkNotes",
-      "apkPublishedAt"
-    ]) {
-      if (previous[field] !== undefined) release[field] = previous[field];
+  if (!previous?.version || !previous.commit || !Array.isArray(previous.notes)) {
+    throw new Error("APK-only publishing requires an existing valid web release.json");
+  }
+  const previousCode = previous.apkVersionCode ?? 0;
+  if (!Number.isSafeInteger(previousCode) || previousCode < 0 || release.apkVersionCode <= previousCode) {
+    throw new Error(`APK versionCode ${release.apkVersionCode} must exceed published versionCode ${previousCode}`);
+  }
+  // Keep every web field and asset on the deployed web version. Browser clients
+  // also read this manifest, so an APK release must not advertise a new web build.
+  const merged = { ...previous };
+  for (const field of apkFields) merged[field] = release[field];
+  merged.apkSha256 = apkSha256;
+  const uploads = [
+    ["android/semester-schedule.apk", apkContent],
+    ["release.json", Buffer.from(`${JSON.stringify(merged, null, 2)}\n`, "utf8")]
+  ];
+  for (const [objectPath, content] of uploads) {
+    const { error } = await client.storage.from(bucket).upload(objectPath, content, {
+      upsert: true, cacheControl: "0", contentType: contentType(objectPath)
+    });
+    if (error) throw new Error(`Upload ${objectPath} failed: ${error.message}`);
+    console.log(`Uploaded ${objectPath} (${content.length} bytes)`);
+  }
+  console.log(`APK-only mirror published (versionCode=${release.apkVersionCode}); web release ${previous.version} unchanged`);
+}
+
+async function deployWebMirror() {
+  const { data: buckets, error: listError } = await client.storage.listBuckets();
+  if (listError) throw listError;
+  if (!buckets.some((item) => item.id === bucket)) {
+    const { error } = await client.storage.createBucket(bucket, {
+      public: false,
+      // Allow APK packages (~10–40 MB) next to web mirror assets.
+      fileSizeLimit: 50 * 1024 * 1024
+    });
+    if (error) throw error;
+  } else {
+    // Some projects reject updateBucket fileSizeLimit changes with storage 413.
+    // The bucket already exists in production; skip hard-failing size updates.
+    const { error } = await client.storage.updateBucket(bucket, { public: false });
+    if (error) {
+      console.warn(`Skipping bucket update (${error.message}); continuing with existing bucket settings.`);
     }
-    console.log(`Merged previous APK metadata (versionCode=${release.apkVersionCode}) into release.json`);
   }
-}
-if (release.apkUrl || release.apkVersionCode) {
-  const rawApk = typeof release.apkUrl === "string" && release.apkUrl.trim()
-    ? release.apkUrl.trim()
-    : "android/semester-schedule.apk";
-  release.apkUrl = /^https?:\/\//i.test(rawApk)
-    ? rawApk
-    : new URL(rawApk.replace(/^\/+/, ""), mirrorBase).href;
-  await writeFile(join(sourceDir, "release.json"), `${JSON.stringify(release, null, 2)}\n`, "utf8");
-  console.log(`Normalized release.apkUrl -> ${release.apkUrl}`);
-}
-const packageFiles = files
-  .map((absolutePath) => relative(sourceDir, absolutePath).split(sep).join("/"))
-  .filter((objectPath) => objectPath !== "asset-manifest.json")
-  .sort();
-await writeFile(join(sourceDir, "asset-manifest.json"), JSON.stringify({
-  version: String(release.version || ""),
-  commit: String(release.commit || ""),
-  files: packageFiles
-}, null, 2));
-files = await walk(sourceDir);
-const deployedPaths = new Set();
-for (const absolutePath of files) {
-  const objectPath = relative(sourceDir, absolutePath).split(sep).join("/");
-  deployedPaths.add(objectPath);
-  const content = await readFile(absolutePath);
-  const cacheControl = /^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(objectPath) || /\.apk$/i.test(objectPath) ? "0" : "31536000";
-  const { error } = await client.storage.from(bucket).upload(objectPath, content, {
-    upsert: true,
-    cacheControl,
-    contentType: contentType(objectPath)
-  });
-  if (error) {
-    throw new Error(`Upload ${objectPath} failed (${content.length} bytes): ${error.message}`);
+
+  let files = await walk(sourceDir);
+  const release = JSON.parse(await readFile(join(sourceDir, "release.json"), "utf8"));
+  // Old APK clients do not resolve relative apkUrl; always publish an absolute HTTPS link.
+  const mirrorBase = (process.env.VITE_APP_ASSET_MIRROR_URL?.trim()
+    || `${supabaseUrl}/functions/v1/app-hosting/`).replace(/\/?$/, "/");
+  // Web-only CI builds omit APK fields; merge the last published APK metadata so phone OTA survives.
+  if (!release.apkUrl && !release.apkVersionCode) {
+    const previous = await downloadJsonObject("release.json");
+    if (previous?.apkVersionCode || previous?.apkUrl) {
+      for (const field of apkFields) {
+        if (previous[field] !== undefined) release[field] = previous[field];
+      }
+      console.log(`Merged previous APK metadata (versionCode=${release.apkVersionCode}) into release.json`);
+    }
   }
-  console.log(`Uploaded ${objectPath} (${content.length} bytes)`);
-}
+  if (release.apkUrl || release.apkVersionCode) {
+    const rawApk = typeof release.apkUrl === "string" && release.apkUrl.trim()
+      ? release.apkUrl.trim()
+      : "android/semester-schedule.apk";
+    release.apkUrl = /^https?:\/\//i.test(rawApk)
+      ? rawApk
+      : new URL(rawApk.replace(/^\/+/, ""), mirrorBase).href;
+    await writeFile(join(sourceDir, "release.json"), `${JSON.stringify(release, null, 2)}\n`, "utf8");
+    console.log(`Normalized release.apkUrl -> ${release.apkUrl}`);
+  }
+  const packageFiles = files
+    .map((absolutePath) => relative(sourceDir, absolutePath).split(sep).join("/"))
+    .filter((objectPath) => objectPath !== "asset-manifest.json")
+    .sort();
+  await writeFile(join(sourceDir, "asset-manifest.json"), JSON.stringify({
+    version: String(release.version || ""),
+    commit: String(release.commit || ""),
+    files: packageFiles
+  }, null, 2));
+  files = await walk(sourceDir);
+  const deployedPaths = new Set();
+  for (const absolutePath of files) {
+    const objectPath = relative(sourceDir, absolutePath).split(sep).join("/");
+    deployedPaths.add(objectPath);
+    const content = await readFile(absolutePath);
+    const cacheControl = /^(asset-manifest\.json|index\.html|sw\.js|release\.json|manifest\.webmanifest)$/.test(objectPath) || /\.apk$/i.test(objectPath) ? "0" : "31536000";
+    const { error } = await client.storage.from(bucket).upload(objectPath, content, {
+      upsert: true,
+      cacheControl,
+      contentType: contentType(objectPath)
+    });
+    if (error) {
+      throw new Error(`Upload ${objectPath} failed (${content.length} bytes): ${error.message}`);
+    }
+    console.log(`Uploaded ${objectPath} (${content.length} bytes)`);
+  }
 
-// Preserve APK packages when a web-only mirror deploy runs. Deleting android/*.apk
-// previously broke in-app phone updates after every GitHub Pages deploy.
-const stalePaths = (await listStoredFiles(""))
-  .filter((path) => !deployedPaths.has(path))
-  .filter((path) => !/\.apk$/i.test(path) && !path.startsWith("android/"));
-for (let index = 0; index < stalePaths.length; index += 100) {
-  const batch = stalePaths.slice(index, index + 100);
-  const { error } = await client.storage.from(bucket).remove(batch);
-  if (error) throw new Error(`Remove stale mirror files failed: ${error.message}`);
-  for (const objectPath of batch) console.log(`Removed stale ${objectPath}`);
-}
+  // Preserve APK packages when a web-only mirror deploy runs. Deleting android/*.apk
+  // previously broke in-app phone updates after every GitHub Pages deploy.
+  const stalePaths = (await listStoredFiles(""))
+    .filter((path) => !deployedPaths.has(path))
+    .filter((path) => !/\.apk$/i.test(path) && !path.startsWith("android/"));
+  for (let index = 0; index < stalePaths.length; index += 100) {
+    const batch = stalePaths.slice(index, index + 100);
+    const { error } = await client.storage.from(bucket).remove(batch);
+    if (error) throw new Error(`Remove stale mirror files failed: ${error.message}`);
+    for (const objectPath of batch) console.log(`Removed stale ${objectPath}`);
+  }
 
-console.log(`Mirror files deployed to private Storage bucket: ${bucket}`);
+  console.log(`Mirror files deployed to private Storage bucket: ${bucket}`);
+}
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
