@@ -164,3 +164,16 @@ PGlite 固定版本用于测试，不增加网页运行依赖。内存 PostgreSQ
 新增脚本执行级离线回归，所有网络、用户、存储、ffmpeg及文件操作均注入替身；覆盖正常一次计次和意外两次计次两个路径。与已有 preflight 共 **4项定向测试通过**，脚本 `node --check` 通过。没有触发真实工作流，也没有新增收费调用；本轮仅脚本改动，前述647项应用回归与构建仍是相同应用代码的证据。
 
 本地工作区仍在 `submission` 分支，既有 Android `build.gradle`／Manifest 修改尚未提交。若把全部工作区直接推入 main，会同时匹配 PWA、Supabase 和 APK 工作流，因此任何后续发布必须先明确版本与提交范围，不能顺带发布原有 Android 改动。付费音频验证仍保留手动确认及 fresh-source preflight，部署许可不自动替代其收费授权。
+
+## 2026-10-23 授权发布结果
+
+用户在确认“不发布 APK、不运行付费测试”的边界后授权发布。为保留原工作区及已有 Android 修改，从最新 origin/main 的 387b526 创建独立发布工作区 D:/semester-schedule-audit-release-20261023，分两次提交并依序部署：
+
+- 后端提交：9bed6797233e60ec81983efa2d0c47d2c2d2c8ee。自动 Supabase workflow [39934877243](https://github.com/shallower-yin/semester-schedule-pwa/actions/runs/39934877243) 成功；新增音频迁移已应用，三个会话 RPC 存在，RLS 开启，anon/authenticated 无会话表读取和处理 RPC 执行权。提醒 cron 变更及生产提醒调用步骤均跳过。
+- 网页提交：fc908f9c2fd0448d67a7837908d96037039ec936。Pages 与镜像 workflow [39935275765](https://github.com/shallower-yin/semester-schedule-pwa/actions/runs/39935275765) 的 build、mirror、deploy 全部成功；Cloudflare 使用现有本地 OAuth 和同一提交独立部署，版本 ID 为 63387f0a-630f-401a-bb1c-460d0420b30f。
+- 三个线上 release.json 均确认 version=2026.10.23.2、commit=fc908f9：主站 https://schedule.nfsg.eu.cc/、GitHub Pages 及 Supabase app-hosting 镜像。
+- 镜像 APK versionCode 仍为36，未触发 APK workflow；原有 Android 文件、提交分支与其他用户工作区改动保持不动。
+- 发布工作区验证：118个测试文件、643项测试通过；Deno检查及6 tests/13 steps通过；生产/Cloudflare构建通过，npm安装审计0告警。测试数量与原脏工作区不同，因为未混入不属于本轮的既有未发布修改。修复了一项只接受LF的静态CSS测试以兼容Windows CRLF，没有削弱布局断言。
+- 线上新浏览器会话：1280宽桌面和390×844手机首屏正常、无水平溢出；在线时控制台0错误；Service Worker接管后断网重载成功，PDF worker可离线获取。断网产生的远端请求失败仅属于预期离线行为。
+- 发布提交未纳入旧工作区相对main的提醒cron回退，保留远端两分钟配置和日志限制；未修改Android版本、签名或分发包。未创建PR。
+- 真实付费OCR/ASR、大文件音频、真实用户跨设备同步及Android真机后台/通知验收仍未执行。这些不包含在本次发布授权中，不能宣称整个长期目标已全量验收。
