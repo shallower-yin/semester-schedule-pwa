@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { appMirrorApkUrl } from "./appHosting";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appMirrorApkUrl, appStaticReleaseUrl } from "./appHosting";
 import {
   appUpdateEntryStatus,
+  apkDownloadUrlsForRelease,
+  fetchLatestRelease,
+  UpdateCheckError,
   clearSkippedRelease,
   apkDownloadUrlForRelease,
   combineLatestReleases,
@@ -179,5 +182,68 @@ describe("版本更新说明", () => {
       hasAvailableRelease: true,
       serviceWorkerNeedsRefresh: false
     })).toBe("有新版本，点击更新");
+  });
+});
+
+describe("远端更新通道", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  const valid = { ...release, apkSha256: "ab".repeat(32), apkVersionCode: 38 };
+
+  it("原生检查只请求静态和备用远端，不读取本地捆绑的release.json", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      requests.push(url);
+      return new Response(JSON.stringify(valid));
+    }));
+    expect(await fetchLatestRelease({ native: true })).toMatchObject({ apkVersionCode: 38 });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain(appStaticReleaseUrl);
+    expect(requests.every(url => url.startsWith("https://") && !url.includes("localhost"))).toBe(true);
+  });
+
+  it("主站返回HTML或坏JSON时使用备用，且不把错误当成最新版本", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(
+      url.startsWith(appStaticReleaseUrl) ? "<html>offline</html>" : JSON.stringify(valid))));
+    expect(await fetchLatestRelease({ native: true })).toMatchObject({ apkVersionCode: 38 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>offline</html>")));
+    await expect(fetchLatestRelease({ native: true })).rejects.toBeInstanceOf(UpdateCheckError);
+  });
+
+  it("全部联网失败只有限重试，并保留端点原因", async () => {
+    const fetcher = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+    vi.stubGlobal("fetch", fetcher);
+    const error = await fetchLatestRelease({ native: true }).catch(value => value);
+    expect(error).toBeInstanceOf(UpdateCheckError);
+    expect(error.failures).toHaveLength(2);
+    expect(error.failures[0].endpoint).toBe(appStaticReleaseUrl);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("没有SHA的原生元数据无效，不允许用内置版本兜底误报", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(release))));
+    await expect(fetchLatestRelease({ native: true })).rejects.toThrow("检查更新失败");
+  });
+
+  it("超时后最多再尝试一次，不永久卡住检查", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+      options.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    })));
+    const result = fetchLatestRelease({ native: true }).catch(error => error);
+    await vi.advanceTimersByTimeAsync(32_001);
+    expect(await result).toBeInstanceOf(UpdateCheckError);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("只合并同版本同SHA来源，保留静态主地址并拒绝HTTP下载", () => {
+    const combined = combineLatestReleases([
+      { ...valid, apkUrl: "https://static.test/v38.apk", apkUrls: ["https://backup.test/v38.apk"] },
+      { ...valid, apkUrl: "https://other.test/v38.apk" },
+      { ...valid, apkSha256: "cd".repeat(32), apkUrl: "https://wrong.test/v38.apk" }
+    ]);
+    expect(apkDownloadUrlsForRelease(combined!)).toEqual([
+      "https://static.test/v38.apk", "https://backup.test/v38.apk", "https://other.test/v38.apk"
+    ]);
+    expect(apkDownloadUrlsForRelease({ ...valid, apkUrl: "http://insecure.test/a.apk" })).toEqual([]);
   });
 });

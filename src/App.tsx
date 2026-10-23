@@ -113,7 +113,7 @@ import { appHistoryLayer, appHistoryPage, initializeAppHistory, isAppHistoryUnwi
 import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { appMirrorApkUrl } from "./lib/appHosting";
-import { apkDownloadUrlForRelease, appUpdateEntryStatus, clearSkippedRelease, fetchLatestRelease, nativeReleaseDetails, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
+import { apkDownloadUrlForRelease, apkDownloadUrlsForRelease, appUpdateEntryStatus, clearSkippedRelease, fetchLatestRelease, nativeReleaseDetails, shouldShowNativeRelease, shouldShowRelease, skipReleaseVersion, type AppRelease } from "./lib/appRelease";
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
@@ -748,7 +748,7 @@ export default function App() {
 
   const checkRelease = useCallback(async (options?: { force?: boolean }) => {
     if (options?.force) clearSkippedRelease();
-    const release = await fetchLatestRelease();
+    const release = await fetchLatestRelease({ native: isNativeApp() });
     if (!release) {
       setAvailableRelease(null);
       return null;
@@ -761,9 +761,7 @@ export default function App() {
         setAvailableRelease(show ? apkRelease : null);
         return show ? apkRelease : null;
       } catch {
-        // Without the native versionCode we cannot safely claim that an APK is installable.
-        setAvailableRelease(null);
-        return null;
+        throw new Error("无法读取当前应用版本，请重试。");
       }
     }
     const show = shouldShowRelease(__APP_VERSION__, release);
@@ -777,6 +775,9 @@ export default function App() {
       if (!active && release) {
         // effect cleaned up; ignore
       }
+    }).catch((error) => {
+      console.warn("[app-update] check failed", error);
+      if (active) setUpdateMessage("检查更新失败，请检查网络后重试。");
     });
     return () => {
       active = false;
@@ -1022,7 +1023,9 @@ export default function App() {
         setUpdateMessage("正在下载安装包，请保持网络畅通…");
         await AppUpdater.downloadAndInstall({
           url: apkUrl,
-          sha256: release.apkSha256
+          urls: apkDownloadUrlsForRelease(release),
+          sha256: release.apkSha256 || "",
+          versionCode: release.apkVersionCode || 0
         });
         setUpdateMessage("已打开系统安装界面，确认后即可覆盖更新。");
         showToast("请在系统安装界面确认更新（无需卸载）。", "success", 6000);
@@ -1542,19 +1545,26 @@ export default function App() {
                       }
                       void (async () => {
                         setUpdateMessage("正在检查更新…");
-                        const found = await checkRelease({ force: true });
-                        if (found) {
-                          setUpdateMessage("发现新版本，请确认更新说明。");
-                          showToast("发现新版本", "success");
-                          return;
+                        try {
+                          const found = await checkRelease({ force: true });
+                          if (found) {
+                            setUpdateMessage("发现新版本，请确认更新说明。");
+                            showToast("发现新版本", "success");
+                            return;
+                          }
+                          setUpdateMessage("已是最新版本");
+                          showToast(
+                            isNativeApp()
+                              ? "当前已是最新安装包。"
+                              : "当前已是最新版本。",
+                            "info"
+                          );
+                        } catch (error) {
+                          console.warn("[app-update] check failed", error);
+                          const message = error instanceof Error ? error.message : "检查更新失败，请稍后重试。";
+                          setUpdateMessage(message);
+                          showToast(message, "error", 6000);
                         }
-                        setUpdateMessage("已是最新版本");
-                        showToast(
-                          isNativeApp()
-                            ? "当前已是最新安装包（或网络未能拉取更新信息）。"
-                            : "当前已是最新版本。",
-                          "info"
-                        );
                       })();
                     }}
                   >

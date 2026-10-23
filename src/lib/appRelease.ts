@@ -1,4 +1,4 @@
-import { appMirrorApkPath, appMirrorApkUrl, appMirrorReleaseUrl, resolveReleaseApkUrl } from "./appHosting";
+import { appMirrorApkPath, appMirrorApkUrl, appMirrorReleaseUrl, appStaticReleaseUrl, resolveReleaseApkUrl } from "./appHosting";
 
 export interface AppRelease {
   version: string;
@@ -9,6 +9,7 @@ export interface AppRelease {
   appUrl: string;
   /** HTTPS URL of a signed APK for in-app sideload updates (Android only). */
   apkUrl?: string;
+  apkUrls?: string[];
   /** Must be greater than the installed versionCode for Android to accept the update. */
   apkVersionCode?: number;
   /** Optional lowercase hex SHA-256 of the APK file. */
@@ -24,15 +25,32 @@ export interface AppRelease {
 const SKIPPED_RELEASE_KEY = "semester-schedule-skipped-release";
 const SKIPPED_APK_CODE_KEY = "semester-schedule-skipped-apk-code";
 
-export async function fetchLatestRelease(): Promise<AppRelease | null> {
+export class UpdateCheckError extends Error {
+  constructor(public readonly failures: { endpoint: string; reason: string }[]) {
+    super("检查更新失败，请检查网络后重试。");
+    this.name = "UpdateCheckError";
+  }
+}
+
+export async function fetchLatestRelease(options: { native?: boolean } = {}): Promise<AppRelease | null> {
   const candidates = Array.from(new Set([
-    new URL("release.json", document.baseURI).href,
+    ...(!options.native ? [new URL("release.json", document.baseURI).href] : []),
+    appStaticReleaseUrl,
     appMirrorReleaseUrl
   ]));
-  const results = await Promise.allSettled(candidates.map(fetchRelease));
+  if (options.native) {
+    const failures: { endpoint: string; reason: string }[] = [];
+    for (const endpoint of candidates) {
+      try { return await fetchRelease(endpoint, true); }
+      catch (error) { failures.push({ endpoint, reason: error instanceof Error ? error.message : String(error) }); }
+    }
+    throw new UpdateCheckError(failures);
+  }
+  const results = await Promise.allSettled(candidates.map(url => fetchRelease(url, Boolean(options.native))));
   const releases = results
     .flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []);
-  if (!releases.length) return null;
+  if (!releases.length) throw new UpdateCheckError(results.flatMap((result, index) =>
+    result.status === "rejected" ? [{ endpoint: candidates[index], reason: String(result.reason?.message || result.reason) }] : []));
 
   return combineLatestReleases(releases);
 }
@@ -79,6 +97,9 @@ export function combineLatestReleases(releases: AppRelease[]): AppRelease | null
   return ensureAbsoluteApkUrl({
     ...newestWeb,
     apkUrl: newestApk.apkUrl,
+    apkUrls: Array.from(new Set(releases.filter(item => item.apkVersionCode === newestApk.apkVersionCode
+      && item.apkSha256 === newestApk.apkSha256).flatMap(item => [item.apkUrl, ...(item.apkUrls || [])])
+      .filter((url): url is string => Boolean(url)))),
     apkVersionCode: newestApk.apkVersionCode,
     apkSha256: newestApk.apkSha256,
     apkVersion: newestApk.apkVersion,
@@ -111,7 +132,7 @@ export function appUpdateEntryStatus(input: {
   if (input.updating) return input.updateMessage || "正在更新…";
   if (input.hasAvailableRelease) return "有新版本，点击更新";
   if (input.serviceWorkerNeedsRefresh) return "更新已下载，点击刷新";
-  return "点击检查更新";
+  return input.updateMessage || "点击检查更新";
 }
 
 export function compareVersions(left: string, right: string): number {
@@ -156,44 +177,68 @@ export function apkDownloadUrlForRelease(release: AppRelease): string | undefine
   }
 }
 
-async function fetchRelease(url: string): Promise<AppRelease | null> {
-  const controller = new AbortController();
-  // Mobile networks to the asset mirror often need more than a few seconds.
-  const timer = window.setTimeout(() => controller.abort(), 12_000);
-  try {
-    const response = await fetch(`${url}${url.includes("?") ? "&" : "?"}ts=${Date.now()}`, {
-      cache: "no-store",
-      signal: controller.signal
-    });
-    if (!response.ok) return null;
-    const value = await response.json() as Partial<AppRelease>;
-    if (!value.version || !Array.isArray(value.notes)) return null;
-    const apkVersionCode = Number(value.apkVersionCode);
-    // Prefer explicit apkUrl; otherwise if apkVersionCode is published, default to the mirror APK path.
-    const rawApkUrl = typeof value.apkUrl === "string" && value.apkUrl.trim()
-      ? value.apkUrl.trim()
-      : (Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? appMirrorApkPath : undefined);
-    const apkUrl = resolveReleaseApkUrl(rawApkUrl)
-      || (Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? appMirrorApkUrl : undefined);
-    return {
-      version: String(value.version),
-      commit: String(value.commit ?? ""),
-      title: String(value.title ?? "版本更新"),
-      notes: value.notes.map(String).filter(Boolean).slice(0, 12),
-      publishedAt: String(value.publishedAt ?? ""),
-      appUrl: String(value.appUrl ?? ""),
-      apkUrl,
-      apkVersionCode: Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? apkVersionCode : undefined,
-      apkSha256: typeof value.apkSha256 === "string" && value.apkSha256.trim() ? value.apkSha256.trim().toLowerCase() : undefined,
-      apkVersion: typeof value.apkVersion === "string" && value.apkVersion.trim() ? value.apkVersion.trim() : undefined,
-      apkCommit: typeof value.apkCommit === "string" && value.apkCommit.trim() ? value.apkCommit.trim() : undefined,
-      apkTitle: typeof value.apkTitle === "string" && value.apkTitle.trim() ? value.apkTitle.trim() : undefined,
-      apkNotes: Array.isArray(value.apkNotes) ? value.apkNotes.map(String).filter(Boolean).slice(0, 12) : undefined,
-      apkPublishedAt: typeof value.apkPublishedAt === "string" && value.apkPublishedAt.trim() ? value.apkPublishedAt.trim() : undefined
-    };
-  } catch {
-    return null;
-  } finally {
-    window.clearTimeout(timer);
+export function apkDownloadUrlsForRelease(release: AppRelease): string[] {
+  return Array.from(new Set([release.apkUrl, ...(release.apkUrls || [])].filter((url): url is string => {
+    if (!url) return false;
+    try { return new URL(url).protocol === "https:"; } catch { return false; }
+  })));
+}
+
+async function fetchRelease(url: string, native: boolean): Promise<AppRelease> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 8_000);
+    try {
+      const response = await fetch(`${url}${url.includes("?") ? "&" : "?"}ts=${Date.now()}`, {
+        cache: "no-store",
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        if (attempt === 0 && (response.status === 408 || response.status === 429 || response.status >= 500)) continue;
+        throw new Error(`HTTP ${response.status}`);
+      }
+      let value: Partial<AppRelease>;
+      try { value = await response.json() as Partial<AppRelease>; }
+      catch { throw new Error("更新信息不是有效 JSON"); }
+      if (!value || typeof value.version !== "string" || !value.version || !Array.isArray(value.notes)) {
+        throw new Error("更新信息格式无效");
+      }
+      const apkVersionCode = Number(value.apkVersionCode);
+      // Prefer explicit apkUrl; otherwise if apkVersionCode is published, default to the mirror APK path.
+      const rawApkUrl = typeof value.apkUrl === "string" && value.apkUrl.trim()
+        ? value.apkUrl.trim()
+        : (Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? appMirrorApkPath : undefined);
+      const apkUrl = resolveReleaseApkUrl(rawApkUrl)
+        || (Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? appMirrorApkUrl : undefined);
+      if (native && (!Number.isSafeInteger(apkVersionCode) || apkVersionCode <= 0
+        || !/^[a-f0-9]{64}$/i.test(value.apkSha256 || "") || !apkUrl?.startsWith("https://"))) {
+        throw new Error("安装包更新信息不完整");
+      }
+      return {
+        version: String(value.version),
+        commit: String(value.commit ?? ""),
+        title: String(value.title ?? "版本更新"),
+        notes: value.notes.map(String).filter(Boolean).slice(0, 12),
+        publishedAt: String(value.publishedAt ?? ""),
+        appUrl: String(value.appUrl ?? ""),
+        apkUrl,
+        apkUrls: Array.isArray(value.apkUrls) ? value.apkUrls.filter((item): item is string =>
+          typeof item === "string" && item.startsWith("https://")) : undefined,
+        apkVersionCode: Number.isFinite(apkVersionCode) && apkVersionCode > 0 ? apkVersionCode : undefined,
+        apkSha256: typeof value.apkSha256 === "string" && value.apkSha256.trim() ? value.apkSha256.trim().toLowerCase() : undefined,
+        apkVersion: typeof value.apkVersion === "string" && value.apkVersion.trim() ? value.apkVersion.trim() : undefined,
+        apkCommit: typeof value.apkCommit === "string" && value.apkCommit.trim() ? value.apkCommit.trim() : undefined,
+        apkTitle: typeof value.apkTitle === "string" && value.apkTitle.trim() ? value.apkTitle.trim() : undefined,
+        apkNotes: Array.isArray(value.apkNotes) ? value.apkNotes.map(String).filter(Boolean).slice(0, 12) : undefined,
+        apkPublishedAt: typeof value.apkPublishedAt === "string" && value.apkPublishedAt.trim() ? value.apkPublishedAt.trim() : undefined
+      };
+    } catch (error) {
+      lastError = controller.signal.aborted ? new Error("请求超时") : error;
+      if (!(error instanceof TypeError) && !controller.signal.aborted) throw lastError;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
+  throw lastError;
 }

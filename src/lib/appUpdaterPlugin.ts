@@ -9,7 +9,7 @@ export interface AppUpdaterPlugin {
   getNativeVersion(): Promise<NativeAppVersion>;
   canRequestPackageInstalls(): Promise<{ granted: boolean }>;
   requestPackageInstallPermission(): Promise<{ granted: boolean }>;
-  downloadAndInstall(options: { url: string; sha256?: string }): Promise<{ started: boolean }>;
+  downloadAndInstall(options: { url: string; urls: string[]; sha256: string; versionCode: number }): Promise<{ started: boolean }>;
 }
 
 export const AppUpdater = registerPlugin<AppUpdaterPlugin>("AppUpdater");

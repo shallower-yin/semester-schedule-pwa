@@ -4,6 +4,8 @@ const DEFAULT_ASSET_MIRROR_URL = "https://haifsnaupqhlvgfoyvlc.supabase.co/funct
 export const appInstallUrl = import.meta.env.VITE_APP_URL?.trim() || DEFAULT_APP_URL;
 export const appAssetMirrorUrl = import.meta.env.VITE_APP_ASSET_MIRROR_URL?.trim() || DEFAULT_ASSET_MIRROR_URL;
 export const appMirrorReleaseUrl = new URL("release.json", appAssetMirrorUrl).href;
+export const appStaticReleaseUrl = new URL("android/latest.json", appInstallUrl).href;
+export const appStaticApkUrl = (code: number) => new URL(`android/semester-schedule-v${code}.apk`, appInstallUrl).href;
 /** Conventional APK path on the independent no-proxy app mirror. */
 export const appMirrorApkPath = "android/semester-schedule.apk";
 export const appMirrorApkUrl = new URL(appMirrorApkPath, appAssetMirrorUrl).href;

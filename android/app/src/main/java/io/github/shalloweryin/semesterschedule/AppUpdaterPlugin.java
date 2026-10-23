@@ -11,20 +11,17 @@ import android.provider.Settings;
 import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.security.MessageDigest;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Sideload APK updates without an app store: download a signed APK over HTTPS into app cache,
@@ -101,7 +98,19 @@ public class AppUpdaterPlugin extends Plugin {
     public void downloadAndInstall(PluginCall call) {
         final String url = call.getString("url", "");
         final String sha256 = call.getString("sha256", "");
-        if (url == null || url.trim().isEmpty()) {
+        final int versionCode = call.getInt("versionCode", 0);
+        final List<String> sources = new ArrayList<>();
+        JSArray urls = call.getArray("urls");
+        if (urls != null) for (int i = 0; i < urls.length(); i++) {
+            String candidate = urls.optString(i, "");
+            if (!candidate.isEmpty()) sources.add(candidate);
+        }
+        if (sources.isEmpty() && url != null && !url.trim().isEmpty()) sources.add(url.trim());
+        if (sha256 == null || !sha256.matches("[a-fA-F0-9]{64}") || versionCode <= 0) {
+            call.reject("缺少有效的安装包校验信息，请重新检查更新。");
+            return;
+        }
+        if (sources.isEmpty()) {
             call.reject("缺少 APK 下载地址。");
             return;
         }
@@ -117,17 +126,12 @@ public class AppUpdaterPlugin extends Plugin {
                     rejectOnMain(call, "无法创建更新缓存目录。");
                     return;
                 }
-                apkFile = new File(dir, "update.apk");
-                downloadToFile(url.trim(), apkFile);
-                if (sha256 != null && !sha256.trim().isEmpty()) {
-                    String actual = sha256Hex(apkFile);
-                    if (!sha256.trim().equalsIgnoreCase(actual)) {
-                        //noinspection ResultOfMethodCallIgnored
-                        apkFile.delete();
-                        rejectOnMain(call, "更新包校验失败，请稍后重试。");
-                        return;
-                    }
+                apkFile = new ApkDownloader().download(sources, sha256, dir,
+                    percent -> notifyListeners("apkDownloadProgress", new JSObject().put("percent", percent)));
+                if (!sha256.equalsIgnoreCase(ApkDownloader.sha256Hex(apkFile))) {
+                    throw new Exception("更新包校验失败，已停止安装。");
                 }
+                verifyPackage(apkFile, versionCode);
                 final File installFile = apkFile;
                 final Activity activity = getActivity();
                 if (activity == null) {
@@ -154,6 +158,7 @@ public class AppUpdaterPlugin extends Plugin {
                     }
                 });
             } catch (Exception error) {
+                android.util.Log.w("AppUpdater", "APK download or verification failed", error);
                 if (apkFile != null) {
                     //noinspection ResultOfMethodCallIgnored
                     apkFile.delete();
@@ -163,60 +168,27 @@ public class AppUpdaterPlugin extends Plugin {
         });
     }
 
-    private void downloadToFile(String url, File target) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setConnectTimeout(20_000);
-        connection.setReadTimeout(60_000);
-        connection.setInstanceFollowRedirects(true);
-        connection.setUseCaches(false);
-        connection.setRequestProperty("Cache-Control", "no-store, no-cache, max-age=0");
-        connection.setRequestProperty("Pragma", "no-cache");
-        connection.connect();
-        int status = connection.getResponseCode();
-        if (status < 200 || status >= 300) {
-            throw new Exception("下载更新失败（HTTP " + status + "）。");
+    @SuppressWarnings("deprecation")
+    private void verifyPackage(File file, int expectedCode) throws Exception {
+        PackageManager pm = getContext().getPackageManager();
+        int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
+        PackageInfo archive = pm.getPackageArchiveInfo(file.getPath(), flags);
+        PackageInfo installed = pm.getPackageInfo(getContext().getPackageName(), 0);
+        if (archive == null || !getContext().getPackageName().equals(archive.packageName)) {
+            throw new Exception("更新包与当前应用不匹配，已停止安装。");
         }
-        long total = connection.getContentLengthLong();
-        long loaded = 0;
-        int lastPercent = -1;
-        try (InputStream input = connection.getInputStream();
-             FileOutputStream output = new FileOutputStream(target)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                output.write(buffer, 0, read);
-                loaded += read;
-                if (total > 0) {
-                    int percent = (int) Math.min(100, (loaded * 100) / total);
-                    if (percent != lastPercent && (percent == 100 || percent - lastPercent >= 2)) {
-                        lastPercent = percent;
-                        notifyListeners("apkDownloadProgress", new JSObject().put("percent", percent));
-                    }
-                }
-            }
-            output.flush();
-        } finally {
-            connection.disconnect();
+        long archiveCode = Build.VERSION.SDK_INT >= 28 ? archive.getLongVersionCode() : archive.versionCode;
+        long installedCode = Build.VERSION.SDK_INT >= 28 ? installed.getLongVersionCode() : installed.versionCode;
+        if (archiveCode != expectedCode || archiveCode <= installedCode) {
+            throw new Exception("安装包版本不正确，请重新检查更新。");
         }
-        if (!target.exists() || target.length() < 1024) {
-            throw new Exception("更新包不完整，请检查网络后重试。");
+        android.content.pm.Signature[] signatures = Build.VERSION.SDK_INT >= 28 && archive.signingInfo != null
+            ? archive.signingInfo.getApkContentsSigners() : archive.signatures;
+        String expected = "98e610edcfa3d9e4f34752da158ea48e48592f08481543ad0ac26f85294a3e24";
+        if (signatures == null || signatures.length != 1
+            || !expected.equals(ApkDownloader.sha256Hex(signatures[0].toByteArray()))) {
+            throw new Exception("安装包签名不正确，已停止安装。");
         }
-    }
-
-    private String sha256Hex(File file) throws Exception {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (FileInputStream input = new FileInputStream(file)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                digest.update(buffer, 0, read);
-            }
-        }
-        StringBuilder builder = new StringBuilder();
-        for (byte value : digest.digest()) {
-            builder.append(String.format("%02x", value));
-        }
-        return builder.toString();
     }
 
     private boolean canInstallPackages() {
