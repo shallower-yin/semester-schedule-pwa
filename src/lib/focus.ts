@@ -1,5 +1,5 @@
 import type { FocusSession, FocusTimerMode } from "../types";
-import { productDateTimeParts, toISODate } from "./date";
+import { addDays, dateAtProductTime, parseLocalDate, productDateTimeParts, toISODate } from "./date";
 
 export interface ActiveFocusState {
   mode: FocusTimerMode;
@@ -54,6 +54,16 @@ export function saveActiveFocus(ownerId: string, active: ActiveFocusState): void
 export function clearActiveFocus(ownerId: string): void {
   localStorage.removeItem(activeFocusStorageKey(ownerId));
   window.dispatchEvent(new CustomEvent(FOCUS_STATE_CHANGED_EVENT));
+}
+
+const completingFocusSessions = new Set<string>();
+
+/** Coordinate the page and always-mounted timer before either starts an async save. */
+export function claimFocusCompletion(ownerId: string, startedAt: string): (() => void) | null {
+  const key = JSON.stringify([ownerId, startedAt]);
+  if (completingFocusSessions.has(key) || loadActiveFocus(ownerId)?.started_at !== startedAt) return null;
+  completingFocusSessions.add(key);
+  return () => { completingFocusSessions.delete(key); };
 }
 
 export function pomodoroPlanStorageKey(ownerId: string): string {
@@ -157,6 +167,19 @@ export function totalFocusSeconds(sessions: FocusSession[]): number {
   return sessions.reduce((sum, session) => sum + Math.max(0, Number(session.duration_seconds ?? 0)), 0);
 }
 
+export function focusRecordsForPeriod<T extends { ended_at: string; deleted_at: string | null }>(
+  records: T[], period: "day" | "week" | "month", now: Date
+): T[] {
+  const { year, month, day } = productDateTimeParts(now);
+  const calendar = new Date(Date.UTC(year, month - 1, period === "month" ? 1 : day));
+  if (period === "week") calendar.setUTCDate(calendar.getUTCDate() - ((calendar.getUTCDay() + 6) % 7));
+  const start = dateAtProductTime(calendar.toISOString().slice(0, 10)).getTime();
+  return records.filter((record) => {
+    const ended = Date.parse(record.ended_at);
+    return !record.deleted_at && ended >= start && ended <= now.getTime();
+  });
+}
+
 export interface FocusDailyTotal {
   date: string;
   label: string;
@@ -165,8 +188,9 @@ export interface FocusDailyTotal {
 }
 
 export function focusDailyTotals(sessions: FocusSession[], days = 7, now = new Date()): FocusDailyTotal[] {
+  const today = parseLocalDate(toISODate(now));
   return Array.from({ length: days }, (_, index) => {
-    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1 - index));
+    const date = addDays(today, -(days - 1 - index));
     const isoDate = toISODate(date);
     const matched = sessions.filter((session) => toISODate(new Date(session.ended_at)) === isoDate && !session.deleted_at);
     return {

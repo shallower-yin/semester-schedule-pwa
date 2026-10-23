@@ -19,6 +19,12 @@ const r2Config = readFileSync(resolve(process.cwd(), "scripts/configure-r2.mjs")
 const productionAppUrl = "https://schedule.nfsg.eu.cc/";
 
 describe("Web 与 APK 发布版本隔离", () => {
+  it("PDF 模块 worker 在首次离线使用前预缓存，单文件上限保持为 3 MiB", () => {
+    const globPatterns = viteConfig.match(/globPatterns:\s*\[([^\]]+)\]/)?.[1] ?? "";
+    expect(globPatterns).toMatch(/\bjs,mjs,css\b/);
+    expect(viteConfig).toMatch(/maximumFileSizeToCacheInBytes:\s*3\s*\*\s*1024\s*\*\s*1024\b/);
+  });
+
   it("APK 清单记录实际打包的版本、提交和更新说明", () => {
     for (const field of ["apkVersion", "apkCommit", "apkTitle", "apkNotes", "apkPublishedAt"]) {
       expect(viteConfig).toContain(field);

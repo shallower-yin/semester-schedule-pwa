@@ -116,15 +116,23 @@ export default defineConfig(({ mode }) => {
           ]
         },
         workbox: {
-          globPatterns: ["**/*.{js,css,html,svg,png,webp}"],
+          globPatterns: ["**/*.{js,mjs,css,html,svg,png,webp}"],
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
           navigateFallback: "index.html",
           importScripts: ["push-sw.js"],
           runtimeCaching: [
             {
-              urlPattern: new RegExp(`${escapeRegExp(base)}.*\\.(?:css|ico|js|json|mjs|png|svg|webp|webmanifest)$`),
+              // Workbox serializes this callback into sw.js: keep it closure-free.
+              urlPattern: ({ url, request, sameOrigin }) => {
+                const scope = new URL((self as unknown as { registration: { scope: string } }).registration.scope);
+                if (!sameOrigin || url.origin !== scope.origin || url.search || request.headers.has("authorization")) return false;
+                if (!url.pathname.startsWith(scope.pathname)) return false;
+                const path = url.pathname.slice(scope.pathname.length);
+                return /^(?:assets\/[^/]+\.(?:css|js|mjs|png|svg|webp|woff2?)|focus\/focus-bg-[1-4]\.webp|favicon\.svg|app-icon(?:-192|-512)?\.(?:png|svg)|manifest\.webmanifest)$/.test(path);
+              },
               handler: "CacheFirst",
               options: {
-                cacheName: "semester-schedule-offline-updates",
+                cacheName: `semester-schedule-offline-updates-v2-${encodeURIComponent(new URL(base, "https://app.invalid/").pathname)}`,
                 expiration: {
                   maxEntries: 100,
                   maxAgeSeconds: 60 * 60 * 24 * 365
@@ -177,10 +185,6 @@ function runGit(args: string[]): string {
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function loadReleaseNotes(): { title: string; notes: string[] } {

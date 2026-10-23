@@ -17,21 +17,25 @@ async function resolveDeletionOwner(tableName: SyncTableName, recordId: string, 
 }
 
 export async function hardDeleteLocalRecord(tableName: SyncTableName, recordId: string): Promise<void> {
-  const record = await db.table(tableName).get(recordId) as { user_id?: string } | undefined;
-  const ownerId = await resolveDeletionOwner(tableName, recordId, record);
-  await queueChange(tableName, recordId, "delete", ownerId);
-  await db.table(tableName).delete(recordId);
+  await db.transaction("rw", db.table(tableName), db.syncQueue, async () => {
+    const record = await db.table(tableName).get(recordId) as { user_id?: string } | undefined;
+    const ownerId = await resolveDeletionOwner(tableName, recordId, record);
+    await queueChange(tableName, recordId, "delete", ownerId);
+    await db.table(tableName).delete(recordId);
+  });
 }
 
 export async function hardDeleteLocalRecords(tableName: SyncTableName, recordIds: string[]): Promise<void> {
   const ids = uniqueIds(recordIds);
   if (!ids.length) return;
-  const records = await db.table(tableName).bulkGet(ids) as Array<{ user_id?: string } | undefined>;
-  for (const [index, id] of ids.entries()) {
-    const ownerId = await resolveDeletionOwner(tableName, id, records[index]);
-    await queueChange(tableName, id, "delete", ownerId);
-  }
-  await db.table(tableName).bulkDelete(ids);
+  await db.transaction("rw", db.table(tableName), db.syncQueue, async () => {
+    const records = await db.table(tableName).bulkGet(ids) as Array<{ user_id?: string } | undefined>;
+    for (const [index, id] of ids.entries()) {
+      const ownerId = await resolveDeletionOwner(tableName, id, records[index]);
+      await queueChange(tableName, id, "delete", ownerId);
+    }
+    await db.table(tableName).bulkDelete(ids);
+  });
 }
 
 export async function hardDeleteEventsCascade(eventIds: string[]): Promise<void> {

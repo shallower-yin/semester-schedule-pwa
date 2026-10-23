@@ -1,12 +1,42 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AI_TASK_STORAGE_KEY, cancelAiTask, dismissAiTask, getAiTaskSnapshot, startAiTask, updateAiTaskProgress } from "./aiBackgroundTasks";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AI_TASK_STORAGE_KEY, cancelAiTask, clearAllAiTasks, dismissAiTask, getAiTaskSnapshot, startAiTask, updateAiTaskProgress } from "./aiBackgroundTasks";
 
 describe("AI 后台任务", () => {
   beforeEach(() => {
+    clearAllAiTasks();
     dismissAiTask("assistant");
     dismissAiTask("translation");
     dismissAiTask("mind_map");
     dismissAiTask("audio_transcription");
+  });
+
+  afterEach(() => {
+    clearAllAiTasks();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("任务在执行微任务前已取消时不再启动实际操作", async () => {
+    const run = vi.fn().mockResolvedValue("done");
+    startAiTask({ feature: "assistant", label: "准备请求", run });
+    expect(cancelAiTask("assistant")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(run).not.toHaveBeenCalled();
+    expect(getAiTaskSnapshot("assistant").status).toBe("idle");
+  });
+
+  it("错误回调写入本地存储失败仍保留原错误并结束任务", async () => {
+    const onError = vi.fn(async () => { throw new DOMException("存储空间已满", "QuotaExceededError"); });
+    startAiTask({
+      feature: "assistant",
+      label: "正在回答",
+      run: async () => { throw new Error("AI 服务超时"); },
+      onError
+    });
+    await vi.waitFor(() => expect(getAiTaskSnapshot("assistant").status).toBe("error"));
+    expect(getAiTaskSnapshot("assistant").message).toBe("AI 服务超时");
+    expect(onError).toHaveBeenCalledOnce();
+    expect(startAiTask({ feature: "assistant", label: "重试", run: () => new Promise(() => undefined) })).toBe(true);
   });
 
   it("离开弹窗后仍执行并保存成功状态", async () => {
@@ -20,6 +50,23 @@ describe("AI 后台任务", () => {
     expect(getAiTaskSnapshot("mind_map").status).toBe("running");
     await vi.waitFor(() => expect(getAiTaskSnapshot("mind_map").status).toBe("success"));
     expect(onSuccess).toHaveBeenCalledWith("done");
+  });
+
+  it.each(["success", "error"] as const)("%s 系统通知被拒绝不产生未处理异常或改变任务结果", async (outcome) => {
+    const showNotification = vi.fn().mockRejectedValue(new DOMException("系统通知不可用", "InvalidStateError"));
+    vi.stubGlobal("Notification", { permission: "granted" });
+    vi.stubGlobal("navigator", { serviceWorker: { ready: Promise.resolve({ showNotification }) } });
+    startAiTask({
+      feature: "assistant",
+      label: "处理任务",
+      run: async () => {
+        if (outcome === "error") throw new Error("原始失败原因");
+        return "done";
+      }
+    });
+    await vi.waitFor(() => expect(showNotification).toHaveBeenCalledOnce());
+    expect(getAiTaskSnapshot("assistant").status).toBe(outcome);
+    if (outcome === "error") expect(getAiTaskSnapshot("assistant").message).toBe("原始失败原因");
   });
 
   it("失败原因会保留供界面显示", async () => {
@@ -95,5 +142,35 @@ describe("AI 后台任务", () => {
     expect(localStorage.getItem(AI_TASK_STORAGE_KEY)).toContain('"status":"running"');
     cancelAiTask("translation");
     expect(localStorage.getItem(AI_TASK_STORAGE_KEY)).toBeNull();
+  });
+
+  it.each(["success", "error"] as const)("%s 回调等待期间退出账号不会复活任务或覆盖新任务", async (outcome) => {
+    let finishCallback!: () => void;
+    const callback = vi.fn(() => new Promise<void>((resolve) => { finishCallback = resolve; }));
+    startAiTask({
+      feature: "mind_map",
+      label: "旧任务",
+      run: async () => {
+        if (outcome === "error") throw new Error("旧错误");
+        return "done";
+      },
+      ...(outcome === "success" ? { onSuccess: callback } : { onError: callback })
+    });
+    await vi.waitFor(() => expect(callback).toHaveBeenCalledOnce());
+    clearAllAiTasks();
+    let newSignal: AbortSignal | undefined;
+    startAiTask({
+      feature: "mind_map",
+      label: "新任务",
+      run: (signal) => {
+        newSignal = signal;
+        return new Promise(() => undefined);
+      }
+    });
+    finishCallback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getAiTaskSnapshot("mind_map")).toMatchObject({ status: "running", label: "新任务" });
+    expect(cancelAiTask("mind_map")).toBe(true);
+    expect(newSignal?.aborted).toBe(true);
   });
 });

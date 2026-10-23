@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { db, queueChange } from "../db";
+import { db, putRecordAndQueue, queueChange } from "../db";
+import { hardDeleteLocalRecord } from "./hardDelete";
 import type { EventOccurrenceState, FocusSession, HealthLog, SyncFields, TodoItem } from "../types";
 import { pullRemoteNow, syncNow, SYNC_TABLES } from "./sync";
 
@@ -16,11 +17,13 @@ const mockRemote = vi.hoisted(() => ({
   // 模拟异常场景：无论怎么分页，只有前 N 行可以被取到（count 仍按全量上报）
   servedRowsCap: null as number | null,
   upsertCalls: [] as Array<{ tableName: string; payloads: Record<string, unknown>[] }>,
+  beforeUpsertResponse: null as null | (() => Promise<void>),
   reset() {
     this.tables = new Map();
     this.maxRowsPerRequest = 1000;
     this.servedRowsCap = null;
     this.upsertCalls = [];
+    this.beforeUpsertResponse = null;
   }
 }));
 
@@ -85,7 +88,10 @@ vi.mock("./supabase", () => {
             else rows.push({ ...payload, server_updated_at: "2026-07-01T08:00:00.000Z" });
           }
           mockRemote.tables.set(tableName, rows);
-          return Promise.resolve({ data: null, error: null, count: null }).then(onFulfilled, onRejected);
+          return Promise.resolve().then(async () => {
+            await mockRemote.beforeUpsertResponse?.();
+            return { data: null, error: null, count: null };
+          }).then(onFulfilled, onRejected);
         }
         if (mutation) {
           return Promise.resolve({ data: null, error: null, count: null }).then(onFulfilled, onRejected);
@@ -228,6 +234,37 @@ describe("上传前自动修复历史重复队列", () => {
     await clearLocalTables();
   });
 
+  it("上传等待期间再次编辑不会被旧请求清除待传操作", async () => {
+    const item = todo("todo-edit-during-upload");
+    await putRecordAndQueue("todos", item);
+    mockRemote.beforeUpsertResponse = async () => {
+      mockRemote.beforeUpsertResponse = null;
+      await putRecordAndQueue("todos", { ...item, title: "上传时的新编辑", version: 2 });
+    };
+
+    await syncNow(USER_ID);
+
+    expect((await db.todos.get(item.id))?.title).toBe("上传时的新编辑");
+    expect(await db.syncQueue.where("record_id").equals(item.id).count()).toBe(1);
+    await syncNow(USER_ID);
+    expect(mockRemote.tables.get("todos")?.[0].title).toBe("上传时的新编辑");
+    expect(await db.syncQueue.where("record_id").equals(item.id).count()).toBe(0);
+  });
+
+  it("上传等待期间删除不会丢失删除操作或复活本地记录", async () => {
+    const item = todo("todo-delete-during-upload");
+    await putRecordAndQueue("todos", item);
+    mockRemote.beforeUpsertResponse = async () => {
+      mockRemote.beforeUpsertResponse = null;
+      await hardDeleteLocalRecord("todos", item.id);
+    };
+
+    await syncNow(USER_ID);
+
+    expect(await db.todos.get(item.id)).toBeUndefined();
+    expect(await db.syncQueue.where("record_id").equals(item.id).first()).toMatchObject({ operation: "delete" });
+  });
+
   it("同一条专注记录只生成一个 upsert 载荷并清空重复队列", async () => {
     const session: FocusSession = {
       ...fields("44444444-4444-4444-8444-444444444444"),
@@ -299,6 +336,17 @@ describe("下载侧保护本地未上传编辑", () => {
   beforeEach(async () => {
     mockRemote.reset();
     await clearLocalTables();
+  });
+
+  it("纯拉取不会复活仍在等待上传删除的记录", async () => {
+    const item = todo("todo-pending-delete");
+    mockRemote.tables.set("todos", [{ ...item }]);
+    await queueChange("todos", item.id, "delete", USER_ID);
+
+    await pullRemoteNow(USER_ID);
+
+    expect(await db.todos.get(item.id)).toBeUndefined();
+    expect(await db.syncQueue.where("record_id").equals(item.id).first()).toMatchObject({ operation: "delete" });
   });
 
   it("本地有待传队列项时，纯拉取不覆盖该记录并计入 kept_local", async () => {

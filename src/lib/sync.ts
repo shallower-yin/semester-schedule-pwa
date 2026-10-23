@@ -1,5 +1,5 @@
 import Dexie from "dexie";
-import { db } from "../db";
+import { db, queueChange } from "../db";
 import type { EventOccurrenceState, SyncQueueItem, SyncTableName } from "../types";
 import { deduplicateCategories } from "./categories";
 import { getCurrentUserId, syncFields } from "./identity";
@@ -168,21 +168,7 @@ function queueRecord(owner_id: string, table_name: SyncTableName, record_id: str
 }
 
 async function putQueueItem(owner_id: string, table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert") {
-  const existing = await db.syncQueue
-    .where("[owner_id+table_name+record_id]")
-    .equals([owner_id, table_name, record_id])
-    .toArray();
-  const retained = existing[0] ?? queueRecord(owner_id, table_name, record_id, operation);
-  if (existing.length > 1) {
-    await db.syncQueue.bulkDelete(existing.slice(1).map((item) => item.id));
-  }
-  await db.syncQueue.put({
-    ...retained,
-    operation,
-    queued_at: new Date().toISOString(),
-    attempts: 0,
-    last_error: null
-  });
+  await queueChange(table_name, record_id, operation, owner_id);
 }
 
 export async function adoptAnonymousData(userId: string): Promise<number> {
@@ -683,7 +669,7 @@ async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
     // Dexie 表事务；这样用户在下载期间编辑时，要么先被本事务看到，要么在
     // 本事务之后写回更新，不会落入读取旧队列后再覆盖新编辑的窗口。
     await db.transaction("rw", db.table(config.local), db.syncQueue, async () => {
-      const pendingIds = await pendingUpsertIds(config.local, userId);
+      const pendingIds = await pendingChangeIds(config.local, userId);
       if (activeRecords.length && config.local === "eventOccurrenceStates") {
         const occurrenceRecords = activeRecords as unknown as EventOccurrenceState[];
         for (const record of occurrenceRecords) {
@@ -872,12 +858,13 @@ async function runSync(userId: string): Promise<SyncResult> {
   return { uploaded, downloaded, kept_local: download.kept, completed_at: completedAt };
 }
 
-async function pendingUpsertIds(tableName: SyncTableName, ownerId: string): Promise<Set<string>> {
+async function pendingChangeIds(tableName: SyncTableName, ownerId: string): Promise<Set<string>> {
   const items = await db.syncQueue
     .where("[owner_id+table_name+record_id]")
     .between([ownerId, tableName, Dexie.minKey], [ownerId, tableName, Dexie.maxKey])
     .toArray();
-  return new Set(items.filter((item) => item.operation !== "delete").map((item) => String(item.record_id)));
+  // Pending deletions also win over a remote row until their upload completes.
+  return new Set(items.map((item) => String(item.record_id)));
 }
 
 async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, userId: string, activeRemoteIds: Set<string>) {

@@ -574,23 +574,23 @@ export async function queueChange(
   owner_id: string
 ) {
   if (typeof owner_id !== "string" || !owner_id.trim()) throw new Error("同步队列记录必须显式指定 ownerId。");
-  const existing = await db.syncQueue
-    .where("[owner_id+table_name+record_id]")
-    .equals([owner_id, table_name, record_id])
-    .toArray();
-  const retainedId = existing[0]?.id ?? crypto.randomUUID();
-  if (existing.length > 1) {
-    await db.syncQueue.bulkDelete(existing.slice(1).map((item) => item.id));
-  }
-  await db.syncQueue.put({
-    id: retainedId,
-    owner_id,
-    table_name,
-    record_id,
-    operation,
-    queued_at: new Date().toISOString(),
-    attempts: 0,
-    last_error: null
+  await db.transaction("rw", db.syncQueue, async () => {
+    await db.syncQueue
+      .where("[owner_id+table_name+record_id]")
+      .equals([owner_id, table_name, record_id])
+      .delete();
+    // Each edit gets its own acknowledgement token. An in-flight upload may
+    // only remove its old token, never a newer edit (even in the same millisecond).
+    await db.syncQueue.put({
+      id: crypto.randomUUID(),
+      owner_id,
+      table_name,
+      record_id,
+      operation,
+      queued_at: new Date().toISOString(),
+      attempts: 0,
+      last_error: null
+    });
   });
 }
 

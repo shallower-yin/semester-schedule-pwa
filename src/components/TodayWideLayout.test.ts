@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const todayStyles = readFileSync(resolve(process.cwd(), "src/styles/03-health-today-habits.css"), "utf8");
+const todayStyles = readFileSync(resolve(process.cwd(), "src/styles/03-health-today-habits.css"), "utf8").replace(/\r\n/g, "\n");
 const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
 
 describe("今天页超宽网页布局", () => {

@@ -20,6 +20,7 @@
       // Recover from broken offline updates (white screen after mixed cache / wrong base path).
       (function () {
         var KEY = "semester-schedule-boot-recover-count";
+        var appScope = new URL("%BASE_URL%", location.href).href;
         var attempts = Number(sessionStorage.getItem(KEY) || "0");
         function showBanner(text, actionable) {
           try {
@@ -73,19 +74,37 @@
           sessionStorage.setItem(KEY, String(attempts));
           showBanner("检测到页面异常，正在清理缓存并重新加载…");
           var done = function () {
-            var url = location.pathname + "?recovered=" + Date.now() + location.hash;
-            location.replace(url);
+            var url = new URL(location.href);
+            url.searchParams.set("recovered", String(Date.now()));
+            location.replace(url.pathname + url.search + url.hash);
           };
           var clearCaches = function () {
             if (!("caches" in window)) return Promise.resolve();
             return caches.keys().then(function (keys) {
-              return Promise.all(keys.map(function (key) { return caches.delete(key); }));
+              return Promise.all(keys.map(function (key) {
+                if (key.indexOf("workbox-") === 0 && key.endsWith("-" + appScope)) return caches.delete(key);
+                if (key !== "semester-schedule-offline-updates" && key.indexOf("semester-schedule-offline-updates-v2-") !== 0) return;
+                // Older runtime caches are shared: never erase another scope.
+                return caches.open(key).then(function (cache) {
+                  var scope = new URL(appScope);
+                  return cache.keys().then(function (requests) {
+                    return Promise.all(requests.filter(function (request) {
+                      var url = new URL(request.url);
+                      if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return false;
+                      var path = url.pathname.slice(scope.pathname.length);
+                      return /^(?:assets\/[^/]+\.(?:css|js|mjs|png|svg|webp|woff2?)|focus\/focus-bg-[1-4]\.webp|favicon\.svg|app-icon(?:-192|-512)?\.(?:png|svg)|manifest\.webmanifest|release\.json)$/.test(path);
+                    }).map(function (request) { return cache.delete(request); }));
+                  });
+                });
+              }));
             });
           };
           var clearWorkers = function () {
             if (!("serviceWorker" in navigator)) return Promise.resolve();
             return navigator.serviceWorker.getRegistrations().then(function (regs) {
-              return Promise.all(regs.map(function (reg) { return reg.unregister(); }));
+              return Promise.all(regs.filter(function (reg) {
+                return reg.scope === appScope;
+              }).map(function (reg) { return reg.unregister(); }));
             });
           };
           Promise.resolve().then(clearWorkers).then(clearCaches).then(done, done);
@@ -102,17 +121,18 @@
             showBanner("应用没有按预期完成启动。请先关闭其他日程计划表标签页，再重新加载。", true);
           }
         }, 12000);
-        // Successful boot: reset counter so future updates can recover again.
-        window.addEventListener("load", function () {
-          window.setTimeout(function () {
-            var root = document.getElementById("root");
-            if (root && document.documentElement.dataset.appReady === "true") {
-              try { sessionStorage.removeItem(KEY); } catch (_) {}
-              var banner = document.getElementById("boot-recover-banner");
-              if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
-            }
-          }, 800);
-        });
+        // React can become ready well after load (database/native initialization).
+        // Observe the actual readiness signal so a slow successful boot is usable.
+        function finishBoot() {
+          if (document.documentElement.dataset.appReady !== "true") return;
+          try { sessionStorage.removeItem(KEY); } catch (_) {}
+          var banner = document.getElementById("boot-recover-banner");
+          if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+          readyObserver.disconnect();
+        }
+        var readyObserver = new MutationObserver(finishBoot);
+        readyObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-app-ready"] });
+        finishBoot();
       })();
     </script>
   </head>

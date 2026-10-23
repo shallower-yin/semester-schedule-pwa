@@ -1,11 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import { setCurrentUserId } from "../lib/identity";
 import type { FocusSession } from "../types";
 import { FocusPage } from "./FocusPage";
-import { openFocusSystemWindow } from "../lib/focusSystemWindow";
+import { closeFocusSystemWindow, openFocusSystemWindow } from "../lib/focusSystemWindow";
 import { enableFocusScreenWakeLock } from "../lib/focusScreenWakeLock";
+import { loadActiveFocus, saveActiveFocus, savePomodoroPlan, type ActiveFocusState } from "../lib/focus";
+import { exitImmersiveFullscreen, lockOrientation } from "../lib/focusPresentation";
+import { completeExpiredFocus, FocusFloatingTimer } from "./FocusFloatingTimer";
 
 vi.mock("../lib/focusSystemWindow", () => ({
   closeFocusSystemWindow: vi.fn(),
@@ -16,6 +19,12 @@ vi.mock("../lib/focusSystemWindow", () => ({
 
 vi.mock("./FocusAudioPlayer", () => ({
   FocusAudioPlayer: () => <div data-testid="focus-audio-player" />
+}));
+
+vi.mock("../lib/focusPresentation", () => ({
+  enterImmersiveFullscreen: vi.fn(async () => {}),
+  exitImmersiveFullscreen: vi.fn(async () => {}),
+  lockOrientation: vi.fn(async () => {})
 }));
 
 vi.mock("../lib/focusScreenWakeLock", () => ({
@@ -58,6 +67,75 @@ describe("专注记录管理", () => {
   });
 
   afterEach(cleanup);
+
+  it.each(["countdown", "rest"] as const)("常驻计时器与专注页同时到期仅写一条 %s 记录", async (mode) => {
+    await db.focusSessions.clear();
+    saveActiveFocus("local", {
+      mode, task_title: "并发到期", linked_event_id: null, planned_seconds: 60,
+      started_at: new Date(Date.now() - 65_000).toISOString(), paused_seconds: 0, pause_started_at: null
+    });
+    render(<><FocusFloatingTimer ownerId="local" /><FocusPage ownerId="local" /></>);
+    await waitFor(() => expect(loadActiveFocus("local")).toBeNull());
+    expect(await db.focusSessions.count()).toBe(mode === "rest" ? 0 : 1);
+    expect(await db.restSessions.count()).toBe(mode === "rest" ? 1 : 0);
+    expect(await db.syncQueue.where("table_name").equals(mode === "rest" ? "restSessions" : "focusSessions").count()).toBe(1);
+  });
+
+  it("手动结束保存期间自动到期不会另写一条记录", async () => {
+    await db.focusSessions.clear();
+    const active = {
+      mode: "countdown" as const, task_title: "手动结束竞争", linked_event_id: null, planned_seconds: 60,
+      started_at: new Date().toISOString(), paused_seconds: 0, pause_started_at: null
+    };
+    saveActiveFocus("local", active);
+    render(<FocusPage ownerId="local" />);
+    fireEvent.click(await screen.findByRole("button", { name: /结束并保存/ }));
+    expect(await completeExpiredFocus("local", active, new Date(Date.now() + 65_000))).toBe(false);
+    await waitFor(() => expect(loadActiveFocus("local")).toBeNull());
+    expect(await db.focusSessions.count()).toBe(1);
+    expect(await db.syncQueue.where("table_name").equals("focusSessions").count()).toBe(1);
+  });
+
+  it.each(["countdown", "pomodoro"] as const)("全局计时器完成 %s 后复位全屏、小窗与方向状态", async (mode) => {
+    await db.focusSessions.clear();
+    const startedAt = new Date().toISOString();
+    const active: ActiveFocusState = {
+      mode, task_title: "展示复位", linked_event_id: null, planned_seconds: 60,
+      started_at: startedAt, paused_seconds: 0, pause_started_at: null,
+      ...(mode === "pomodoro" ? {
+        pomodoro_plan_id: "presentation-plan", pomodoro_round: 1, pomodoro_total_rounds: 2,
+        pomodoro_auto_start_break: true, pomodoro_short_break_seconds: 300
+      } : {})
+    };
+    if (mode === "pomodoro") savePomodoroPlan("local", {
+      id: "presentation-plan", task_title: active.task_title, linked_event_id: null,
+      total_rounds: 2, next_round: 1, completed_rounds: 0
+    });
+    saveActiveFocus("local", active);
+    render(<><FocusFloatingTimer ownerId="local" /><FocusPage ownerId="local" /></>);
+    fireEvent.click(await screen.findByRole("button", { name: "系统小窗" }));
+    await screen.findByRole("button", { name: "关闭小窗" });
+    fireEvent.click(screen.getByRole("button", { name: "全屏" }));
+    expect(screen.getByRole("dialog", { name: "全屏专注" })).toBeInTheDocument();
+    vi.mocked(exitImmersiveFullscreen).mockClear();
+    vi.mocked(lockOrientation).mockClear();
+    vi.mocked(closeFocusSystemWindow).mockClear();
+
+    // Execute the always-mounted writer first, independently of the page's tick.
+    await act(async () => {
+      await completeExpiredFocus("local", active, new Date(Date.parse(startedAt) + 65_000));
+    });
+    expect(await db.focusSessions.count()).toBe(1);
+    expect(exitImmersiveFullscreen).toHaveBeenCalled();
+    expect(lockOrientation).toHaveBeenCalledWith("auto");
+    expect(closeFocusSystemWindow).toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "全屏专注" })).not.toBeInTheDocument();
+    if (mode === "countdown") {
+      act(() => saveActiveFocus("local", { ...active, started_at: new Date(Date.parse(startedAt) + 70_000).toISOString() }));
+    }
+    expect(screen.queryByRole("dialog", { name: "全屏专注" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "系统小窗" })).toBeInTheDocument();
+  });
 
   it("支持进入管理模式、全选并批量删除", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);

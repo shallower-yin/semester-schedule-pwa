@@ -116,9 +116,10 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       feature: "assistant",
       label: "AI 助手正在回答",
       successMessage: "AI 助手已回答，点击可查看当前对话。",
-      run: async () => {
-        const result = await askDeepSeekAssistant(trimmed, requestContext, accessCode.trim(), history, effectiveAttachments);
-        const actionResults = await applyActionsToLocalRecords(result.actions ?? [], trimmed, ownerId);
+      run: async (signal) => {
+        const result = await askDeepSeekAssistant(trimmed, requestContext, accessCode.trim(), history, effectiveAttachments, signal);
+        signal.throwIfAborted();
+        const actionResults = await applyActionsToLocalRecords(result.actions ?? [], trimmed, ownerId, signal);
         const summary = actionResultsSummary(actionResults);
         return {
           access: result.access,

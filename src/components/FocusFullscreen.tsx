@@ -3,6 +3,7 @@ import { CheckCircle2, Images, Pause, PictureInPicture2, Play, RotateCw, Shrink,
 import { focusModeLabel, formatFocusDuration, type ActiveFocusState } from "../lib/focus";
 import { isNativeApp } from "../lib/nativeApp";
 import { lockOrientation } from "../lib/focusPresentation";
+import { productDateTimeParts } from "../lib/date";
 
 // Bundled night-scene backgrounds (public/focus). WebP so they stay small and are precached offline.
 const FOCUS_BACKGROUNDS = [
@@ -23,7 +24,8 @@ const FOCUS_QUOTES = [
 const WEEKDAYS = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
 
 export function formatFocusDate(now: Date): string {
-  return `${now.getMonth() + 1}月${now.getDate()}日 ${WEEKDAYS[now.getDay()]}`;
+  const { year, month, day } = productDateTimeParts(now);
+  return `${month}月${day}日 ${WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()]}`;
 }
 
 interface FocusFullscreenProps {

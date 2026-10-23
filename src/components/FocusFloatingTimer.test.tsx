@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as database from "../db";
 import { db } from "../db";
 import { loadActiveFocus, saveActiveFocus, savePomodoroPlan, type ActiveFocusState } from "../lib/focus";
 import { setCurrentUserId } from "../lib/identity";
@@ -30,6 +31,25 @@ describe("全局专注倒计时", () => {
     expect(loadActiveFocus("local")).toBeNull();
     expect(await db.focusSessions.count()).toBe(1);
     expect(await db.syncQueue.where("table_name").equals("focusSessions").count()).toBe(1);
+  });
+
+  it("保存失败会释放完成锁，重试成功后不会再次结算同一会话", async () => {
+    const active: ActiveFocusState = {
+      mode: "countdown", task_title: "重试", linked_event_id: null, planned_seconds: 60,
+      started_at: "2026-07-15T08:00:00.000Z", paused_seconds: 0, pause_started_at: null
+    };
+    const now = new Date("2026-07-15T08:01:05.000Z");
+    saveActiveFocus("local", active);
+    const save = vi.spyOn(database, "putRecordAndQueue").mockRejectedValueOnce(new Error("write failed"));
+    try {
+      await expect(completeExpiredFocus("local", active, now)).rejects.toThrow("write failed");
+    } finally {
+      save.mockRestore();
+    }
+    expect(loadActiveFocus("local")).toEqual(active);
+    expect(await completeExpiredFocus("local", active, now)).toBe(true);
+    expect(await completeExpiredFocus("local", active, now)).toBe(false);
+    expect(await db.focusSessions.count()).toBe(1);
   });
 
   it("跨标签切换共享身份后，到点专注仍归属计时器的账号", async () => {

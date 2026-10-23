@@ -221,7 +221,14 @@ async function uploadScannedPdfPages(
       if (error || !data?.uploads?.length) throw new Error(await functionErrorMessage(error, "无法创建 PDF 页面上传任务。"));
       documentId = data.documentId;
       const renderedByPage = new Map(rendered.map((item) => [item.pageNumber, item.blob]));
-      const uploaded = await mapWithConcurrency(data.uploads, 3, async (ticket) => {
+      // Register the entire issued batch before PUTs, including responses lost after upload.
+      remotePages.push(...data.uploads.map((ticket) => ({
+        objectKey: ticket.objectKey,
+        pageNumber: ticket.pageNumber,
+        mimeType: "image/jpeg" as const,
+        size: renderedByPage.get(ticket.pageNumber)?.size ?? 0
+      })));
+      await mapWithConcurrency(data.uploads, 3, async (ticket) => {
         throwIfAborted(options.signal);
         const blob = renderedByPage.get(ticket.pageNumber);
         if (!blob) throw new Error(`PDF 第 ${ticket.pageNumber} 页读取失败。`);
@@ -232,9 +239,7 @@ async function uploadScannedPdfPages(
           signal: options.signal
         });
         if (!response.ok) throw new Error(`PDF 第 ${ticket.pageNumber} 页上传失败（HTTP ${response.status}）。`);
-        return { objectKey: ticket.objectKey, pageNumber: ticket.pageNumber, mimeType: "image/jpeg" as const, size: blob.size };
       });
-      remotePages.push(...uploaded);
       options.onProgress?.(remotePages.length, total);
     }
   } catch (error) {
@@ -503,12 +508,15 @@ function combineProcessingUsage(left: AiAttachmentProcessingUsage, right: AiAtta
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const output = new Array<R>(items.length);
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+  const workers = await Promise.allSettled(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     while (next < items.length) {
       const index = next++;
       output[index] = await mapper(items[index], index);
     }
   }));
+  // Do not let cleanup race a still-running worker that can recreate a deleted object.
+  const failed = workers.find((worker) => worker.status === "rejected");
+  if (failed?.status === "rejected") throw failed.reason;
   return output;
 }
 

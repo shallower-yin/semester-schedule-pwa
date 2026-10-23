@@ -1,6 +1,7 @@
 import type { DeepSeekAssistantHistoryMessage } from "./deepSeekAssistant";
 import { supabase } from "./supabase";
 import { splitAudioForAsr } from "../../supabase/functions/_shared/audioChunking";
+import type { AudioSubmission } from "../../supabase/functions/_shared/audioSubmission";
 
 export type AudioLanguage = "auto" | "zh" | "en";
 
@@ -117,6 +118,8 @@ export async function transcribeAudioFiles(input: {
 
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   const uploaded: UploadedAudio[] = [];
+  const temporaryObjectKeys: string[] = [];
+  let audioSubmission: AudioSubmission | undefined;
   try {
     // M4A/OGG/FLAC over the ASR chunk limit often fail as raw container bytes; convert to compact mono speech WAV first.
     // prepared[] is strictly chronological: source-file order, then time order within each converted file.
@@ -127,14 +130,22 @@ export async function transcribeAudioFiles(input: {
     for (let index = 0; index < prepared.length; index += 1) {
       const part = prepared[index];
       input.onProgress?.(index, prepared.length, part.file.name);
-      uploaded.push(await uploadAudioFile(part.file, input.accessCode, input.signal, input.onUploadProgress));
+      uploaded.push(await uploadAudioFile(part.file, input.accessCode, input.signal, input.onUploadProgress,
+        (objectKey) => temporaryObjectKeys.push(objectKey)));
       input.onProgress?.(index + 1, prepared.length, part.file.name);
     }
+
+    // A new user submission gets one immutable manifest. Internal retries and
+    // every processing branch below share it; a later submit gets a new ID.
+    input.signal?.throwIfAborted();
+    audioSubmission = { id: crypto.randomUUID(), audios: uploaded.map((audio) => ({ ...audio })),
+      language: input.language, summarize: input.summarize };
 
     // Many small converted WAV parts: orchestrate per-file ASR on the client so one Edge
     // invocation does not download/process dozens of megabytes and time out with a vague error.
     if (prepared.length > 1) {
       const sequential = await transcribeUploadedSequentially({
+        audioSubmission,
         uploaded,
         language: input.language,
         summarize: input.summarize,
@@ -154,6 +165,7 @@ export async function transcribeAudioFiles(input: {
       // That shows "1/1", runs many MiMo calls server-side (billing), then the long HTTP
       // often dies on the phone → false "尚未调用语音模型" after money was spent.
       const progressive = await runProgressiveTranscription({
+        audioSubmission,
         uploaded,
         plan,
         language: input.language,
@@ -177,7 +189,7 @@ export async function transcribeAudioFiles(input: {
 
     // Small single-file job only (progress 1/1 is correct here).
     input.onProgress?.(1, 1, "转写中");
-    const data = await invokeSingleTranscription(uploaded, input.language, input.summarize, input.accessCode, input.signal);
+    const data = await invokeSingleTranscription(uploaded, input.language, input.summarize, input.accessCode, input.signal, audioSubmission);
     input.onProgress?.(1, 1, "整理结果");
     return {
       ...data,
@@ -185,8 +197,18 @@ export async function transcribeAudioFiles(input: {
       conversation: []
     };
   } finally {
-    if (uploaded.length) {
-      await Promise.allSettled(uploaded.map((audio) => deleteUploadedAudio(audio.objectKey)));
+    if (audioSubmission) {
+      // No aborted signal here: cancellation must also close the server-side session.
+      // Bound this best-effort call so it cannot prevent the existing R2 finally cleanup.
+      const closeController = new AbortController();
+      const closeTimeout = setTimeout(() => closeController.abort(), 5000);
+      await supabase.functions.invoke("ai-assistant", {
+        signal: closeController.signal,
+        body: { action: "close_audio_submission", audioSubmissionId: audioSubmission.id }
+      }).catch(() => undefined).finally(() => clearTimeout(closeTimeout));
+    }
+    if (temporaryObjectKeys.length) {
+      await Promise.allSettled(temporaryObjectKeys.map((objectKey) => deleteUploadedAudio(objectKey)));
     }
   }
 }
@@ -196,7 +218,8 @@ async function invokeSingleTranscription(
   language: AudioLanguage,
   summarize: boolean,
   accessCode: string | undefined,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  audioSubmission?: AudioSubmission
 ): Promise<SingleAudioTranscriptionResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   // Retry only when the browser never got a response from our Edge Function (not when MiMo already ran).
@@ -205,6 +228,7 @@ async function invokeSingleTranscription(
       signal,
       body: {
         mode: "audio_transcription",
+        audioSubmission,
         audios: uploaded,
         audioLanguage: language,
         summarizeAudio: summarize,
@@ -226,6 +250,7 @@ async function invokeSingleTranscription(
  * in its terminal finally block.
  */
 async function transcribeUploadedSequentially(input: {
+  audioSubmission: AudioSubmission;
   uploaded: UploadedAudio[];
   language: AudioLanguage;
   summarize: boolean;
@@ -285,6 +310,7 @@ async function transcribeUploadedSequentially(input: {
       const plan = progressivePlans[index];
       const one = plan
         ? await runProgressiveTranscription({
+          audioSubmission: input.audioSubmission,
           uploaded: [input.uploaded[index]],
           plan,
           language: input.language,
@@ -299,13 +325,14 @@ async function transcribeUploadedSequentially(input: {
           fileNames: [input.fileNames[index] || input.uploaded[index].name]
         })
         : signedPartsByObjectKey.has(input.uploaded[index].objectKey)
-          ? await transcribeSignedAudioPart(signedPartsByObjectKey.get(input.uploaded[index].objectKey)!, input.signal)
+          ? await transcribeSignedAudioPart(signedPartsByObjectKey.get(input.uploaded[index].objectKey)!, input.signal, input.audioSubmission, input.accessCode)
           : await invokeSingleTranscriptionWithRetry(
             [input.uploaded[index]],
             input.language,
             false,
             input.accessCode,
-            input.signal
+            input.signal,
+            input.audioSubmission
           );
       segments[index] = one.transcript.trim();
       lastModel = one.model || lastModel;
@@ -364,6 +391,7 @@ async function transcribeUploadedSequentially(input: {
       signal: input.signal,
       body: {
         action: "finalize_audio_transcription",
+        audioSubmission: input.audioSubmission,
         audios: successAudios.map(({ audio }) => ({
           name: audio.name,
           mimeType: audio.mimeType,
@@ -409,13 +437,14 @@ async function invokeSingleTranscriptionWithRetry(
   language: AudioLanguage,
   summarize: boolean,
   accessCode: string | undefined,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  audioSubmission?: AudioSubmission
 ): Promise<SingleAudioTranscriptionResult> {
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < SEQUENTIAL_ASR_ATTEMPTS; attempt += 1) {
     if (signal?.aborted) throw new DOMException("操作已取消。", "AbortError");
     try {
-      return await invokeSingleTranscription(uploaded, language, summarize, accessCode, signal);
+      return await invokeSingleTranscription(uploaded, language, summarize, accessCode, signal, audioSubmission);
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
       lastError = error instanceof Error ? error : new Error(String(error || "分段转写失败"));
@@ -845,6 +874,7 @@ async function planAudioParts(
 }
 
 async function runProgressiveTranscription(input: {
+  audioSubmission: AudioSubmission;
   uploaded: UploadedAudio[];
   plan: AudioPlanResult;
   language: AudioLanguage;
@@ -912,7 +942,7 @@ async function runProgressiveTranscription(input: {
     ).length;
     emitProgress(index + 1, succeededBefore, "正在转写");
     try {
-      const segment = await transcribeSignedAudioRange(task, input.signal);
+      const segment = await transcribeSignedAudioRange(task, input.signal, input.audioSubmission, input.accessCode);
       if (!segmentsByFile[task.fileIndex]) segmentsByFile[task.fileIndex] = [];
       segmentsByFile[task.fileIndex][task.chunkIndex] = segment;
       const succeeded = tasks.filter((item) =>
@@ -985,7 +1015,7 @@ async function runProgressiveTranscription(input: {
   // Summary is strictly optional. Connection loss here must NOT fail the whole job.
   emitProgress(total, successCount, "整理摘要");
   try {
-    const summary = await summarizeJoinedTranscript(base.transcript, input.accessCode, input.signal);
+    const summary = await summarizeJoinedTranscript(base.transcript, input.accessCode, input.signal, input.audioSubmission);
     if (summary) {
       const withSummary = {
         ...base,
@@ -1012,7 +1042,8 @@ async function runProgressiveTranscription(input: {
 async function summarizeJoinedTranscript(
   transcript: string,
   accessCode: string | undefined,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  audioSubmission?: AudioSubmission
 ): Promise<string | null> {
   if (!supabase || !transcript.trim()) return null;
   const { data, error } = await invokeAudioFunctionWithTransientRetry(
@@ -1020,6 +1051,7 @@ async function summarizeJoinedTranscript(
       signal,
       body: {
         action: "summarize_audio_transcript",
+        audioSubmission,
         audioTranscript: transcript,
         accessCode: accessCode?.trim() || undefined
       }
@@ -1031,7 +1063,7 @@ async function summarizeJoinedTranscript(
   return data.summary.trim();
 }
 
-async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSignal): Promise<string> {
+async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSignal, audioSubmission?: AudioSubmission, accessCode?: string): Promise<string> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   // Aggressive retries: cost is acceptable; finishing the transcript is the priority.
   let lastError: Error | null = null;
@@ -1047,6 +1079,8 @@ async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSig
           },
           body: {
             action: "transcribe_audio_range",
+            audioSubmission,
+            accessCode: accessCode?.trim() || undefined,
             // Body fallback if custom headers are dropped by WebView / proxies.
             audioRangeSignature: task.signature,
             audioRange: {
@@ -1083,7 +1117,7 @@ async function transcribeSignedAudioRange(task: AudioPlanTask, signal?: AbortSig
   throw lastError ?? new Error(`音频“${task.fileName}”第 ${task.chunkIndex + 1}/${task.chunkCount} 段转写失败。`);
 }
 
-async function transcribeSignedAudioPart(task: AudioPartTask, signal?: AbortSignal): Promise<SingleAudioTranscriptionResult> {
+async function transcribeSignedAudioPart(task: AudioPartTask, signal?: AbortSignal, audioSubmission?: AudioSubmission, accessCode?: string): Promise<SingleAudioTranscriptionResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法转写音频。");
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -1095,6 +1129,8 @@ async function transcribeSignedAudioPart(task: AudioPartTask, signal?: AbortSign
           headers: { "x-audio-part-signature": task.signature },
           body: {
             action: "transcribe_audio_part",
+            audioSubmission,
+            accessCode: accessCode?.trim() || undefined,
             audioPartSignature: task.signature,
             audioPart: {
               objectKey: task.objectKey,
@@ -1193,7 +1229,8 @@ async function uploadAudioFile(
   file: File,
   accessCode?: string,
   signal?: AbortSignal,
-  onUploadProgress?: (percent: number, fileName: string) => void
+  onUploadProgress?: (percent: number, fileName: string) => void,
+  onTicketCreated?: (objectKey: string) => void
 ): Promise<UploadedAudio> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法上传音频。");
   const mimeType = normalizedAudioMimeType(file);
@@ -1211,6 +1248,8 @@ async function uploadAudioFile(
   );
   if (error) throw new Error(await audioFunctionError(error));
   if (!data?.uploadUrl || !data.objectKey) throw new Error("没有获取到有效的音频上传地址。");
+  // A failed/aborted PUT may still have reached R2; register ownership before starting it.
+  onTicketCreated?.(data.objectKey);
 
   // Use XMLHttpRequest for upload progress when available (fetch does not expose upload progress).
   // In test environments (jsdom), fall back to fetch.

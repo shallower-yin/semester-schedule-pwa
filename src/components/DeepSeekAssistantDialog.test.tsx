@@ -1,7 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { db } from "../db";
+import { cancelAiTask, clearAllAiTasks } from "../lib/aiBackgroundTasks";
+import type { DeepSeekAssistantResult } from "../lib/deepSeekAssistant";
 
 const { askDeepSeekAssistantMock, getAiAssistantConfigurationMock, prepareAiAssistantAttachmentMock } = vi.hoisted(() => ({
   askDeepSeekAssistantMock: vi.fn(),
@@ -64,6 +66,9 @@ describe("AI 助手消息编辑", () => {
     setMobileMode(false);
     localStorage.clear();
     await db.aiAttachmentContexts.clear();
+    clearAllAiTasks();
+    await db.memos.clear();
+    await db.syncQueue.clear();
     askDeepSeekAssistantMock.mockReset();
     getAiAssistantConfigurationMock.mockReset();
     prepareAiAssistantAttachmentMock.mockReset().mockResolvedValue({
@@ -83,7 +88,28 @@ describe("AI 助手消息编辑", () => {
   });
 
   afterEach(() => {
+    clearAllAiTasks();
     cleanup();
+  });
+
+  it.each(["cancel", "clear"])("请求挂起后%s任务，迟到的创建动作不会写入本地", async (mode) => {
+    let resolveResponse!: (result: DeepSeekAssistantResult) => void;
+    askDeepSeekAssistantMock.mockImplementationOnce(() => new Promise<DeepSeekAssistantResult>((resolve) => { resolveResponse = resolve; }));
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-cancel" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业"), { target: { value: "帮我记一条备忘录" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(askDeepSeekAssistantMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      if (mode === "cancel") cancelAiTask("assistant");
+      else clearAllAiTasks();
+      resolveResponse({ answer: "已创建", actions: [{ type: "create_memo", title: "不应写入", content: "已取消的回答" }] });
+      // Drain both the late response and real IndexedDB writes if incorrectly started.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    expect(await db.memos.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
   });
 
   it("在原消息位置编辑，并从该轮重新发送", async () => {
@@ -115,7 +141,8 @@ describe("AI 助手消息编辑", () => {
         { role: "user", content: "第一个问题" },
         { role: "assistant", content: "第一个回答" }
       ],
-      []
+      [],
+      expect.any(AbortSignal)
     );
 
     expect(await screen.findByText("修改后的新回答")).toBeInTheDocument();

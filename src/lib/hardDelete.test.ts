@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { db } from "../db";
+import { db, queueChange } from "../db";
 import type { Course, CourseCancellation, CourseSchedule, EventItem, EventOccurrenceState, FocusSession, SyncFields } from "../types";
 import { setCurrentUserId } from "./identity";
-import { hardDeleteCoursesCascade, hardDeleteEventsCascade } from "./hardDelete";
+import { hardDeleteCoursesCascade, hardDeleteEventsCascade, hardDeleteLocalRecord, hardDeleteLocalRecords } from "./hardDelete";
 
 const userId = "22222222-2222-4222-8222-222222222222";
 const createdAt = "2026-01-01T00:00:00.000Z";
@@ -30,6 +30,45 @@ describe("硬删除辅助函数", () => {
     await db.courseSchedules.clear();
     await db.courseCancellations.clear();
     await db.syncQueue.clear();
+  });
+
+  it.each([false, true])("删除记录失败时回滚删除队列，保留原有待传编辑（批量=%s）", async (batch) => {
+    const rows = [fields("delete-first"), fields("delete-second")];
+    await db.table("events").bulkPut(rows);
+    for (const row of rows) await queueChange("events", row.id, "upsert", userId);
+    const originalQueue = await db.syncQueue.toArray();
+    const failDelete = (key: string) => {
+      if (key === "delete-second") throw new Error("injected delete failure");
+    };
+    db.events.hook("deleting", failDelete);
+    try {
+      const deleting = batch
+        ? hardDeleteLocalRecords("events", rows.map((row) => row.id))
+        : hardDeleteLocalRecord("events", "delete-second");
+      await expect(deleting).rejects.toThrow("injected delete failure");
+      expect(await db.events.toArray()).toEqual(rows);
+      expect(await db.syncQueue.toArray()).toEqual(originalQueue);
+    } finally {
+      db.events.hook("deleting").unsubscribe(failDelete);
+    }
+  });
+
+  it("批量删除入队途中失败不会留下部分删除或丢失原同步队列", async () => {
+    const rows = [fields("queue-first"), fields("queue-second")];
+    await db.table("events").bulkPut(rows);
+    for (const row of rows) await queueChange("events", row.id, "upsert", userId);
+    const originalQueue = await db.syncQueue.toArray();
+    const failQueue = (_key: unknown, row: { record_id: string; operation: string }) => {
+      if (row.record_id === "queue-second" && row.operation === "delete") throw new Error("injected queue failure");
+    };
+    db.syncQueue.hook("creating", failQueue);
+    try {
+      await expect(hardDeleteLocalRecords("events", rows.map((row) => row.id))).rejects.toThrow("injected queue failure");
+      expect(await db.events.toArray()).toEqual(rows);
+      expect(await db.syncQueue.toArray()).toEqual(originalQueue);
+    } finally {
+      db.syncQueue.hook("creating").unsubscribe(failQueue);
+    }
   });
 
   it("硬删除事项时同步删除完成状态", async () => {

@@ -1,6 +1,6 @@
 import { db, putRecordAndQueue } from "../db";
 import { dueAnniversaryOccurrence, formatAnniversaryReminderBody } from "./anniversaries";
-import { eventOccursOn, toISODate } from "./date";
+import { addDays, eventOccursOn, parseLocalDate, toISODate } from "./date";
 import { getCurrentUserId, getDeviceId, syncFields } from "./identity";
 import { reminderIsDue } from "./reminderTime";
 import { supabase } from "./supabase";
@@ -159,8 +159,16 @@ export async function enableNotifications(
 
 export async function disableNotificationsForCurrentDevice(): Promise<void> {
   if (isNativeApp()) {
-    await cancelAllNativeReminders();
-    await stopNativeReliableReminderService();
+    // Invalidate reads already in flight, then cancel after any bridge write
+    // finishes so logout cannot be followed by that stale write restoring alarms.
+    nativeReminderRefreshGeneration += 1;
+    const cancel = async () => {
+      await cancelAllNativeReminders();
+      await stopNativeReliableReminderService();
+    };
+    const result = nativeReminderRefreshTail.then(cancel, cancel);
+    nativeReminderRefreshTail = result.then(() => undefined, () => undefined);
+    await result;
     return;
   }
   if (!notificationsSupported() || !("PushManager" in window)) return;
@@ -544,13 +552,14 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
   if (isNativeApp()) return rescheduleNativeReminders(ownerId);
   if (!notificationsSupported() || Notification.permission !== "granted") return 0;
   const now = new Date();
+  const today = parseLocalDate(toISODate(now));
   const events = await db.events
     .filter((event) => event.user_id === ownerId && eventReminderCanSend(event))
     .toArray();
   let sent = 0;
   for (const event of events) {
     for (let dayOffset = 0; dayOffset <= 7; dayOffset += 1) {
-      const occurrenceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+      const occurrenceDate = addDays(today, dayOffset);
       if (!eventOccursOn(event, occurrenceDate) || !reminderIsDue(event, occurrenceDate, now)) continue;
       const date = toISODate(occurrenceDate);
       const existing = await db.eventOccurrenceStates
