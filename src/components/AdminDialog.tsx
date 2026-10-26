@@ -855,7 +855,7 @@ function defaultRelayDraft(protocol: AdminAiRelayProtocol): AiRelayDraft {
       baseUrl: "https://api.xiaomimimo.com/v1",
       apiKey: "",
       supportsText: true,
-      textModel: "mimo-v2.5",
+      textModel: "mimo-v2.6-flash",
       supportsAudio: true,
       audioModel: "mimo-v2.5-asr"
     };

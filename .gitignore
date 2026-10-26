@@ -3,6 +3,10 @@ dist
 dist-mirror
 dist-cloudflare
 dev-dist
+.claude/
+.env
+.env.*
+!.env.example
 .DS_Store
 *.local
 coverage
@@ -31,3 +35,5 @@ keystore.properties
 _shots/
 
 supabase/.temp/
+.tmp/
+.wrangler/

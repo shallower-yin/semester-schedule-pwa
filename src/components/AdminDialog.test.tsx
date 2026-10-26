@@ -39,7 +39,7 @@ describe("管理后台 AI 模型选择", () => {
         member_daily_limit: 30,
         member_weekly_limit: 210,
         provider: "mimo",
-        model: "mimo-v2.5",
+        model: "mimo-v2.6-flash",
         mimo_channel: "token_plan",
         audio_provider: "siliconflow",
         audio_model: "TeleAI/TeleSpeechASR",
@@ -62,11 +62,12 @@ describe("管理后台 AI 模型选择", () => {
     render(<AdminDialog onClose={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByLabelText("内置提供商")).toHaveValue("mimo"));
-    expect(screen.getByLabelText("模型")).toHaveValue("mimo-v2.5");
+    expect(screen.getByLabelText("模型")).toHaveValue("mimo-v2.6-flash");
     expect(screen.getByLabelText("MiMo 通道")).toHaveValue("token_plan");
     expect(screen.getByLabelText("内置转写通道")).toHaveValue("siliconflow");
     expect(screen.getByLabelText("转写模型")).toHaveValue("TeleAI/TeleSpeechASR");
-    expect(screen.getByRole("option", { name: "MiMo V2.5（支持附件）" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "MiMo V2.6 Flash（支持附件）" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "MiMo V2.6 Pro（支持附件）" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "SiliconFlow TeleAI/TeleSpeechASR" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("内置提供商"), { target: { value: "siliconflow" } });
@@ -104,7 +105,7 @@ describe("管理后台 AI 模型选择", () => {
 
     fireEvent.change(screen.getByLabelText("接口协议"), { target: { value: "mimo" } });
     expect(screen.getByLabelText("API 基础地址")).toHaveValue("https://api.xiaomimimo.com/v1");
-    expect(screen.getByLabelText("文本模型 ID")).toHaveValue("mimo-v2.5");
+    expect(screen.getByLabelText("文本模型 ID")).toHaveValue("mimo-v2.6-flash");
 
     fireEvent.change(screen.getByLabelText("接口协议"), { target: { value: "deepseek" } });
     expect(screen.getByLabelText("启用音频转写")).toBeDisabled();

@@ -14,8 +14,8 @@ export const AI_MODEL_OPTIONS: Record<AiProvider, readonly AiModelOption[]> = {
     { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", supportsAttachments: false }
   ],
   mimo: [
-    { id: "mimo-v2.5", label: "MiMo V2.5（支持附件）", supportsAttachments: true },
-    { id: "mimo-v2.5-pro", label: "MiMo V2.5 Pro", supportsAttachments: false },
+    { id: "mimo-v2.6-flash", label: "MiMo V2.6 Flash（支持附件）", supportsAttachments: true },
+    { id: "mimo-v2.6-pro", label: "MiMo V2.6 Pro（支持附件）", supportsAttachments: true },
     { id: "mimo-v2.5-pro-ultraspeed", label: "MiMo V2.5 Pro UltraSpeed（需申请）", supportsAttachments: false }
   ],
   siliconflow: [

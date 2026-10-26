@@ -484,6 +484,56 @@ describe("周视图移动端新增事项", () => {
     expect(onAddEvent).toHaveBeenCalledWith("2026-07-07", "08:30", "09:15");
   });
 
+  it("电脑端21:45首尾相接的事项各占整列，不误判为重叠", () => {
+    mockMatchMedia(false);
+    renderWeekCalendar(vi.fn(), [
+      eventRecord("evening", "发一篇小红书帖子", { start_time: "21:00", end_time: "21:45" }),
+      eventRecord("night", "把欠了债的单词都背完", { start_time: "21:45", end_time: "23:59" })
+    ]);
+
+    for (const title of ["发一篇小红书帖子", "把欠了债的单词都背完"]) {
+      const card = screen.getByText(title).closest("article") as HTMLElement;
+      expect(card).not.toHaveClass("overlap-entry");
+      expect(card.style.width).toBe("");
+      expect(card.style.marginLeft).toBe("");
+    }
+  });
+
+  it("电脑端课程结束时开始的事项不压缩课程或事项宽度", () => {
+    mockMatchMedia(false);
+    const course = { ...baseFields, id: "morning-course", semester_id: semester.id, name: "早间课程", classroom: "C204", teacher: "王老师", color: "#6385a6", note: "" };
+    renderWeekCalendar(vi.fn(), [
+      eventRecord("after-course", "课后事项", { start_time: "09:15", end_time: "10:00" })
+    ], semester, periods, [], vi.fn(), {
+      courses: [course],
+      schedules: [{ ...baseFields, id: "morning-schedule", course_id: course.id, weekday: 1, start_period: 1, end_period: 1, weeks: [1] }]
+    });
+
+    for (const title of ["早间课程", "课后事项"]) {
+      const card = screen.getByText(title).closest("article") as HTMLElement;
+      expect(card).not.toHaveClass("overlap-entry");
+      expect(card.style.width).toBe("");
+    }
+  });
+
+  it("电脑端确实重叠的事项分两列，首尾相接的短项复用同一列", () => {
+    mockMatchMedia(false);
+    renderWeekCalendar(vi.fn(), [
+      eventRecord("long", "长事项", { start_time: "08:30", end_time: "10:00" }),
+      eventRecord("first", "第一段短事项", { start_time: "08:30", end_time: "09:15" }),
+      eventRecord("second", "第二段短事项", { start_time: "09:15", end_time: "09:45" })
+    ]);
+
+    const cards = ["长事项", "第一段短事项", "第二段短事项"].map((title) => screen.getByText(title).closest("article") as HTMLElement);
+    for (const card of cards) {
+      expect(card).toHaveClass("overlap-two");
+      expect(card.style.getPropertyValue("--overlap-count")).toBe("2");
+      expect(card.style.transform).toBe("");
+    }
+    expect(cards[1].style.marginLeft).toBe(cards[2].style.marginLeft);
+    expect(cards[0].style.marginLeft).not.toBe(cards[1].style.marginLeft);
+  });
+
   it("电脑端事项按节次内的真实分钟位置显示", () => {
     mockMatchMedia(false);
     const eventItem = eventRecord("event-minute-position", "分钟定位", {

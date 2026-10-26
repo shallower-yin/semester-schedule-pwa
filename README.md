@@ -2,6 +2,54 @@
 
 同时面向 Android APK、Android Edge/Chrome、Windows Edge/Chrome 和普通网页浏览器的响应式日程应用。数据优先保存在浏览器 IndexedDB 中，登录后通过 Supabase 在设备间同步。
 
+## 项目定位与校园应用价值
+
+日程计划表是一款面向高校学生的本地优先学期日程与学习规划工具。它把课程表、临时事项、待办、习惯、纪念日、备忘录和专注计时放在同一个日程入口中，帮助学生在校园学习、作息安排和跨设备复习之间减少重复录入。离线可用、按天/周查看和可选云端同步，适合课表变化频繁、需要手机与电脑协同的学习场景。
+
+主要目标用户是需要管理学期课程和日常学习任务的大学生；天津大学课表 HTML-XLS 导入和响应式移动布局也服务于校园课表迁移与手机端快速查看场景。
+
+## 技术栈
+
+- React 18、TypeScript、Vite 和 `lucide-react`：构建响应式前端界面。
+- Dexie + IndexedDB：保存本地课程、事项、习惯、备忘录和专注记录，并支持离线编辑。
+- Supabase Auth、PostgreSQL/RLS、Storage 和 Edge Functions：提供可选账号、跨设备同步、提醒与 AI 相关云端能力。
+- `vite-plugin-pwa`、Service Worker 和 Web Push：提供离线缓存、更新提示和浏览器提醒。
+- Capacitor Android：复用前端代码打包 Android APK，并接入原生通知/闹钟能力。
+- Vitest、Testing Library：执行日期规则、数据层和组件测试。
+
+完整的架构、数据流和关键取舍见 [DESIGN.md](DESIGN.md)。
+
+## 应用截图
+
+以下截图均为独立文件，展示电脑端和手机端的实际界面。
+
+| 功能 | 电脑端 | 手机端 |
+| --- | --- | --- |
+| 今天 | [查看截图](screenshots/desktop_today.png) | [查看截图](screenshots/mobile_today.png) |
+| 日程 | [查看截图](screenshots/desktop_schedule.png) | [查看截图](screenshots/mobile_schedule.jpg) |
+| 待办 | [查看截图](screenshots/desktop_todos.png) | [查看截图](screenshots/mobile_todos.png) |
+| 习惯 | [查看截图](screenshots/desktop_habits.png) | — |
+| 纪念日 | [查看截图](screenshots/desktop_anniversaries.png) | — |
+| 备忘录 | [查看截图](screenshots/desktop_memos.png) | [查看截图](screenshots/mobile_memos.png) |
+| 专注 | [查看截图](screenshots/desktop_focus.png) | [查看截图](screenshots/mobile_focus.jpg) |
+| 健康 | [查看截图](screenshots/desktop_health.png) | — |
+| 设置 | [查看截图](screenshots/desktop_settings.png) | [查看截图](screenshots/mobile_settings.jpg) |
+| 使用说明 | [查看截图](screenshots/desktop_help.png) | — |
+| 日程助手 | [查看截图](screenshots/desktop_schedule_assistant.png) | [查看截图](screenshots/mobile_schedule_assistant.jpg) |
+| AI 助手 | [查看截图](screenshots/desktop_ai_assistant.png) | [查看截图](screenshots/mobile_ai_assistant.jpg) |
+| 翻译助手 | [查看截图](screenshots/desktop_translation.png) | — |
+| AI 思维导图 | [查看截图](screenshots/desktop_mind_map.png) | — |
+| AI 音频转写 | [查看截图](screenshots/desktop_audio_transcription.png) | — |
+| 全局搜索 | [查看截图](screenshots/desktop_search.png) | — |
+| 快速录入 | — | [查看截图](screenshots/mobile_quick_entry.jpg) |
+
+## 比赛提交材料
+
+- [项目简介](README.md)
+- [技术设计文档](DESIGN.md)
+- [电脑端和手机端演示截图](screenshots/)
+- [版权合规承诺书（本人手签扫描 PDF）](版权合规承诺书.pdf)
+
 ## 在线使用
 
 [打开日程计划表](https://schedule.nfsg.eu.cc/)
@@ -63,7 +111,7 @@
 
 ## 本地运行
 
-需要 Node.js 20 或更高版本。
+需要 Node.js 22 或更高版本（本地也可使用满足依赖要求的更新版本）。
 
 不熟悉命令行时，直接双击项目根目录中的 `启动日程.cmd`，等待浏览器自动打开。不要直接双击 `index.html`。
 
@@ -85,6 +133,21 @@ npm.cmd run preview
 ```
 
 生产文件生成在 `dist` 目录。
+
+## 项目结构
+
+- `src/App.tsx`、`src/components/`：应用入口和页面/对话框组件。
+- `src/lib/`：日期、重复规则、同步、提醒、导入导出、专注和 AI 辅助等领域逻辑。
+- `src/db.ts`、`src/types.ts`：Dexie 本地数据库和共享数据类型。
+- `src/styles/`、`public/`：分层样式、图标、PWA 与静态资源。
+- `supabase/`：数据库结构、迁移和 Edge Functions。
+- `android/`、`capacitor.config.ts`：Android 工程与 Capacitor 配置。
+- `scripts/`、`.github/workflows/`：本地检查、镜像部署和 CI/CD 脚本。
+- `screenshots/`：项目展示截图；提交前应确认其中不含个人隐私信息。
+
+## 部署说明
+
+浏览器版本可由 `npm.cmd run build` 生成 `dist` 静态文件，部署到支持 HTTPS 的静态托管服务。仓库内的 GitHub Actions 提供 GitHub Pages 和无代理静态镜像流程；Cloudflare PWA 流程为手动触发。需要账号、跨设备同步、提醒或 AI 云端能力时，还需按 [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md) 配置 Supabase，并按 [docs/REMINDERS.md](docs/REMINDERS.md) 配置提醒相关服务。Android 版本使用 `npm.cmd run build:android` 后由 Capacitor 工程继续构建。
 
 ## 初次使用
 

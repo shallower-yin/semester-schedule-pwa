@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BellRing, CalendarCheck, Check, Copy, FileText, Undo2 } from "lucide-react";
+import { BellRing, CalendarCheck, Check, Copy, FileText } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
@@ -92,7 +92,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   const itemCompletion = effectiveEventItem
     ? eventCompletionForDate(effectiveEventItem, currentOccurrenceStates, parseLocalDate(effectiveEventItem.start_date))
     : null;
-  const headerCompleted = canCompleteEntireItem ? Boolean(entireCompletedAt) : Boolean(itemCompletion?.completed);
+  const headerCompleted = !eventItem || canCompleteEntireItem ? Boolean(entireCompletedAt) : Boolean(itemCompletion?.completed);
   const headerCompletionLabel = canCompleteEntireItem
     ? headerCompleted ? "恢复整个事项" : "完成整个事项"
     : headerCompleted ? "标记未完成" : "标记完成";
@@ -387,7 +387,12 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
   }
 
   async function toggleHeaderCompleted() {
-    if (!eventItem || !itemCompletion || completing) return;
+    if (saving || completing) return;
+    if (!eventItem) {
+      setEntireCompletedAt(headerCompleted ? null : new Date().toISOString());
+      return;
+    }
+    if (!itemCompletion) return;
     setCompleting(true);
     try {
       if (canCompleteEntireItem) {
@@ -398,6 +403,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
         const record = buildEventCompletionRecord(eventItem, itemCompletion.occurrenceDate, completed, itemCompletion.state);
         await putRecordAndQueue("eventOccurrenceStates", record);
         setCompletionOverride(record);
+        await refreshNativeReminderSchedule(ownerId);
         setCompletionMessage(completed ? "已标记完成。" : "已标记未完成。");
         showToast(completed ? "已标记完成。" : "已标记未完成。", "success");
       }
@@ -431,19 +437,19 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       title={eventItem ? `编辑${itemLabel}` : `新增${itemLabel}`}
       onClose={onClose}
       className="event-dialog"
-      headerExtra={eventItem && (
+      headerExtra={
         <button
           type="button"
-          className="icon-button event-completion-toggle"
-          aria-label={headerCompletionLabel}
+          className="button secondary compact event-completion-toggle"
+          aria-label="已完成"
           title={headerCompletionLabel}
           aria-pressed={headerCompleted}
           disabled={saving || completing}
           onClick={() => void toggleHeaderCompleted()}
         >
-          {headerCompleted ? <Undo2 size={19} /> : <Check size={19} />}
+          <Check size={16} />已完成
         </button>
-      )}
+      }
     >
       <form ref={formRef} className="form-stack" onSubmit={save}>
         <label data-search-field="title" className={searchMatchFieldClass(searchMatch, "title")}>标题<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label>
@@ -457,22 +463,22 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           <button type="button" className="button secondary compact" onClick={saveCurrentTemplate}>保存为模板</button>
           <button type="button" className="button secondary compact" disabled={!selectedTemplateId} onClick={removeSelectedTemplate}>删除模板</button>
         </div>
-        <div className="form-grid">
+        <div className="event-form-row event-date-row">
           <label>开始日期<input required type="date" value={date} onChange={(event) => changeStartDate(event.target.value)} /></label>
           {recurrence === "none" ? (
             <label>结束日期<input required type="date" min={date} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
           ) : (
             <label>重复截止日期<input required type="date" min={date} value={recurrenceUntil} onChange={(event) => changeRecurrenceUntil(event.target.value)} /></label>
           )}
+          <label className="checkbox-label event-inline-toggle"><input type="checkbox" checked={allDay} onChange={(event) => setAllDay(event.target.checked)} />全天{itemLabel}</label>
         </div>
-        <label className="checkbox-label"><input type="checkbox" checked={allDay} onChange={(event) => setAllDay(event.target.checked)} />全天{itemLabel}</label>
-        {!allDay && (
-          <div className="form-grid">
-            <label>开始时间<input required type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} /></label>
-            <label>结束时间<input required type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} /></label>
-          </div>
-        )}
-        <div className="form-grid">
+        <div className={`event-form-row event-time-category-row${allDay ? " is-all-day" : ""}`}>
+          {!allDay && (
+            <>
+              <label>开始时间<input required type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} /></label>
+              <label>结束时间<input required type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} /></label>
+            </>
+          )}
           <label data-search-field="category" className={searchMatchFieldClass(searchMatch, "category")}>分类
             <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
               <option value="">未分类</option>
@@ -481,22 +487,30 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
           </label>
           <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
         </div>
-        <label data-search-field="location" className={searchMatchFieldClass(searchMatch, "location")}>地点<input value={location} placeholder="可不填" onChange={(event) => setLocation(event.target.value)} /></label>
-        <label>重复
-          <select value={recurrence} onChange={(event) => changeRecurrence(event.target.value as EventRecurrenceType)}>
-            <option value="none">{eventType === "habit" ? "每天打卡" : "日期范围内每天"}</option>
-            <option value="daily">每天重复</option>
-            <option value="weekdays">工作日重复</option>
-            <option value="weekly">每周重复</option>
-            <option value="monthly">每月同日重复</option>
-            <option value="interval">自定义间隔天数</option>
-          </select>
-        </label>
-        {recurrence === "interval" && (
-          <label>间隔天数<input type="number" min={1} max={366} value={recurrenceInterval} onChange={(event) => setRecurrenceInterval(Number(event.target.value))} /></label>
-        )}
+        <div className="event-form-row event-location-row">
+          <label data-search-field="location" className={searchMatchFieldClass(searchMatch, "location")}>地点<input value={location} placeholder="可不填" onChange={(event) => setLocation(event.target.value)} /></label>
+          <label>重复
+            <select value={recurrence} onChange={(event) => changeRecurrence(event.target.value as EventRecurrenceType)}>
+              <option value="none">{eventType === "habit" ? "每天打卡" : "日期范围内每天"}</option>
+              <option value="daily">每天重复</option>
+              <option value="weekdays">工作日重复</option>
+              <option value="weekly">每周重复</option>
+              <option value="monthly">每月同日重复</option>
+              <option value="interval">自定义间隔天数</option>
+            </select>
+          </label>
+          <label className="checkbox-label event-inline-toggle">
+            <input type="checkbox" checked={reminderEnabled} disabled={enablingReminder} onChange={(event) => void toggleReminder(event.target.checked)} />
+            <BellRing size={17} />提醒我
+          </label>
+        </div>
         {recurrence !== "none" && (
-          <label>持续天数<input type="number" min={1} max={3660} value={recurrenceDurationDays} onChange={(event) => changeRecurrenceDuration(Number(event.target.value))} /></label>
+          <div className="form-grid">
+            {recurrence === "interval" && (
+              <label>间隔天数<input type="number" min={1} max={366} value={recurrenceInterval} onChange={(event) => setRecurrenceInterval(Number(event.target.value))} /></label>
+            )}
+            <label>持续天数<input type="number" min={1} max={3660} value={recurrenceDurationDays} onChange={(event) => changeRecurrenceDuration(Number(event.target.value))} /></label>
+          </div>
         )}
         {eventItem && todayCompletion && (
           <section className="event-completion-editor">
@@ -521,11 +535,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
             {completionMessage && <p>{completionMessage}</p>}
           </section>
         )}
-        <section className="reminder-editor">
-          <label className="checkbox-label">
-            <input type="checkbox" checked={reminderEnabled} onChange={(event) => void toggleReminder(event.target.checked)} />
-            <BellRing size={17} />提醒我
-          </label>
+        <section className="event-reminder-details">
           {reminderEnabled && (
             <label>
               提前时间
@@ -543,10 +553,7 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
               </select>
             </label>
           )}
-          <p className={reminderEnabled ? "reminder-status active" : "reminder-status"}>
-            <strong>{reminderEnabled ? "提醒已开启" : "提醒未开启"}</strong>
-            <span>{reminderSummary}{reminderModeDetail ? ` ${reminderModeDetail}` : ""}</span>
-          </p>
+          <p>{reminderSummary}{reminderModeDetail ? ` ${reminderModeDetail}` : ""}</p>
           {reminderMessage && <p>{reminderMessage}</p>}
         </section>
         <label data-search-field="note" className={searchMatchFieldClass(searchMatch, "note")}>备注<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>

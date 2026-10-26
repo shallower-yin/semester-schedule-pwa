@@ -996,7 +996,7 @@ function assignOverlapLayouts(blocks: OverlapBlock[]): Map<string, OverlapLayout
     for (const block of sorted) {
       const start = minutesOf(block.start);
       const end = minutesOf(block.end);
-      if (activeGroup.length && start > activeGroupEnd) flush();
+      if (activeGroup.length && start >= activeGroupEnd) flush();
       activeGroup.push(block);
       activeGroupEnd = Math.max(activeGroupEnd, end);
     }
@@ -1012,7 +1012,7 @@ function applyLaneLayout(group: OverlapBlock[], result: Map<string, OverlapLayou
   for (const block of group) {
     const start = minutesOf(block.start);
     const end = minutesOf(block.end);
-    let laneIndex = laneEnds.findIndex((laneEnd) => laneEnd < start);
+    let laneIndex = laneEnds.findIndex((laneEnd) => laneEnd <= start);
     if (laneIndex === -1) {
       laneIndex = laneEnds.length;
       laneEnds.push(end);
