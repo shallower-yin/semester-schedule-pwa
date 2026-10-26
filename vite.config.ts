@@ -1,11 +1,15 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
+  const publicBuildEnv = { ...loadEnv(mode, process.cwd(), "VITE_"), ...process.env };
+  if (command === "build" && process.env.REQUIRE_RELEASE_NOTES === "true") {
+    assertCloudBuildConfiguration(publicBuildEnv);
+  }
   const isAndroid = mode === "android";
   const base = isAndroid ? "/" : process.env.VITE_APP_BASE?.trim() || "/";
   const appStartUrl = process.env.VITE_APP_START_URL?.trim() || base;
@@ -148,6 +152,33 @@ export default defineConfig(({ mode }) => {
     ]
   };
 });
+
+function assertCloudBuildConfiguration(env: Record<string, string | undefined>): void {
+  const url = env.VITE_SUPABASE_URL?.trim() ?? "";
+  const key = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
+  const invalid: string[] = [];
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol) || parsed.hostname === "your-project-ref.supabase.co") {
+      invalid.push("VITE_SUPABASE_URL");
+    }
+  } catch {
+    invalid.push("VITE_SUPABASE_URL");
+  }
+  if (!key || key === "sb_publishable_your_key" || key.startsWith("sb_secret_")) {
+    invalid.push("VITE_SUPABASE_PUBLISHABLE_KEY");
+  } else {
+    try {
+      const payload = JSON.parse(Buffer.from(key.split(".")[1] ?? "", "base64url").toString("utf8")) as { role?: string };
+      if (payload.role === "service_role") invalid.push("VITE_SUPABASE_PUBLISHABLE_KEY");
+    } catch {
+      // Publishable keys do not use the legacy JWT format.
+    }
+  }
+  if (invalid.length) {
+    throw new Error(`发布构建缺少有效云端配置：${invalid.join("、")}。已停止构建。`);
+  }
+}
 
 function formatShanghaiDate(date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
