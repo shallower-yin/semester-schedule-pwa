@@ -173,15 +173,50 @@
 }
 
 .event-dialog .event-completion-toggle {
-  gap: 4px;
-  padding-inline: 9px;
+  display: inline-flex;
+  min-height: 32px;
+  gap: 6px;
   color: var(--primary);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.event-dialog .event-completion-toggle input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+}
+
+.event-dialog .template-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.event-dialog .template-toolbar .button {
+  padding-inline: 7px;
   white-space: nowrap;
 }
 
-.event-dialog .event-completion-toggle[aria-pressed="true"] {
-  color: #237447;
-  background: #edf8f0;
+.event-dialog .event-secondary-actions {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.event-dialog .event-form-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
+}
+
+.event-dialog .event-form-actions .button {
+  min-width: 0;
+  gap: 4px;
+  padding-inline: 6px;
+  font-size: 0.8125rem;
+  white-space: nowrap;
 }
 
 .icon-button {
@@ -315,14 +350,36 @@ textarea {
 }
 
 @media (max-width: 560px) {
-  .event-date-row,
-  .event-time-category-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .event-dialog .event-form-row {
+    gap: 6px;
   }
 
-  .event-date-row .event-inline-toggle {
-    grid-column: 1 / -1;
-    min-height: 32px;
+  .event-dialog .event-date-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) max-content;
+  }
+
+  .event-dialog .event-time-category-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 40px;
+  }
+
+  .event-dialog .event-time-category-row.is-all-day {
+    grid-template-columns: minmax(0, 1fr) 40px;
+  }
+
+  .event-dialog .event-form-row input:not([type="checkbox"]),
+  .event-dialog .event-form-row select {
+    padding-inline: 4px;
+  }
+
+  .event-dialog .event-date-row input::-webkit-calendar-picker-indicator,
+  .event-dialog .event-time-category-row input::-webkit-calendar-picker-indicator {
+    width: 13px;
+    margin: 0;
+  }
+
+  .event-dialog .template-toolbar .button {
+    padding-inline: 6px;
+    font-size: 0.75rem;
   }
 
   .event-location-row {

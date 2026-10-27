@@ -22,6 +22,10 @@
   background-image: repeating-linear-gradient(135deg, transparent, transparent 8px, color-mix(in srgb, var(--course-color, var(--primary)) 6%, transparent) 8px, color-mix(in srgb, var(--course-color, var(--primary)) 6%, transparent) 13px);
 }
 
+.event-entry:not(.all-day-entry) {
+  min-height: 0;
+}
+
 .calendar-control-panel {
   max-width: 1600px;
   margin: 0 auto;
@@ -200,33 +204,20 @@
   }
 
   .mobile-week-scroll {
-    max-height: max(340px, calc(100dvh - 245px));
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    scrollbar-width: thin;
+    max-height: none;
+    overflow: visible;
     touch-action: pan-y;
   }
 
   .mobile-week-dates {
-    position: sticky;
+    position: relative;
     z-index: 8;
-    top: 0;
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
     padding: 5px 0;
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
-    height: 73px;
-  }
-
-  .mobile-week-dates .mobile-week-unit {
-    grid-column: 1 / -1;
-    justify-self: end;
-    padding: 0 6px 2px;
-    color: var(--color-text-muted);
-    font-size: 9px;
-    line-height: 12px;
+    height: 58px;
   }
 
   .mobile-week-dates button {
@@ -277,9 +268,8 @@
   }
 
   .mobile-week-all-day {
-    position: sticky;
+    position: relative;
     z-index: 7;
-    top: 73px;
     border-bottom: 1px solid var(--mobile-week-line);
     background: color-mix(in srgb, var(--brand-accent-soft) 20%, var(--color-surface));
   }

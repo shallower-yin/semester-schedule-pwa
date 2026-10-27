@@ -99,7 +99,7 @@ describe("周视图移动端新增事项", () => {
     expect(onEditEvent.mock.calls.map(([event]) => event.id)).toEqual(["event-a", "event-b"]);
   });
 
-  it("96像素可叠放时最长课程作底板，短项位于标题之后且两者都能直接编辑", () => {
+  it("96像素可叠放时课程和短项按实际开始时间定位，两者都能直接编辑", () => {
     const onEditCourse = vi.fn();
     const onEditEvent = vi.fn();
     const secondPeriod: ClassPeriod = { ...periods[0], id: "period-2", period_number: 2, name: "第二节", start_time: "09:20", end_time: "10:05" };
@@ -120,8 +120,8 @@ describe("周视图移动端新增事项", () => {
     expect(front).toHaveClass("mobile-week-layer-front");
     expect(front).toHaveAttribute("data-layer-role", "front");
     expect(Number.parseFloat(group.style.height)).toBe(96);
-    expect(Number.parseFloat(caption.style.height)).toBe(48);
-    expect(Number.parseFloat(front.style.top)).toBe(52);
+    expect(Number.parseFloat(caption.style.height)).toBe(28);
+    expect(Number.parseFloat(front.style.top)).toBe(32);
     expect(Number.parseFloat(front.style.height)).toBe(44);
     expect(Number.parseFloat(front.style.top)).toBeGreaterThanOrEqual(Number.parseFloat(caption.style.height) + 4);
     expect(Number.parseFloat(front.style.top) + 44).toBeLessThanOrEqual(96);
@@ -132,7 +132,7 @@ describe("周视图移动端新增事项", () => {
     expect(screen.queryByRole("dialog", { name: "选择日程" })).not.toBeInTheDocument();
   });
 
-  it("192像素长项保留72像素标题，短浮卡放在76像素处且不影响下一时段或跨日位置", () => {
+  it("192像素长项保留标题，14点短项按分钟定位且不影响下一时段或跨日位置", () => {
     const { container } = renderWeekCalendar(vi.fn(), [
       eventRecord("long", "下午长事项", { start_time: "13:30", end_time: "17:00" }),
       eventRecord("short", "下午短事项", { start_time: "14:00", end_time: "14:10" }),
@@ -148,8 +148,8 @@ describe("周视图移动端新增事项", () => {
     const next = screen.getByText("晚间下一事项").closest(".mobile-week-time-group") as HTMLElement;
     const otherNext = screen.getByText("次日晚间事项").closest(".mobile-week-time-group") as HTMLElement;
     expect(Number.parseFloat(group.style.height)).toBe(192);
-    expect(Number.parseFloat(caption.style.height)).toBe(72);
-    expect(Number.parseFloat(front.style.top)).toBe(76);
+    expect(Number.parseFloat(caption.style.height)).toBe(28);
+    expect(Number.parseFloat(front.style.top)).toBe(32);
     expect(Number.parseFloat(front.style.height)).toBe(44);
     expect(group.style.top).toBe(otherGroup.style.top);
     expect(Number.parseFloat(group.style.top) + 192).toBeLessThanOrEqual(Number.parseFloat(next.style.top));
@@ -168,7 +168,7 @@ describe("周视图移动端新增事项", () => {
     const base = screen.getByRole("button", { name: "编辑事项：长底板" });
     const summary = screen.getByRole("button", { name: "查看另外2项安排" });
     expect(Number.parseFloat((base.closest(".mobile-week-time-group") as HTMLElement).style.height)).toBe(96);
-    expect(Number.parseFloat(summary.style.top)).toBe(52);
+    expect(Number.parseFloat(summary.style.top)).toBe(32);
     expect(Number.parseFloat(summary.style.height)).toBe(44);
     fireEvent.click(summary);
     const dialog = within(screen.getByRole("dialog", { name: "选择日程" }));
@@ -304,7 +304,7 @@ describe("周视图移动端新增事项", () => {
     expect(container.querySelector(".week-grid")).not.toBeInTheDocument();
   });
 
-  it("清晨深夜各只有一个48像素行，早晚短项至少44像素且不显示1项标记", () => {
+  it("清晨深夜各只有一个48像素行，早晚短项从实际时间开始并裁剪至行末", () => {
     renderWeekCalendar(vi.fn(), [], semester, []);
     const early = screen.getByText("清晨").closest(".mobile-week-time-band") as HTMLElement;
     const late = screen.getByText("深夜").closest(".mobile-week-time-band") as HTMLElement;
@@ -322,12 +322,14 @@ describe("周视图移动端新增事项", () => {
       .not.toBeInTheDocument();
     const earlyGroup = screen.getByText("晨跑").closest(".mobile-week-time-group") as HTMLElement;
     const lateGroup = screen.getByText("夜间阅读").closest(".mobile-week-time-group") as HTMLElement;
-    for (const [group, cell] of [
-      [earlyGroup, screen.getByLabelText("7月6日 00:00–08:30查看1项日程")],
-      [lateGroup, screen.getByLabelText("7月6日 21:45–24:00查看1项日程")]
+    for (const { group, cell, start } of [
+      { group: earlyGroup, cell: screen.getByLabelText("7月6日 00:00–08:30查看1项日程"), start: 7 * 60 },
+      { group: lateGroup, cell: screen.getByLabelText("7月6日 21:45–24:00查看1项日程"), start: 23 * 60 }
     ]) {
       const row = cell.closest(".mobile-week-slot-row") as HTMLElement;
-      expect(Number.parseFloat(group.style.height)).toBeGreaterThanOrEqual(44);
+      const expectedTop = Number.parseFloat(row.style.top) + 48 * (start - Number(row.dataset.startMinute)) / (Number(row.dataset.endMinute) - Number(row.dataset.startMinute));
+      expect(Number.parseFloat(group.style.top)).toBeCloseTo(expectedTop, 4);
+      expect(Number.parseFloat(group.style.height)).toBeCloseTo(Math.min(44, Number.parseFloat(row.style.top) + 48 - expectedTop), 4);
       expect(Number.parseFloat(row.style.height)).toBe(48);
       expect(Number.parseFloat(group.style.top)).toBeGreaterThanOrEqual(Number.parseFloat(row.style.top));
       expect(Number.parseFloat(group.style.top) + Number.parseFloat(group.style.height)).toBeLessThanOrEqual(Number.parseFloat(row.style.top) + 48);
@@ -374,7 +376,7 @@ describe("周视图移动端新增事项", () => {
     expect(screen.queryByText("每格30分钟")).not.toBeInTheDocument();
   });
 
-  it("20:10配置精确保留，短续片保留44像素下限且不撑高所属行", () => {
+  it("20:10配置精确保留，短续片按实际起点裁剪且不撑高所属行", () => {
     const oddPeriods: ClassPeriod[] = [periods[0], {
       ...periods[0], id: "period-evening", period_number: 10, name: "第十节", start_time: "19:30", end_time: "20:10"
     }];
@@ -393,7 +395,8 @@ describe("周视图移动端新增事项", () => {
     expect(pieces).toHaveLength(2);
     for (const [index, row] of [before, after].entries()) {
       const piece = pieces[index];
-      expect(Number.parseFloat(piece.style.height)).toBeGreaterThanOrEqual(44);
+      expect(Number.parseFloat(piece.style.top)).toBeCloseTo(Number.parseFloat(row.style.top) + (index === 0 ? 30 : 0), 4);
+      expect(Number.parseFloat(piece.style.height)).toBe(index === 0 ? 18 : 44);
       expect(Number.parseFloat(piece.style.top)).toBeGreaterThanOrEqual(Number.parseFloat(row.style.top));
       expect(Number.parseFloat(piece.style.top) + Number.parseFloat(piece.style.height)).toBeLessThanOrEqual(Number.parseFloat(row.style.top) + 48);
     }
@@ -497,6 +500,89 @@ describe("周视图移动端新增事项", () => {
       expect(card.style.width).toBe("");
       expect(card.style.marginLeft).toBe("");
     }
+  });
+
+  it("电脑端加入三重重叠的下午事项不会改变默认时段高度", () => {
+    mockMatchMedia(false);
+    const empty = renderWeekCalendar(vi.fn(), [], semester, []);
+    const defaultRows = (empty.container.querySelector(".week-grid") as HTMLElement).style.gridTemplateRows;
+    cleanup();
+    const { container } = renderWeekCalendar(vi.fn(), [
+      eventRecord("afternoon-course", "下午长安排", { start_time: "13:30", end_time: "17:00" }),
+      eventRecord("afternoon-short", "14点家教", { start_time: "14:00", end_time: "14:30" }),
+      eventRecord("afternoon-third", "交接事项", { start_time: "14:15", end_time: "14:45" })
+    ], semester, []);
+
+    expect((container.querySelector(".week-grid") as HTMLElement).style.gridTemplateRows).toBe(defaultRows);
+    for (const title of ["下午长安排", "14点家教", "交接事项"]) {
+      const card = screen.getByText(title).closest("article") as HTMLElement;
+      expect(card.style.transform).toBe("");
+      expect(card.style.getPropertyValue("--overlap-count")).toBe("3");
+    }
+  });
+
+  it("手机较晚开始的长事项按15点定位，不能充当13点半重叠组的起点", () => {
+    const { container } = renderWeekCalendar(vi.fn(), [
+      eventRecord("early-course", "新材料制造", { start_time: "13:30", end_time: "15:05" }),
+      eventRecord("late-long", "于翔英语家教", { start_time: "15:00", end_time: "17:00" })
+    ], semester, []);
+    const early = screen.getByRole("button", { name: "编辑事项：新材料制造" });
+    const late = screen.getByRole("button", { name: "编辑事项：于翔英语家教" });
+    const group = late.closest(".mobile-week-time-group") as HTMLElement;
+    const afternoon = container.querySelector<HTMLElement>('.mobile-week-slot-row[data-start-minute="810"]')!;
+    const six = container.querySelector<HTMLElement>('.mobile-week-slot-row[data-start-minute="860"]')!;
+    const evening = container.querySelector<HTMLElement>('.mobile-week-slot-row[data-start-minute="1020"]')!;
+    const lateTop = Number.parseFloat(group.style.top) + Number.parseFloat(late.style.top);
+    const earlyTop = Number.parseFloat(group.style.top) + Number.parseFloat(early.style.top);
+
+    expect(lateTop).toBeCloseTo(Number.parseFloat(six.style.top) + 48 * 40 / 45, 4);
+    expect(earlyTop).toBe(Number.parseFloat(afternoon.style.top));
+    expect(lateTop + Number.parseFloat(late.style.height)).toBeCloseTo(Number.parseFloat(evening.style.top), 4);
+  });
+
+  it("手机组末短项保留实际开始位置，压缩可视高度而非提前显示或溢出", () => {
+    renderWeekCalendar(vi.fn(), [
+      eventRecord("base", "上午长事项", { start_time: "08:30", end_time: "10:05" }),
+      eventRecord("end-short", "最后十分钟", { start_time: "09:55", end_time: "10:05" })
+    ], semester, []);
+    const card = screen.getByRole("button", { name: "编辑事项：最后十分钟" });
+    const group = card.closest(".mobile-week-time-group") as HTMLElement;
+    expect(Number.parseFloat(card.style.top)).toBeCloseTo(48 + 48 * 35 / 45, 4);
+    expect(Number.parseFloat(card.style.height)).toBeCloseTo(48 * 10 / 45, 4);
+    expect(Number.parseFloat(card.style.top) + Number.parseFloat(card.style.height)).toBe(Number.parseFloat(group.style.height));
+    expect(card).toHaveStyle("min-height: 0");
+    fireEvent.click(screen.getByLabelText("7月6日 09:20–10:05查看2项日程"));
+    expect(screen.getAllByRole("button", { name: "编辑事项：最后十分钟" })).toHaveLength(2);
+  });
+
+  it("手机单个组末短项也从09:55开始，裁剪至10:05原时段边界", () => {
+    const onEditEvent = vi.fn();
+    const event = eventRecord("single-end", "单独最后十分钟", { start_time: "09:55", end_time: "10:05" });
+    const { container } = renderWeekCalendar(vi.fn(), [event], semester, [], [], vi.fn(), { onEditEvent });
+    const group = screen.getByText("单独最后十分钟").closest(".mobile-week-time-group") as HTMLElement;
+    const row = container.querySelector<HTMLElement>('.mobile-week-slot-row[data-start-minute="560"]')!;
+    expect(Number.parseFloat(group.style.top)).toBeCloseTo(Number.parseFloat(row.style.top) + 48 * 35 / 45, 4);
+    expect(Number.parseFloat(group.style.height)).toBeCloseTo(48 * 10 / 45, 4);
+    fireEvent.click(screen.getByLabelText("7月6日 09:20–10:05查看1项日程"));
+    fireEvent.click(screen.getByRole("button", { name: "编辑事项：单独最后十分钟" }));
+    expect(onEditEvent).toHaveBeenCalledWith(event);
+  });
+
+  it("手机组末汇总卡按最早隐藏项定位并裁剪高度，不越过组末", () => {
+    renderWeekCalendar(vi.fn(), [
+      eventRecord("base", "上午底板", { start_time: "08:30", end_time: "10:05" }),
+      eventRecord("hidden-a", "隐藏短项一", { start_time: "09:55", end_time: "10:00" }),
+      eventRecord("hidden-b", "隐藏短项二", { start_time: "09:56", end_time: "10:05" })
+    ], semester, []);
+    const summary = screen.getByRole("button", { name: "查看另外2项安排" });
+    const group = summary.closest(".mobile-week-time-group") as HTMLElement;
+    expect(Number.parseFloat(summary.style.top)).toBeCloseTo(48 + 48 * 35 / 45, 4);
+    expect(Number.parseFloat(summary.style.height)).toBeCloseTo(48 * 10 / 45, 4);
+    expect(Number.parseFloat(summary.style.top) + Number.parseFloat(summary.style.height)).toBe(Number.parseFloat(group.style.height));
+    expect(summary).toHaveStyle("min-height: 0");
+    fireEvent.click(summary);
+    expect(screen.getByRole("button", { name: "编辑事项：隐藏短项一" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑事项：隐藏短项二" })).toBeInTheDocument();
   });
 
   it("电脑端课程结束时开始的事项不压缩课程或事项宽度", () => {

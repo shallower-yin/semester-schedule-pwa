@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { BellRing, CalendarCheck, Check, Copy, FileText } from "lucide-react";
+import { BellRing, CalendarCheck, Copy, FileText } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { uniqueCategoriesByName } from "../lib/categories";
@@ -438,17 +438,17 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
       onClose={onClose}
       className="event-dialog"
       headerExtra={
-        <button
-          type="button"
-          className="button secondary compact event-completion-toggle"
-          aria-label="已完成"
+        <label
+          className="checkbox-label event-completion-toggle"
           title={headerCompletionLabel}
-          aria-pressed={headerCompleted}
-          disabled={saving || completing}
-          onClick={() => void toggleHeaderCompleted()}
         >
-          <Check size={16} />已完成
-        </button>
+          <input
+            type="checkbox"
+            checked={headerCompleted}
+            disabled={saving || completing}
+            onChange={() => void toggleHeaderCompleted()}
+          />已完成
+        </label>
       }
     >
       <form ref={formRef} className="form-stack" onSubmit={save}>
@@ -568,18 +568,18 @@ export function EventDialog({ eventItem, initialDate, initialStartTime = "09:00"
             ) : <span>暂未找到接下来两周内的空闲时间。</span>}
           </div>
         )}
-        <div className="form-actions split">
-          <div className="inline-actions">
-            {eventItem && <button type="button" className="button secondary" onClick={() => void duplicate()}><Copy size={16} />复制事项</button>}
-            <button type="button" className="button secondary" onClick={() => void createMemoFromEvent()}><FileText size={16} />转备忘录</button>
-            {eventItem && <button type="button" className="button danger-button" onClick={remove}>彻底删除{itemLabel}</button>}
+        {eventItem && (
+          <div className="inline-actions event-secondary-actions">
+            <button type="button" className="button secondary" onClick={() => void duplicate()}><Copy size={16} />复制事项</button>
+            <button type="button" className="button danger-button" onClick={remove}>彻底删除{itemLabel}</button>
           </div>
-          <div className="inline-actions">
-            <button type="button" className="button secondary" onClick={onClose}>取消</button>
-            <button className="button primary" disabled={saving || enablingReminder || completing}>
-              {saving ? "保存中…" : enablingReminder ? "正在启用提醒…" : `保存${itemLabel}`}
-            </button>
-          </div>
+        )}
+        <div className="form-actions event-form-actions">
+          <button type="button" className="button secondary" onClick={onClose}>取消</button>
+          <button type="button" className="button secondary" onClick={() => void createMemoFromEvent()}><FileText size={16} />转备忘录</button>
+          <button className="button primary" disabled={saving || enablingReminder || completing}>
+            {saving ? "保存中…" : enablingReminder ? "启用提醒…" : `保存${itemLabel}`}
+          </button>
         </div>
       </form>
     </Modal>

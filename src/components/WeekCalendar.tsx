@@ -87,7 +87,6 @@ export function WeekCalendar(props: WeekCalendarProps) {
   const overlapLayouts = buildOverlapLayouts(props, courseMap);
   const rowLayout = buildStackedRowLayout(
     props,
-    courseMap,
     displayRows,
     overlapLayouts,
     isMobile ? [props.dates[props.selectedDay]].filter(Boolean) : props.dates
@@ -180,7 +179,7 @@ export function WeekCalendar(props: WeekCalendarProps) {
   function entryStyle(key: string, baseStyle: CSSProperties): CSSProperties {
     const layout = overlapLayouts.get(key);
     if (!layout || layout.count <= 1) return baseStyle;
-    if (layout.count >= 3) {
+    if (layout.count >= 3 && baseStyle.gridRow === 2) {
       const column = layout.index % 2;
       const layer = Math.floor(layout.index / 2);
       return {
@@ -460,8 +459,6 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
     rangeStart?: number;
     rangeEnd?: number;
   } | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const initializedWeek = useRef("");
   const slots = rows.map((row, rowIndex) => ({ ...row, rowIndex, start: minutesOf(row.startTime), end: minutesOf(row.endTime) }));
   const separators = slots.filter((row) => row.kind !== "period");
   const timeTop = (minute: number) => {
@@ -470,15 +467,6 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
     const row = slots[rowIndex];
     return (rowIndex + Math.min(1, Math.max(0, (minute - row.start) / Math.max(1, row.end - row.start)))) * MOBILE_SLOT_HEIGHT;
   };
-  const weekKey = props.dates[0] ? toISODate(props.dates[0]) : "";
-  const firstEntry = Math.min(...entries.filter((entry) => !entry.allDay).map((entry) => entry.start));
-  const firstRowIndex = slots.findIndex((row) => row.end > (Number.isFinite(firstEntry) ? firstEntry : 8 * 60));
-  const initialScrollTop = Math.max(0, firstRowIndex - 1) * MOBILE_SLOT_HEIGHT;
-  useEffect(() => {
-    if (initializedWeek.current === weekKey || !scrollRef.current) return;
-    initializedWeek.current = weekKey;
-    scrollRef.current.scrollTop = initialScrollTop;
-  }, [initialScrollTop, weekKey]);
   const overlapGroups: MobileTimeGroup[] = [];
   props.dates.forEach((_, dayIndex) => {
     const timed = entries.filter((entry) => entry.dayIndex === dayIndex && !entry.allDay)
@@ -512,8 +500,10 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
   for (const group of groups) {
     const startTop = timeTop(group.start);
     const endTop = Math.max(startTop + 1, timeTop(group.end));
-    const height = Math.max(MOBILE_MIN_CARD_HEIGHT, endTop - startTop);
-    const top = Math.max(0, Math.min(startTop, Math.ceil(endTop / MOBILE_SLOT_HEIGHT) * MOBILE_SLOT_HEIGHT - height));
+    const lastRow = slots.findIndex((row) => group.end <= row.end);
+    const lastRowBottom = (lastRow < 0 ? slots.length : lastRow + 1) * MOBILE_SLOT_HEIGHT;
+    const top = startTop;
+    const height = Math.max(0, Math.min(Math.max(MOBILE_MIN_CARD_HEIGHT, endTop - startTop), lastRowBottom - top));
     const previous = displayGroups.at(-1);
     if (previous?.dayIndex === group.dayIndex && top < previous.top + previous.height - 0.1) {
       const bottom = Math.max(previous.top + previous.height, top + height);
@@ -558,7 +548,7 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
     });
   }
 
-  function renderLayerCard(entry: MobileCalendarEntry, role: "base" | "front", top: number, height: number, captionHeight: number, index = 0) {
+  function renderLayerCard(entry: MobileCalendarEntry, role: "base" | "front", top: number, height: number, captionHeight: number, index = 0, layerOrder = 0) {
     const isBase = role === "base";
     return (
       <button
@@ -571,9 +561,10 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
           "--entry-color": entry.color,
           top,
           height,
+          ...(height < MOBILE_MIN_CARD_HEIGHT ? { minHeight: 0 } : {}),
           left: isBase || index % 2 ? 2 : 6,
           right: !isBase && index % 2 ? 6 : 2,
-          zIndex: isBase ? 1 : 2 + index
+          zIndex: 1 + layerOrder
         } as CSSProperties}
         aria-label={`编辑${entry.event ? "事项" : "课程"}：${entry.title}`}
         title={[entry.title, entry.time, entry.location].filter(Boolean).join(" · ")}
@@ -635,9 +626,8 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
 
   return (
     <section className="calendar-shell mobile-week-calendar" aria-label="一周日程">
-      <div className="mobile-week-scroll" ref={scrollRef}>
+      <div className="mobile-week-scroll">
         <div className="mobile-week-dates">
-          <span className="mobile-week-unit">按时段</span>
           {props.dates.map((date, dayIndex) => (
             <button
               key={toISODate(date)}
@@ -719,8 +709,24 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
             const layered = group.entries.length > 1 && capacity > 0;
             const visibleFronts = fronts.length <= capacity ? fronts : fronts.slice(0, Math.max(0, capacity - 1));
             const hiddenFronts = fronts.slice(visibleFronts.length);
-            const foregroundCount = visibleFronts.length + (hiddenFronts.length ? 1 : 0);
-            const captionHeight = Math.max(MOBILE_MIN_CARD_HEIGHT, Math.min(72, group.height - foregroundCount * (MOBILE_MIN_CARD_HEIGHT + 4)));
+            const entryPlacement = (entry: MobileCalendarEntry) => {
+              const start = Math.max(0, timeTop(Math.max(group.start, entry.start)) - group.top);
+              const end = Math.min(group.height, timeTop(Math.min(group.end, entry.end)) - group.top);
+              const height = Math.max(0, Math.min(group.height - start, Math.max(MOBILE_MIN_CARD_HEIGHT, end - start)));
+              return { top: start, height };
+            };
+            const basePlacement = entryPlacement(base);
+            const summaryTop = hiddenFronts.length
+              ? Math.min(...hiddenFronts.map((entry) => entryPlacement(entry).top))
+              : group.height;
+            const summaryHeight = Math.max(0, Math.min(MOBILE_MIN_CARD_HEIGHT, group.height - summaryTop));
+            const nextCover = Math.min(
+              group.height,
+              ...visibleFronts.map((entry) => entryPlacement(entry).top).filter((top) => top > basePlacement.top),
+              ...(summaryTop > basePlacement.top ? [summaryTop] : [])
+            );
+            const captionHeight = Math.max(12, Math.min(72, basePlacement.height, nextCover - basePlacement.top - 4));
+            const layerOrder = [...group.entries].sort((left, right) => left.start - right.start || right.end - left.end);
             return (
             <div
               key={`${group.dayIndex}-${group.start}`}
@@ -737,14 +743,17 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
             >
               {layered ? (
                 <>
-                  {renderLayerCard(base, "base", 0, group.height, captionHeight)}
-                  {visibleFronts.map((entry, index) => renderLayerCard(entry, "front", captionHeight + 4 + index * (MOBILE_MIN_CARD_HEIGHT + 4), MOBILE_MIN_CARD_HEIGHT, MOBILE_MIN_CARD_HEIGHT, index))}
+                  {renderLayerCard(base, "base", basePlacement.top, basePlacement.height, captionHeight, 0, layerOrder.indexOf(base))}
+                  {visibleFronts.map((entry, index) => {
+                    const placement = entryPlacement(entry);
+                    return renderLayerCard(entry, "front", placement.top, placement.height, Math.min(72, placement.height), index, layerOrder.indexOf(entry));
+                  })}
                   {hiddenFronts.length > 0 && (
                     <button
                       type="button"
                       className="mobile-week-layer-summary"
                       aria-label={`查看另外${hiddenFronts.length}项安排`}
-                      style={{ top: captionHeight + 4 + visibleFronts.length * (MOBILE_MIN_CARD_HEIGHT + 4), height: MOBILE_MIN_CARD_HEIGHT, left: visibleFronts.length % 2 ? 2 : 6, right: visibleFronts.length % 2 ? 6 : 2 }}
+                      style={{ top: summaryTop, height: summaryHeight, ...(summaryHeight < MOBILE_MIN_CARD_HEIGHT ? { minHeight: 0 } : {}), left: visibleFronts.length % 2 ? 2 : 6, right: visibleFronts.length % 2 ? 6 : 2 }}
                       onClick={() => openGroupEntries(group, hiddenFronts)}
                     >另{hiddenFronts.length}项</button>
                   )}
@@ -852,14 +861,11 @@ function formatMobileTime(value: number): string {
 
 function buildStackedRowLayout(
   props: WeekCalendarProps,
-  courseMap: Map<string, Course>,
   displayRows: ReturnType<typeof buildDisplayRows>,
   overlapLayouts: Map<string, OverlapLayout>,
   dates: Date[]
 ) {
-  const rowCounts = displayRows.map(() => 1);
   let allDayCount = 1;
-  const semester = props.semester;
   if (!dates.length) {
     return {
       allDayHeight: "44px",
@@ -868,28 +874,6 @@ function buildStackedRowLayout(
   }
   dates.forEach((date) => {
     const dateText = toISODate(date);
-    if (semester) {
-      props.schedules.forEach((schedule) => {
-        if (!courseScheduleOccursOn(schedule, semester, date)) return;
-        const course = courseMap.get(schedule.course_id);
-        if (!course || course.deleted_at) return;
-        const canceled = props.cancellations.some(
-          (item) => item.course_schedule_id === schedule.id && item.occurrence_date === dateText && !item.deleted_at
-        );
-        if (canceled) return;
-        const startPeriod = props.periods.find(
-          (period) => period.weekday === schedule.weekday && period.period_number === schedule.start_period && !period.deleted_at
-        );
-        const endPeriod = props.periods.find(
-          (period) => period.weekday === schedule.weekday && period.period_number === schedule.end_period && !period.deleted_at
-        );
-        if (!startPeriod || !endPeriod) return;
-        const [firstRow, endRow] = rowRangeForTime(displayRows, startPeriod.start_time, endPeriod.end_time);
-        const count = overlapLayouts.get(`${schedule.id}-${dateText}`)?.count ?? 1;
-        applyStackedRowCount(rowCounts, firstRow, endRow, count);
-      });
-    }
-
     props.events.forEach((eventItem) => {
       if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return;
       const completed = eventCompletionForDate(eventItem, props.occurrenceStates, date).completed;
@@ -899,27 +883,13 @@ function buildStackedRowLayout(
         allDayCount = Math.max(allDayCount, count);
         return;
       }
-      const [firstRow, endRow] = rowRangeForTime(displayRows, eventItem.start_time, eventItem.end_time);
-      applyStackedRowCount(rowCounts, firstRow, endRow, count);
     });
   });
 
   return {
     allDayHeight: `${allDayCount >= 3 ? Math.max(44, Math.ceil(allDayCount / 2) * MOBILE_STACK_STEP + 14) : 44}px`,
-    rowHeights: displayRows.map((row, index) => {
-      const base = row.kind === "break" ? 96 : 76;
-      const count = rowCounts[index];
-      return `${count >= 3 ? Math.max(base, Math.ceil(count / 2) * MOBILE_STACK_STEP + 18) : base}px`;
-    })
+    rowHeights: displayRows.map((row) => row.kind === "break" ? "96px" : "76px")
   };
-}
-
-function applyStackedRowCount(rowCounts: number[], firstRow: number, endRow: number, count: number) {
-  if (count >= 3) {
-    rowCounts[firstRow] = Math.max(rowCounts[firstRow], count);
-    return;
-  }
-  for (let index = firstRow; index < endRow; index += 1) rowCounts[index] = Math.max(rowCounts[index], count);
 }
 
 function buildOverlapLayouts(props: WeekCalendarProps, courseMap: Map<string, Course>): Map<string, OverlapLayout> {
