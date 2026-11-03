@@ -4,7 +4,8 @@ import {
   consumePendingNativeNotificationKey,
   initializeNativeAppBridge,
   isNativeApp,
-  NATIVE_NOTIFICATION_OPEN_EVENT
+  NATIVE_NOTIFICATION_OPEN_EVENT,
+  subscribeToAppForeground
 } from "./nativeApp";
 
 const native = vi.hoisted(() => ({
@@ -12,7 +13,7 @@ const native = vi.hoisted(() => ({
   getLaunchUrl: vi.fn(),
   addListener: vi.fn(),
   minimizeApp: vi.fn(),
-  listeners: new Map<string, (event: { url?: string; canGoBack?: boolean }) => void>()
+  listeners: new Map<string, (event: { url?: string; canGoBack?: boolean; isActive?: boolean }) => void>()
 }));
 
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: native.isNativePlatform } }));
@@ -69,6 +70,91 @@ describe("原生应用桥的通知路由与返回", () => {
       expect(consumePendingNativeNotificationKey()).toBeNull();
     } finally {
       window.removeEventListener(NATIVE_NOTIFICATION_OPEN_EVENT, onOpen);
+    }
+  });
+
+  it("PWA恢复可见并取得焦点只触发一轮，下一次打开会再次触发", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const onForeground = vi.fn().mockResolvedValue(undefined);
+    const unsubscribe = subscribeToAppForeground(onForeground);
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(onForeground).not.toHaveBeenCalled();
+
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+      await vi.waitFor(() => expect(onForeground).toHaveBeenCalledOnce());
+
+      visibility.mockReturnValue("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.waitFor(() => expect(onForeground).toHaveBeenCalledTimes(2));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("APK恢复前台使用原生状态事件，不依赖WebView可见性事件", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await initializeNativeAppBridge();
+    const onForeground = vi.fn().mockResolvedValue(undefined);
+    const unsubscribe = subscribeToAppForeground(onForeground);
+    try {
+      native.listeners.get("appStateChange")!({ isActive: false });
+      expect(onForeground).not.toHaveBeenCalled();
+      native.listeners.get("appStateChange")!({ isActive: true });
+      await vi.waitFor(() => expect(onForeground).toHaveBeenCalledOnce());
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("页面从往返缓存恢复时触发，普通pageshow不重复启动同步", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const onForeground = vi.fn().mockResolvedValue(undefined);
+    const unsubscribe = subscribeToAppForeground(onForeground);
+    try {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+      expect(onForeground).not.toHaveBeenCalled();
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+      await vi.waitFor(() => expect(onForeground).toHaveBeenCalledOnce());
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("离线和取消订阅后不会发起前台同步", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const onForeground = vi.fn().mockResolvedValue(undefined);
+    const unsubscribe = subscribeToAppForeground(onForeground);
+    window.dispatchEvent(new Event("focus"));
+    await Promise.resolve();
+    expect(onForeground).not.toHaveBeenCalled();
+
+    online.mockReturnValue(true);
+    window.dispatchEvent(new Event("focus"));
+    unsubscribe();
+    await Promise.resolve();
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    await Promise.resolve();
+    expect(onForeground).not.toHaveBeenCalled();
+  });
+
+  it("同步失败后下次恢复前台仍可重试", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const onForeground = vi.fn().mockRejectedValueOnce(new Error("network error")).mockResolvedValue(undefined);
+    const unsubscribe = subscribeToAppForeground(onForeground);
+    try {
+      window.dispatchEvent(new Event("focus"));
+      await vi.waitFor(() => expect(onForeground).toHaveBeenCalledOnce());
+      window.dispatchEvent(new Event("focus"));
+      await vi.waitFor(() => expect(onForeground).toHaveBeenCalledTimes(2));
+    } finally {
+      unsubscribe();
     }
   });
 

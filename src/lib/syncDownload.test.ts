@@ -18,12 +18,18 @@ const mockRemote = vi.hoisted(() => ({
   servedRowsCap: null as number | null,
   upsertCalls: [] as Array<{ tableName: string; payloads: Record<string, unknown>[] }>,
   beforeUpsertResponse: null as null | (() => Promise<void>),
+  selectCalls: [] as string[],
+  selectQueries: [] as Array<{ tableName: string; columns: string; ids: string[] | null; rowCount: number }>,
+  beforeSelectResponse: null as null | ((tableName: string) => Promise<void>),
   reset() {
     this.tables = new Map();
     this.maxRowsPerRequest = 1000;
     this.servedRowsCap = null;
     this.upsertCalls = [];
     this.beforeUpsertResponse = null;
+    this.selectCalls = [];
+    this.selectQueries = [];
+    this.beforeSelectResponse = null;
   }
 }));
 
@@ -37,9 +43,12 @@ vi.mock("./supabase", () => {
     let countMode: string | null = null;
     let mutation: "delete" | "update" | "upsert" | null = null;
     let mutationPayloads: Record<string, unknown>[] = [];
+    let selectedColumns = "*";
+    let selectedIds: string[] | null = null;
 
     const builder = {
       select(_columns?: string, options?: { count?: string }) {
+        selectedColumns = _columns ?? "*";
         countMode = options?.count ?? null;
         return builder;
       },
@@ -62,6 +71,7 @@ vi.mock("./supabase", () => {
       },
       in(column: string, values: unknown[]) {
         const set = new Set(values.map((value) => String(value)));
+        if (column === "id") selectedIds = [...set];
         filters.push((row) => set.has(String(row[column])));
         return builder;
       },
@@ -73,6 +83,9 @@ vi.mock("./supabase", () => {
       range(from: number, to: number) {
         rangeFrom = from;
         rangeTo = to;
+        return builder;
+      },
+      overrideTypes() {
         return builder;
       },
       then(
@@ -112,13 +125,21 @@ vi.mock("./supabase", () => {
         const start = rangeFrom ?? 0;
         const requested = rangeTo == null ? Number.POSITIVE_INFINITY : rangeTo - start + 1;
         const limit = Math.min(requested, mockRemote.maxRowsPerRequest);
-        const data = rows.slice(start, start + limit);
+        const columns = selectedColumns.split(",").map((column) => column.trim());
+        const data = rows.slice(start, start + limit).map((row) => selectedColumns === "*"
+          ? { ...row }
+          : Object.fromEntries(columns.filter((column) => column in row).map((column) => [column, row[column]])));
         const result: MockQueryResult = {
           data,
           error: null,
           count: countMode === "exact" ? totalCount : null
         };
-        return Promise.resolve(result).then(onFulfilled, onRejected);
+        mockRemote.selectCalls.push(tableName);
+        mockRemote.selectQueries.push({ tableName, columns: selectedColumns, ids: selectedIds, rowCount: data.length });
+        return Promise.resolve().then(async () => {
+          await mockRemote.beforeSelectResponse?.(tableName);
+          return result;
+        }).then(onFulfilled, onRejected);
       }
     };
     return builder;
@@ -192,6 +213,51 @@ describe("云端下载分页与镜像删除保护", () => {
     await clearLocalTables();
   });
 
+  it("独立数据表最多并行下载4张，全部取回后再合并", async () => {
+    let activeRequests = 0;
+    let peakRequests = 0;
+    mockRemote.beforeSelectResponse = async () => {
+      activeRequests += 1;
+      peakRequests = Math.max(peakRequests, activeRequests);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      activeRequests -= 1;
+    };
+    mockRemote.tables.set("todos", [{ ...todo("parallel-todo") }]);
+
+    const result = await pullRemoteNow(USER_ID);
+
+    expect(peakRequests).toBe(4);
+    expect(activeRequests).toBe(0);
+    expect(mockRemote.selectCalls).toEqual(SYNC_TABLES.map((table) => table.remote));
+    expect(result.downloaded).toBe(1);
+    expect(await db.todos.get("parallel-todo")).toMatchObject({ title: "整理待办同步" });
+  });
+
+  it("并行批次下载失败会等待本批请求结束，不删除本地或继续请求后续表", async () => {
+    const local = healthLog(0);
+    await db.healthLogs.put(local);
+    const previousSync = "2026-07-01T00:00:00.000Z";
+    localStorage.setItem(`semester-schedule-last-sync:${USER_ID}`, previousSync);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    mockRemote.beforeSelectResponse = async (tableName) => {
+      if (tableName === "categories") throw new Error("categories 下载失败：network error");
+      await gate;
+    };
+    let settled = false;
+    const request = pullRemoteNow(USER_ID).finally(() => { settled = true; });
+    const rejection = expect(request).rejects.toThrow("categories 下载失败");
+
+    await vi.waitFor(() => expect(mockRemote.selectCalls).toHaveLength(4));
+    expect(settled).toBe(false);
+    release();
+    await rejection;
+
+    expect(mockRemote.selectCalls).toHaveLength(4);
+    expect(await db.healthLogs.get(local.id)).toEqual(local);
+    expect(localStorage.getItem(`semester-schedule-last-sync:${USER_ID}`)).toBe(previousSync);
+  });
+
   it("云端超过单次响应上限时分页取全", async () => {
     mockRemote.maxRowsPerRequest = PAGE_LIMIT;
     const logs = Array.from({ length: TOTAL_ROWS }, (_, index) => healthLog(index));
@@ -225,6 +291,176 @@ describe("云端下载分页与镜像删除保护", () => {
 
     expect(await db.healthLogs.count()).toBe(2);
     expect(await db.healthLogs.get(removedLocally.id)).toBeUndefined();
+  });
+});
+
+describe("自动同步只下载有变化的记录", () => {
+  beforeEach(async () => {
+    mockRemote.reset();
+    localStorage.clear();
+    await clearLocalTables();
+  });
+
+  function healthBodyQueries() {
+    return mockRemote.selectQueries.filter((query) => query.tableName === "health_logs" && query.columns === "*");
+  }
+
+  it("首次下载完整内容，之后无变化只比较版本，不重传正文或重写本地记录", async () => {
+    const log = { ...healthLog(0), note: "已有长笔记".repeat(1000) };
+    mockRemote.tables.set("health_logs", [toRemoteRow(log)]);
+    expect((await syncNow(USER_ID)).downloaded).toBe(1);
+    expect(healthBodyQueries()).toHaveLength(1);
+    mockRemote.selectQueries = [];
+    const onUpdate = vi.fn();
+    db.healthLogs.hook("updating", onUpdate);
+    try {
+      const result = await syncNow(USER_ID);
+
+      expect(result.downloaded).toBe(0);
+      expect(healthBodyQueries()).toHaveLength(0);
+      expect(mockRemote.selectQueries.find((query) => query.tableName === "health_logs")?.columns)
+        .toBe("id, version, updated_at, server_updated_at, deleted_at");
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect((await db.healthLogs.get(log.id))?.note).toBe(log.note);
+    } finally {
+      db.healthLogs.hook("updating").unsubscribe(onUpdate);
+    }
+  });
+
+  it("只取新增和变化的正文，并通过ID清单同步另一端的硬删除", async () => {
+    const original = [healthLog(0), healthLog(1), healthLog(2)];
+    mockRemote.tables.set("health_logs", original.map(toRemoteRow));
+    await syncNow(USER_ID);
+    mockRemote.selectQueries = [];
+    const changed = { ...original[0], amount: 500, version: 2 };
+    const added = healthLog(3);
+    mockRemote.tables.set("health_logs", [changed, original[2], added].map(toRemoteRow));
+
+    const result = await syncNow(USER_ID);
+
+    expect(result.downloaded).toBe(2);
+    expect(healthBodyQueries().map((query) => query.ids)).toEqual([[changed.id, added.id]]);
+    expect((await db.healthLogs.get(changed.id))?.amount).toBe(500);
+    expect(await db.healthLogs.get(original[1].id)).toBeUndefined();
+    expect(await db.healthLogs.get(original[2].id)).toMatchObject(original[2]);
+    expect(await db.healthLogs.get(added.id)).toMatchObject(added);
+  });
+
+  it("本地缓存缺少记录时会补取，不依赖上次同步时间跳过它", async () => {
+    const logs = [healthLog(0), healthLog(1)];
+    mockRemote.tables.set("health_logs", logs.map(toRemoteRow));
+    await syncNow(USER_ID);
+    await db.healthLogs.delete(logs[1].id);
+    mockRemote.selectQueries = [];
+
+    const result = await syncNow(USER_ID);
+
+    expect(result.downloaded).toBe(1);
+    expect(healthBodyQueries().map((query) => query.ids)).toEqual([[logs[1].id]]);
+    expect(await db.healthLogs.count()).toBe(2);
+  });
+
+  it("有很多变化时分批按ID查询，服务端分页截断也能取全", async () => {
+    const logs = Array.from({ length: 205 }, (_, index) => healthLog(index));
+    mockRemote.tables.set("health_logs", logs.map(toRemoteRow));
+    await syncNow(USER_ID);
+    mockRemote.selectQueries = [];
+    mockRemote.maxRowsPerRequest = 40;
+    mockRemote.tables.set("health_logs", logs.map((log) => toRemoteRow({ ...log, amount: 500, version: 2 })));
+
+    const result = await syncNow(USER_ID);
+
+    expect(result.downloaded).toBe(logs.length);
+    expect(healthBodyQueries().every((query) => query.ids != null && query.ids.length <= 100)).toBe(true);
+    expect(healthBodyQueries().reduce((total, query) => total + query.rowCount, 0)).toBe(logs.length);
+    expect((await db.healthLogs.toArray()).every((log) => log.amount === 500)).toBe(true);
+  });
+
+  it("版本清单取不全时保留本地数据，不把没查到的ID误判成删除", async () => {
+    const logs = Array.from({ length: TOTAL_ROWS }, (_, index) => healthLog(index));
+    mockRemote.tables.set("health_logs", logs.map(toRemoteRow));
+    await syncNow(USER_ID);
+    mockRemote.maxRowsPerRequest = PAGE_LIMIT;
+    mockRemote.servedRowsCap = PAGE_LIMIT;
+    mockRemote.tables.set("health_logs", logs.slice(1).map(toRemoteRow));
+    mockRemote.selectQueries = [];
+
+    await syncNow(USER_ID);
+
+    expect(healthBodyQueries()).toHaveLength(0);
+    expect(await db.healthLogs.count()).toBe(TOTAL_ROWS);
+  });
+
+  it("差异正文下载失败不覆盖缓存或推进同步记录，重试仍会补取", async () => {
+    const log = healthLog(0);
+    mockRemote.tables.set("health_logs", [toRemoteRow(log)]);
+    await syncNow(USER_ID);
+    const lastSync = localStorage.getItem(`semester-schedule-last-sync:${USER_ID}`);
+    mockRemote.tables.set("health_logs", [toRemoteRow({ ...log, amount: 500, version: 2 })]);
+    mockRemote.beforeSelectResponse = async (tableName) => {
+      if (tableName === "health_logs" && mockRemote.selectQueries.at(-1)?.columns === "*") {
+        throw new Error("差异下载失败");
+      }
+    };
+
+    await expect(syncNow(USER_ID)).rejects.toThrow("差异下载失败");
+
+    expect((await db.healthLogs.get(log.id))?.amount).toBe(200);
+    expect(localStorage.getItem(`semester-schedule-last-sync:${USER_ID}`)).toBe(lastSync);
+    mockRemote.beforeSelectResponse = null;
+    expect((await syncNow(USER_ID)).downloaded).toBe(1);
+    expect((await db.healthLogs.get(log.id))?.amount).toBe(500);
+  });
+
+  it("差异下载期间的本机编辑仍保留在队列，不被较早的远端结果覆盖", async () => {
+    const log = healthLog(0);
+    mockRemote.tables.set("health_logs", [toRemoteRow(log)]);
+    await syncNow(USER_ID);
+    mockRemote.tables.set("health_logs", [toRemoteRow({ ...log, amount: 500, version: 2 })]);
+    mockRemote.beforeSelectResponse = async (tableName) => {
+      if (tableName !== "health_logs" || mockRemote.selectQueries.at(-1)?.columns !== "*") return;
+      mockRemote.beforeSelectResponse = null;
+      await putRecordAndQueue("healthLogs", {
+        ...log, amount: 999, version: 3, updated_at: "2026-07-03T00:00:00.000Z"
+      });
+    };
+
+    const result = await syncNow(USER_ID);
+
+    expect(result.kept_local).toBe(1);
+    expect(result.downloaded).toBe(0);
+    expect((await db.healthLogs.get(log.id))?.amount).toBe(999);
+    expect(await db.syncQueue.where("record_id").equals(log.id).count()).toBe(1);
+  });
+
+  it("手动重新拉取云端仍下载全文，可以修复版本相同但内容损坏的本地缓存", async () => {
+    const log = healthLog(0);
+    mockRemote.tables.set("health_logs", [toRemoteRow(log)]);
+    await syncNow(USER_ID);
+    await db.healthLogs.update(log.id, { note: "本地缓存损坏" });
+    mockRemote.selectQueries = [];
+
+    await pullRemoteNow(USER_ID);
+
+    expect(healthBodyQueries()).toEqual([expect.objectContaining({ ids: null, rowCount: 1 })]);
+    expect((await db.healthLogs.get(log.id))?.note).toBe(log.note);
+  });
+
+  it("遇到历史软删除会取完整关联记录，仍正确清理未变化的子记录", async () => {
+    const semester = { ...fields("legacy-semester"), name: "测试学期", start_date: "2026-01-01", total_weeks: 20, is_current: true };
+    const course = { ...fields("legacy-course"), semester_id: semester.id, name: "高数", teacher: "", classroom: "", color: "#3157d5", note: "" };
+    const stamp = { server_updated_at: "2026-07-01T08:00:00.000Z" };
+    mockRemote.tables.set("semesters", [{ ...semester, ...stamp }]);
+    mockRemote.tables.set("courses", [{ ...course, ...stamp }]);
+    await syncNow(USER_ID);
+    mockRemote.tables.set("semesters", [{ ...semester, ...stamp, version: 2, deleted_at: "2026-07-02T00:00:00.000Z" }]);
+    mockRemote.selectQueries = [];
+
+    await syncNow(USER_ID);
+
+    expect(mockRemote.selectQueries).toContainEqual(expect.objectContaining({ tableName: "courses", columns: "*", ids: null }));
+    expect(await db.semesters.get(semester.id)).toBeUndefined();
+    expect(await db.courses.get(course.id)).toBeUndefined();
   });
 });
 

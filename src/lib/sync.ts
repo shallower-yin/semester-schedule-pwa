@@ -583,6 +583,9 @@ export async function purgeLocalSoftDeletedRecords(userId: string): Promise<numb
 }
 
 const REMOTE_PAGE_SIZE = 1000;
+const REMOTE_DOWNLOAD_CONCURRENCY = 4;
+const REMOTE_RECORD_BATCH_SIZE = 100;
+const REMOTE_REVISION_COLUMNS = "id, version, updated_at, server_updated_at, deleted_at";
 const OCCURRENCE_LOOKUP_BATCH_SIZE = 100;
 
 export function occurrenceLookupFilters(
@@ -610,18 +613,25 @@ interface RemoteTableFetch {
   complete: boolean;
 }
 
-async function fetchRemoteTableRows(remote: string, userId: string): Promise<RemoteTableFetch> {
+async function fetchRemoteTableRows(
+  remote: string,
+  userId: string,
+  options: { columns?: string; ids?: string[] } = {}
+): Promise<RemoteTableFetch> {
   if (!supabase) throw new Error("云端服务尚未配置");
   const rows: Record<string, unknown>[] = [];
   let total: number | null = null;
   for (;;) {
     const from = rows.length;
-    const { data, error, count } = await supabase
+    let query = supabase
       .from(remote)
-      .select("*", { count: "exact" })
-      .eq("user_id", userId)
+      .select(options.columns ?? "*", { count: "exact" })
+      .eq("user_id", userId);
+    if (options.ids) query = query.in("id", options.ids);
+    const { data, error, count } = await query
       .order("id", { ascending: true })
-      .range(from, from + REMOTE_PAGE_SIZE - 1);
+      .range(from, from + REMOTE_PAGE_SIZE - 1)
+      .overrideTypes<Record<string, unknown>[], { merge: false }>();
     if (error) {
       if (error.code === "PGRST205" || error.message.includes("schema cache")) {
         throw new Error("云端数据表尚未初始化，请联系管理员处理");
@@ -639,22 +649,96 @@ async function fetchRemoteTableRows(remote: string, userId: string): Promise<Rem
   return { rows, complete: total != null && rows.length >= total };
 }
 
+interface RemoteTableDownload extends RemoteTableFetch {
+  activeIds: Set<string>;
+  comparedVersions: boolean;
+}
+
+async function fetchRemoteTableChanges(
+  config: typeof TABLES[number],
+  userId: string,
+  compareVersions: boolean
+): Promise<RemoteTableDownload> {
+  const localRecords: Record<string, unknown>[] = compareVersions
+    ? await db.table(config.local).filter((record) => record.user_id === userId).toArray()
+    : [];
+  if (!localRecords.length) {
+    const result = await fetchRemoteTableRows(config.remote, userId);
+    return {
+      ...result,
+      activeIds: new Set(result.rows.filter((row) => !row.deleted_at).map((row) => String(row.id))),
+      comparedVersions: false
+    };
+  }
+
+  // Hard deletions leave no row or change log. Compare the complete ID/revision
+  // list, then request bodies only for new or changed records.
+  const manifest = await fetchRemoteTableRows(config.remote, userId, { columns: REMOTE_REVISION_COLUMNS });
+  const localById = new Map(localRecords.map((record) => [String(record.id), record]));
+  const changedIds = manifest.rows.filter((remote) => {
+    const local = localById.get(String(remote.id));
+    return !local || remote.deleted_at || !remote.server_updated_at
+      || remote.server_updated_at !== local.server_updated_at
+      || String(remote.version) !== String(local.version)
+      || remote.updated_at !== local.updated_at;
+  }).map((record) => String(record.id));
+  const activeIds = new Set(manifest.rows.filter((row) => !row.deleted_at).map((row) => String(row.id)));
+  const rows: Record<string, unknown>[] = [];
+  let complete = manifest.complete;
+  for (let index = 0; index < changedIds.length; index += REMOTE_RECORD_BATCH_SIZE) {
+    const ids = changedIds.slice(index, index + REMOTE_RECORD_BATCH_SIZE);
+    const result = await fetchRemoteTableRows(config.remote, userId, { ids });
+    rows.push(...result.rows);
+    complete = complete && result.complete;
+    if (result.complete) {
+      const returnedIds = new Set(result.rows.map((row) => String(row.id)));
+      for (const id of ids) {
+        if (!returnedIds.has(id)) activeIds.delete(id);
+      }
+    }
+  }
+  return { rows, complete, activeIds, comparedVersions: true };
+}
+
 interface DownloadResult {
   downloaded: number;
   kept: number;
 }
 
-async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
+async function downloadRemoteTables(userId: string, compareVersions = false): Promise<DownloadResult> {
   if (!supabase) throw new Error("云端服务尚未配置");
   let downloaded = 0;
   let kept = 0;
   const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
   const incompleteTables = new Set<SyncTableName>();
+  const activeIdsByTable = new Map<SyncTableName, Set<string>>();
+  const comparedTables = new Set<SyncTableName>();
 
-  for (const config of TABLES) {
-    const { rows, complete } = await fetchRemoteTableRows(config.remote, userId);
-    if (!complete) incompleteTables.add(config.local);
-    recordsByTable.set(config.local, rows.map((record) => normalizeRemoteRecord(config.local, record)));
+  // Fetch independent tables together; keep uploads and local merges in dependency order.
+  // Settle each batch before propagating an error so no reads outlive a failed sync.
+  const fetchTables = async (tables: typeof TABLES, compare: boolean) => {
+    for (let index = 0; index < tables.length; index += REMOTE_DOWNLOAD_CONCURRENCY) {
+      const batch = tables.slice(index, index + REMOTE_DOWNLOAD_CONCURRENCY);
+      const results = await Promise.allSettled(batch.map((config) => fetchRemoteTableChanges(config, userId, compare)));
+      for (const [offset, result] of results.entries()) {
+        if (result.status === "rejected") throw result.reason;
+        const config = batch[offset];
+        const { rows, complete, activeIds, comparedVersions } = result.value;
+        if (!complete) incompleteTables.add(config.local);
+        else incompleteTables.delete(config.local);
+        if (comparedVersions) comparedTables.add(config.local);
+        else comparedTables.delete(config.local);
+        activeIdsByTable.set(config.local, activeIds);
+        recordsByTable.set(config.local, rows.map((record) => normalizeRemoteRecord(config.local, record)));
+      }
+    }
+  };
+  await fetchTables(TABLES, compareVersions);
+
+  // Legacy soft deletions require the full relationship graph for their existing
+  // cascade cleanup. Ordinary hard-deletion sync only needs the ID manifest.
+  if ([...recordsByTable.values()].some((rows) => rows.some((record) => record.deleted_at))) {
+    await fetchTables(TABLES.filter((config) => comparedTables.has(config.local)), false);
   }
 
   const hardDeleteIds = collectHardDeleteIds(recordsByTable);
@@ -663,7 +747,7 @@ async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
   for (const config of TABLES) {
     const deletedIds = idsFor(hardDeleteIds, config.local);
     const activeRecords = recordsFor(recordsByTable, config.local).filter((record) => !record.deleted_at && !deletedIds.has(String(record.id)));
-    const activeRemoteIds = new Set(activeRecords.map((record) => String(record.id)));
+    const activeRemoteIds = new Set([...(activeIdsByTable.get(config.local) ?? [])].filter((id) => !deletedIds.has(id)));
     // 保护本地未上传的编辑：待传队列中的记录、以及本地 updated_at 更晚的记录，下载时不被云端覆盖。
     // 队列复查、云端合并和镜像删除必须与本地“写记录+入队”争用同一组
     // Dexie 表事务；这样用户在下载期间编辑时，要么先被本事务看到，要么在
@@ -850,7 +934,7 @@ async function runSync(userId: string): Promise<SyncResult> {
     uploaded += payloads.length;
   }
 
-  const download = await downloadRemoteTables(userId);
+  const download = await downloadRemoteTables(userId, true);
   downloaded = download.downloaded;
 
   const completedAt = new Date().toISOString();

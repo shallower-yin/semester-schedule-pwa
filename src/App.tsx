@@ -117,7 +117,7 @@ import { apkDownloadUrlForRelease, apkDownloadUrlsForRelease, appUpdateEntryStat
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
-import { consumePendingNativeNotificationKey, isNativeApp, NATIVE_NOTIFICATION_OPEN_EVENT } from "./lib/nativeApp";
+import { consumePendingNativeNotificationKey, isNativeApp, NATIVE_NOTIFICATION_OPEN_EVENT, subscribeToAppForeground } from "./lib/nativeApp";
 import { currentLiveQueryValue, currentOwnerRecord, scopedLiveQueryValue } from "./lib/liveQueryScope";
 import type { SearchNavigationMatch } from "./lib/searchNavigation";
 import { ScheduleWidget } from "./lib/scheduleWidgetPlugin";
@@ -869,6 +869,11 @@ export default function App() {
       active = false;
       window.removeEventListener("online", syncWhenOnline);
     };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+    return subscribeToAppForeground(handleSync);
   }, [user?.id]);
 
   useEffect(() => {
