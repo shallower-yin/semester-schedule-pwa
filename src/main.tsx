@@ -47,7 +47,7 @@ function renderStartupError(error: unknown): void {
   const wrap = document.createElement("div");
   wrap.setAttribute("role", "alert");
   wrap.style.cssText =
-    "min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:calc(env(safe-area-inset-top, 0px) + 32px) 32px 32px;box-sizing:border-box;font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#f5f7fb;color:#172033;text-align:center;";
+    "min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:calc(env(safe-area-inset-top, 0px) + 32px) 32px 32px;box-sizing:border-box;font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#eef7ff;color:#203d58;text-align:center;";
 
   const title = document.createElement("h1");
   title.textContent = "应用暂时无法启动";
@@ -64,14 +64,14 @@ function renderStartupError(error: unknown): void {
   button.type = "button";
   button.textContent = "重新加载";
   button.style.cssText =
-    "border:0;border-radius:10px;padding:10px 24px;font-size:15px;font-weight:600;color:#fff;background:#3157d5;cursor:pointer;";
+    "border:0;border-radius:10px;padding:10px 24px;font-size:15px;font-weight:600;color:#203d58;background:#dceeff;cursor:pointer;";
   button.addEventListener("click", () => window.location.reload());
 
   const clearButton = document.createElement("button");
   clearButton.type = "button";
   clearButton.textContent = "清缓存重载";
   clearButton.style.cssText =
-    "border:1px solid #cfd6e5;border-radius:10px;padding:10px 24px;font-size:15px;font-weight:600;color:#3157d5;background:#fff;cursor:pointer;";
+    "border:1px solid #cfd6e5;border-radius:10px;padding:10px 24px;font-size:15px;font-weight:600;color:#203d58;background:#fff;cursor:pointer;";
   clearButton.addEventListener("click", () => {
     db.close();
     void clearAppCachesAndReload("boot");

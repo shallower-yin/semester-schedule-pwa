@@ -98,6 +98,7 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
           accessCode,
           signal,
           onProgress: (completed, total, step) => {
+            if (signal.aborted) return;
             if (step.includes("已成功") || step.includes("正在转写") || step.includes("补救") || step.includes("整理摘要")) {
               const safeTotal = Math.max(1, total);
               const percent = Math.round((Math.min(safeTotal, Math.max(0, completed)) / safeTotal) * 100);
@@ -123,9 +124,11 @@ export function AudioTranscriptionDialog({ ownerId, onClose }: AudioTranscriptio
             }
           },
           onUploadProgress: (percent, fileName) => {
+            if (signal.aborted) return;
             reportProgress(`正在上传：${fileName}（${percent}%）`, percent);
           },
           onPartialResult: (partial) => {
+            if (signal.aborted) return;
             // Checkpoint every finished segment so a later network drop never wipes paid work.
             saveLatestResult(ownerId, partial);
             setResult(partial);

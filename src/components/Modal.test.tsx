@@ -23,12 +23,21 @@ describe("弹窗返回历史", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("弹窗关闭按钮消费当前历史层", async () => {
+  it("弹窗关闭按钮立即关闭并只消费一次当前历史层", async () => {
     const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
-    render(<Modal title="测试弹窗" onClose={() => undefined}>内容</Modal>);
+    const onClose = vi.fn();
+    const { unmount } = render(<Modal title="测试弹窗" onClose={onClose}>内容</Modal>);
     await waitFor(() => expect(appHistoryLayer(window.history.state)).toMatch(/^modal-/));
 
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    const state = { __semesterSchedule: { page: "today" } };
+    window.history.replaceState(state, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate", { state }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unmount();
     expect(back).toHaveBeenCalledTimes(1);
   });
 

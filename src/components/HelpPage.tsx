@@ -84,7 +84,7 @@ const faqSections = [
     icon: <Smartphone size={18} />,
     items: [
       "安卓 Edge 或 Chrome 可通过浏览器菜单添加到主屏幕。",
-      "Windows Edge 或 Chrome 可通过安装入口保存为独立应用。"
+      "Windows Edge 或 Chrome 点击网址栏右侧的安装按钮，再确认安装即可。"
     ]
   },
   {

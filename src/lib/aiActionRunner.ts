@@ -14,7 +14,7 @@ import {
 } from "./aiEventActions";
 import { hardDeleteEventsCascade } from "./hardDelete";
 import { refreshNativeReminderSchedule, resetSentRemindersForChangedEvent } from "./notifications";
-import type { EventItem } from "../types";
+import type { EventItem, SyncTableName } from "../types";
 
 /**
  * Apply every AI action to local storage and the sync queue.
@@ -26,8 +26,10 @@ import type { EventItem } from "../types";
 export async function applyActionsToLocalRecords(
   actions: DeepSeekAssistantAction[],
   sourceText: string,
-  ownerId: string
+  ownerId: string,
+  signal?: AbortSignal
 ): Promise<AiActionResults> {
+  signal?.throwIfAborted();
   const inferredAnniversaryUpdate = actions.some((action) => action.type === "update_anniversary")
     ? null
     : inferAnniversaryUpdateAction(sourceText);
@@ -50,14 +52,18 @@ export async function applyActionsToLocalRecords(
   const unmatched: AiUnmatchedAction[] = [];
   if (updateActions.length || deleteActions.length) {
     const existing = await db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray();
+    signal?.throwIfAborted();
     for (const action of updateActions) {
       const matches = matchEventsByTitle(existing, action.title, action.date ?? null);
       if (!matches.length) unmatched.push({ action: "update", title: action.title });
       for (const original of matches) {
         if (deleted.some((item) => item.id === original.id)) continue;
         const next = applyEventUpdate(original, action);
-        await putRecordAndQueue("events", next);
-        await resetSentRemindersForChangedEvent(original, next);
+        await commitAction(["events", "eventOccurrenceStates"], signal, async () => {
+          await putRecordAndQueue("events", next);
+          signal?.throwIfAborted();
+          await resetSentRemindersForChangedEvent(original, next);
+        });
         updated.push({ original, updated: next });
       }
     }
@@ -71,11 +77,16 @@ export async function applyActionsToLocalRecords(
         deleted.push(matched);
       }
     }
-    if (deleteIds.length) await hardDeleteEventsCascade(deleteIds);
+    if (deleteIds.length) {
+      await commitAction(["events", "eventOccurrenceStates", "focusSessions"], signal, () => hardDeleteEventsCascade(deleteIds));
+    }
+    signal?.throwIfAborted();
     if (updated.length || deleted.length) await refreshNativeReminderSchedule(ownerId);
+    signal?.throwIfAborted();
   }
   if (updateAnniversaryActions.length) {
     const existing = await db.anniversaries.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray();
+    signal?.throwIfAborted();
     let updatedAnniversaryCount = 0;
     for (const action of updateAnniversaryActions) {
       const matches = matchAnniversariesByAction(existing, action);
@@ -83,17 +94,40 @@ export async function applyActionsToLocalRecords(
       for (const original of matches) {
         if (updated.some((item) => !("event_type" in item.original) && item.original.id === original.id)) continue;
         const next = applyAnniversaryUpdate(original, action);
-        await putRecordAndQueue("anniversaries", next);
+        await commitAction(["anniversaries"], signal, () => putRecordAndQueue("anniversaries", next));
         updated.push({ original, updated: next });
         updatedAnniversaryCount += 1;
       }
     }
     if (updatedAnniversaryCount) await refreshNativeReminderSchedule(ownerId);
+    signal?.throwIfAborted();
   }
   for (const item of created) {
-    await putRecordAndQueue(item.table, item.record);
+    await commitAction([item.table], signal, () => putRecordAndQueue(item.table, item.record));
   }
   return { created, updated, deleted, unmatched };
+}
+
+// Cancel only the action that has not committed yet. Earlier completed actions
+// remain intact; the next transaction also rechecks after acquiring its locks.
+async function commitAction(tables: SyncTableName[], signal: AbortSignal | undefined, write: () => Promise<unknown>): Promise<void> {
+  signal?.throwIfAborted();
+  let abort: (() => void) | undefined;
+  try {
+    await db.transaction("rw", [...tables.map((table) => db.table(table)), db.syncQueue], async (transaction) => {
+      signal?.throwIfAborted();
+      abort = () => transaction.abort();
+      signal?.addEventListener("abort", abort, { once: true });
+      await write();
+      signal?.throwIfAborted();
+    });
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw error;
+  } finally {
+    if (abort) signal?.removeEventListener("abort", abort);
+  }
+  signal?.throwIfAborted();
 }
 
 export function actionResultsSummary(results: AiActionResults): string {

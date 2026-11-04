@@ -1,7 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { db } from "../db";
+import { cancelAiTask, clearAllAiTasks } from "../lib/aiBackgroundTasks";
+import type { DeepSeekAssistantResult } from "../lib/deepSeekAssistant";
 
 const { askDeepSeekAssistantMock, getAiAssistantConfigurationMock, prepareAiAssistantAttachmentMock } = vi.hoisted(() => ({
   askDeepSeekAssistantMock: vi.fn(),
@@ -64,6 +66,9 @@ describe("AI 助手消息编辑", () => {
     setMobileMode(false);
     localStorage.clear();
     await db.aiAttachmentContexts.clear();
+    clearAllAiTasks();
+    await db.memos.clear();
+    await db.syncQueue.clear();
     askDeepSeekAssistantMock.mockReset();
     getAiAssistantConfigurationMock.mockReset();
     prepareAiAssistantAttachmentMock.mockReset().mockResolvedValue({
@@ -83,7 +88,28 @@ describe("AI 助手消息编辑", () => {
   });
 
   afterEach(() => {
+    clearAllAiTasks();
     cleanup();
+  });
+
+  it.each(["cancel", "clear"])("请求挂起后%s任务，迟到的创建动作不会写入本地", async (mode) => {
+    let resolveResponse!: (result: DeepSeekAssistantResult) => void;
+    askDeepSeekAssistantMock.mockImplementationOnce(() => new Promise<DeepSeekAssistantResult>((resolve) => { resolveResponse = resolve; }));
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-cancel" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业"), { target: { value: "帮我记一条备忘录" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(askDeepSeekAssistantMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      if (mode === "cancel") cancelAiTask("assistant");
+      else clearAllAiTasks();
+      resolveResponse({ answer: "已创建", actions: [{ type: "create_memo", title: "不应写入", content: "已取消的回答" }] });
+      // Drain both the late response and real IndexedDB writes if incorrectly started.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    expect(await db.memos.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
   });
 
   it("在原消息位置编辑，并从该轮重新发送", async () => {
@@ -115,7 +141,8 @@ describe("AI 助手消息编辑", () => {
         { role: "user", content: "第一个问题" },
         { role: "assistant", content: "第一个回答" }
       ],
-      []
+      [],
+      expect.any(AbortSignal)
     );
 
     expect(await screen.findByText("修改后的新回答")).toBeInTheDocument();
@@ -124,9 +151,9 @@ describe("AI 助手消息编辑", () => {
     expect(screen.queryByText("应被截断的旧回答")).not.toBeInTheDocument();
   });
 
-  it("只有 MiMo 2.5 模式显示图片和文档入口", async () => {
+  it.each(["mimo-v2.6-flash", "mimo-v2.6-pro"])("%s 根据服务端能力显示图片和文档入口", async (model) => {
     setMobileMode(true);
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model, supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
 
     const attachmentButton = await screen.findByRole("button", { name: "导入图片或文档" });
@@ -142,7 +169,7 @@ describe("AI 助手消息编辑", () => {
   });
 
   it("从剪贴板读取浏览器提供的图片或文档文件", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-paste" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "导入图片或文档" });
     const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
@@ -162,7 +189,7 @@ describe("AI 助手消息编辑", () => {
   });
 
   it("纯文字粘贴保持浏览器默认输入行为", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-text-paste" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "导入图片或文档" });
 
@@ -209,7 +236,7 @@ describe("AI 助手消息编辑", () => {
   });
 
   it("附件保存在本地上下文并自动用于后续问题", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     askDeepSeekAssistantMock
       .mockResolvedValueOnce({ answer: "已读取文件", actions: [] })
       .mockResolvedValueOnce({ answer: "后续回答", actions: [] });

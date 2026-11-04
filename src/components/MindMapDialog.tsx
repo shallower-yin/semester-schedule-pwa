@@ -256,9 +256,11 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
           depth,
           signal,
           onAttachmentProgress: (completed, total) => {
+            if (signal.aborted) return;
             if (total > 0) setAttachmentProgress(completed < total ? `正在读取文档 ${completed}/${total} 页` : "文档读取完成，正在生成脑图");
           },
           onAttachmentsProcessed: (nextAttachments) => {
+            if (signal.aborted) return;
             taskAttachments = nextAttachments;
             setAttachments(nextAttachments);
           }

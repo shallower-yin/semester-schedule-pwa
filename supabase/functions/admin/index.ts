@@ -1,3 +1,6 @@
+import { MIMO_CHAT_MODELS, normalizeMimoModel } from "../_shared/mimoModels.ts";
+import { relayFetch as fetch, validatePublicRelayBaseUrl } from "../_shared/publicRelayUrl.ts";
+
 type AdminAction =
   | "whoami"
   | "summary"
@@ -85,7 +88,7 @@ interface AiRelayRuntime extends AiRelayRow {
 
 const ADMIN_AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  mimo: ["mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5-pro-ultraspeed"],
+  mimo: MIMO_CHAT_MODELS,
   siliconflow: ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"],
   tju: ["tju-llm"]
 } as const;
@@ -753,7 +756,8 @@ async function setAiSettings(settings: AdminRequest["settings"], serviceRoleKey:
   const memberDailyLimit = featureQuotas.assistant.member_daily_limit;
   const memberWeeklyLimit = featureQuotas.assistant.member_weekly_limit;
   const provider = normalizeAdminAiProvider(settings?.provider);
-  const model = settings?.model?.trim() ?? "";
+  const requestedModel = settings?.model?.trim() ?? "";
+  const model = provider === "mimo" ? normalizeMimoModel(requestedModel) : requestedModel;
   const mimoChannel = settings?.mimoChannel === "token_plan" ? "token_plan" : "payg";
   const audioProvider = settings?.audioProvider === "siliconflow" ? "siliconflow" : "mimo";
   const audioModel = settings?.audioModel?.trim() ?? "";
@@ -837,7 +841,8 @@ async function saveAiRelay(relay: AdminRequest["relay"], serviceRoleKey: string)
   const baseUrl = await validatePublicRelayBaseUrl(relay?.baseUrl);
   const supportsText = Boolean(relay?.supportsText);
   const supportsAudio = Boolean(relay?.supportsAudio);
-  const textModel = supportsText ? relay?.textModel?.trim() ?? "" : "";
+  const requestedTextModel = supportsText ? relay?.textModel?.trim() ?? "" : "";
+  const textModel = protocol === "mimo" ? normalizeMimoModel(requestedTextModel) : requestedTextModel;
   const audioModel = supportsAudio ? relay?.audioModel?.trim() ?? "" : "";
   if (!name || name.length > 80) throw new Error("中转站名称需为 1–80 个字符。");
   if (!supportsText && !supportsAudio) throw new Error("请至少启用文本 AI 或音频转写。");
@@ -1013,52 +1018,6 @@ async function recordRelayTest(
 
 function relayEndpoint(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
-}
-
-async function validatePublicRelayBaseUrl(value: unknown): Promise<string> {
-  const input = String(value ?? "").trim().replace(/\/+$/, "");
-  let url: URL;
-  try {
-    url = new URL(input);
-  } catch {
-    throw new Error("中转地址无效，请填写包含 https:// 的 API 基础地址。");
-  }
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
-    throw new Error("中转地址必须是无账号参数的公网 HTTPS 基础地址。");
-  }
-  if (url.pathname === "/") url.pathname = "";
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")
-    || hostname === "metadata.google.internal" || isPrivateAddress(hostname)) {
-    throw new Error("中转地址不能指向本机、内网或云元数据服务。");
-  }
-  const resolved = await Promise.all([
-    Deno.resolveDns(hostname, "A").catch(() => [] as string[]),
-    Deno.resolveDns(hostname, "AAAA").catch(() => [] as string[])
-  ]);
-  if (resolved.flat().some(isPrivateAddress)) {
-    throw new Error("中转域名解析到了内网地址，已拒绝保存。");
-  }
-  return url.toString().replace(/\/+$/, "");
-}
-
-function isPrivateAddress(value: string): boolean {
-  const address = value.toLowerCase().replace(/^\[|\]$/g, "");
-  if (address.includes(":")) {
-    return address === "::" || address === "::1" || address.startsWith("fc") || address.startsWith("fd")
-      || /^fe[89ab]/.test(address) || address.startsWith("ff") || address.startsWith("::ffff:127.")
-      || address.startsWith("::ffff:10.") || address.startsWith("::ffff:192.168.")
-      || /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(address);
-  }
-  const parts = address.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts;
-  return a === 0 || a === 10 || a === 127 || a >= 224
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || (a === 198 && (b === 18 || b === 19));
 }
 
 async function safeRelayResponseMessage(response: Response): Promise<string> {

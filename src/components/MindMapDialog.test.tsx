@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { askAiMindMapMock, askAiMindMapFollowupMock, getAiAssistantConfigurationMock, prepareAiAssistantAttachmentMock } = vi.hoisted(() => ({
@@ -28,6 +28,7 @@ vi.mock("../lib/assistantAttachments", async (importOriginal) => {
 
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { MindMapDialog } from "./MindMapDialog";
+import { clearAllAiTasks } from "../lib/aiBackgroundTasks";
 
 const emptyInput: ScheduleAssistantInput = {
   events: [],
@@ -43,7 +44,7 @@ const emptyInput: ScheduleAssistantInput = {
 };
 
 describe("AI 思维导图", () => {
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); clearAllAiTasks(); });
 
   beforeEach(() => {
     localStorage.clear();
@@ -123,7 +124,7 @@ describe("AI 思维导图", () => {
   });
 
   it("生成失败后保留附件，直到用户主动移除", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     askAiMindMapMock.mockRejectedValueOnce(new Error("生成失败"));
     render(<MindMapDialog input={emptyInput} ownerId="user-pdf" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "选择脑图附件来源" });
@@ -137,7 +138,7 @@ describe("AI 思维导图", () => {
   });
 
   it("支持粘贴截图或浏览器提供的文档文件并保留选择器", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     render(<MindMapDialog input={emptyInput} ownerId="user-paste" onClose={vi.fn()} />);
     await screen.findByRole("button", { name: "选择脑图附件来源" });
     const pastedImage = new File(["image"], "剪贴板截图.png", { type: "image/png" });
@@ -160,7 +161,7 @@ describe("AI 思维导图", () => {
   });
 
   it("最终生成失败后重试会复用已经读取的 PDF 文字", async () => {
-    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.5", supportsAttachments: true });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
     prepareAiAssistantAttachmentMock.mockResolvedValueOnce({
       name: "长讲义.pdf",
       mimeType: "application/pdf",
@@ -217,6 +218,36 @@ describe("AI 思维导图", () => {
     fireEvent.click(screen.getByRole("button", { name: "取消生成" }));
     expect(signal?.aborted).toBe(true);
     expect(screen.getByRole("button", { name: "生成脑图" })).toBeInTheDocument();
+  });
+
+  it("取消后忽略旧文档回调并在新任务复用取消前已读取文字", async () => {
+    type Input = Parameters<typeof import("../lib/mindMap").askAiMindMap>[0];
+    const requests: Input[] = [];
+    askAiMindMapMock.mockImplementation((input: Input) => {
+      requests.push(input);
+      return new Promise(() => undefined);
+    });
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
+    render(<MindMapDialog input={emptyInput} ownerId="user-late" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "选择脑图附件来源" });
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "整理材料" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const attachment = { name: "已读取.pdf", kind: "document" as const, mimeType: "application/pdf", text: "取消前读取完成文字" };
+    act(() => requests[0].onAttachmentsProcessed?.([attachment]));
+    fireEvent.click(screen.getByRole("button", { name: "取消生成" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1].attachments).toEqual([attachment]);
+    act(() => {
+      requests[1].onAttachmentProgress?.(1, 10);
+      requests[1].onAttachmentsProcessed?.([{ ...attachment, name: "新文档.pdf", text: "新文字" }]);
+    });
+    act(() => requests[0].onAttachmentProgress?.(8, 8));
+    expect.soft(screen.getByRole("status")).toHaveTextContent("正在读取文档 1/10 页");
+    act(() => requests[0].onAttachmentsProcessed?.([{ ...attachment, name: "迟到旧文档.pdf", text: "旧文字" }]));
+    expect(screen.getByText("新文档.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("迟到旧文档.pdf")).not.toBeInTheDocument();
   });
 
   it("生成后可以基于当前脑图和附件继续追问", async () => {

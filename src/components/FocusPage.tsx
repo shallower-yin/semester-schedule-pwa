@@ -4,18 +4,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import {
   elapsedFocusSeconds,
+  claimFocusCompletion,
   clearActiveFocus,
   clearPomodoroPlan,
   FOCUS_STATE_CHANGED_EVENT,
   focusDailyTotals,
   focusModeLabel,
   focusSessionsForDate,
+  focusRecordsForPeriod,
   formatFocusDuration,
   formatFocusRecordTiming,
   loadActiveFocus,
   loadPomodoroPlan,
   notifyFocusComplete,
-  pomodoroRestKind,
   requestFocusNotificationPermission,
   saveActiveFocus,
   savePomodoroPlan,
@@ -23,6 +24,7 @@ import {
   type ActiveFocusState,
   type PomodoroPlanState
 } from "../lib/focus";
+import { completeFocusSession } from "../lib/focusCompletion";
 import { closeFocusSystemWindow, focusSystemWindowSupported, openFocusSystemWindow, updateFocusSystemWindow } from "../lib/focusSystemWindow";
 import {
   clearNativeFocusTransitions,
@@ -98,6 +100,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set());
   const [showFullscreen, setShowFullscreen] = useState(false);
   const [systemWindowOpen, setSystemWindowOpen] = useState(false);
+  const presentationStageRef = useRef(active?.started_at);
   const [nativeElapsed, setNativeElapsed] = useState<number | null>(null);
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>("week");
   const [keepScreenAwake, setKeepScreenAwake] = useState(loadFocusScreenWakeLockPreference);
@@ -123,11 +126,7 @@ export function FocusPage({ ownerId }: FocusPageProps) {
   );
   const todaySessions = useMemo(() => focusSessionsForDate(sessions, new Date()), [sessions]);
   const todaySeconds = totalFocusSeconds(todaySessions);
-  const weekSessions = useMemo(() => {
-    const today = new Date();
-    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
-    return sessions.filter((session) => new Date(session.ended_at) >= monday);
-  }, [sessions]);
+  const weekSessions = useMemo(() => focusRecordsForPeriod(sessions, "week", now), [sessions, now]);
   const weekSeconds = totalFocusSeconds(weekSessions);
   const dailyTotals = useMemo(() => focusDailyTotals(sessions, 7, new Date()), [sessions]);
   const maxDailySeconds = Math.max(1, ...dailyTotals.map((item) => item.total_seconds));
@@ -143,8 +142,8 @@ export function FocusPage({ ownerId }: FocusPageProps) {
     () => restSessions.slice().sort((left, right) => right.ended_at.localeCompare(left.ended_at)).slice(0, 10),
     [restSessions]
   );
-  const periodFocusSessions = useMemo(() => recordsForPeriod(sessions, statsPeriod, now), [now, sessions, statsPeriod]);
-  const periodRestSessions = useMemo(() => recordsForPeriod(restSessions, statsPeriod, now), [now, restSessions, statsPeriod]);
+  const periodFocusSessions = useMemo(() => focusRecordsForPeriod(sessions, statsPeriod, now), [now, sessions, statsPeriod]);
+  const periodRestSessions = useMemo(() => focusRecordsForPeriod(restSessions, statsPeriod, now), [now, restSessions, statsPeriod]);
   const periodFocusSeconds = totalFocusSeconds(periodFocusSessions);
   const periodRestSeconds = totalRestSeconds(periodRestSessions);
 
@@ -194,13 +193,30 @@ export function FocusPage({ ownerId }: FocusPageProps) {
       setPomodoroPlan(loadPomodoroPlan(ownerId));
     };
     window.addEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(FOCUS_STATE_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, [ownerId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const previousStage = presentationStageRef.current;
+    presentationStageRef.current = active?.started_at;
+    if (!previousStage || previousStage === active?.started_at) return;
+    // The global timer can win the completion claim. Presentation belongs to
+    // this page and must still reset when that writer ends/advances the stage.
+    void closeFocusSystemWindow();
+    void exitImmersiveFullscreen();
+    void lockOrientation("auto");
+    setShowFullscreen(false);
+    setSystemWindowOpen(false);
+  }, [active?.started_at]);
 
   useEffect(() => {
     localStorage.setItem(FOCUS_SCREEN_WAKE_LOCK_KEY, keepScreenAwake ? "true" : "false");
@@ -449,140 +465,44 @@ export function FocusPage({ ownerId }: FocusPageProps) {
 
   async function finishFocus(completed: boolean, interrupted: boolean) {
     if (!active) return;
-    const operationOwnerId = ownerId;
-    const operationGeneration = ownerGenerationRef.current;
-    const isCurrent = () => ownerGenerationRef.current === operationGeneration && ownerIdentityRef.current === operationOwnerId;
-    const endedAt = new Date();
-    const duration = Math.max(1, elapsedFocusSeconds(active, endedAt));
-    if (active.mode === "rest") {
-      const record: RestSession = {
-        ...syncFields(undefined, ownerId),
-        planned_seconds: active.planned_seconds ?? effectiveSettings.short_break_minutes * 60,
-        duration_seconds: duration,
-        started_at: active.started_at,
-        ended_at: endedAt.toISOString(),
-        completed,
-        interrupted,
-        rest_kind: active.pomodoro_rest_kind ?? "manual",
-        pomodoro_plan_id: active.pomodoro_plan_id ?? null,
-        pomodoro_round: active.pomodoro_round ?? null
-      };
-      await putRecordAndQueue("restSessions", record);
-    } else {
-      const record: FocusSession = {
-        ...syncFields(undefined, ownerId),
-        mode: active.mode,
-        task_title: active.task_title,
-        linked_event_id: active.linked_event_id,
-        planned_seconds: active.planned_seconds,
-        duration_seconds: duration,
-        started_at: active.started_at,
-        ended_at: endedAt.toISOString(),
-        completed,
-        interrupted,
-        pomodoro_plan_id: active.pomodoro_plan_id ?? null,
-        pomodoro_round: active.pomodoro_round ?? null
-      };
-      await putRecordAndQueue("focusSessions", record);
-    }
-    await stopNativeFocusTimer(operationOwnerId, active.mode === "lock");
-    let nextActive: ActiveFocusState | null = null;
-    if (completed && active.mode === "pomodoro" && active.pomodoro_plan_id) {
-      const round = active.pomodoro_round ?? 1;
-      const total = active.pomodoro_total_rounds ?? effectiveSettings.pomodoro_rounds;
-      const updatedPlan: PomodoroPlanState = {
-        id: active.pomodoro_plan_id,
-        task_title: active.task_title,
-        linked_event_id: active.linked_event_id,
-        total_rounds: total,
-        next_round: Math.min(total, round + 1),
-        completed_rounds: round
-      };
-      savePomodoroPlan(ownerId, updatedPlan);
-      if (isCurrent()) setPomodoroPlan(updatedPlan);
-      if (active.pomodoro_auto_start_break) {
-        const restKind = pomodoroRestKind(active);
-        const restSeconds = restKind === "pomodoro_long"
-          ? active.pomodoro_long_break_seconds ?? effectiveSettings.long_break_minutes * 60
-          : active.pomodoro_short_break_seconds ?? effectiveSettings.short_break_minutes * 60;
-        nextActive = {
-          ...active,
-          mode: "rest",
-          task_title: restKind === "pomodoro_long" ? "长休息" : "短休息",
-          linked_event_id: null,
-          planned_seconds: restSeconds,
-          started_at: endedAt.toISOString(),
-          paused_seconds: 0,
-          pause_started_at: null,
-          pomodoro_task_title: active.pomodoro_task_title ?? active.task_title,
-          pomodoro_focus_seconds: active.pomodoro_focus_seconds ?? active.planned_seconds ?? effectiveSettings.pomodoro_minutes * 60,
-          pomodoro_rest_kind: restKind
-        };
-      }
-    } else if (completed && active.mode === "rest" && active.pomodoro_plan_id) {
-      const round = active.pomodoro_round ?? 1;
-      const total = active.pomodoro_total_rounds ?? pomodoroPlan?.total_rounds ?? round;
-      if (round >= total) {
-        clearPomodoroPlan(ownerId);
-        if (isCurrent()) setPomodoroPlan(null);
-      } else {
-        const nextRound = round + 1;
-        const updatedPlan: PomodoroPlanState = {
-          id: active.pomodoro_plan_id,
-          task_title: pomodoroPlan?.task_title ?? active.pomodoro_task_title ?? "番茄专注",
-          linked_event_id: pomodoroPlan?.linked_event_id ?? null,
-          total_rounds: total,
-          next_round: nextRound,
-          completed_rounds: round
-        };
-        savePomodoroPlan(ownerId, updatedPlan);
-        if (isCurrent()) setPomodoroPlan(updatedPlan);
-        nextActive = {
-          ...active,
-          mode: "pomodoro",
-          task_title: updatedPlan.task_title,
-          linked_event_id: updatedPlan.linked_event_id,
-          planned_seconds: active.pomodoro_focus_seconds ?? effectiveSettings.pomodoro_minutes * 60,
-          started_at: endedAt.toISOString(),
-          paused_seconds: 0,
-          pause_started_at: null,
-          pomodoro_round: nextRound,
-          pomodoro_total_rounds: total,
-          pomodoro_rest_kind: null,
-          pomodoro_task_title: updatedPlan.task_title,
-          pomodoro_focus_seconds: active.pomodoro_focus_seconds ?? effectiveSettings.pomodoro_minutes * 60
-        };
-      }
-    }
-    if (nextActive) {
-      saveActiveFocus(ownerId, nextActive);
+    const releaseCompletion = claimFocusCompletion(ownerId, active.started_at);
+    if (!releaseCompletion) return;
+    try {
+      const operationOwnerId = ownerId;
+      const operationGeneration = ownerGenerationRef.current;
+      const isCurrent = () => ownerGenerationRef.current === operationGeneration && ownerIdentityRef.current === operationOwnerId;
+      const result = await completeFocusSession(ownerId, active, { completed, interrupted });
+      if (!result?.created) return;
+      const duration = result.record.duration_seconds;
+      const nextActive = result.nextActive;
       if (isCurrent()) {
-        setActive(nextActive);
-        try {
-          const nativeSeconds = await startNativeFocusTimer(operationOwnerId, nextActive);
-          if (isCurrent()) setNativeElapsed(nativeSeconds);
-        } catch {
-          if (isCurrent()) setNativeElapsed(null);
+        await stopNativeFocusTimer(operationOwnerId, active.mode === "lock");
+        if (nextActive) {
+          try {
+            const nativeSeconds = await startNativeFocusTimer(operationOwnerId, nextActive);
+            if (isCurrent()) setNativeElapsed(nativeSeconds);
+          } catch {
+            if (isCurrent()) setNativeElapsed(null);
+          }
         }
       }
-    } else {
-      clearActiveFocus(ownerId);
-      if (isCurrent()) setActive(null);
+      if (!isCurrent()) return;
+      void closeFocusSystemWindow();
+      void exitImmersiveFullscreen();
+      void lockOrientation("auto");
+      setShowFullscreen(false);
+      setSystemWindowOpen(false);
+      setTaskTitle("");
+      setLinkedEventId("");
+      if (!nextActive) setNativeElapsed(null);
+      const kind = active.mode === "rest" ? "休息" : "专注";
+      const resultMessage = completed ? `已完成 ${formatFocusDuration(duration)} ${kind}。` : `已保存 ${formatFocusDuration(duration)} ${kind}记录。`;
+      setMessage(resultMessage);
+      showToast(resultMessage, "success");
+      if (completed) notifyFocusComplete(active.task_title, effectiveSettings.sound_enabled);
+    } finally {
+      releaseCompletion();
     }
-    if (!isCurrent()) return;
-    void closeFocusSystemWindow();
-    void exitImmersiveFullscreen();
-    void lockOrientation("auto");
-    setShowFullscreen(false);
-    setSystemWindowOpen(false);
-    setTaskTitle("");
-    setLinkedEventId("");
-    if (!nextActive) setNativeElapsed(null);
-    const kind = active.mode === "rest" ? "休息" : "专注";
-    const resultMessage = completed ? `已完成 ${formatFocusDuration(duration)} ${kind}。` : `已保存 ${formatFocusDuration(duration)} ${kind}记录。`;
-    setMessage(resultMessage);
-    showToast(resultMessage, "success");
-    if (completed) notifyFocusComplete(active.task_title, effectiveSettings.sound_enabled);
   }
 
   function discardFocus() {
@@ -966,21 +886,6 @@ type StatsPeriod = "day" | "week" | "month";
 
 function statsPeriodLabel(period: StatsPeriod): string {
   return { day: "日", week: "周", month: "月" }[period];
-}
-
-function periodStart(period: StatsPeriod, now: Date): Date {
-  if (period === "day") return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (period === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
-}
-
-function recordsForPeriod<T extends { ended_at: string; deleted_at: string | null }>(records: T[], period: StatsPeriod, now: Date): T[] {
-  const start = periodStart(period, now).getTime();
-  const end = now.getTime();
-  return records.filter((record) => {
-    const endedAt = new Date(record.ended_at).getTime();
-    return !record.deleted_at && endedAt >= start && endedAt <= end;
-  });
 }
 
 function totalRestSeconds(sessions: RestSession[]): number {

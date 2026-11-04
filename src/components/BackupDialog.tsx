@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, queueChange } from "../db";
+import { db } from "../db";
 import {
   BACKUP_TABLES,
   createBackup,
   downloadBackup,
   OPTIONAL_TABLES_IN_OLD_BACKUPS,
-  prepareBackupRecordsForRestore
+  restoreBackup
 } from "../lib/backup";
 import { createLocalBackupSnapshot, getLatestLocalBackupSnapshot } from "../lib/autoBackup";
 import { getCurrentUserId } from "../lib/identity";
@@ -124,26 +124,7 @@ export function BackupDialog({ onClose }: BackupDialogProps) {
         setMessage("已取消导入前备份，数据尚未导入。");
         return;
       }
-      const restoreStartedAt = new Date();
-
-      await db.transaction("rw", [...BACKUP_TABLES.map((name) => db.table(name)), db.syncQueue], async () => {
-        for (const tableName of BACKUP_TABLES) {
-          const incomingRecords = preview.backup.data[tableName] as Array<Record<string, unknown>>;
-          const existingRecords = await db.table(tableName).bulkGet(
-            incomingRecords.map((record) => String(record.id))
-          ) as Array<Record<string, unknown> | undefined>;
-          const records = prepareBackupRecordsForRestore(
-            incomingRecords,
-            existingRecords,
-            currentUserId,
-            restoreStartedAt
-          );
-          if (records.length) await db.table(tableName).bulkPut(records);
-          for (const record of records) {
-            await queueChange(tableName, String(record.id), "upsert", currentUserId);
-          }
-        }
-      });
+      await restoreBackup(preview.backup, currentUserId);
 
       setMessage(`导入完成：合并 ${preview.total} 条记录；当前账号相关记录会自动同步。`);
       showToast(`导入完成：合并 ${preview.total} 条记录。`, "success");

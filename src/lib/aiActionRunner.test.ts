@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import Dexie from "dexie";
 import { db } from "../db";
 import { setCurrentUserId } from "./identity";
 import { actionResultsSummary, applyActionsToLocalRecords } from "./aiActionRunner";
@@ -68,6 +69,58 @@ describe("AI 动作执行器", () => {
     await db.eventOccurrenceStates.clear();
     await db.focusSessions.clear();
     await db.syncQueue.clear();
+    await db.memos.clear();
+  });
+
+  it("查询已有事项期间取消后不会执行删除", async () => {
+    const original = event("cancel-delete", "2026-09-21");
+    await db.events.put(original);
+    const controller = new AbortController();
+    const cancelOnRead = (row: EventItem) => { controller.abort(); return row; };
+    db.events.hook("reading", cancelOnRead);
+    try {
+      await expect(applyActionsToLocalRecords([{ type: "delete_event", title: original.title }], "删除", userId, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      db.events.hook("reading").unsubscribe(cancelOnRead);
+    }
+    expect(await db.events.get(original.id)).toEqual(original);
+    expect(await db.syncQueue.count()).toBe(0);
+  });
+
+  it("写入过程中取消回滚当前未提交动作和队列，不继续创建后续记录", async () => {
+    const controller = new AbortController();
+    const cancelOnCreate = () => { controller.abort(); };
+    db.memos.hook("creating", cancelOnCreate);
+    try {
+      await expect(applyActionsToLocalRecords([
+        { type: "create_memo", title: "第一条" },
+        { type: "create_memo", title: "第二条" }
+      ], "记录", userId, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      db.memos.hook("creating").unsubscribe(cancelOnCreate);
+    }
+    expect(await db.memos.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
+  });
+
+  it("首个动作已提交后取消保留该动作，但不执行下一条", async () => {
+    const controller = new AbortController();
+    const cancelAfterCommit = () => {
+      let transaction = Dexie.currentTransaction!;
+      while (transaction.parent) transaction = transaction.parent;
+      transaction.on("complete", () => controller.abort());
+    };
+    db.memos.hook("creating", cancelAfterCommit);
+    try {
+      await expect(applyActionsToLocalRecords([
+        { type: "create_memo", title: "已提交" },
+        { type: "create_memo", title: "尚未开始" }
+      ], "记录", userId, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      db.memos.hook("creating").unsubscribe(cancelAfterCommit);
+    }
+    expect(await db.memos.toArray()).toEqual([expect.objectContaining({ title: "已提交" })]);
+    expect(await db.syncQueue.count()).toBe(1);
   });
 
   it("修改动作按标题更新全部同类课程安排", async () => {

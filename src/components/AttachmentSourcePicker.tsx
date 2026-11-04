@@ -134,11 +134,12 @@ export function AttachmentSourcePicker({
         aria-label="从相册选择"
         onChange={(event) => handleFiles(event.target.files, event.currentTarget)}
       />
+      {/* Android's Capacitor chooser requires image/* to launch image capture. */}
       <input
         ref={cameraRef}
         className="visually-hidden"
         type="file"
-        accept={imageAccept}
+        accept="image/*"
         capture="environment"
         aria-label="拍照上传"
         onChange={(event) => handleFiles(event.target.files, event.currentTarget)}

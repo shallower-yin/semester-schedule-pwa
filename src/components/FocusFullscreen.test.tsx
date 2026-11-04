@@ -99,4 +99,11 @@ describe("全屏专注", () => {
   it("formatFocusDate 输出月日与星期", () => {
     expect(formatFocusDate(new Date(2026, 6, 20))).toBe("7月20日 星期一");
   });
+
+  it("全屏真实时间戳在海外设备也按上海跨日", () => {
+    const now = new Date("2026-07-20T00:05:00+08:00");
+    now.getDate = () => 19;
+    now.getDay = () => 0;
+    expect(formatFocusDate(now)).toBe("7月20日 星期一");
+  });
 });

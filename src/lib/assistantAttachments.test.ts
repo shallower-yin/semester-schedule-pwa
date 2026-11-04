@@ -101,6 +101,61 @@ describe("AI 助手附件", () => {
     expect(progress).toHaveBeenLastCalledWith(121, 121);
   });
 
+  it("PDF 批次失败等待在途上传结束，再清理该批全部对象", async () => {
+    getDocumentMock.mockReturnValue({
+      promise: Promise.resolve({
+        numPages: 25,
+        getPage: vi.fn().mockResolvedValue({
+          getTextContent: vi.fn().mockResolvedValue({ items: [] }),
+          getViewport: () => ({ width: 600, height: 800 }),
+          render: () => ({ promise: Promise.resolve() })
+        })
+      })
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => callback(new Blob(["page"], { type: "image/jpeg" })));
+    const issuedKeys: string[] = [];
+    const deletedKeys: string[] = [];
+    invokeMock.mockImplementation(async (_name: string, options: { body: { action: string; document?: { pages?: Array<{ pageNumber: number }>; objectKeys?: string[] } } }) => {
+      if (options.body.action === "configuration") return { data: { maxDocumentPages: 120 }, error: null };
+      if (options.body.action === "delete_document_uploads") {
+        deletedKeys.push(...options.body.document!.objectKeys!);
+        return { data: { ok: true }, error: null };
+      }
+      const uploads = options.body.document!.pages!.map(({ pageNumber }) => {
+        const objectKey = `ai-documents/user-1/doc/page-${pageNumber}.jpg`;
+        issuedKeys.push(objectKey);
+        return { pageNumber, objectKey, uploadUrl: `https://r2.test/page-${pageNumber}` };
+      });
+      return { data: { documentId: "doc", uploads }, error: null };
+    });
+    let finishUpload!: () => void;
+    let failedUpload = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("page-1")) {
+        await new Promise<void>((resolve) => { finishUpload = resolve; });
+      }
+      if (String(url).endsWith("page-2")) {
+        failedUpload = true;
+        return new Response(null, { status: 500 });
+      }
+      return new Response(null, { status: 200 });
+    });
+    const file = new File(["scan"], "partial-scan.pdf", { type: "application/pdf" });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode("scan").buffer });
+    let settled = false;
+    const result = prepareAiAssistantAttachment(file).catch((error: unknown) => { settled = true; return error; });
+    await vi.waitFor(() => expect(failedUpload).toBe(true));
+    // The failed request must not trigger deletion while another PUT can recreate its object.
+    const settledBeforeUpload = settled;
+    const cleanedBeforeUpload = deletedKeys.length;
+    finishUpload();
+    expect(await result).toMatchObject({ message: expect.stringContaining("第 2 页上传失败") });
+    expect(settledBeforeUpload).toBe(false);
+    expect(cleanedBeforeUpload).toBe(0);
+    expect(deletedKeys.sort()).toEqual(issuedKeys.sort());
+    expect(deletedKeys).toHaveLength(8);
+  });
+
   it("文本型长 PDF 按实际页数生成可恢复的文本批次", async () => {
     getDocumentMock.mockReturnValue({
       promise: Promise.resolve({

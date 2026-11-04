@@ -101,6 +101,23 @@ describe("备忘录视图", () => {
     expect(within(grid).getByText("备忘录 10")).toBeInTheDocument();
   });
 
+  it("千条列表限制首屏卡片，后续页、全量搜索和全局定位仍可访问", async () => {
+    const records = Array.from({ length: 1000 }, (_, index) => memoRecord(index + 1));
+    await db.memos.bulkAdd(records);
+    const { rerender } = render(<MemoPage ownerId="local" />);
+    await screen.findByText("列表 1 / 50");
+    const list = screen.getByRole("list", { name: "备忘录列表" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(20);
+    const firstTitles = within(list).getAllByRole("heading").map((heading) => heading.textContent);
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText("列表 2 / 50")).toBeInTheDocument();
+    expect(within(list).getAllByRole("heading").some((heading) => !firstTitles.includes(heading.textContent))).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText("搜索备忘录"), { target: { value: "第 1 条备忘录正文" } });
+    expect(within(list).getByText("备忘录 1")).toBeInTheDocument();
+    rerender(<MemoPage ownerId="local" openMemoId={records[499].id} />);
+    await waitFor(() => expect(screen.getByLabelText("标题")).toHaveValue("备忘录 500"));
+  });
+
   it("新增备忘录正文可以插入编号和待办并按回车续行", async () => {
     render(<MemoPage ownerId="local" />);
 

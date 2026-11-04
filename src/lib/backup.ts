@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db, queueChange } from "../db";
 import type { BackupFile, SyncTableName } from "../types";
 import { markBackupExported } from "./backupStatus";
 import { exportText, type ExportedFile } from "./fileExport";
@@ -40,6 +40,15 @@ export function prepareBackupRecordsForRestore(
     );
   if (!restorableIndexes.length) return [];
 
+  // An anonymous export can share IDs with data later adopted by another
+  // account on this device. Never transfer that account's rows via bulkPut.
+  for (const { index } of restorableIndexes) {
+    const existingOwner = existingRecords[index]?.user_id;
+    if (existingOwner && existingOwner !== currentUserId && existingOwner !== "local") {
+      throw new Error("备份中有记录与其他账号的本机数据冲突，已取消导入。");
+    }
+  }
+
   const newestKnownTimestamp = restorableIndexes.reduce((latest, { index }) => {
     const existing = existingRecords[index];
     return Math.max(
@@ -74,9 +83,11 @@ function timestampValue(value: unknown): number {
 
 export async function createBackup(ownerId = getCurrentUserId()): Promise<BackupFile> {
   const data = {} as BackupFile["data"];
-  for (const name of BACKUP_TABLES) {
-    data[name] = await db.table(name).filter((record) => record.user_id === ownerId).toArray();
-  }
+  await db.transaction("r", BACKUP_TABLES.map((name) => db.table(name)), async () => {
+    for (const name of BACKUP_TABLES) {
+      data[name] = await db.table(name).filter((record) => record.user_id === ownerId).toArray();
+    }
+  });
   return {
     format: "semester-schedule-backup",
     schema_version: 1,
@@ -84,6 +95,22 @@ export async function createBackup(ownerId = getCurrentUserId()): Promise<Backup
     exported_at: new Date().toISOString(),
     data
   };
+}
+
+export async function restoreBackup(backup: BackupFile, ownerId: string, now = new Date()): Promise<void> {
+  await db.transaction("rw", [...BACKUP_TABLES.map((name) => db.table(name)), db.syncQueue], async () => {
+    for (const tableName of BACKUP_TABLES) {
+      const incomingRecords = backup.data[tableName] as Array<Record<string, unknown>>;
+      const existingRecords = await db.table(tableName).bulkGet(
+        incomingRecords.map((record) => String(record.id))
+      ) as Array<Record<string, unknown> | undefined>;
+      const records = prepareBackupRecordsForRestore(incomingRecords, existingRecords, ownerId, now);
+      if (records.length) await db.table(tableName).bulkPut(records);
+      for (const record of records) {
+        await queueChange(tableName, String(record.id), "upsert", ownerId);
+      }
+    }
+  });
 }
 
 export async function downloadBackup(backup: BackupFile, fileName: string): Promise<ExportedFile> {

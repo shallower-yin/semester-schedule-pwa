@@ -1,0 +1,14 @@
+{
+  "name": "deepmerge",
+  "version": "4.3.1-security.1",
+  "private": true,
+  "description": "Local security backport of deepmerge 4.3.1 for the PWA build toolchain",
+  "main": "index.cjs",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "upstream": {
+    "package": "deepmerge@4.3.1",
+    "patch": "https://github.com/TehShrike/deepmerge/pull/286",
+    "patchCommit": "9add7d91abb595703679faf7b7942bbe7f87642b"
+  }
+}

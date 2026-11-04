@@ -21,11 +21,17 @@ export interface SnapshotScheduleItem {
   color: string;
   completed: boolean;
   kind: "course" | "event" | "habit";
+  startMinute?: number;
+  endMinute?: number;
+  allDay?: boolean;
+  details?: string[];
+  continuation?: string;
 }
 
 export interface SnapshotDay {
   date: Date;
   items: SnapshotScheduleItem[];
+  restPeriods?: { name: string; startMinute: number; endMinute: number }[];
 }
 
 export interface ScheduleSnapshotInput {
@@ -73,13 +79,19 @@ export function buildSnapshotDays(input: ScheduleSnapshotInput, dates: Date[]): 
         detail: [course.classroom, course.teacher].filter(Boolean).join(" · "),
         color: course.color,
         completed: false,
-        kind: "course"
+        kind: "course",
+        startMinute: start ? snapshotMinutes(start.start_time) : undefined,
+        endMinute: end ? snapshotMinutes(end.end_time) : undefined,
+        details: [course.classroom, course.teacher].filter(Boolean)
       }];
     }) : [];
     const events = input.events.flatMap((eventItem): SnapshotScheduleItem[] => {
       if (eventItem.deleted_at || !eventOccursOn(eventItem, date)) return [];
       const completion = eventCompletionForDate(eventItem, input.occurrenceStates, date);
       const category = eventItem.category_id ? categoryMap.get(eventItem.category_id) : undefined;
+      const dateRange = eventItem.recurrence_type === "none" && eventItem.end_date > eventItem.start_date;
+      const startMinute = snapshotMinutes(eventItem.start_time ?? "00:00");
+      const endMinute = snapshotMinutes(eventItem.end_time ?? eventItem.start_time ?? "00:00");
       return [{
         id: `${eventItem.id}-${dateText}`,
         title: eventItem.title,
@@ -87,10 +99,22 @@ export function buildSnapshotDays(input: ScheduleSnapshotInput, dates: Date[]): 
         detail: [eventItem.location, category?.name].filter(Boolean).join(" · "),
         color: eventItem.color || category?.color || "#ff6b35",
         completed: completion.completed,
-        kind: eventItem.event_type === "habit" ? "habit" : "event"
+        kind: eventItem.event_type === "habit" ? "habit" : "event",
+        allDay: eventItem.all_day,
+        startMinute,
+        endMinute: Math.max(startMinute + 1, endMinute),
+        details: [eventItem.location, category?.name].filter((value): value is string => Boolean(value)),
+        continuation: dateRange
+          ? `${eventItem.start_date.slice(5).replace("-", "/")}–${eventItem.end_date.slice(5).replace("-", "/")}`
+          : undefined
       }];
     });
-    return { date, items: [...courses, ...events].sort(compareSnapshotItems) };
+    const restPeriods = input.periods.filter((period) =>
+      !period.deleted_at && period.kind === "break" && period.weekday === (date.getDay() || 7)
+      && (!input.semester || period.semester_id === input.semester.id)
+      && snapshotMinutes(period.end_time) > snapshotMinutes(period.start_time)
+    ).map((period) => ({ name: period.name || "休息", startMinute: snapshotMinutes(period.start_time), endMinute: snapshotMinutes(period.end_time) }));
+    return { date, items: [...courses, ...events].sort(compareSnapshotItems), restPeriods };
   });
 }
 
@@ -101,12 +125,15 @@ export async function exportScheduleSnapshot(options: {
   title: string;
   fileName: string;
   template?: SnapshotTemplateConfig;
+  layout?: "desktop" | "mobile";
 }): Promise<void> {
   const template = options.template ?? SCHEDULE_SNAPSHOT_TEMPLATE;
   const skin = THEME_SKINS.find((item) => item.id === options.skinId) ?? THEME_SKINS[0];
   const rendered = options.mode === "day"
     ? drawDaySnapshot(options.days[0], skin.colors, options.title, template)
-    : drawWeekSnapshot(options.days, skin.colors, options.title, template);
+    : options.layout === "mobile"
+      ? drawMobileWeekSnapshot(options.days, skin.colors, options.title, template)
+      : drawWeekSnapshot(options.days, skin.colors, options.title, template);
   const canvas = template.backgroundImageUrl ? await applyTemplateArtwork(rendered, template.backgroundImageUrl) : rendered;
   await exportBlob(await canvasToPngBlob(canvas), `${options.fileName}.png`);
 }
@@ -193,6 +220,249 @@ function drawWeekSnapshot(days: SnapshotDay[], colors: [string, string, string],
   });
   drawFooter(context, width, height, colors, template.footerText);
   return canvas;
+}
+
+interface MobileSnapshotTextLine {
+  text: string;
+  size: number;
+  weight: number;
+  height: number;
+}
+
+interface MobileSnapshotCard {
+  item: SnapshotScheduleItem;
+  lines: MobileSnapshotTextLine[];
+  height: number;
+}
+
+interface MobileSnapshotGroup {
+  dayIndex: number;
+  start: number;
+  end: number;
+  cards: MobileSnapshotCard[];
+  height: number;
+}
+
+function drawMobileWeekSnapshot(days: SnapshotDay[], colors: [string, string, string], title: string, template: SnapshotTemplateConfig): HTMLCanvasElement {
+  const width = 1080;
+  const margin = 24;
+  const clockWidth = 0;
+  const gap = 8;
+  const columnWidth = (width - margin * 2 - clockWidth - gap * 6) / 7;
+  const columnX = (index: number) => margin + clockWidth + index * (columnWidth + gap);
+  // Measure all content before choosing the canvas height. No mobile items are capped.
+  const { canvas, context } = createCanvas(width, 1920, colors[1]);
+  const visibleDays = days.slice(0, 7);
+  const cardsByDay = visibleDays.map((day) => day.items.map((item) => measureMobileSnapshotCard(context, item, columnWidth)));
+  const isUntimed = (card: MobileSnapshotCard) => card.item.allDay || card.item.time === "全天" || card.item.startMinute === undefined || card.item.endMinute === undefined;
+  const untimedCards = cardsByDay.map((cards) => cards.filter(isUntimed));
+  const allDayHeight = Math.max(0, ...untimedCards.map((cards) => cards.reduce((height, card) => height + card.height + gap, 0)));
+  const groups: MobileSnapshotGroup[] = [];
+  cardsByDay.forEach((cards, dayIndex) => {
+    const timed = cards.filter((card) => !isUntimed(card)).sort((left, right) => left.item.startMinute! - right.item.startMinute! || left.item.endMinute! - right.item.endMinute!);
+    let current: MobileSnapshotGroup | undefined;
+    for (const card of timed) {
+      const start = Math.max(0, Math.min(1439, card.item.startMinute!));
+      const end = Math.min(1440, Math.max(start + 1, card.item.endMinute!));
+      if (!current || start >= current.end) {
+        current = { dayIndex, start, end, cards: [card], height: card.height + gap };
+        groups.push(current);
+      } else {
+        if (current.cards.length === 1) current.height += 28;
+        current.cards.push(card);
+        current.end = Math.max(current.end, end);
+        current.height += card.height + gap;
+      }
+    }
+  });
+  const restPeriods = visibleDays.flatMap((day, dayIndex) => (day.restPeriods ?? []).map((rest) => ({ ...rest, dayIndex })));
+  const firstMinute = Math.min(480, ...groups.map((group) => group.start), ...restPeriods.map((rest) => rest.startMinute));
+  const lastMinute = Math.max(1200, ...groups.map((group) => group.end), ...restPeriods.map((rest) => rest.endMinute));
+  const hours = Array.from({ length: Math.floor(lastMinute / 60) - Math.ceil(firstMinute / 60) + 1 }, (_, index) => (Math.ceil(firstMinute / 60) + index) * 60);
+  const points = [...new Set([
+    firstMinute, lastMinute, ...hours,
+    ...groups.flatMap((group) => [group.start, group.end]),
+    ...restPeriods.flatMap((rest) => [rest.startMinute, rest.endMinute])
+  ])].sort((left, right) => left - right);
+  const offsets = new Map<number, number>();
+  points.forEach((point, index) => {
+    const previous = points[index - 1];
+    let offset = index ? offsets.get(previous)! + (point - previous) * 1.8 : 0;
+    // A shared, monotonic clock expands crowded intervals for every day together.
+    for (const group of groups.filter((item) => item.end === point)) {
+      offset = Math.max(offset, offsets.get(group.start)! + group.height);
+    }
+    for (const rest of restPeriods.filter((item) => item.endMinute === point)) {
+      offset = Math.max(offset, offsets.get(rest.startMinute)! + 64);
+    }
+    offsets.set(point, offset);
+  });
+  const timelineTop = 250 + (allDayHeight ? allDayHeight + 32 : 0);
+  const minimumTimelineHeight = Math.max(720, 1920 - timelineTop - 80);
+  const scale = Math.max(1, minimumTimelineHeight / offsets.get(lastMinute)!);
+  for (const [minute, offset] of offsets) offsets.set(minute, offset * scale);
+  const timelineHeight = offsets.get(lastMinute)!;
+  const height = Math.max(1920, Math.ceil(timelineTop + timelineHeight + 80));
+  canvas.height = height;
+  context.fillStyle = colors[1];
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = "#243044";
+  context.font = "750 40px 'Microsoft YaHei', sans-serif";
+  context.fillText(title, margin, 72);
+  context.fillStyle = "#5a6678";
+  context.font = "500 22px 'Microsoft YaHei', sans-serif";
+  context.fillText(`${visibleDays[0]?.date.getFullYear() ?? ""}年`, margin, 112);
+
+  const today = toISODate(new Date());
+  visibleDays.forEach((day, dayIndex) => {
+    const x = columnX(dayIndex);
+    const selected = toISODate(day.date) === today;
+    context.fillStyle = selected ? snapshotPastel(colors[0]) : colors[2];
+    roundRect(context, x, 144, columnWidth, 82, 18);
+    context.fill();
+    if (selected) {
+      context.strokeStyle = colors[0];
+      context.lineWidth = 3;
+      context.stroke();
+    }
+    context.fillStyle = "#243044";
+    context.font = `${selected ? 800 : 650} 27px 'Microsoft YaHei', sans-serif`;
+    drawCenteredSnapshotText(context, `${day.date.getMonth() + 1}/${day.date.getDate()}`, x, 178, columnWidth);
+    context.font = "500 20px 'Microsoft YaHei', sans-serif";
+    drawCenteredSnapshotText(context, WEEKDAY_LABELS[day.date.getDay()], x, 208, columnWidth);
+  });
+
+  if (allDayHeight) {
+    untimedCards.forEach((cards, dayIndex) => {
+      let y = 246;
+      for (const card of cards) {
+        drawMobileSnapshotCard(context, card, columnX(dayIndex), y, columnWidth, card.height, colors);
+        y += card.height + gap;
+      }
+    });
+  }
+
+  context.strokeStyle = "#dfe5ed";
+  context.lineWidth = 1;
+  for (const minute of hours) {
+    const y = timelineTop + offsets.get(minute)!;
+    context.beginPath();
+    context.moveTo(margin + clockWidth, y);
+    context.lineTo(width - margin, y);
+    context.stroke();
+  }
+
+  const drawnRests = new Set<string>();
+  for (const rest of restPeriods) {
+    const key = `${rest.startMinute}-${rest.endMinute}-${rest.name}`;
+    const matching = restPeriods.filter((item) => `${item.startMinute}-${item.endMinute}-${item.name}` === key);
+    const common = new Set(matching.map((item) => item.dayIndex)).size === visibleDays.length;
+    if (common && drawnRests.has(key)) continue;
+    drawnRests.add(key);
+    const x = common ? columnX(0) : columnX(rest.dayIndex);
+    const restWidth = common ? width - margin - x : columnWidth;
+    const top = timelineTop + offsets.get(rest.startMinute)! + 3;
+    const restHeight = Math.max(28, offsets.get(rest.endMinute)! - offsets.get(rest.startMinute)! - 6);
+    context.fillStyle = colors[2];
+    roundRect(context, x, top, restWidth, restHeight, 14);
+    context.fill();
+    context.fillStyle = "#5a6678";
+    context.font = `600 ${common ? 24 : 17}px 'Microsoft YaHei', sans-serif`;
+    drawCenteredSnapshotText(context, rest.name, x + 6, top + restHeight / 2 - (common ? 7 : 4), restWidth - 12);
+    context.font = `500 ${common ? 18 : 14}px 'Microsoft YaHei', sans-serif`;
+    drawCenteredSnapshotText(context, `${snapshotClock(rest.startMinute)}–${snapshotClock(rest.endMinute)}`, x + 6, top + restHeight / 2 + 20, restWidth - 12);
+  }
+
+  for (const group of groups) {
+    const x = columnX(group.dayIndex);
+    let top = timelineTop + offsets.get(group.start)! + 4;
+    const groupHeight = offsets.get(group.end)! - offsets.get(group.start)! - 8;
+    if (group.cards.length > 1) {
+      context.fillStyle = colors[2];
+      roundRect(context, x - 2, top - 2, columnWidth + 4, groupHeight + 4, 17);
+      context.fill();
+      context.fillStyle = "#5a6678";
+      context.font = "600 17px 'Microsoft YaHei', sans-serif";
+      drawCenteredSnapshotText(context, `重叠 ${group.cards.length} 项`, x, top + 20, columnWidth);
+      top += 28;
+    }
+    group.cards.forEach((card) => {
+      const cardHeight = group.cards.length === 1 ? groupHeight : card.height;
+      drawMobileSnapshotCard(context, card, x, top, columnWidth, cardHeight, colors);
+      top += cardHeight + gap;
+    });
+  }
+  drawFooter(context, width, height, colors, template.brandText);
+  return canvas;
+}
+
+function measureMobileSnapshotCard(context: CanvasRenderingContext2D, item: SnapshotScheduleItem, width: number): MobileSnapshotCard {
+  const lines: MobileSnapshotTextLine[] = [];
+  function add(text: string, size: number, weight: number, lineHeight: number) {
+    if (!text) return;
+    context.font = `${weight} ${size}px 'Microsoft YaHei', sans-serif`;
+    for (const line of wrapSnapshotText(context, text, width - 18)) lines.push({ text: line, size, weight, height: lineHeight });
+  }
+  add(`${item.completed ? "✓ " : ""}${item.title}`, 24, 700, 32);
+  const hasTime = item.startMinute !== undefined && item.endMinute !== undefined && !item.allDay && item.time !== "全天";
+  add(hasTime ? `${snapshotClock(item.startMinute!)}–${snapshotClock(Math.min(1440, item.endMinute!))}` : item.time, 18, 600, 25);
+  for (const detail of item.details ?? (item.detail ? [item.detail] : [])) add(detail, 21, 500, 28);
+  if (item.continuation) {
+    add("日期范围", 18, 600, 25);
+    add(item.continuation, 17, 500, 24);
+  }
+  return { item, lines, height: Math.max(114, lines.reduce((total, line) => total + line.height, 0) + 30) };
+}
+
+function drawMobileSnapshotCard(context: CanvasRenderingContext2D, card: MobileSnapshotCard, x: number, y: number, width: number, height: number, colors: [string, string, string]) {
+  context.fillStyle = snapshotPastel(card.item.color || colors[0]);
+  roundRect(context, x, y, width, height, 17);
+  context.fill();
+  const contentHeight = card.lines.reduce((total, line) => total + line.height, 0);
+  let lineY = y + Math.max(14, (height - contentHeight) / 2);
+  for (const line of card.lines) {
+    context.fillStyle = card.item.completed ? "#566172" : "#243044";
+    context.font = `${line.weight} ${line.size}px 'Microsoft YaHei', sans-serif`;
+    lineY += line.height;
+    drawCenteredSnapshotText(context, line.text, x + 9, lineY - 6, width - 18);
+  }
+}
+
+function wrapSnapshotText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split(/\r?\n/)) {
+    // Room identifiers such as 33-133 and 45-B404 remain a single token.
+    const tokens = paragraph.match(/[A-Za-z0-9]+(?:[-_.:/][A-Za-z0-9]+)*|\s+|[^A-Za-z0-9\s]/g) ?? [];
+    let line = "";
+    for (const token of tokens) {
+      if (line && context.measureText(line + token).width > maxWidth) {
+        lines.push(line.trimEnd());
+        line = token.trimStart();
+      } else line += token;
+    }
+    if (line || !tokens.length) lines.push(line.trimEnd());
+  }
+  return lines;
+}
+
+function drawCenteredSnapshotText(context: CanvasRenderingContext2D, text: string, x: number, y: number, width: number) {
+  const textWidth = Math.min(width, context.measureText(text).width);
+  context.fillText(text, x + (width - textWidth) / 2, y, width);
+}
+
+function snapshotPastel(color: string): string {
+  const hex = color.match(/^#([0-9a-f]{6})$/i)?.[1];
+  if (!hex) return "#e4eaf5";
+  return `#${[0, 2, 4].map((offset) => Math.round(parseInt(hex.slice(offset, offset + 2), 16) * 0.3 + 255 * 0.7).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function snapshotMinutes(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function snapshotClock(value: number): string {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
 function drawHeader(context: CanvasRenderingContext2D, width: number, colors: [string, string, string], title: string, subtitle: string, template: SnapshotTemplateConfig) {

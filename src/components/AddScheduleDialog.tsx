@@ -16,21 +16,22 @@ export function AddScheduleDialog({ courseAvailable = true, onAddCourse, onAddEv
       <div className="add-type-grid">
         <button onClick={onQuickEntry}>
           <Sparkles />
-          <span><strong>快速录入</strong><small>用一句话创建事项，并查看可用格式样例</small></span>
+          <span><strong>快速录入</strong></span>
         </button>
         <button onClick={onAddCourse}>
           <BookOpen />
-          <span><strong>课程</strong><small>{courseAvailable ? "按星期、节次和指定周数重复" : "需要先创建学期，普通事项不受影响"}</small></span>
+          <span><strong>课程</strong></span>
         </button>
         <button onClick={onAddEvent}>
           <CalendarPlus />
-          <span><strong>临时事项</strong><small>指定日期、时间或每周重复</small></span>
+          <span><strong>临时事项</strong></span>
         </button>
         <button onClick={onAddHabit}>
           <CheckCircle2 />
-          <span><strong>习惯</strong><small>定义一段日期范围，每天打卡并统计</small></span>
+          <span><strong>习惯</strong></span>
         </button>
       </div>
+      {!courseAvailable && <p className="muted-note">添加课程需先创建学期。</p>}
     </Modal>
   );
 }

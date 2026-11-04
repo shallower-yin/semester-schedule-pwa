@@ -16,6 +16,35 @@ describe("R2 音频转写上传", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
   });
 
+  it("上传已到达存储但客户端取消时仍清理当前上传凭证对应的对象", async () => {
+    const controller = new AbortController();
+    const objectKey = "ai-audio/user-1/cancelled.mp3";
+    invokeMock.mockImplementation(async (_name: string, options: { body: { action: string } }) => {
+      if (options.body.action === "create_audio_upload") {
+        return { data: { objectKey, uploadUrl: "https://upload.example/cancelled" }, error: null };
+      }
+      return { data: { ok: true }, error: null };
+    });
+    vi.mocked(fetch).mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException("操作已取消。", "AbortError");
+    });
+
+    await expect(transcribeAudioFiles({
+      files: [new File(["audio"], "cancelled.mp3", { type: "audio/mpeg" })],
+      language: "zh",
+      summarize: false,
+      signal: controller.signal
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(invokeMock).toHaveBeenCalledWith("ai-assistant", {
+      body: { action: "delete_audio_upload", audio: { objectKey } }
+    });
+    expect(invokeMock.mock.calls.map(([, options]) => options.body.action)).toEqual([
+      "create_audio_upload", "delete_audio_upload"
+    ]);
+  });
+
   it("多段音频直传 R2 后按文件逐段转写（避免单次任务过大超时）", async () => {
     let uploadIndex = 0;
     invokeMock.mockImplementation(async (_name: string, options: { body: Record<string, unknown> }) => {
@@ -112,12 +141,20 @@ describe("R2 音频转写上传", () => {
         new File(["part-2"], "第二段.wav", { type: "audio/wav" })
       ],
       language: "zh",
-      summarize: false
+      summarize: false,
+      accessCode: " trial-code "
     });
 
     expect(invokeMock.mock.calls.filter(([, options]) => options.body.action === "transcribe_audio_part")).toHaveLength(2);
     expect(invokeMock.mock.calls.filter(([, options]) => options.body.action === "finalize_audio_transcription")).toHaveLength(1);
     expect(invokeMock.mock.calls.filter(([, options]) => options.body.mode === "audio_transcription")).toHaveLength(0);
+    const paidCalls = invokeMock.mock.calls.filter(([, options]) =>
+      ["transcribe_audio_part", "finalize_audio_transcription"].includes(options.body.action));
+    const submission = paidCalls[0][1].body.audioSubmission;
+    expect(submission).toMatchObject({ id: expect.any(String), language: "zh", summarize: false });
+    expect(submission.audios).toHaveLength(2);
+    for (const [, options] of paidCalls) expect(options.body.audioSubmission).toEqual(submission);
+    for (const [, options] of paidCalls) expect(options.body.accessCode).toBe("trial-code");
     expect(result.transcript.indexOf("签名分段1")).toBeLessThan(result.transcript.indexOf("签名分段2"));
   });
 
@@ -265,6 +302,10 @@ describe("R2 音频转写上传", () => {
     expect(singleJobs).toHaveLength(0);
     const summaryCalls = invokeMock.mock.calls.filter(([, options]) => options.body.action === "summarize_audio_transcript");
     expect(summaryCalls).toHaveLength(1);
+    const submission = rangeCalls[0][1].body.audioSubmission;
+    expect(submission).toMatchObject({ id: expect.any(String), language: "zh", summarize: true });
+    for (const [, options] of [...rangeCalls, ...summaryCalls]) expect(options.body.audioSubmission).toEqual(submission);
+    expect(invokeMock.mock.calls.find(([, options]) => options.body.action === "close_audio_submission")?.[1].body.audioSubmissionId).toBe(submission.id);
   });
 
   it("大 MP3 若云端未返回分段计划则直接失败，禁止 1/1 整包", async () => {
@@ -384,7 +425,9 @@ describe("R2 音频转写上传", () => {
     })).rejects.toThrow("音频上传失败");
 
     const cleanupCalls = invokeMock.mock.calls.filter(([, options]) => options.body.action === "delete_audio_upload");
-    expect(cleanupCalls).toHaveLength(1);
-    expect(cleanupCalls[0][1].body.audio).toEqual({ objectKey: "ai-audio/user-1/audio-1.mp3" });
+    expect(cleanupCalls.map(([, options]) => options.body.audio)).toEqual([
+      { objectKey: "ai-audio/user-1/audio-1.mp3" },
+      { objectKey: "ai-audio/user-1/audio-2.mp3" }
+    ]);
   });
 });

@@ -1,12 +1,11 @@
 import Dexie from "dexie";
-import { db } from "../db";
+import { db, queueChange } from "../db";
 import type { EventOccurrenceState, SyncQueueItem, SyncTableName } from "../types";
 import { deduplicateCategories } from "./categories";
 import { getCurrentUserId, syncFields } from "./identity";
 import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
-import { normalizeMemoImages } from "./memoImages";
 import { supabase } from "./supabase";
-import { lunarOccurrenceDates } from "./lunarCalendar";
+import { normalizeRemoteRecord, normalizeUploadPayload } from "./syncRecordTransforms";
 
 export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: string }> = [
   { local: "semesters", remote: "semesters", label: "学期" },
@@ -168,21 +167,7 @@ function queueRecord(owner_id: string, table_name: SyncTableName, record_id: str
 }
 
 async function putQueueItem(owner_id: string, table_name: SyncTableName, record_id: string, operation: "upsert" | "delete" = "upsert") {
-  const existing = await db.syncQueue
-    .where("[owner_id+table_name+record_id]")
-    .equals([owner_id, table_name, record_id])
-    .toArray();
-  const retained = existing[0] ?? queueRecord(owner_id, table_name, record_id, operation);
-  if (existing.length > 1) {
-    await db.syncQueue.bulkDelete(existing.slice(1).map((item) => item.id));
-  }
-  await db.syncQueue.put({
-    ...retained,
-    operation,
-    queued_at: new Date().toISOString(),
-    attempts: 0,
-    last_error: null
-  });
+  await queueChange(table_name, record_id, operation, owner_id);
 }
 
 export async function adoptAnonymousData(userId: string): Promise<number> {
@@ -213,235 +198,6 @@ export async function adoptAnonymousData(userId: string): Promise<number> {
     }
   });
   return adopted;
-}
-
-function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unknown>) {
-  if (table === "classPeriods") {
-    return {
-      ...record,
-      kind: record.kind ?? "period",
-      sort_order: Number(record.sort_order ?? record.period_number ?? 0),
-      start_time: String(record.start_time).slice(0, 5),
-      end_time: String(record.end_time).slice(0, 5)
-    };
-  }
-  if (table === "events") {
-    return {
-      ...record,
-      event_type: record.event_type ?? "event",
-      start_time: record.start_time ? String(record.start_time).slice(0, 5) : null,
-      end_time: record.end_time ? String(record.end_time).slice(0, 5) : null,
-      location: String(record.location ?? ""),
-      reminder_enabled: Boolean(record.reminder_enabled),
-      reminder_minutes_before: Number(record.reminder_minutes_before ?? 10),
-      recurrence_interval: Number(record.recurrence_interval ?? 1),
-      timezone: "Asia/Shanghai"
-    };
-  }
-  if (table === "eventOccurrenceStates") {
-    return { ...record, reminder_sent_at: record.reminder_sent_at ?? null };
-  }
-  if (table === "anniversaries") {
-    return {
-      ...record,
-      kind: record.kind ?? "anniversary",
-      calendar_type: record.calendar_type === "lunar" ? "lunar" : "solar",
-      lunar_year: record.lunar_year == null ? null : Number(record.lunar_year),
-      lunar_month: record.lunar_month == null ? null : Number(record.lunar_month),
-      lunar_day: record.lunar_day == null ? null : Number(record.lunar_day),
-      lunar_is_leap_month: Boolean(record.lunar_is_leap_month),
-      lunar_occurrence_dates: Array.isArray(record.lunar_occurrence_dates)
-        ? record.lunar_occurrence_dates.filter((value): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))
-        : [],
-      color: String(record.color ?? "#d97706"),
-      note: String(record.note ?? ""),
-      reminder_enabled: Boolean(record.reminder_enabled),
-      reminder_days_before: Number(record.reminder_days_before ?? 0),
-      reminder_time: String(record.reminder_time ?? "09:00").slice(0, 5),
-      reminder_sent_for: record.reminder_sent_for ?? null,
-      timezone: "Asia/Shanghai"
-    };
-  }
-  if (table === "memos") {
-    return {
-      ...record,
-      folder_id: record.folder_id ?? null,
-      is_pinned: Boolean(record.is_pinned),
-      images: normalizeMemoImages(record.images)
-    };
-  }
-  if (table === "todos") {
-    return {
-      ...record,
-      title: String(record.title ?? ""),
-      color: normalizeTodoColor(record.color),
-      sort_order: Number(record.sort_order ?? 0),
-      is_pinned: Boolean(record.is_pinned),
-      completed_at: record.completed_at ?? null,
-      reminder_enabled: Boolean(record.reminder_enabled),
-      reminder_at: normalizeNullableDateTime(record.reminder_at),
-      reminder_sent_at: normalizeNullableDateTime(record.reminder_sent_at)
-    };
-  }
-  if (table === "healthProfiles") {
-    return {
-      ...record,
-      height_cm: record.height_cm == null ? null : Number(record.height_cm),
-      daily_water_goal_ml: Number(record.daily_water_goal_ml ?? 2000),
-      exercise_items: normalizeExerciseItems(record.exercise_items),
-      movement_reminder_enabled: Boolean(record.movement_reminder_enabled),
-      movement_interval_minutes: Number(record.movement_interval_minutes ?? 60),
-      reminder_start_time: String(record.reminder_start_time ?? "09:00").slice(0, 5),
-      reminder_end_time: String(record.reminder_end_time ?? "22:00").slice(0, 5),
-      last_movement_reminder_at: record.last_movement_reminder_at ?? null
-    };
-  }
-  if (table === "healthLogs") {
-    return {
-      ...record,
-      amount: Number(record.amount ?? 0),
-      activity: record.activity == null ? null : String(record.activity),
-      note: String(record.note ?? "")
-    };
-  }
-  if (table === "focusSettings") {
-    return {
-      ...record,
-      pomodoro_minutes: Number(record.pomodoro_minutes ?? 25),
-      pomodoro_rounds: Number(record.pomodoro_rounds ?? 4),
-      short_break_minutes: Number(record.short_break_minutes ?? 5),
-      long_break_minutes: Number(record.long_break_minutes ?? 15),
-      long_break_interval: Number(record.long_break_interval ?? 4),
-      auto_start_break: record.auto_start_break !== false,
-      countdown_minutes: Number(record.countdown_minutes ?? 30),
-      daily_goal_minutes: Number(record.daily_goal_minutes ?? 120),
-      sound_enabled: Boolean(record.sound_enabled)
-    };
-  }
-  if (table === "focusSessions") {
-    return {
-      ...record,
-      linked_event_id: record.linked_event_id ?? null,
-      planned_seconds: record.planned_seconds == null ? null : Number(record.planned_seconds),
-      duration_seconds: Number(record.duration_seconds ?? 0),
-      completed: Boolean(record.completed),
-      interrupted: Boolean(record.interrupted),
-      pomodoro_plan_id: record.pomodoro_plan_id ?? null,
-      pomodoro_round: record.pomodoro_round == null ? null : Number(record.pomodoro_round)
-    };
-  }
-  if (table === "restSessions") {
-    return {
-      ...record,
-      planned_seconds: Number(record.planned_seconds ?? 0),
-      duration_seconds: Number(record.duration_seconds ?? 0),
-      completed: Boolean(record.completed),
-      interrupted: Boolean(record.interrupted),
-      rest_kind: record.rest_kind == null ? "manual" : String(record.rest_kind),
-      pomodoro_plan_id: record.pomodoro_plan_id ?? null,
-      pomodoro_round: record.pomodoro_round == null ? null : Number(record.pomodoro_round)
-    };
-  }
-  return record;
-}
-
-function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
-  const { server_updated_at: _serverUpdatedAt, ...payload } = record;
-  if (table === "events" || table === "anniversaries") {
-    if (table === "anniversaries" && payload.calendar_type === "lunar"
-      && Number.isInteger(payload.lunar_year)
-      && Number.isInteger(payload.lunar_month)
-      && Number.isInteger(payload.lunar_day)) {
-      const dates = Array.isArray(payload.lunar_occurrence_dates) ? payload.lunar_occurrence_dates : [];
-      return {
-        ...payload,
-        timezone: "Asia/Shanghai",
-        lunar_occurrence_dates: dates.length ? dates : lunarOccurrenceDates(
-          Number(payload.lunar_year),
-          Number(payload.lunar_month),
-          Number(payload.lunar_day),
-          Boolean(payload.lunar_is_leap_month)
-        )
-      };
-    }
-    return { ...payload, timezone: "Asia/Shanghai" };
-  }
-  if (table === "healthProfiles") {
-    return {
-      ...payload,
-      height_cm: payload.height_cm == null ? null : Number(payload.height_cm),
-      daily_water_goal_ml: Number(payload.daily_water_goal_ml ?? 2000),
-      exercise_items: normalizeExerciseItems(payload.exercise_items),
-      movement_reminder_enabled: Boolean(payload.movement_reminder_enabled),
-      movement_interval_minutes: Number(payload.movement_interval_minutes ?? 60),
-      reminder_start_time: String(payload.reminder_start_time ?? "09:00").slice(0, 5),
-      reminder_end_time: String(payload.reminder_end_time ?? "22:00").slice(0, 5),
-      last_movement_reminder_at: payload.last_movement_reminder_at ?? null
-    };
-  }
-  if (table === "todos") {
-    return {
-      ...payload,
-      title: String(payload.title ?? "").trim(),
-      color: normalizeTodoColor(payload.color),
-      sort_order: Number(payload.sort_order ?? 0),
-      is_pinned: Boolean(payload.is_pinned),
-      completed_at: payload.completed_at ?? null,
-      reminder_enabled: Boolean(payload.reminder_enabled),
-      reminder_at: normalizeNullableDateTime(payload.reminder_at),
-      reminder_sent_at: normalizeNullableDateTime(payload.reminder_sent_at)
-    };
-  }
-  if (table === "focusSessions") {
-    const mode = payload.mode;
-    const safeMode = mode === "stopwatch" || mode === "countdown" || mode === "pomodoro" || mode === "lock"
-      ? mode
-      : "pomodoro";
-    return {
-      ...payload,
-      mode: safeMode,
-      task_title: String(payload.task_title ?? ""),
-      linked_event_id: payload.linked_event_id ?? null,
-      planned_seconds: payload.planned_seconds == null ? null : Number(payload.planned_seconds),
-      duration_seconds: Number(payload.duration_seconds ?? 0),
-      completed: Boolean(payload.completed),
-      interrupted: Boolean(payload.interrupted),
-      pomodoro_plan_id: payload.pomodoro_plan_id ?? null,
-      pomodoro_round: payload.pomodoro_round == null ? null : Number(payload.pomodoro_round)
-    };
-  }
-  if (table !== "restSessions") return payload;
-  const restKind = payload.rest_kind;
-  return {
-    ...payload,
-    planned_seconds: Number(payload.planned_seconds ?? 0),
-    duration_seconds: Number(payload.duration_seconds ?? 0),
-    completed: Boolean(payload.completed),
-    interrupted: Boolean(payload.interrupted),
-    rest_kind: restKind === "pomodoro_short" || restKind === "pomodoro_long" ? restKind : "manual",
-    pomodoro_plan_id: payload.pomodoro_plan_id ?? null,
-    pomodoro_round: payload.pomodoro_round == null ? null : Number(payload.pomodoro_round)
-  };
-}
-
-function normalizeExerciseItems(value: unknown): string[] {
-  if (!Array.isArray(value)) return ["俯卧撑", "仰卧起坐", "深蹲"];
-  const items = value
-    .map((item) => String(item).trim())
-    .filter(Boolean)
-    .slice(0, 12);
-  return items.length ? [...new Set(items)] : ["俯卧撑", "仰卧起坐", "深蹲"];
-}
-
-function normalizeTodoColor(value: unknown): string {
-  const color = String(value ?? "").trim();
-  return /^#[0-9a-f]{6}$/i.test(color) ? color : "#cfeeff";
-}
-
-function normalizeNullableDateTime(value: unknown): string | null {
-  if (typeof value !== "string" || !value.trim()) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function emptyDeleteMap(): Map<SyncTableName, Set<string>> {
@@ -497,6 +253,17 @@ function collectHardDeleteIds(recordsByTable: Map<SyncTableName, Record<string, 
 }
 
 async function releaseLocalReferencesForHardDeletes(userId: string, idsByTable: Map<SyncTableName, Set<string>>) {
+  const categoryIds = idsFor(idsByTable, "categories");
+  const deletedEventIds = idsFor(idsByTable, "events");
+  if (categoryIds.size) {
+    const events = await db.events.filter((event) => event.user_id === userId
+      && Boolean(event.category_id) && categoryIds.has(String(event.category_id)) && !deletedEventIds.has(event.id)).toArray();
+    for (const event of events) {
+      const updated = { ...event, ...syncFields(event), deleted_at: event.deleted_at, category_id: null };
+      await db.events.put(updated);
+      await putQueueItem(userId, "events", updated.id);
+    }
+  }
   const eventIds = idsFor(idsByTable, "events");
   const deletedFocusSessionIds = idsFor(idsByTable, "focusSessions");
   if (eventIds.size) {
@@ -597,6 +364,9 @@ export async function purgeLocalSoftDeletedRecords(userId: string): Promise<numb
 }
 
 const REMOTE_PAGE_SIZE = 1000;
+const REMOTE_DOWNLOAD_CONCURRENCY = 4;
+const REMOTE_RECORD_BATCH_SIZE = 100;
+const REMOTE_REVISION_COLUMNS = "id, version, updated_at, server_updated_at, deleted_at";
 const OCCURRENCE_LOOKUP_BATCH_SIZE = 100;
 
 export function occurrenceLookupFilters(
@@ -624,18 +394,25 @@ interface RemoteTableFetch {
   complete: boolean;
 }
 
-async function fetchRemoteTableRows(remote: string, userId: string): Promise<RemoteTableFetch> {
+async function fetchRemoteTableRows(
+  remote: string,
+  userId: string,
+  options: { columns?: string; ids?: string[] } = {}
+): Promise<RemoteTableFetch> {
   if (!supabase) throw new Error("云端服务尚未配置");
   const rows: Record<string, unknown>[] = [];
   let total: number | null = null;
   for (;;) {
     const from = rows.length;
-    const { data, error, count } = await supabase
+    let query = supabase
       .from(remote)
-      .select("*", { count: "exact" })
-      .eq("user_id", userId)
+      .select(options.columns ?? "*", { count: "exact" })
+      .eq("user_id", userId);
+    if (options.ids) query = query.in("id", options.ids);
+    const { data, error, count } = await query
       .order("id", { ascending: true })
-      .range(from, from + REMOTE_PAGE_SIZE - 1);
+      .range(from, from + REMOTE_PAGE_SIZE - 1)
+      .overrideTypes<Record<string, unknown>[], { merge: false }>();
     if (error) {
       if (error.code === "PGRST205" || error.message.includes("schema cache")) {
         throw new Error("云端数据表尚未初始化，请联系管理员处理");
@@ -653,22 +430,96 @@ async function fetchRemoteTableRows(remote: string, userId: string): Promise<Rem
   return { rows, complete: total != null && rows.length >= total };
 }
 
+interface RemoteTableDownload extends RemoteTableFetch {
+  activeIds: Set<string>;
+  comparedVersions: boolean;
+}
+
+async function fetchRemoteTableChanges(
+  config: typeof TABLES[number],
+  userId: string,
+  compareVersions: boolean
+): Promise<RemoteTableDownload> {
+  const localRecords: Record<string, unknown>[] = compareVersions
+    ? await db.table(config.local).filter((record) => record.user_id === userId).toArray()
+    : [];
+  if (!localRecords.length) {
+    const result = await fetchRemoteTableRows(config.remote, userId);
+    return {
+      ...result,
+      activeIds: new Set(result.rows.filter((row) => !row.deleted_at).map((row) => String(row.id))),
+      comparedVersions: false
+    };
+  }
+
+  // Hard deletions leave no row or change log. Compare the complete ID/revision
+  // list, then request bodies only for new or changed records.
+  const manifest = await fetchRemoteTableRows(config.remote, userId, { columns: REMOTE_REVISION_COLUMNS });
+  const localById = new Map(localRecords.map((record) => [String(record.id), record]));
+  const changedIds = manifest.rows.filter((remote) => {
+    const local = localById.get(String(remote.id));
+    return !local || remote.deleted_at || !remote.server_updated_at
+      || remote.server_updated_at !== local.server_updated_at
+      || String(remote.version) !== String(local.version)
+      || remote.updated_at !== local.updated_at;
+  }).map((record) => String(record.id));
+  const activeIds = new Set(manifest.rows.filter((row) => !row.deleted_at).map((row) => String(row.id)));
+  const rows: Record<string, unknown>[] = [];
+  let complete = manifest.complete;
+  for (let index = 0; index < changedIds.length; index += REMOTE_RECORD_BATCH_SIZE) {
+    const ids = changedIds.slice(index, index + REMOTE_RECORD_BATCH_SIZE);
+    const result = await fetchRemoteTableRows(config.remote, userId, { ids });
+    rows.push(...result.rows);
+    complete = complete && result.complete;
+    if (result.complete) {
+      const returnedIds = new Set(result.rows.map((row) => String(row.id)));
+      for (const id of ids) {
+        if (!returnedIds.has(id)) activeIds.delete(id);
+      }
+    }
+  }
+  return { rows, complete, activeIds, comparedVersions: true };
+}
+
 interface DownloadResult {
   downloaded: number;
   kept: number;
 }
 
-async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
+async function downloadRemoteTables(userId: string, compareVersions = false): Promise<DownloadResult> {
   if (!supabase) throw new Error("云端服务尚未配置");
   let downloaded = 0;
   let kept = 0;
   const recordsByTable = new Map<SyncTableName, Record<string, unknown>[]>();
   const incompleteTables = new Set<SyncTableName>();
+  const activeIdsByTable = new Map<SyncTableName, Set<string>>();
+  const comparedTables = new Set<SyncTableName>();
 
-  for (const config of TABLES) {
-    const { rows, complete } = await fetchRemoteTableRows(config.remote, userId);
-    if (!complete) incompleteTables.add(config.local);
-    recordsByTable.set(config.local, rows.map((record) => normalizeRemoteRecord(config.local, record)));
+  // Fetch independent tables together; keep uploads and local merges in dependency order.
+  // Settle each batch before propagating an error so no reads outlive a failed sync.
+  const fetchTables = async (tables: typeof TABLES, compare: boolean) => {
+    for (let index = 0; index < tables.length; index += REMOTE_DOWNLOAD_CONCURRENCY) {
+      const batch = tables.slice(index, index + REMOTE_DOWNLOAD_CONCURRENCY);
+      const results = await Promise.allSettled(batch.map((config) => fetchRemoteTableChanges(config, userId, compare)));
+      for (const [offset, result] of results.entries()) {
+        if (result.status === "rejected") throw result.reason;
+        const config = batch[offset];
+        const { rows, complete, activeIds, comparedVersions } = result.value;
+        if (!complete) incompleteTables.add(config.local);
+        else incompleteTables.delete(config.local);
+        if (comparedVersions) comparedTables.add(config.local);
+        else comparedTables.delete(config.local);
+        activeIdsByTable.set(config.local, activeIds);
+        recordsByTable.set(config.local, rows.map((record) => normalizeRemoteRecord(config.local, record)));
+      }
+    }
+  };
+  await fetchTables(TABLES, compareVersions);
+
+  // Legacy soft deletions require the full relationship graph for their existing
+  // cascade cleanup. Ordinary hard-deletion sync only needs the ID manifest.
+  if ([...recordsByTable.values()].some((rows) => rows.some((record) => record.deleted_at))) {
+    await fetchTables(TABLES.filter((config) => comparedTables.has(config.local)), false);
   }
 
   const hardDeleteIds = collectHardDeleteIds(recordsByTable);
@@ -677,13 +528,13 @@ async function downloadRemoteTables(userId: string): Promise<DownloadResult> {
   for (const config of TABLES) {
     const deletedIds = idsFor(hardDeleteIds, config.local);
     const activeRecords = recordsFor(recordsByTable, config.local).filter((record) => !record.deleted_at && !deletedIds.has(String(record.id)));
-    const activeRemoteIds = new Set(activeRecords.map((record) => String(record.id)));
+    const activeRemoteIds = new Set([...(activeIdsByTable.get(config.local) ?? [])].filter((id) => !deletedIds.has(id)));
     // 保护本地未上传的编辑：待传队列中的记录、以及本地 updated_at 更晚的记录，下载时不被云端覆盖。
     // 队列复查、云端合并和镜像删除必须与本地“写记录+入队”争用同一组
     // Dexie 表事务；这样用户在下载期间编辑时，要么先被本事务看到，要么在
     // 本事务之后写回更新，不会落入读取旧队列后再覆盖新编辑的窗口。
     await db.transaction("rw", db.table(config.local), db.syncQueue, async () => {
-      const pendingIds = await pendingUpsertIds(config.local, userId);
+      const pendingIds = await pendingChangeIds(config.local, userId);
       if (activeRecords.length && config.local === "eventOccurrenceStates") {
         const occurrenceRecords = activeRecords as unknown as EventOccurrenceState[];
         for (const record of occurrenceRecords) {
@@ -864,7 +715,7 @@ async function runSync(userId: string): Promise<SyncResult> {
     uploaded += payloads.length;
   }
 
-  const download = await downloadRemoteTables(userId);
+  const download = await downloadRemoteTables(userId, true);
   downloaded = download.downloaded;
 
   const completedAt = new Date().toISOString();
@@ -872,12 +723,13 @@ async function runSync(userId: string): Promise<SyncResult> {
   return { uploaded, downloaded, kept_local: download.kept, completed_at: completedAt };
 }
 
-async function pendingUpsertIds(tableName: SyncTableName, ownerId: string): Promise<Set<string>> {
+async function pendingChangeIds(tableName: SyncTableName, ownerId: string): Promise<Set<string>> {
   const items = await db.syncQueue
     .where("[owner_id+table_name+record_id]")
     .between([ownerId, tableName, Dexie.minKey], [ownerId, tableName, Dexie.maxKey])
     .toArray();
-  return new Set(items.filter((item) => item.operation !== "delete").map((item) => String(item.record_id)));
+  // Pending deletions also win over a remote row until their upload completes.
+  return new Set(items.map((item) => String(item.record_id)));
 }
 
 async function deleteLocalRecordsMissingFromRemote(tableName: SyncTableName, userId: string, activeRemoteIds: Set<string>) {

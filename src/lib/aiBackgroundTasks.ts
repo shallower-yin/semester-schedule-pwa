@@ -81,10 +81,14 @@ export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
   });
 
   void Promise.resolve()
-    .then(() => definition.run(controller.signal))
+    .then(() => {
+      controller.signal.throwIfAborted();
+      return definition.run(controller.signal);
+    })
     .then(async (result) => {
       if (controller.signal.aborted || !isCurrentTask(definition.feature, startedAt)) return;
       await definition.onSuccess?.(result);
+      if (controller.signal.aborted || !isCurrentTask(definition.feature, startedAt)) return;
       controllers.delete(definition.feature);
       const message = definition.successMessage ?? `${FEATURE_LABELS[definition.feature]}已完成。`;
       updateTask({
@@ -100,9 +104,15 @@ export function startAiTask<T>(definition: AiTaskDefinition<T>): boolean {
     })
     .catch(async (cause) => {
       if (controller.signal.aborted || !isCurrentTask(definition.feature, startedAt)) return;
-      controllers.delete(definition.feature);
       const error = cause instanceof Error ? cause : new Error(String(cause || "AI 任务失败。"));
-      await definition.onError?.(error);
+      try {
+        await definition.onError?.(error);
+      } catch {
+        // A failed history/checkpoint write must not leave the task running
+        // forever or hide the original request error from the retry surface.
+      }
+      if (controller.signal.aborted || !isCurrentTask(definition.feature, startedAt)) return;
+      controllers.delete(definition.feature);
       updateTask({
         feature: definition.feature,
         status: "error",
@@ -213,16 +223,20 @@ function emit(): void {
 
 async function showCompletionNotification(feature: AiTaskFeature, body: string): Promise<void> {
   if (!("Notification" in window) || Notification.permission !== "granted" || !("serviceWorker" in navigator)) return;
-  const registration = await navigator.serviceWorker.ready;
-  const target = new URL(window.location.href);
-  target.searchParams.set("ai", feature);
-  await registration.showNotification(FEATURE_LABELS[feature], {
-    body,
-    tag: `ai-task-${feature}`,
-    icon: `${import.meta.env.BASE_URL}app-icon-192.png`,
-    badge: `${import.meta.env.BASE_URL}app-icon-192.png`,
-    data: { url: target.toString() }
-  });
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const target = new URL(window.location.href);
+    target.searchParams.set("ai", feature);
+    await registration.showNotification(FEATURE_LABELS[feature], {
+      body,
+      tag: `ai-task-${feature}`,
+      icon: `${import.meta.env.BASE_URL}app-icon-192.png`,
+      badge: `${import.meta.env.BASE_URL}app-icon-192.png`,
+      data: { url: target.toString() }
+    });
+  } catch {
+    // System notifications are best-effort; the persisted task result remains available in-app.
+  }
 }
 
 function restorePersistedTasks(): Map<AiTaskFeature, AiTaskSnapshot> {

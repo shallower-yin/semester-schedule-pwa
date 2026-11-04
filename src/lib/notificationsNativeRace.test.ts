@@ -6,6 +6,8 @@ import { setCurrentUserId } from "./identity";
 const native = vi.hoisted(() => ({
   ensureNativeReminderPermission: vi.fn(async () => "granted"),
   syncNativeReminders: vi.fn(),
+  cancelAllNativeReminders: vi.fn(async () => {}),
+  stopNativeReliableReminderService: vi.fn(async () => {}),
   syncNativeHealthReminder: vi.fn(async () => {}),
   ensureNativeReliableReminderService: vi.fn(async () => {}),
   getNativeReminderDiagnostics: vi.fn(async (): Promise<{
@@ -15,14 +17,14 @@ const native = vi.hoisted(() => ({
 
 vi.mock("./nativeApp", () => ({ isNativeApp: () => true }));
 vi.mock("./nativeReminders", () => ({
-  cancelAllNativeReminders: vi.fn(),
+  cancelAllNativeReminders: native.cancelAllNativeReminders,
   ensureNativeReliableReminderService: native.ensureNativeReliableReminderService,
   ensureNativeExactAlarmPermission: vi.fn(async () => true),
   ensureNativeReminderPermission: native.ensureNativeReminderPermission,
   getNativeReminderDiagnostics: native.getNativeReminderDiagnostics,
   getNativeReminderHealth: vi.fn(async () => null),
   showNativeNotificationNow: vi.fn(),
-  stopNativeReliableReminderService: vi.fn(),
+  stopNativeReliableReminderService: native.stopNativeReliableReminderService,
   syncNativeHealthReminder: native.syncNativeHealthReminder,
   syncNativeReminders: native.syncNativeReminders
 }));
@@ -40,7 +42,7 @@ vi.mock("./reminderSchedule", async (importOriginal) => {
   };
 });
 
-import { refreshNativeReminderSchedule } from "./notifications";
+import { disableNotificationsForCurrentDevice, refreshNativeReminderSchedule } from "./notifications";
 import { HEALTH_NOTIFICATION_ID } from "./reminderSchedule";
 
 describe("原生提醒账号切换串行化", () => {
@@ -139,5 +141,27 @@ describe("原生提醒账号切换串行化", () => {
     expect(native.syncNativeReminders).toHaveBeenCalledTimes(1);
     expect(native.syncNativeReminders.mock.calls[0][0][0].title).toBe("local");
     expect(native.syncNativeHealthReminder).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("退出登录取消提醒等待在途排程结束，且不再启动健康提醒或守护服务", async () => {
+    let releaseSchedule!: (count: number) => void;
+    const operations: string[] = [];
+    native.syncNativeReminders.mockImplementationOnce(async () => {
+      const count = await new Promise<number>((resolve) => { releaseSchedule = resolve; });
+      operations.push("scheduled");
+      return count;
+    });
+    native.cancelAllNativeReminders.mockImplementationOnce(async () => { operations.push("cancelled"); });
+
+    const refresh = refreshNativeReminderSchedule("alice");
+    await vi.waitFor(() => expect(native.syncNativeReminders).toHaveBeenCalledTimes(1));
+    const disable = disableNotificationsForCurrentDevice();
+    releaseSchedule(1);
+    await Promise.all([refresh, disable]);
+
+    expect(operations).toEqual(["scheduled", "cancelled"]);
+    expect(native.syncNativeHealthReminder).not.toHaveBeenCalled();
+    expect(native.ensureNativeReliableReminderService).not.toHaveBeenCalled();
+    expect(native.stopNativeReliableReminderService).toHaveBeenCalledTimes(1);
   });
 });

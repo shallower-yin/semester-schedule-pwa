@@ -281,6 +281,40 @@ jobs:
       - name: Deploy admin function
         run: supabase functions deploy admin --project-ref "$PROJECT_REF"
 
+      - name: Verify MiMo model migration without provider calls
+        run: |
+          set -euo pipefail
+          query="select
+            exists (select 1 from public.app_schema_migrations where name = '20261021_mimo_v26_models.sql') as migration_applied,
+            (select count(*) from public.ai_assistant_settings where provider = 'mimo' and model in ('mimo-v2.5', 'mimo-v2.5-pro')) as retired_builtin_models,
+            (select count(*) from public.ai_provider_relays where protocol = 'mimo' and text_model in ('mimo-v2.5', 'mimo-v2.5-pro')) as retired_relay_models,
+            (select jsonb_build_object(
+              'provider', settings.provider,
+              'model', settings.model,
+              'mimo_channel', settings.mimo_channel,
+              'text_relay_protocol', relay.protocol,
+              'text_relay_model', relay.text_model,
+              'effective_provider', case when relay.supports_text then case relay.protocol when 'mimo' then 'mimo' when 'deepseek' then 'deepseek' else 'siliconflow' end else settings.provider end,
+              'effective_model', case when relay.supports_text then relay.text_model else settings.model end
+            ) from public.ai_assistant_settings settings
+              left join public.ai_provider_relays relay on relay.id = settings.text_relay_id
+              where settings.id = true) as active_configuration;"
+          jq -n --arg query "$query" '{query: $query}' > /tmp/mimo-model-status.json
+          response="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/mimo-model-status.json)"
+          printf '%s\n' "$response" | jq .
+          printf '%s\n' "$response" | jq -e '
+            length == 1
+            and .[0].migration_applied == true
+            and .[0].retired_builtin_models == 0
+            and .[0].retired_relay_models == 0
+            and .[0].active_configuration != null
+          ' > /dev/null
+
       - name: Deploy static app hosting function
         run: supabase functions deploy app-hosting --project-ref "$PROJECT_REF" --no-verify-jwt
 

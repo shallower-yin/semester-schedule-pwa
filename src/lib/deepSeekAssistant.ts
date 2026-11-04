@@ -340,11 +340,14 @@ export async function askDeepSeekAssistant(
   context: unknown,
   accessCode?: string,
   history?: DeepSeekAssistantHistoryMessage[],
-  attachments?: AiAssistantAttachment[]
+  attachments?: AiAssistantAttachment[],
+  signal?: AbortSignal
 ): Promise<DeepSeekAssistantResult> {
+  signal?.throwIfAborted();
   if (!supabase) throw new Error("云端服务未配置，暂时无法使用 AI 助手。");
   const client = supabase;
   const { data, error } = await invokeFunctionWithTransientRetry(() => client.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
+      signal,
       body: {
         question,
         scheduleContext: context,
@@ -352,7 +355,7 @@ export async function askDeepSeekAssistant(
         history: history?.slice(-10),
         attachments: attachments?.slice(0, 3)
       }
-    }), 2);
+    }), 2, signal);
   if (error) {
     throw new Error(await functionErrorMessage(error));
   }
@@ -404,12 +407,17 @@ async function functionErrorMessage(error: unknown): Promise<string> {
 
 async function invokeFunctionWithTransientRetry<T>(
   request: () => Promise<{ data: T | null; error: unknown }>,
-  maxAttempts: number
+  maxAttempts: number,
+  signal?: AbortSignal
 ): Promise<{ data: T | null; error: unknown }> {
+  signal?.throwIfAborted();
   let result = await request();
+  signal?.throwIfAborted();
   for (let attempt = 1; attempt < maxAttempts && result.error && isTransientFunctionError(result.error); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 450 * attempt));
+    signal?.throwIfAborted();
     result = await request();
+    signal?.throwIfAborted();
   }
   return result;
 }

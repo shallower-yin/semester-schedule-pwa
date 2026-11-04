@@ -92,7 +92,6 @@ import {
   weekdayOf,
   weekDates
 } from "./lib/date";
-import { uniqueCategoriesByName } from "./lib/categories";
 import { setEventCompletedForDate } from "./lib/eventActions";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
@@ -117,12 +116,12 @@ import { apkDownloadUrlForRelease, appUpdateEntryStatus, clearSkippedRelease, fe
 import { AppUpdater } from "./lib/appUpdaterPlugin";
 import { isCurrentAppUrl } from "./lib/appHosting";
 import { clearAppCachesAndReload } from "./lib/appBootRecovery";
-import { consumePendingNativeNotificationKey, isNativeApp, NATIVE_NOTIFICATION_OPEN_EVENT } from "./lib/nativeApp";
+import { isNativeApp, subscribeToAppForeground } from "./lib/nativeApp";
 import { currentLiveQueryValue, currentOwnerRecord, scopedLiveQueryValue } from "./lib/liveQueryScope";
 import type { SearchNavigationMatch } from "./lib/searchNavigation";
-import { ScheduleWidget } from "./lib/scheduleWidgetPlugin";
-import { buildWidgetSnapshot } from "./lib/widgetSnapshot";
-import { consumePendingWidgetCompletionActions } from "./lib/widgetCompletionActions";
+import { useScheduleWidgetBridge } from "./lib/useScheduleWidgetBridge";
+import { useScheduleData } from "./lib/useScheduleData";
+import { useNotificationNavigation } from "./lib/useNotificationNavigation";
 import { resetAccountFocusPresentation } from "./lib/focusPresentation";
 import {
   clearCapturedInstallPrompt,
@@ -192,7 +191,7 @@ function formatBackupDateTime(value: string | null): string {
 export default function App() {
   const appVersion = `版本 ${__APP_VERSION__} · 提交 ${__APP_COMMIT__}`;
   const [page, setPage] = useState<Page>("today");
-  const [nativeNotificationKey, setNativeNotificationKey] = useState<string | null>(() => consumePendingNativeNotificationKey());
+
   const [todoCreateRequest, setTodoCreateRequest] = useState<string | null>(null);
   const [todoToOpen, setTodoToOpen] = useState<string | null>(null);
   const [anchorDate, setAnchorDate] = useState(() => new Date());
@@ -375,16 +374,12 @@ export default function App() {
   const semesterEditorToken = useEditorInstanceToken(semesterEditorIdentity, semesterEditorGenerationRef, semesterEditorTokenRef);
   const eventEditorToken = useEditorInstanceToken(eventEditorIdentity, eventEditorGenerationRef, eventEditorTokenRef);
 
-  const ownerQueryScope = ownerId;
-  const semesterResult = useLiveQuery(
-    async () => scopedLiveQueryValue(
-      ownerQueryScope,
-      (await db.semesters.filter((item) => item.user_id === ownerId && item.is_current && !item.deleted_at).first()) ?? null
-    ),
-    [ownerQueryScope]
-  );
-  const semesterQuery = currentLiveQueryValue(semesterResult, ownerQueryScope);
-  const semester = semesterQuery ?? null;
+  const {
+    semesterQuery, eventsQuery, anniversariesQuery, todosQuery,
+    semester, semesters, courses, schedules, cancellations, events, categories,
+    occurrenceStates, anniversaries, memos, todos, focusSessions, periods,
+    widgetDataReady
+  } = useScheduleData({ ownerId, authReady });
   const courseToEditForSemester = courseToEditForOwner == null
     ? courseToEditForOwner
     : courseToEditForOwner.semester_id === semester?.id
@@ -394,98 +389,6 @@ export default function App() {
     ? "closed"
     : `${ownerId}:${semester.id}:${courseToEditForSemester?.id ?? "new"}`;
   const courseEditorToken = useEditorInstanceToken(courseEditorIdentity, courseEditorGenerationRef, courseEditorTokenRef);
-  const semestersResult = useLiveQuery(
-    async () => scopedLiveQueryValue(
-      ownerQueryScope,
-      await db.semesters.filter((item) => item.user_id === ownerId && !item.deleted_at).reverse().sortBy("start_date")
-    ),
-    [ownerQueryScope]
-  );
-  const semestersQuery = currentLiveQueryValue(semestersResult, ownerQueryScope);
-  const semesters = semestersQuery ?? [];
-  const semesterDataScope = JSON.stringify([ownerId, semester?.id ?? null]);
-  const coursesResult = useLiveQuery(
-    async () => scopedLiveQueryValue(
-      semesterDataScope,
-      semester
-        ? await db.courses.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()
-        : []
-    ),
-    [semesterDataScope]
-  );
-  const coursesQuery = currentLiveQueryValue(coursesResult, semesterDataScope);
-  const courses = coursesQuery ?? [];
-  const schedulesDataScope = JSON.stringify([ownerId, courses.map((course) => course.id).sort()]);
-  const schedulesResult = useLiveQuery(
-    async () => {
-      if (!courses.length) return scopedLiveQueryValue(schedulesDataScope, []);
-      const courseIds = new Set(courses.map((course) => course.id));
-      const value = await db.courseSchedules.filter((item) => item.user_id === ownerId && courseIds.has(item.course_id) && !item.deleted_at).toArray();
-      return scopedLiveQueryValue(schedulesDataScope, value);
-    },
-    [schedulesDataScope]
-  );
-  const schedulesQuery = currentLiveQueryValue(schedulesResult, schedulesDataScope);
-  const schedules = schedulesQuery ?? [];
-  const cancellationsResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.courseCancellations.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const cancellationsQuery = currentLiveQueryValue(cancellationsResult, ownerQueryScope);
-  const cancellations = cancellationsQuery ?? [];
-  const eventsResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.events.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const eventsQuery = currentLiveQueryValue(eventsResult, ownerQueryScope);
-  const events = eventsQuery ?? [];
-  const categoriesResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.categories.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const categoriesQuery = currentLiveQueryValue(categoriesResult, ownerQueryScope);
-  const categories = useMemo(() => uniqueCategoriesByName(categoriesQuery ?? []), [categoriesQuery]);
-  const occurrenceStatesResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.eventOccurrenceStates.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const occurrenceStatesQuery = currentLiveQueryValue(occurrenceStatesResult, ownerQueryScope);
-  const occurrenceStates = occurrenceStatesQuery ?? [];
-  const anniversariesResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.anniversaries.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const anniversariesQuery = currentLiveQueryValue(anniversariesResult, ownerQueryScope);
-  const anniversaries = anniversariesQuery ?? [];
-  const memosResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.memos.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const memosQuery = currentLiveQueryValue(memosResult, ownerQueryScope);
-  const memos = memosQuery ?? [];
-  const todosResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.todos.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const todosQuery = currentLiveQueryValue(todosResult, ownerQueryScope);
-  const todos = todosQuery ?? [];
-  const focusSessionsResult = useLiveQuery(
-    async () => scopedLiveQueryValue(ownerQueryScope, await db.focusSessions.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
-    [ownerQueryScope]
-  );
-  const focusSessionsQuery = currentLiveQueryValue(focusSessionsResult, ownerQueryScope);
-  const focusSessions = focusSessionsQuery ?? [];
-  const periodsResult = useLiveQuery(
-    async () => scopedLiveQueryValue(
-      semesterDataScope,
-      semester
-        ? await db.classPeriods.where("semester_id").equals(semester.id).filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()
-        : []
-    ),
-    [semesterDataScope]
-  );
-  const periodsQuery = currentLiveQueryValue(periodsResult, semesterDataScope);
-  const periods = periodsQuery ?? [];
 
   useEffect(() => {
     if (semesterQuery === undefined || !courseToEdit) return;
@@ -493,18 +396,7 @@ export default function App() {
     setCourseSearchMatch(null);
     setCourseToEdit(undefined);
   }, [courseToEdit, ownerId, semester?.id, semesterQuery]);
-  const widgetDataReady = authReady
-    && semesterQuery !== undefined
-    && semestersQuery !== undefined
-    && coursesQuery !== undefined
-    && schedulesQuery !== undefined
-    && cancellationsQuery !== undefined
-    && eventsQuery !== undefined
-    && categoriesQuery !== undefined
-    && occurrenceStatesQuery !== undefined
-    && todosQuery !== undefined
-    && periodsQuery !== undefined
-    && focusSessionsQuery !== undefined;
+  const ownerQueryScope = ownerId;
   const pendingChangesResult = useLiveQuery(
     async () => scopedLiveQueryValue(ownerQueryScope, await db.syncQueue.where("owner_id").equals(ownerId).count()),
     [ownerQueryScope]
@@ -538,188 +430,36 @@ export default function App() {
     [semester, courses, schedules, cancellations, events, categories, occurrenceStates, anniversaries, memos, periods, focusSessions]
   );
 
-  // Clear the previous account's native projection as soon as authentication
-  // resolves to a different owner. Do not wait for every Dexie query to finish:
-  // a slow query must never leave another account's schedule on the launcher.
-  useEffect(() => {
-    if (!isNativeApp() || !authReady) return;
-    let cancelled = false;
-    const activateAndConsume = async () => {
-      try {
-        await ScheduleWidget.setActiveOwner({ ownerId });
-        if (!cancelled) await consumePendingWidgetCompletionActions(ownerId);
-      } catch {
-        // Older Android shells do not expose this optional bridge.
-      }
-    };
-    void activateAndConsume();
-    const onForeground = () => {
-      if (document.visibilityState === "visible") void activateAndConsume();
-    };
-    document.addEventListener("visibilitychange", onForeground);
-    window.addEventListener("pageshow", onForeground);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onForeground);
-      window.removeEventListener("pageshow", onForeground);
-    };
-  }, [authReady, ownerId]);
-
-  // The launcher widget remains a native projection. Completion taps enter a
-  // native outbox and are consumed through Dexie above; publish only after all
-  // relevant live queries have produced their first value for this account.
-  useEffect(() => {
-    if (!isNativeApp() || !widgetDataReady) return;
-    let cancelled = false;
-    const publish = async () => {
-      try {
-        // Re-activating the same owner is idempotent on the native side and
-        // makes this first publication race-free with account changes.
-        await ScheduleWidget.setActiveOwner({ ownerId });
-        if (cancelled) return;
-        const snapshot = buildWidgetSnapshot({
-          ownerId,
-          semester,
-          courses,
-          schedules,
-          cancellations,
-          events,
-          categories,
-          occurrenceStates,
-          todos,
-          periods,
-          focusSessions
-        }, new Date());
-        await ScheduleWidget.updateSnapshot({
-          ownerId,
-          snapshotJson: JSON.stringify({ ...snapshot, ownerId })
-        });
-      } catch {
-        // Widget support is best-effort; schedule editing must continue even
-        // when an older native shell does not have the bridge yet.
-      }
-    };
-
-    void publish();
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void publish();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("pageshow", onVisibilityChange);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("pageshow", onVisibilityChange);
-    };
-  }, [
+  useScheduleWidgetBridge({
     authReady,
-    categories,
-    cancellations,
-    courses,
-    events,
-    focusSessions,
+    dataReady: widgetDataReady,
     ownerId,
+    semester,
+    courses,
+    schedules,
+    cancellations,
+    events,
+    categories,
     occurrenceStates,
     todos,
     periods,
-    schedules,
-    semester,
-    user?.id,
-    widgetDataReady
-  ]);
-
-  useEffect(() => {
-    const handleOpen = (event: Event) => setNativeNotificationKey((event as CustomEvent<string>).detail || null);
-    window.addEventListener(NATIVE_NOTIFICATION_OPEN_EVENT, handleOpen);
-    const pending = consumePendingNativeNotificationKey();
-    if (pending) setNativeNotificationKey(pending);
-    return () => window.removeEventListener(NATIVE_NOTIFICATION_OPEN_EVENT, handleOpen);
-  }, []);
-
-  useEffect(() => {
-    const consumeNotificationFromUrl = () => {
-      if (isAppHistoryUnwinding()) return;
-      const url = new URL(window.location.href);
-      const key = url.searchParams.get("notification")?.trim();
-      if (!key) return;
-      url.searchParams.delete("notification");
-      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-      setNativeNotificationKey(key);
-    };
-    consumeNotificationFromUrl();
-    window.addEventListener("popstate", consumeNotificationFromUrl);
-    return () => window.removeEventListener("popstate", consumeNotificationFromUrl);
-  }, []);
-
-  useEffect(() => {
-    if (!nativeNotificationKey) return;
-    if (nativeNotificationKey === "route:quick-entry") {
-      if (!authReady) return;
-      setShowQuickEntry(true);
-      setNativeNotificationKey(null);
-      return;
-    }
-    if (nativeNotificationKey === "route:today") {
-      goToday();
-      navigate("today");
-      setNativeNotificationKey(null);
-      return;
-    }
-    if (nativeNotificationKey === "route:todos") {
-      navigate("todos");
-      setNativeNotificationKey(null);
-      return;
-    }
-    if (nativeNotificationKey === "route:todos-create") {
-      if (!authReady) return;
-      navigate("todos");
-      setTodoCreateRequest(crypto.randomUUID());
-      setNativeNotificationKey(null);
-      return;
-    }
-    if (nativeNotificationKey === "route:focus") {
-      navigate("focus");
-      setNativeNotificationKey(null);
-      return;
-    }
-    const eventMatch = /^event:([^:]+):/.exec(nativeNotificationKey);
-    if (eventMatch) {
-      if (!authReady || eventsQuery === undefined) return;
-      const target = eventsQuery.find((item) => item.id === eventMatch[1] && item.user_id === ownerId);
-      navigate(target?.event_type === "habit" ? "habits" : "calendar");
-      if (target) setEventToEdit(target);
-      else showToast("这条提醒对应的事项已被删除。", "info");
-      setNativeNotificationKey(null);
-      return;
-    }
-    const anniversaryMatch = /^anniversary:([^:]+):/.exec(nativeNotificationKey);
-    if (anniversaryMatch) {
-      if (!authReady || anniversariesQuery === undefined) return;
-      if (!anniversariesQuery.some((item) => item.id === anniversaryMatch[1] && item.user_id === ownerId)) {
-        showToast("这条提醒对应的日子已被删除。", "info");
-        setNativeNotificationKey(null);
-        return;
-      }
-      navigate("anniversaries");
-      setAnniversaryToOpen(anniversaryMatch[1]);
-      setNativeNotificationKey(null);
-      return;
-    }
-    const todoMatch = /^todo:([^:]+)$/.exec(nativeNotificationKey);
-    if (todoMatch) {
-      if (!authReady || todosQuery === undefined) return;
-      navigate("todos");
-      if (todosQuery.some((item) => item.id === todoMatch[1] && item.user_id === ownerId)) {
-        setTodoToOpen(todoMatch[1]);
-      } else {
-        showToast("这条提醒对应的待办已被删除。", "info");
-      }
-      setNativeNotificationKey(null);
-      return;
-    }
-    if (nativeNotificationKey === "health") navigate("health");
-    setNativeNotificationKey(null);
-  }, [anniversariesQuery, authReady, eventsQuery, nativeNotificationKey, ownerId, todosQuery]);
+    focusSessions
+  });
+  useNotificationNavigation({
+    ownerId,
+    authReady,
+    events: eventsQuery,
+    anniversaries: anniversariesQuery,
+    todos: todosQuery
+  }, {
+    navigate,
+    goToday,
+    openQuickEntry: () => setShowQuickEntry(true),
+    createTodo: () => setTodoCreateRequest(crypto.randomUUID()),
+    openEvent: setEventToEdit,
+    openAnniversary: setAnniversaryToOpen,
+    openTodo: setTodoToOpen
+  });
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();
     if (eventStatusFilter !== "all") return [];
@@ -868,6 +608,11 @@ export default function App() {
       active = false;
       window.removeEventListener("online", syncWhenOnline);
     };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+    return subscribeToAppForeground(handleSync);
   }, [user?.id]);
 
   useEffect(() => {
@@ -1443,6 +1188,7 @@ export default function App() {
           />
         ) : page === "calendar" ? (
           <>
+            <section className="calendar-control-panel">
             <section className="calendar-toolbar">
               <div className="calendar-title-actions">
                 <div className="week-title">
@@ -1454,15 +1200,22 @@ export default function App() {
                   <button className="button secondary compact" onClick={() => setSnapshotMode("week")}><CalendarDays size={17} />周快照</button>
                 </div>
               </div>
-              <div className="toolbar-actions">
+              <div className="toolbar-actions calendar-week-actions">
                 <button className="button secondary compact" onClick={() => moveWeek(-1)} aria-label="上一周"><ChevronLeft size={18} /><span>上一周</span></button>
                 <button className="button secondary compact" onClick={goToday}>回到本周</button>
                 <button className="button secondary compact" onClick={() => moveWeek(1)} aria-label="下一周"><span>下一周</span><ChevronRight size={18} /></button>
-                <button className="button secondary compact" onClick={() => semester ? setShowCourseManager(true) : setSemesterToEdit(null)}><BookOpen size={18} />课程管理</button>
-                <button className="button secondary compact" onClick={() => setShowBatchEvents(true)}>批量事项</button>
+                <CalendarToolbarDisclosure label="更多" className="calendar-more-disclosure" closeOnAction>
+                  <button className="button secondary compact" onClick={() => semester ? setShowCourseManager(true) : setSemesterToEdit(null)}><BookOpen size={18} />课程管理</button>
+                  <button className="button secondary compact" onClick={() => setShowBatchEvents(true)}>批量事项</button>
+                </CalendarToolbarDisclosure>
                 <button className="button primary compact" onClick={() => setShowAddSchedule(true)}><Plus size={18} />新增日程</button>
               </div>
             </section>
+            <CalendarToolbarDisclosure
+              label={scheduleQuery || scheduleFilter !== "all" || eventStatusFilter !== "all" ? "已筛选" : "筛选"}
+              className="calendar-filter-disclosure"
+              active={Boolean(scheduleQuery || scheduleFilter !== "all" || eventStatusFilter !== "all")}
+            >
             <section className="schedule-filter-bar" aria-label="日程搜索和筛选">
               <input
                 value={scheduleQuery}
@@ -1489,6 +1242,8 @@ export default function App() {
                   清除筛选
                 </button>
               )}
+            </section>
+            </CalendarToolbarDisclosure>
             </section>
             <WeekCalendar
               dates={dates}
@@ -1556,7 +1311,7 @@ export default function App() {
                     })}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowThemeSkinSettings(true)}>
-                    <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)} · 切换可爱或简洁风格</small></span><ChevronRight />
+                    <Palette /><span><strong>界面皮肤</strong><small>{themeSkinLabel(themeSkin)}</small></span><ChevronRight />
                   </button>
                   <button className="setting-card" onClick={() => setShowFontSizeSettings(true)}>
                     <Type /><span><strong>字体大小</strong><small>{appFontSizeLabel(fontSize)} · APK、PWA 和网页独立保存</small></span><ChevronRight />
@@ -1868,5 +1623,34 @@ export default function App() {
       <AiTaskCenter />
       <ToastHost />
     </div>
+  );
+}
+
+function CalendarToolbarDisclosure({ label, className, active = false, closeOnAction = false, children }: {
+  label: string;
+  className: string;
+  active?: boolean;
+  closeOnAction?: boolean;
+  children: ReactNode;
+}) {
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setMobile(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return (
+    <details
+      className={`calendar-toolbar-disclosure ${className}${active ? " active" : ""}`}
+      open={!mobile || expanded}
+      onToggle={(event) => mobile && setExpanded(event.currentTarget.open)}
+    >
+      <summary>{label}</summary>
+      <div className="calendar-disclosure-content" onClick={(event) => {
+        if (mobile && closeOnAction && event.target instanceof Element && event.target.closest("button")) setExpanded(false);
+      }}>{children}</div>
+    </details>
   );
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { transcribeAudioFilesMock } = vi.hoisted(() => ({ transcribeAudioFilesMock: vi.fn() }));
@@ -9,9 +9,10 @@ vi.mock("../lib/audioTranscription", async (importOriginal) => {
 });
 
 import { AudioTranscriptionDialog } from "./AudioTranscriptionDialog";
+import { clearAllAiTasks, getAiTaskSnapshot } from "../lib/aiBackgroundTasks";
 
 describe("AI 音频转写", () => {
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); clearAllAiTasks(); });
 
   beforeEach(() => {
     localStorage.clear();
@@ -133,5 +134,36 @@ describe("AI 音频转写", () => {
     expect(await screen.findByText("正在转写 3/8 段")).toBeInTheDocument();
     onProgress?.(8, 8, "整理结果");
     expect(await screen.findByText("分段转写完成（8/8），正在整理结果…")).toBeInTheDocument();
+  });
+
+  it("取消后迟到的进度和正文回调不覆盖新任务，取消前正文仍保留", async () => {
+    type Input = Parameters<typeof import("../lib/audioTranscription").transcribeAudioFiles>[0];
+    const requests: Input[] = [];
+    transcribeAudioFilesMock.mockImplementation((input: Input) => {
+      requests.push(input);
+      return new Promise(() => undefined);
+    });
+    render(<AudioTranscriptionDialog ownerId="user-late" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("音频文件"), { target: { files: [new File(["audio"], "录音.mp3", { type: "audio/mpeg" })] } });
+    fireEvent.click(screen.getByRole("button", { name: "开始转写" }));
+    await waitFor(() => expect(requests).toHaveLength(1));
+    const partial = { transcript: "取消前已完成正文", summary: null, warning: null, model: "test", files: ["录音.mp3"], conversation: [] };
+    act(() => requests[0].onPartialResult?.(partial));
+    fireEvent.click(screen.getByRole("button", { name: "取消处理" }));
+    expect(localStorage.getItem("semester-schedule-audio-transcription:user-late")).toContain(partial.transcript);
+    fireEvent.click(screen.getByRole("button", { name: "开始转写" }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+    act(() => {
+      requests[1].onUploadProgress?.(25, "新录音.mp3");
+      requests[1].onPartialResult?.({ ...partial, transcript: "新任务正文" });
+    });
+    act(() => requests[0].onProgress?.(8, 8, "整理结果"));
+    expect.soft(screen.queryByText("正在上传：新录音.mp3（25%）")).toBeInTheDocument();
+    act(() => requests[0].onUploadProgress?.(99, "旧录音.mp3"));
+    expect.soft(getAiTaskSnapshot("audio_transcription").message).toBe("正在上传：新录音.mp3（25%）");
+    act(() => requests[0].onPartialResult?.({ ...partial, transcript: "迟到旧正文" }));
+    expect(screen.getByText("新任务正文")).toBeInTheDocument();
+    expect(localStorage.getItem("semester-schedule-audio-transcription:user-late")).toContain("新任务正文");
+    expect(localStorage.getItem("semester-schedule-audio-transcription:user-late")).not.toContain("迟到旧正文");
   });
 });

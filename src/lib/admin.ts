@@ -345,7 +345,11 @@ function normalizeAiSettings(value: unknown): AdminAiSettings {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const provider: AiProvider = row.provider === "mimo" || row.provider === "siliconflow" || row.provider === "tju" ? row.provider : "deepseek";
   const audioProvider: AudioProvider = row.audio_provider === "siliconflow" ? "siliconflow" : "mimo";
-  const storedModel = typeof row.model === "string" ? row.model.trim() : "";
+  let storedModel = typeof row.model === "string" ? row.model.trim() : "";
+  if (provider === "mimo") {
+    if (storedModel === "mimo-v2.5") storedModel = "mimo-v2.6-flash";
+    if (storedModel === "mimo-v2.5-pro") storedModel = "mimo-v2.6-pro";
+  }
   const storedAudioModel = typeof row.audio_model === "string" ? row.audio_model.trim() : "";
   const legacy = {
     enabled_for_all: Boolean(row.enabled_for_all),

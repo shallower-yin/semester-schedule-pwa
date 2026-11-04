@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
-import { toISODate } from "../lib/date";
+import { addDays, parseLocalDate, toISODate } from "../lib/date";
+import { eventCompletionForDate } from "../lib/eventCompletion";
 import { setCurrentUserId, syncFields } from "../lib/identity";
 import type { EventItem } from "../types";
 import { EventDialog } from "./EventDialog";
@@ -46,6 +47,83 @@ describe("事项编辑弹窗", () => {
     const queued = await db.syncQueue.where("table_name").equals("eventOccurrenceStates").first();
     expect(queued?.record_id).toBeTruthy();
     expect(screen.getByText("已标记今天完成。")).toBeInTheDocument();
+  });
+
+  it("标题旁可完成非今天的单日事项，并恢复未完成", async () => {
+    const date = toISODate(addDays(new Date(), 3));
+    const eventItem = eventRecord({ start_date: date, end_date: date });
+    const state = {
+      ...syncFields(undefined, "local"),
+      event_id: eventItem.id,
+      occurrence_date: date,
+      completed: false,
+      reminder_sent_at: "2026-07-07T00:50:00.000Z"
+    };
+    await db.events.put(eventItem);
+    await db.eventOccurrenceStates.put(state);
+    const onClose = vi.fn();
+    render(<EventDialog eventItem={eventItem} initialDate={date} ownerId="local" occurrenceStates={[state]} onClose={onClose} />);
+
+    const complete = screen.getByRole("checkbox", { name: "已完成" });
+    expect(complete.closest("header")).toContainElement(screen.getByRole("heading", { name: "编辑事项" }));
+    expect(complete).not.toBeChecked();
+    fireEvent.click(complete);
+
+    await waitFor(async () => expect(await db.eventOccurrenceStates.get(state.id)).toMatchObject({
+      completed: true,
+      occurrence_date: date,
+      reminder_sent_at: state.reminder_sent_at
+    }));
+    const restore = screen.getByRole("checkbox", { name: "已完成" });
+    await waitFor(() => expect(restore).not.toBeDisabled());
+    expect(restore).toBeChecked();
+    fireEvent.click(restore);
+
+    await waitFor(async () => expect((await db.eventOccurrenceStates.get(state.id))?.completed).toBe(false));
+    expect((await db.events.get(eventItem.id))?.completed_at).toBeFalsy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("新增事项可在标题旁选择已完成，保存时标记整个日期范围完成", async () => {
+    const onClose = vi.fn();
+    render(<EventDialog initialDate="2026-07-25" ownerId="local" occurrenceStates={[]} onClose={onClose} />);
+
+    const complete = screen.getByRole("checkbox", { name: "已完成" });
+    expect(complete.closest("header")).toContainElement(screen.getByRole("heading", { name: "新增事项" }));
+    expect(complete).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "已完成的连续训练" } });
+    fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-07-27" } });
+    fireEvent.click(complete);
+
+    expect(complete).toBeChecked();
+    expect(await db.events.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "保存事项" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const saved = await db.events.filter((item) => item.title === "已完成的连续训练").first();
+    expect(saved?.completed_at).toBeTruthy();
+    expect(eventCompletionForDate(saved!, [], parseLocalDate("2026-07-25")).completed).toBe(true);
+    expect(eventCompletionForDate(saved!, [], parseLocalDate("2026-07-27")).completed).toBe(true);
+  });
+
+  it("新增事项切换已完成后取消不会创建事项或同步记录", async () => {
+    const onClose = vi.fn();
+    render(<EventDialog initialDate="2026-07-25" ownerId="local" occurrenceStates={[]} onClose={onClose} />);
+
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "取消的新事项" } });
+    const complete = screen.getByRole("checkbox", { name: "已完成" });
+    fireEvent.click(complete);
+    expect(complete).toBeChecked();
+    fireEvent.click(complete);
+    expect(complete).not.toBeChecked();
+    fireEvent.click(complete);
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(await db.events.count()).toBe(0);
+    expect(await db.eventOccurrenceStates.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
   });
 
   it("新增普通事项时保存开始到结束日期的每日范围", async () => {
@@ -181,12 +259,20 @@ describe("事项编辑弹窗", () => {
     await db.events.put(eventItem);
     render(<EventDialog eventItem={eventItem} initialDate={today} ownerId="local" occurrenceStates={[]} onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "完成整个事项" }));
+    const complete = screen.getByRole("checkbox", { name: "已完成" });
+    expect(complete.closest("header")).toContainElement(screen.getByRole("heading", { name: "编辑事项" }));
+    fireEvent.click(complete);
     await waitFor(async () => expect((await db.events.get(eventItem.id))?.completed_at).toBeTruthy());
+    const completedItem = (await db.events.get(eventItem.id))!;
+    expect(eventCompletionForDate(completedItem, [], new Date()).completed).toBe(true);
+    expect(eventCompletionForDate(completedItem, [], addDays(new Date(), 1)).completed).toBe(true);
     await waitFor(() => expect(screen.getByRole("button", { name: "整项已完成" })).toBeDisabled());
 
-    fireEvent.click(screen.getByRole("button", { name: "恢复整个事项" }));
+    await waitFor(() => expect(complete).not.toBeDisabled());
+    expect(complete).toBeChecked();
+    fireEvent.click(complete);
     await waitFor(async () => expect((await db.events.get(eventItem.id))?.completed_at).toBeNull());
+    expect(complete).not.toBeChecked();
   });
 });
 

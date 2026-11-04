@@ -134,7 +134,9 @@ create table if not exists public.events (
   reminder_minutes_before integer not null default 10 check (reminder_minutes_before between 0 and 10080),
   timezone text not null default 'Asia/Shanghai',
   completed_at timestamptz,
-  unique (id, user_id)
+  unique (id, user_id),
+  constraint events_category_owner_fkey foreign key (category_id, user_id)
+    references public.categories(id, user_id) on delete set null (category_id)
 );
 
 create table if not exists public.event_occurrence_states (
@@ -371,7 +373,7 @@ create table if not exists public.ai_assistant_settings (
   constraint ai_assistant_settings_model_catalog_check check (
     (provider = 'deepseek' and model in ('deepseek-v4-flash', 'deepseek-v4-pro'))
     or
-    (provider = 'mimo' and model in ('mimo-v2.5', 'mimo-v2.5-pro', 'mimo-v2.5-pro-ultraspeed'))
+    (provider = 'mimo' and model in ('mimo-v2.6-flash', 'mimo-v2.6-pro', 'mimo-v2.5-pro-ultraspeed', 'mimo-v2.5', 'mimo-v2.5-pro'))
     or
     (provider = 'siliconflow' and model in ('Qwen/Qwen3-32B', 'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1'))
     or

@@ -42,10 +42,37 @@ describe("附件来源选择", () => {
     const camera = screen.getByLabelText("拍照上传");
     const gallery = screen.getByLabelText("从相册选择");
     const documents = screen.getByLabelText("从文件管理器选择");
+    expect(camera).toHaveAttribute("accept", "image/*");
     expect(camera).toHaveAttribute("capture", "environment");
+    expect(camera).not.toHaveAttribute("multiple");
+    expect(gallery).toHaveAttribute("accept", "image/jpeg,image/png");
     expect(gallery).not.toHaveAttribute("capture");
     expect(documents).not.toHaveAttribute("capture");
     expect(container.querySelectorAll('input[type="file"]')).toHaveLength(4);
+  });
+
+  it("点击拍照只触发相机输入，选择照片后交给附件处理", () => {
+    setMobile(true);
+    const onFiles = vi.fn();
+    render(
+      <AttachmentSourcePicker
+        imageAccept="image/jpeg,image/png"
+        documentAccept=".pdf,.docx"
+        onFiles={onFiles}
+      />
+    );
+    const camera = screen.getByLabelText("拍照上传");
+    const cameraClick = vi.spyOn(camera, "click");
+    const galleryClick = vi.spyOn(screen.getByLabelText("从相册选择"), "click");
+    fireEvent.click(screen.getByRole("button", { name: "选择附件来源" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /拍照/ }));
+    expect(cameraClick).toHaveBeenCalledTimes(1);
+    expect(galleryClick).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu", { name: "附件来源" })).not.toBeInTheDocument();
+
+    const files = [new File(["photo"], "photo.jpg", { type: "image/jpeg" })];
+    fireEvent.change(camera, { target: { files } });
+    expect(onFiles).toHaveBeenCalledWith(files);
   });
 
   it("电脑端点击附件直接打开统一文件选择器", () => {

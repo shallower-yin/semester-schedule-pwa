@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { FocusSession } from "../types";
-import { elapsedFocusSeconds, focusDailyTotals, focusModeLabel, focusSessionsForDate, formatFocusDuration, formatFocusRecordTiming, remainingFocusSeconds, totalFocusSeconds } from "./focus";
+import { elapsedFocusSeconds, focusDailyTotals, focusModeLabel, focusRecordsForPeriod, focusSessionsForDate, formatFocusDuration, formatFocusRecordTiming, remainingFocusSeconds, totalFocusSeconds } from "./focus";
 
 describe("专注计时", () => {
+  it("北京时间周一凌晨按上海周界限汇总，不混入上周和未来记录", () => {
+    const now = new Date("2026-07-20T00:05:00+08:00");
+    now.getDate = () => 19;
+    now.getDay = () => 0;
+    const records = [
+      session("2026-07-19T23:59:59+08:00", 10),
+      session("2026-07-20T00:00:00+08:00", 20),
+      session("2026-07-20T00:06:00+08:00", 30)
+    ];
+    expect(focusRecordsForPeriod(records, "week", now).map((record) => record.duration_seconds)).toEqual([20]);
+    expect(focusRecordsForPeriod(records, "day", now).map((record) => record.duration_seconds)).toEqual([20]);
+  });
   it("计算已用时间时扣除暂停时间", () => {
     const active = {
       mode: "countdown" as const,
@@ -56,6 +68,16 @@ describe("专注计时", () => {
       { date: "2026-07-06", total: 300, count: 1 },
       { date: "2026-07-07", total: 600, count: 1 }
     ]);
+  });
+
+  it("设备日期落后北京时间时统计仍包含北京时间今天", () => {
+    const now = new Date("2026-07-08T00:05:00+08:00");
+    // A device in New York sees July 7 while the product day is already July 8.
+    now.getFullYear = () => 2026;
+    now.getMonth = () => 6;
+    now.getDate = () => 7;
+    const totals = focusDailyTotals([session("2026-07-08T00:01:00+08:00", 300)], 1, now);
+    expect(totals).toEqual([{ date: "2026-07-08", label: "7/8", total_seconds: 300, session_count: 1 }]);
   });
 });
 

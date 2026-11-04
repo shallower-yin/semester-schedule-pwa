@@ -3,6 +3,7 @@ import { Capacitor } from "@capacitor/core";
 import { appHistoryLayer, appHistoryPage } from "./appHistory";
 
 export const NATIVE_NOTIFICATION_OPEN_EVENT = "semester-schedule-native-notification-open";
+const NATIVE_APP_STATE_CHANGE_EVENT = "semester-schedule-native-app-state-change";
 let pendingNotificationKey: string | null = null;
 
 function notificationKeyFromUrl(url?: string | null): string | null {
@@ -35,6 +36,40 @@ export function isNativeApp(): boolean {
   return typeof __APP_TARGET__ !== "undefined" && __APP_TARGET__ === "android" && Capacitor.isNativePlatform();
 }
 
+export function subscribeToAppForeground(onForeground: () => void | Promise<unknown>): () => void {
+  let active = true;
+  let notifying = false;
+  const notify = () => {
+    if (!active || notifying || !navigator.onLine) return;
+    notifying = true;
+    void Promise.resolve()
+      .then(() => active ? onForeground() : undefined)
+      .catch(() => undefined)
+      .finally(() => { notifying = false; });
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") notify();
+  };
+  const onPageShow = (event: PageTransitionEvent) => {
+    if (event.persisted) onVisible();
+  };
+  const onNativeStateChange = (event: Event) => {
+    if ((event as CustomEvent<boolean>).detail) notify();
+  };
+
+  document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("focus", onVisible);
+  window.addEventListener("pageshow", onPageShow);
+  window.addEventListener(NATIVE_APP_STATE_CHANGE_EVENT, onNativeStateChange);
+  return () => {
+    active = false;
+    document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("focus", onVisible);
+    window.removeEventListener("pageshow", onPageShow);
+    window.removeEventListener(NATIVE_APP_STATE_CHANGE_EVENT, onNativeStateChange);
+  };
+}
+
 export async function initializeNativeAppBridge(): Promise<void> {
   if (!isNativeApp()) return;
 
@@ -48,6 +83,9 @@ export async function initializeNativeAppBridge(): Promise<void> {
         return;
       }
       void CapacitorApp.minimizeApp();
+    });
+    await CapacitorApp.addListener("appStateChange", ({ isActive }) => {
+      window.dispatchEvent(new CustomEvent<boolean>(NATIVE_APP_STATE_CHANGE_EVENT, { detail: isActive }));
     });
   } catch {
     // Capacitor's default Android back handling remains available if the plugin cannot initialize.
