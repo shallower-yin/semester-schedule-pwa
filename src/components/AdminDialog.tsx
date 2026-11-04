@@ -1,19 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Activity, Ban, CheckCircle2, Copy, Database, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Save, ShieldCheck, Trash2, UsersRound, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Ban, CheckCircle2, Database, Eye, EyeOff, KeyRound, RefreshCw, Save, ShieldCheck, Trash2, UsersRound } from "lucide-react";
 import {
   cleanupAdminTransientData,
-  deleteAdminAiRelay,
   getAdminAiCallLogs,
   getAdminSummary,
   getAdminUserDetails,
-  saveAdminAiRelay,
   saveAdminAiAccess,
-  saveAdminAiSettings,
   setAdminAccountBan,
-  testAdminAiRelay,
   type AdminAiAccess,
-  type AdminAiRelay,
-  type AdminAiRelayProtocol,
   type AdminRole,
   type AdminSummary,
   type AdminUserDetails,
@@ -22,33 +16,12 @@ import {
 import { Modal } from "./Modal";
 import { AdminFocusAudioManager } from "./AdminFocusAudioManager";
 import { AdminFeedbackInbox } from "./AdminFeedbackInbox";
-import {
-  AI_MODEL_OPTIONS,
-  AUDIO_MODEL_OPTIONS,
-  defaultAiModel,
-  defaultAudioModel,
-  isSupportedAiModel,
-  isSupportedAudioModel,
-  type AiProvider,
-  type AudioProvider,
-  type MimoChannel
-} from "../lib/aiModels";
-import { AI_FEATURE_KEYS, AI_FEATURE_LABELS, defaultAiFeatureQuotas, type AiFeatureKey, type AiFeatureQuota } from "../lib/aiFeatures";
+import { AdminAiSettingsPanel } from "./AdminAiSettingsPanel";
+import { AdminAiRelayManager, useAdminAiRelayManager } from "./AdminAiRelayManager";
+import { useAdminAiSettingsDraft } from "./useAdminAiSettingsDraft";
 
 interface AdminDialogProps {
   onClose: () => void;
-}
-
-interface AiRelayDraft {
-  id?: string;
-  name: string;
-  protocol: AdminAiRelayProtocol;
-  baseUrl: string;
-  apiKey: string;
-  supportsText: boolean;
-  textModel: string;
-  supportsAudio: boolean;
-  audioModel: string;
 }
 
 export function AdminDialog({ onClose }: AdminDialogProps) {
@@ -65,19 +38,18 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   const [accessNote, setAccessNote] = useState("");
   const [userQuery, setUserQuery] = useState("");
   const [directIdentifier, setDirectIdentifier] = useState("");
-  const [featureQuotas, setFeatureQuotas] = useState(defaultAiFeatureQuotas);
-  const [aiProvider, setAiProvider] = useState<AiProvider>("deepseek");
-  const [aiModel, setAiModel] = useState("deepseek-v4-flash");
-  const [mimoChannel, setMimoChannel] = useState<MimoChannel>("payg");
-  const [audioProvider, setAudioProvider] = useState<AudioProvider>("mimo");
-  const [audioModel, setAudioModel] = useState("mimo-v2.5-asr");
-  const [textRelayId, setTextRelayId] = useState("");
-  const [audioRelayId, setAudioRelayId] = useState("");
-  const [relayDraft, setRelayDraft] = useState<AiRelayDraft | null>(null);
-  const [savingRelay, setSavingRelay] = useState(false);
-  const [testingRelay, setTestingRelay] = useState("");
-  const [deletingRelay, setDeletingRelay] = useState("");
-  const [savingSettings, setSavingSettings] = useState(false);
+  const settingsEditor = useAdminAiSettingsDraft({
+    onMessage: setMessage,
+    onSaved: (settings) => setSummary((current) => current ? { ...current, aiSettings: settings } : current)
+  });
+  const relayEditor = useAdminAiRelayManager({
+    onMessage: setMessage, onRefresh: loadSummary, onDeleted: settingsEditor.removeRelayReference
+  });
+  const summaryRequest = useRef(0);
+  const detailRequest = useRef(0);
+  const accessOwner = useRef<string | null>(null);
+  const accessEdited = useRef(false);
+  const accessRevision = useRef(0);
   const [cleanupRetentionDays, setCleanupRetentionDays] = useState(90);
   const [cleanupScope, setCleanupScope] = useState<"all" | "selected">("all");
   const [cleaningData, setCleaningData] = useState(false);
@@ -97,37 +69,38 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }, [summary?.users, userQuery]);
 
   async function loadSummary() {
+    const request = ++summaryRequest.current;
+    const settingsVersion = settingsEditor.snapshotVersion();
     setLoading(true);
     setMessage("");
     try {
       const nextSummary = await getAdminSummary();
-      setSummary(nextSummary);
-      setFeatureQuotas(nextSummary.aiSettings.feature_quotas ?? defaultAiFeatureQuotas());
-      setAiProvider(nextSummary.aiSettings.provider);
-      setAiModel(nextSummary.aiSettings.model);
-      setMimoChannel(nextSummary.aiSettings.mimo_channel);
-      setAudioProvider(nextSummary.aiSettings.audio_provider);
-      setAudioModel(nextSummary.aiSettings.audio_model);
-      setTextRelayId(nextSummary.aiSettings.text_relay_id ?? "");
-      setAudioRelayId(nextSummary.aiSettings.audio_relay_id ?? "");
+      if (request !== summaryRequest.current) return;
+      const settingsAccepted = settingsEditor.receiveSnapshot(nextSummary.aiSettings, settingsVersion);
+      setSummary((current) => ({
+        ...nextSummary,
+        aiSettings: settingsAccepted ? nextSummary.aiSettings : current?.aiSettings ?? nextSummary.aiSettings
+      }));
       if (!selectedUserId && nextSummary.users[0]) setSelectedUserId(nextSummary.users[0].id);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
+      if (request === summaryRequest.current) setMessage(error instanceof Error ? error.message : "读取管理员数据失败。");
     } finally {
-      setLoading(false);
+      if (request === summaryRequest.current) setLoading(false);
     }
   }
 
   async function loadDetails(userId: string) {
     if (!userId) return;
+    const request = ++detailRequest.current;
     setDetailLoading(true);
     setMessage("");
     try {
-      setDetails(await getAdminUserDetails(userId));
+      const nextDetails = await getAdminUserDetails(userId);
+      if (request === detailRequest.current) setDetails(nextDetails);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "读取用户数据失败。");
+      if (request === detailRequest.current) setMessage(error instanceof Error ? error.message : "读取用户数据失败。");
     } finally {
-      setDetailLoading(false);
+      if (request === detailRequest.current) setDetailLoading(false);
     }
   }
 
@@ -167,8 +140,30 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }
 
   function selectUser(userId: string) {
+    detailRequest.current += 1;
+    setDetailLoading(false);
     setSelectedUserId(userId);
+    setDirectIdentifier("");
     setDetails(null);
+    // Selecting a user is an explicit target change, even when the selected
+    // ID is unchanged after editing an email-addressed direct grant.
+    accessOwner.current = userId;
+    accessEdited.current = false;
+    accessRevision.current += 1;
+    resetAccessDraft(summary?.users.find((user) => user.id === userId)?.aiAccess ?? null);
+  }
+
+  function resetAccessDraft(access: AdminAiAccess | null) {
+    setAccessEnabled(Boolean(access?.enabled));
+    setAccessRole(access?.role ?? "member");
+    setAccessExpiresAt(access?.expires_at ? access.expires_at.slice(0, 16) : "");
+    setAccessNote(access?.note ?? "");
+  }
+
+  function editAccess(update: () => void) {
+    accessEdited.current = true;
+    accessRevision.current += 1;
+    update();
   }
 
   async function saveAccess() {
@@ -179,6 +174,8 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
     }
     setSavingAccess(true);
     setMessage("");
+    const submittedRevision = accessRevision.current;
+    const submittedOwner = accessOwner.current;
     try {
       const targetUserId = identifier ? (isLikelyUuid(identifier) ? identifier : undefined) : selectedUserId;
       const targetEmail = identifier && !isLikelyUuid(identifier) ? identifier : undefined;
@@ -190,169 +187,18 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         expiresAt: accessExpiresAt || null,
         note: accessNote || null
       });
-      setDirectIdentifier("");
+      const editedDuringSave = accessRevision.current !== submittedRevision || accessOwner.current !== submittedOwner;
+      if (!editedDuringSave) {
+        accessEdited.current = false;
+        setDirectIdentifier((current) => current === directIdentifier ? "" : current);
+      }
       await loadSummary();
-      setMessage("AI 权限已保存。");
+      setMessage(editedDuringSave ? "AI 权限已保存，后续修改尚未保存。" : "AI 权限已保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存 AI 权限失败。");
     } finally {
       setSavingAccess(false);
     }
-  }
-
-  async function saveGlobalSettings() {
-    if (!textRelayId && !isSupportedAiModel(aiProvider, aiModel)) {
-      setMessage("请选择当前 AI 提供商支持的模型。");
-      return;
-    }
-    if (!audioRelayId && !isSupportedAudioModel(audioProvider, audioModel)) {
-      setMessage("请选择当前音频转写通道支持的模型。");
-      return;
-    }
-    const invalidFeature = AI_FEATURE_KEYS.find((feature) => {
-      const quota = featureQuotas[feature];
-      return quota.ordinary_weekly_limit < quota.ordinary_daily_limit
-        || quota.member_weekly_limit < quota.member_daily_limit;
-    });
-    if (invalidFeature) {
-      setMessage(`${AI_FEATURE_LABELS[invalidFeature]}的每周额度不能低于每日额度。`);
-      return;
-    }
-    setSavingSettings(true);
-    setMessage("");
-    try {
-      const settings = await saveAdminAiSettings({
-        enabled_for_all: featureQuotas.assistant.enabled_for_all,
-        ordinary_daily_limit: featureQuotas.assistant.ordinary_daily_limit,
-        ordinary_weekly_limit: featureQuotas.assistant.ordinary_weekly_limit,
-        member_daily_limit: featureQuotas.assistant.member_daily_limit,
-        member_weekly_limit: featureQuotas.assistant.member_weekly_limit,
-        provider: aiProvider,
-        model: aiModel.trim(),
-        mimo_channel: mimoChannel,
-        audio_provider: audioProvider,
-        audio_model: audioModel.trim(),
-        text_relay_id: textRelayId || null,
-        audio_relay_id: audioRelayId || null,
-        feature_quotas: featureQuotas
-      });
-      setFeatureQuotas(settings.feature_quotas);
-      setAiProvider(settings.provider);
-      setAiModel(settings.model);
-      setMimoChannel(settings.mimo_channel);
-      setAudioProvider(settings.audio_provider);
-      setAudioModel(settings.audio_model);
-      setTextRelayId(settings.text_relay_id ?? "");
-      setAudioRelayId(settings.audio_relay_id ?? "");
-      setMessage("AI 模型与分项权限额度已保存。");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "保存 AI 全局设置失败。");
-    } finally {
-      setSavingSettings(false);
-    }
-  }
-
-  function beginNewRelay(protocol: AdminAiRelayProtocol = "openai_compatible") {
-    setRelayDraft(defaultRelayDraft(protocol));
-  }
-
-  function beginEditRelay(relay: AdminAiRelay) {
-    setRelayDraft({
-      id: relay.id,
-      name: relay.name,
-      protocol: relay.protocol,
-      baseUrl: relay.baseUrl,
-      apiKey: "",
-      supportsText: relay.supportsText,
-      textModel: relay.textModel ?? "",
-      supportsAudio: relay.supportsAudio,
-      audioModel: relay.audioModel ?? ""
-    });
-  }
-
-  function beginCopyRelay(relay: AdminAiRelay) {
-    setRelayDraft({
-      name: `${relay.name} 副本`,
-      protocol: relay.protocol,
-      baseUrl: relay.baseUrl,
-      apiKey: "",
-      supportsText: relay.supportsText,
-      textModel: relay.textModel ?? "",
-      supportsAudio: relay.supportsAudio,
-      audioModel: relay.audioModel ?? ""
-    });
-  }
-
-  function changeRelayProtocol(protocol: AdminAiRelayProtocol) {
-    setRelayDraft((current) => {
-      if (!current) return current;
-      const defaults = defaultRelayDraft(protocol);
-      return {
-        ...current,
-        protocol,
-        baseUrl: current.id ? current.baseUrl : defaults.baseUrl,
-        textModel: current.id ? current.textModel : defaults.textModel,
-        supportsAudio: protocol === "deepseek" ? false : current.supportsAudio,
-        audioModel: protocol === "deepseek" ? "" : current.audioModel || defaults.audioModel
-      };
-    });
-  }
-
-  async function persistRelay() {
-    if (!relayDraft) return;
-    if (!relayDraft.id && !relayDraft.apiKey.trim()) {
-      setMessage("新增或复制中转站时必须填写 API Key；系统不会读取已有中转站的明文密钥。");
-      return;
-    }
-    setSavingRelay(true);
-    setMessage("");
-    try {
-      const saved = await saveAdminAiRelay(relayDraft);
-      setRelayDraft(null);
-      await loadSummary();
-      setMessage(`中转站“${saved.name}”已保存。密钥已写入服务端保险库。`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "保存中转站失败。");
-    } finally {
-      setSavingRelay(false);
-    }
-  }
-
-  async function testRelay(relay: AdminAiRelay, kind: "text" | "audio") {
-    setTestingRelay(`${relay.id}:${kind}`);
-    setMessage("");
-    try {
-      const result = await testAdminAiRelay(relay.id, kind);
-      await loadSummary();
-      setMessage(`${relay.name}：${result.message}，耗时 ${result.latencyMs} ms。`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "测试中转站失败。");
-    } finally {
-      setTestingRelay("");
-    }
-  }
-
-  async function removeRelay(relay: AdminAiRelay) {
-    if (!window.confirm(`删除中转站“${relay.name}”及其服务端密钥？引用它的文本或音频路由会自动回退到内置通道。`)) return;
-    setDeletingRelay(relay.id);
-    setMessage("");
-    try {
-      await deleteAdminAiRelay(relay.id);
-      if (relayDraft?.id === relay.id) setRelayDraft(null);
-      await loadSummary();
-      setMessage(`中转站“${relay.name}”已删除，密钥也已从服务端保险库移除。`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "删除中转站失败。");
-    } finally {
-      setDeletingRelay("");
-    }
-  }
-
-  function updateFeatureQuota(feature: AiFeatureKey, patch: Partial<AiFeatureQuota>) {
-    setFeatureQuotas((current) => ({
-      ...current,
-      [feature]: { ...current[feature], ...patch }
-    }));
   }
 
   async function cleanupTransientData() {
@@ -379,6 +225,10 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
 
   useEffect(() => {
     void loadSummary();
+    return () => {
+      summaryRequest.current += 1;
+      detailRequest.current += 1;
+    };
   }, []);
 
   useEffect(() => {
@@ -388,12 +238,16 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
   }, [adminSection]);
 
   useEffect(() => {
-    const access = selectedUser?.aiAccess ?? details?.aiAccess ?? null;
-    setAccessEnabled(Boolean(access?.enabled));
-    setAccessRole(access?.role ?? "member");
-    setAccessExpiresAt(access?.expires_at ? access.expires_at.slice(0, 16) : "");
-    setAccessNote(access?.note ?? "");
-  }, [selectedUser?.aiAccess, details?.aiAccess]);
+    const ownerId = selectedUser?.id ?? "";
+    if (accessOwner.current !== ownerId) {
+      accessOwner.current = ownerId;
+      accessRevision.current += 1;
+      if (!directIdentifier.trim()) accessEdited.current = false;
+    }
+    if (accessEdited.current) return;
+    const access = selectedUser?.aiAccess ?? (details?.user.id === ownerId ? details.aiAccess : null);
+    resetAccessDraft(access);
+  }, [selectedUser?.id, selectedUser?.aiAccess, details?.user.id, details?.aiAccess]);
 
   return (
     <Modal title="管理后台" onClose={onClose} wide>
@@ -415,211 +269,9 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
         </nav>
 
         {adminSection === "ai" && <>
-          <section className="admin-access-editor admin-global-settings">
-          <div className="section-heading">
-            <div><h3><KeyRound size={18} /> AI 模型、权限与分项额度</h3><p>各功能独立计次；额度填 0 表示该角色不可用，管理员不限额。</p></div>
-          </div>
-          <div className="admin-ai-route-grid">
-            <article className="admin-ai-route-card">
-              <h4>普通 AI / 翻译 / 思维导图</h4>
-              <label>
-                文本路由
-                <select value={textRelayId} onChange={(event) => setTextRelayId(event.target.value)}>
-                  <option value="">内置服务商</option>
-                  {(summary?.aiRelays ?? []).filter((relay) => relay.supportsText).map((relay) => (
-                    <option value={relay.id} key={relay.id}>{relay.name} · {relay.textModel}</option>
-                  ))}
-                </select>
-              </label>
-              {!textRelayId && <>
-                <label>
-                  内置提供商
-                  <select value={aiProvider} onChange={(event) => {
-                    const value = event.target.value;
-                    const provider: AiProvider = value === "mimo" || value === "siliconflow" || value === "tju" ? value : "deepseek";
-                    setAiProvider(provider);
-                    setAiModel(defaultAiModel(provider));
-                  }}>
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="mimo">Xiaomi MiMo</option>
-                    <option value="siliconflow">硅基流动</option>
-                    <option value="tju">学校 API</option>
-                  </select>
-                </label>
-                <label>
-                  模型
-                  <select value={aiModel} onChange={(event) => setAiModel(event.target.value)}>
-                    {AI_MODEL_OPTIONS[aiProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                  </select>
-                </label>
-                {aiProvider === "mimo" && <label>
-                  MiMo 通道
-                  <select value={mimoChannel} onChange={(event) => setMimoChannel(event.target.value === "token_plan" ? "token_plan" : "payg")}>
-                    <option value="payg">按量 API（sk）</option>
-                    <option value="token_plan">Token Plan（tp，仅获授权后）</option>
-                  </select>
-                </label>}
-              </>}
-            </article>
-            <article className="admin-ai-route-card">
-              <h4>音频助手 / 转写</h4>
-              <label>
-                音频路由
-                <select value={audioRelayId} onChange={(event) => setAudioRelayId(event.target.value)}>
-                  <option value="">内置服务商</option>
-                  {(summary?.aiRelays ?? []).filter((relay) => relay.supportsAudio).map((relay) => (
-                    <option value={relay.id} key={relay.id}>{relay.name} · {relay.audioModel}</option>
-                  ))}
-                </select>
-              </label>
-              {!audioRelayId && <>
-                <label>
-                  内置转写通道
-                  <select value={audioProvider} onChange={(event) => {
-                    const provider: AudioProvider = event.target.value === "siliconflow" ? "siliconflow" : "mimo";
-                    setAudioProvider(provider);
-                    setAudioModel(defaultAudioModel(provider));
-                  }}>
-                    <option value="mimo">Xiaomi MiMo</option>
-                    <option value="siliconflow">硅基流动</option>
-                  </select>
-                </label>
-                <label>
-                  转写模型
-                  <select value={audioModel} onChange={(event) => setAudioModel(event.target.value)}>
-                    {AUDIO_MODEL_OPTIONS[audioProvider].map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                  </select>
-                </label>
-              </>}
-            </article>
-          </div>
-          <div className="admin-ai-settings-actions">
-            <p>路由配置保存在服务端；网页和 APK 会同时生效，客户端不会获得 API Key。</p>
-            <button className="button primary" onClick={() => void saveGlobalSettings()} disabled={savingSettings}>
-              <Save size={16} />保存 AI 设置
-            </button>
-          </div>
-          {!textRelayId && aiProvider === "mimo" && (
-            <p className="admin-channel-note">
-              音频转写固定使用按量 API；此处通道只控制主模型。MiMo Token Plan 官方仅授权 AI 编程工具，普通应用调用请选按量 API。
-            </p>
-          )}
-          <section className="admin-ai-relay-manager" aria-labelledby="admin-ai-relay-heading">
-            <div className="section-heading">
-              <div>
-                <h4 id="admin-ai-relay-heading"><Database size={17} /> 自定义中转站</h4>
-                <p>支持 OpenAI 兼容、DeepSeek 和 MiMo。保存不调用上游；测试按钮会发送一次极小请求，可能产生少量费用。</p>
-              </div>
-              <button className="button secondary compact" type="button" onClick={() => beginNewRelay()}>
-                <Plus size={15} />新增中转站
-              </button>
-            </div>
-            {relayDraft && (
-              <div className="admin-ai-relay-editor">
-                <div className="admin-ai-relay-editor-heading">
-                  <strong>{relayDraft.id ? "编辑中转站" : "新增中转站"}</strong>
-                  <button className="icon-button" type="button" aria-label="关闭中转站编辑" onClick={() => setRelayDraft(null)}><X size={17} /></button>
-                </div>
-                <div className="admin-ai-relay-form">
-                  <label>
-                    名称
-                    <input value={relayDraft.name} maxLength={80} placeholder="例如：主力 OpenAI 中转" onChange={(event) => setRelayDraft({ ...relayDraft, name: event.target.value })} />
-                  </label>
-                  <label>
-                    接口协议
-                    <select value={relayDraft.protocol} onChange={(event) => changeRelayProtocol(event.target.value as AdminAiRelayProtocol)}>
-                      <option value="openai_compatible">OpenAI 兼容</option>
-                      <option value="deepseek">DeepSeek 直连</option>
-                      <option value="mimo">Xiaomi MiMo 直连</option>
-                    </select>
-                  </label>
-                  <label className="admin-ai-relay-url">
-                    API 基础地址
-                    <input type="url" value={relayDraft.baseUrl} placeholder="https://example.com/v1" onChange={(event) => setRelayDraft({ ...relayDraft, baseUrl: event.target.value })} />
-                  </label>
-                  <label>
-                    API Key
-                    <input type="password" autoComplete="new-password" value={relayDraft.apiKey} placeholder={relayDraft.id ? "留空保留原密钥" : "新增时必填"} onChange={(event) => setRelayDraft({ ...relayDraft, apiKey: event.target.value })} />
-                  </label>
-                  <label className="admin-ai-relay-capability">
-                    <input type="checkbox" checked={relayDraft.supportsText} onChange={(event) => setRelayDraft({ ...relayDraft, supportsText: event.target.checked })} />
-                    启用文本 AI
-                  </label>
-                  <label>
-                    文本模型 ID
-                    <input value={relayDraft.textModel} disabled={!relayDraft.supportsText} placeholder="例如：deepseek-chat" onChange={(event) => setRelayDraft({ ...relayDraft, textModel: event.target.value })} />
-                  </label>
-                  <label className="admin-ai-relay-capability">
-                    <input type="checkbox" checked={relayDraft.supportsAudio} disabled={relayDraft.protocol === "deepseek"} onChange={(event) => setRelayDraft({ ...relayDraft, supportsAudio: event.target.checked })} />
-                    启用音频转写
-                  </label>
-                  <label>
-                    音频模型 ID
-                    <input value={relayDraft.audioModel} disabled={!relayDraft.supportsAudio} placeholder="例如：whisper-1" onChange={(event) => setRelayDraft({ ...relayDraft, audioModel: event.target.value })} />
-                  </label>
-                </div>
-                <p className="admin-channel-note">基础地址请包含服务商要求的版本前缀（常见为 /v1）；系统会自动追加 /chat/completions 或 /audio/transcriptions。</p>
-                <button className="button primary" type="button" onClick={() => void persistRelay()} disabled={savingRelay}>
-                  <Save size={15} />{savingRelay ? "保存中…" : "安全保存"}
-                </button>
-              </div>
-            )}
-            <div className="admin-ai-relay-list">
-              {(summary?.aiRelays ?? []).map((relay) => (
-                <article className="admin-ai-relay-card" key={relay.id}>
-                  <div className="admin-ai-relay-card-main">
-                    <div>
-                      <strong>{relay.name}</strong>
-                      <span>{relayProtocolLabel(relay.protocol)} · {safeRelayHost(relay.baseUrl)}</span>
-                    </div>
-                    <span className={`admin-ai-relay-status ${relay.lastTestStatus ?? "untested"}`}>
-                      {relay.lastTestStatus === "success" ? "连通" : relay.lastTestStatus === "error" ? "失败" : "未测试"}
-                    </span>
-                  </div>
-                  <p>
-                    {relay.supportsText ? `文本：${relay.textModel}` : "文本：未启用"}
-                    {" · "}
-                    {relay.supportsAudio ? `音频：${relay.audioModel}` : "音频：未启用"}
-                    {" · 密钥已加密保存"}
-                  </p>
-                  {relay.lastTestMessage && <small>{relay.lastTestMessage}{relay.lastTestLatencyMs != null ? ` · ${relay.lastTestLatencyMs} ms` : ""}</small>}
-                  <div className="admin-ai-relay-actions">
-                    {relay.supportsText && <button className="button secondary compact" type="button" disabled={Boolean(testingRelay)} onClick={() => void testRelay(relay, "text")}><Activity size={14} />{testingRelay === `${relay.id}:text` ? "测试中…" : "测文本"}</button>}
-                    {relay.supportsAudio && <button className="button secondary compact" type="button" disabled={Boolean(testingRelay)} onClick={() => void testRelay(relay, "audio")}><Activity size={14} />{testingRelay === `${relay.id}:audio` ? "测试中…" : "测音频"}</button>}
-                    <button className="button secondary compact" type="button" onClick={() => beginEditRelay(relay)}><Pencil size={14} />编辑</button>
-                    <button className="button secondary compact" type="button" onClick={() => beginCopyRelay(relay)}><Copy size={14} />复制</button>
-                    <button className="button danger compact" type="button" disabled={deletingRelay === relay.id} onClick={() => void removeRelay(relay)}><Trash2 size={14} />删除</button>
-                  </div>
-                </article>
-              ))}
-              {!summary?.aiRelays.length && !relayDraft && <p className="admin-ai-relay-empty">还没有自定义中转站。内置服务商仍会正常工作。</p>}
-            </div>
-          </section>
-          <div className="admin-feature-quota-table">
-            <div className="admin-feature-quota-header" aria-hidden="true">
-              <span>功能</span><span>全员开放</span><span>普通 / 日</span><span>普通 / 周</span><span>会员 / 日</span><span>会员 / 周</span><span>管理员</span>
-            </div>
-            {AI_FEATURE_KEYS.map((feature) => {
-              const quota = featureQuotas[feature];
-              return (
-                <div className="admin-feature-quota-row" key={feature}>
-                  <strong>{AI_FEATURE_LABELS[feature]}</strong>
-                  <label data-label="全员开放">
-                    <select aria-label={`${AI_FEATURE_LABELS[feature]}全员开放`} value={quota.enabled_for_all ? "1" : "0"} onChange={(event) => updateFeatureQuota(feature, { enabled_for_all: event.target.value === "1" })}>
-                      <option value="1">开放</option>
-                      <option value="0">关闭</option>
-                    </select>
-                  </label>
-                  <label data-label="普通 / 日"><input aria-label={`${AI_FEATURE_LABELS[feature]}普通用户每日额度`} type="number" min={0} max={100000} value={quota.ordinary_daily_limit} onChange={(event) => updateFeatureQuota(feature, { ordinary_daily_limit: Math.max(0, Number(event.target.value)) })} /></label>
-                  <label data-label="普通 / 周"><input aria-label={`${AI_FEATURE_LABELS[feature]}普通用户每周额度`} type="number" min={quota.ordinary_daily_limit} max={1000000} value={quota.ordinary_weekly_limit} onChange={(event) => updateFeatureQuota(feature, { ordinary_weekly_limit: Math.max(0, Number(event.target.value)) })} /></label>
-                  <label data-label="会员 / 日"><input aria-label={`${AI_FEATURE_LABELS[feature]}会员每日额度`} type="number" min={0} max={100000} value={quota.member_daily_limit} onChange={(event) => updateFeatureQuota(feature, { member_daily_limit: Math.max(0, Number(event.target.value)) })} /></label>
-                  <label data-label="会员 / 周"><input aria-label={`${AI_FEATURE_LABELS[feature]}会员每周额度`} type="number" min={quota.member_daily_limit} max={1000000} value={quota.member_weekly_limit} onChange={(event) => updateFeatureQuota(feature, { member_weekly_limit: Math.max(0, Number(event.target.value)) })} /></label>
-                  <span className="admin-unlimited-note">不限额</span>
-                </div>
-              );
-            })}
-          </div>
-          </section>
+          <AdminAiSettingsPanel editor={settingsEditor} relays={summary?.aiRelays ?? []}>
+            <AdminAiRelayManager editor={relayEditor} relays={summary?.aiRelays ?? []} />
+          </AdminAiSettingsPanel>
 
           <section className="admin-access-editor admin-direct-access">
           <div className="section-heading">
@@ -628,29 +280,29 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
           <div className="form-grid admin-direct-access-grid">
             <label>
               邮箱
-              <input type="email" value={directIdentifier} onChange={(event) => setDirectIdentifier(event.target.value)} placeholder="user@example.com" />
+              <input type="email" value={directIdentifier} onChange={(event) => editAccess(() => setDirectIdentifier(event.target.value))} placeholder="user@example.com" />
             </label>
             <label>
               启用
-              <select value={accessEnabled ? "1" : "0"} onChange={(event) => setAccessEnabled(event.target.value === "1")}>
+              <select value={accessEnabled ? "1" : "0"} onChange={(event) => editAccess(() => setAccessEnabled(event.target.value === "1"))}>
                 <option value="1">启用</option>
                 <option value="0">关闭</option>
               </select>
             </label>
             <label>
               角色
-              <select value={accessRole} onChange={(event) => setAccessRole(event.target.value as AdminRole)}>
+              <select value={accessRole} onChange={(event) => editAccess(() => setAccessRole(event.target.value as AdminRole))}>
                 <option value="member">会员</option>
                 <option value="admin">管理员</option>
               </select>
             </label>
             <label>
               到期时间
-              <input type="datetime-local" value={accessExpiresAt} onChange={(event) => setAccessExpiresAt(event.target.value)} />
+              <input type="datetime-local" value={accessExpiresAt} onChange={(event) => editAccess(() => setAccessExpiresAt(event.target.value))} />
             </label>
             <label className="admin-direct-note">
               备注
-              <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：充值开通、手动赠送、本人账号" />
+              <input value={accessNote} onChange={(event) => editAccess(() => setAccessNote(event.target.value))} placeholder="例如：充值开通、手动赠送、本人账号" />
             </label>
             <button className="button primary admin-direct-save" onClick={() => void saveAccess()} disabled={savingAccess}>
               <Save size={16} />保存权限
@@ -764,25 +416,25 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
                   <div className="form-grid">
                     <label>
                       启用
-                      <select value={accessEnabled ? "1" : "0"} onChange={(event) => setAccessEnabled(event.target.value === "1")}>
+                      <select value={accessEnabled ? "1" : "0"} onChange={(event) => editAccess(() => setAccessEnabled(event.target.value === "1"))}>
                         <option value="1">启用</option>
                         <option value="0">关闭</option>
                       </select>
                     </label>
                     <label>
                       角色
-                      <select value={accessRole} onChange={(event) => setAccessRole(event.target.value as AdminRole)}>
+                      <select value={accessRole} onChange={(event) => editAccess(() => setAccessRole(event.target.value as AdminRole))}>
                         <option value="member">会员</option>
                         <option value="admin">管理员</option>
                       </select>
                     </label>
                     <label>
                       到期时间
-                      <input type="datetime-local" value={accessExpiresAt} onChange={(event) => setAccessExpiresAt(event.target.value)} />
+                      <input type="datetime-local" value={accessExpiresAt} onChange={(event) => editAccess(() => setAccessExpiresAt(event.target.value))} />
                     </label>
                     <label>
                       备注
-                      <input value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="例如：充值开通、手动赠送、本人账号" />
+                      <input value={accessNote} onChange={(event) => editAccess(() => setAccessNote(event.target.value))} placeholder="例如：充值开通、手动赠送、本人账号" />
                     </label>
                   </div>
                   <div className="form-actions">
@@ -833,57 +485,6 @@ export function AdminDialog({ onClose }: AdminDialogProps) {
       </div>
     </Modal>
   );
-}
-
-function defaultRelayDraft(protocol: AdminAiRelayProtocol): AiRelayDraft {
-  if (protocol === "deepseek") {
-    return {
-      name: "",
-      protocol,
-      baseUrl: "https://api.deepseek.com",
-      apiKey: "",
-      supportsText: true,
-      textModel: "deepseek-chat",
-      supportsAudio: false,
-      audioModel: ""
-    };
-  }
-  if (protocol === "mimo") {
-    return {
-      name: "",
-      protocol,
-      baseUrl: "https://api.xiaomimimo.com/v1",
-      apiKey: "",
-      supportsText: true,
-      textModel: "mimo-v2.6-flash",
-      supportsAudio: true,
-      audioModel: "mimo-v2.5-asr"
-    };
-  }
-  return {
-    name: "",
-    protocol,
-    baseUrl: "",
-    apiKey: "",
-    supportsText: true,
-    textModel: "",
-    supportsAudio: false,
-    audioModel: ""
-  };
-}
-
-function relayProtocolLabel(protocol: AdminAiRelayProtocol): string {
-  if (protocol === "deepseek") return "DeepSeek";
-  if (protocol === "mimo") return "Xiaomi MiMo";
-  return "OpenAI 兼容";
-}
-
-function safeRelayHost(baseUrl: string): string {
-  try {
-    return new URL(baseUrl).host;
-  } catch {
-    return "地址无效";
-  }
 }
 
 function AiUsageCard({ title, requests, tokens, cost }: { title: string; requests: number; tokens: number; cost: number | null }) {

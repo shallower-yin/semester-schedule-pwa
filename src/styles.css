@@ -1,9 +1,8 @@
 /* Aggregated app stylesheet.
-   Split into contiguous layers for maintainability. Rules keep their ORIGINAL
-   source order — features remain interleaved across layers by design — so the
-   built CSS is byte-for-byte identical to the previous single-file stylesheet.
-   Edit the layer files under ./styles/. Each layer is named for the content
-   that dominates its line range, not an exclusive owner of that feature. */
+   Keep the legacy layers in cascade order. Feature-owned files collect their
+   base and responsive rules together; their import position is intentional.
+   Calendar controls live in calendar-controls.css, while the numbered layers
+   still contain shared and not-yet-extracted feature styles. */
 @import "./styles/00-design-tokens.css";
 @import "./styles/01-core-schedule.css";
 @import "./styles/02-admin-memo-dialogs.css";
@@ -13,4 +12,5 @@
 @import "./styles/06-responsive.css";
 @import "./styles/07-todos.css";
 @import "./styles/08-macaron.css";
+@import "./styles/calendar-controls.css";
 @import "./styles/09-mobile-week.css";

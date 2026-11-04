@@ -17,9 +17,11 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
   );
   const originalServe = Deno.serve;
   const originalFetch = globalThis.fetch;
+  const originalDns = Deno.resolveDns;
   let handler: Handler | undefined;
 
   try {
+    Deno.resolveDns = (async (_host: string, type: string) => type === "A" ? ["93.184.216.34"] : []) as typeof Deno.resolveDns;
     for (const [name, value] of Object.entries(testEnvironment)) {
       Deno.env.set(name, value);
     }
@@ -207,6 +209,28 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
           assertEquals(body.max_tokens, 1400);
           assertEquals(body.max_completion_tokens, undefined);
         }
+        // Exercise feature call sites as well as the shared request builder.
+        for (const feature of [
+          { request: { mode: "translation", question: "你好" }, temperature: 0.1, tokens: 6000, legacyTokens: false },
+          { request: { mode: "mind_map_followup", question: "解释主题", mindMap: { label: "主题", children: [] } }, temperature: 0.45, tokens: 1800, legacyTokens: false },
+          { request: { action: "summarize_audio_transcript", audioTranscript: "测试转写正文" }, temperature: 0.2, tokens: 1200, legacyTokens: true },
+          { request: { mode: "audio_followup", question: "解释录音", audioTranscript: "测试转写正文" }, temperature: 0.2, tokens: 1400, legacyTokens: true }
+        ]) {
+          const previousCalls = providerCalls.length;
+          await invoke(feature.request);
+          assertEquals(providerCalls.length, previousCalls + 1);
+          const call = providerCalls.at(-1)!;
+          const completionTokens = isMimo && !feature.legacyTokens;
+          assertEquals(call.body.model, scenario.expected);
+          assertEquals(call.body.temperature, feature.temperature);
+          assertEquals(call.body.max_completion_tokens, completionTokens ? feature.tokens : undefined);
+          assertEquals(call.body.max_tokens, completionTokens ? undefined : feature.tokens);
+          assertEquals(call.body.thinking, isMimo ? { type: "disabled" } : undefined);
+          assertEquals(call.body.response_format, undefined);
+          assertEquals(call.body.stream, false);
+          assertEquals(call.headers.get("authorization"), `Bearer ${relay ? "test-relay-key" : "test-mimo-key"}`);
+          assertEquals(call.headers.get("api-key"), isMimo ? relay ? "test-relay-key" : "test-mimo-key" : null);
+        }
         assertEquals(unexpectedCalls, []);
       });
     }
@@ -257,6 +281,7 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
       assertEquals(unexpectedCalls, []);
     });
   } finally {
+    Deno.resolveDns = originalDns;
     Deno.serve = originalServe;
     globalThis.fetch = originalFetch;
     for (const [name, value] of previousEnvironment) {

@@ -17,6 +17,7 @@ async function resolveDeletionOwner(tableName: SyncTableName, recordId: string, 
 }
 
 export async function hardDeleteLocalRecord(tableName: SyncTableName, recordId: string): Promise<void> {
+  if (tableName === "categories") return hardDeleteLocalRecords(tableName, [recordId]);
   await db.transaction("rw", db.table(tableName), db.syncQueue, async () => {
     const record = await db.table(tableName).get(recordId) as { user_id?: string } | undefined;
     const ownerId = await resolveDeletionOwner(tableName, recordId, record);
@@ -28,10 +29,16 @@ export async function hardDeleteLocalRecord(tableName: SyncTableName, recordId: 
 export async function hardDeleteLocalRecords(tableName: SyncTableName, recordIds: string[]): Promise<void> {
   const ids = uniqueIds(recordIds);
   if (!ids.length) return;
-  await db.transaction("rw", db.table(tableName), db.syncQueue, async () => {
+  await db.transaction("rw", [db.table(tableName), db.syncQueue, ...(tableName === "categories" ? [db.events] : [])], async () => {
     const records = await db.table(tableName).bulkGet(ids) as Array<{ user_id?: string } | undefined>;
     for (const [index, id] of ids.entries()) {
       const ownerId = await resolveDeletionOwner(tableName, id, records[index]);
+      if (tableName === "categories") {
+        const linked = await db.events.filter((event) => event.user_id === ownerId && event.category_id === id).toArray();
+        for (const event of linked) {
+          await putRecordAndQueue("events", { ...event, ...syncFields(event), deleted_at: event.deleted_at, category_id: null });
+        }
+      }
       await queueChange(tableName, id, "delete", ownerId);
     }
     await db.table(tableName).bulkDelete(ids);

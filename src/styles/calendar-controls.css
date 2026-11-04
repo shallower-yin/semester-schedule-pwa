@@ -1,0 +1,274 @@
+/* Calendar toolbar, title, snapshot actions and disclosure controls.
+   Keep base and responsive rules in their existing cascade order. */
+.calendar-toolbar {
+  display: flex;
+  max-width: 1600px;
+  margin: 0 auto 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.schedule-filter-bar {
+  display: grid;
+  max-width: 1600px;
+  grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) minmax(130px, 180px) auto;
+  gap: 10px;
+  margin: -2px auto 16px;
+}
+
+.schedule-filter-bar input,
+.schedule-filter-bar select {
+  min-height: 42px;
+}
+
+.week-title h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.03em;
+}
+
+.week-title span {
+  display: block;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.calendar-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.snapshot-toolbar-actions {
+  display: flex;
+  gap: 7px;
+}
+
+@media (max-width: 900px) {
+  .calendar-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .schedule-filter-bar {
+    grid-template-columns: 1fr;
+    margin-bottom: 12px;
+  }
+}
+
+@media (max-width: 420px) {
+  .calendar-toolbar > .toolbar-actions .button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .calendar-toolbar > .toolbar-actions .button:nth-child(1),
+  .calendar-toolbar > .toolbar-actions .button:nth-child(3) {
+    grid-column: span 1;
+  }
+
+  .calendar-toolbar > .toolbar-actions .button:nth-child(2) {
+    grid-column: span 4;
+  }
+
+  .calendar-toolbar > .toolbar-actions .button:nth-child(4),
+  .calendar-toolbar > .toolbar-actions .button:nth-child(5) {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 580px) {
+  .calendar-title-actions {
+    align-items: flex-start;
+    justify-content: space-between;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .snapshot-toolbar-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    flex: 0 0 auto;
+  }
+
+  .snapshot-toolbar-actions .button {
+    min-width: 0;
+    padding-inline: 9px;
+  }
+
+  .week-title h1 {
+    font-size: 1.3125rem;
+  }
+}
+
+.calendar-control-panel {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.calendar-toolbar-disclosure > summary {
+  display: none;
+  list-style: none;
+}
+
+.calendar-toolbar-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.calendar-more-disclosure,
+.calendar-more-disclosure > .calendar-disclosure-content {
+  display: contents;
+}
+
+@media (max-width: 900px) {
+  .calendar-control-panel {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 6px;
+    margin-bottom: 10px;
+  }
+
+  .calendar-control-panel .calendar-toolbar {
+    display: contents;
+  }
+
+  .calendar-control-panel .calendar-title-actions {
+    grid-column: 1 / -1;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .calendar-control-panel .week-title h1 {
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .calendar-control-panel .week-title > span {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .calendar-control-panel .snapshot-toolbar-actions {
+    gap: 5px;
+  }
+
+  .calendar-control-panel .snapshot-toolbar-actions .button {
+    min-height: 34px;
+    gap: 4px;
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+
+  .calendar-control-panel .snapshot-toolbar-actions svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .calendar-toolbar > .toolbar-actions.calendar-week-actions {
+    display: grid;
+    width: 100%;
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: 36px minmax(64px, 1fr) 36px auto;
+    gap: 5px;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .calendar-toolbar > .toolbar-actions.calendar-week-actions > .button {
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    grid-column: auto;
+    padding: 5px 6px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .calendar-toolbar-disclosure > summary {
+    display: flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    background: var(--surface);
+    font-size: 11px;
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .calendar-toolbar-disclosure.active > summary {
+    border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+    color: var(--primary);
+    background: var(--accent-soft);
+  }
+
+  .calendar-more-disclosure {
+    position: relative;
+    display: block;
+  }
+
+  .calendar-more-disclosure > .calendar-disclosure-content {
+    position: absolute;
+    z-index: 15;
+    top: calc(100% + 5px);
+    right: 0;
+    display: grid;
+    min-width: 150px;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .calendar-more-disclosure .button {
+    justify-content: flex-start;
+  }
+
+  .calendar-filter-disclosure {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+  }
+
+  .calendar-filter-disclosure > .calendar-disclosure-content {
+    position: absolute;
+    z-index: 15;
+    top: calc(100% + 5px);
+    right: 0;
+    left: 0;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .calendar-control-panel .schedule-filter-bar {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 0;
+  }
+
+  .calendar-control-panel .schedule-filter-bar > input,
+  .calendar-control-panel .schedule-filter-bar > button {
+    grid-column: 1 / -1;
+  }
+
+  .calendar-control-panel .schedule-filter-bar input,
+  .calendar-control-panel .schedule-filter-bar select {
+    min-width: 0;
+    min-height: 38px;
+    font-size: 12px;
+  }
+}

@@ -33,9 +33,9 @@ describe("Web 与 APK 发布版本隔离", () => {
     }
   });
 
-  it("新安装包使用高于上一版 40 的 versionCode", () => {
-    expect(androidBuild).toMatch(/versionCode\s+41\b/);
-    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.41"/);
+  it("新安装包使用高于上一版 41 的 versionCode", () => {
+    expect(androidBuild).toMatch(/versionCode\s+42\b/);
+    expect(androidBuild).toMatch(/versionName\s+"0\.1\.0\.42"/);
   });
 
   it("APK版本和更新说明变化不会自动触发网页发布", () => {

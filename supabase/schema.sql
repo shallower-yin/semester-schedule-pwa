@@ -134,7 +134,9 @@ create table if not exists public.events (
   reminder_minutes_before integer not null default 10 check (reminder_minutes_before between 0 and 10080),
   timezone text not null default 'Asia/Shanghai',
   completed_at timestamptz,
-  unique (id, user_id)
+  unique (id, user_id),
+  constraint events_category_owner_fkey foreign key (category_id, user_id)
+    references public.categories(id, user_id) on delete set null (category_id)
 );
 
 create table if not exists public.event_occurrence_states (

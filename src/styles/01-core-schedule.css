@@ -213,7 +213,6 @@ main {
   padding: 22px 24px 32px;
 }
 
-.calendar-toolbar,
 .page-heading {
   display: flex;
   max-width: 1600px;
@@ -221,19 +220,6 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-}
-
-.schedule-filter-bar {
-  display: grid;
-  max-width: 1600px;
-  grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) minmax(130px, 180px) auto;
-  gap: 10px;
-  margin: -2px auto 16px;
-}
-
-.schedule-filter-bar input,
-.schedule-filter-bar select {
-  min-height: 42px;
 }
 
 .schedule-overview {
@@ -475,30 +461,17 @@ main {
   font-weight: 750;
 }
 
-.week-title h1,
 .page-heading h1 {
   margin: 0;
   font-size: 1.5rem;
   letter-spacing: -0.03em;
 }
 
-.week-title span,
 .page-heading p {
   display: block;
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 0.8125rem;
-}
-
-.calendar-title-actions {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.snapshot-toolbar-actions {
-  display: flex;
-  gap: 7px;
 }
 
 .snapshot-dialog {

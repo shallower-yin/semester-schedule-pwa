@@ -55,8 +55,43 @@ jobs:
         with:
           version: 2.110.0
 
+      - name: Check database version before category migration
+        run: |
+          set -euo pipefail
+          jq -n --arg query "select current_setting('server_version_num')::integer as server_version_num" '{query: $query}' > /tmp/database-version.json
+          response="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/database-version.json)"
+          printf '%s\n' "$response" | jq .
+          printf '%s\n' "$response" | jq -e 'length == 1 and .[0].server_version_num >= 150000' > /dev/null
+
       - name: Apply pending database migrations once
         run: node scripts/apply-supabase-migrations.mjs
+
+      - name: Verify event category owner constraint without changing user data
+        run: |
+          set -euo pipefail
+          query="select
+            exists (select 1 from public.app_schema_migrations where name = '20261104_event_category_owner.sql') as migration_applied,
+            exists (select 1 from pg_constraint
+              where conrelid = 'public.events'::regclass
+                and confrelid = 'public.categories'::regclass
+                and conname = 'events_category_owner_fkey'
+                and contype = 'f'
+                and pg_get_constraintdef(oid) like '%FOREIGN KEY (category_id, user_id)%'
+                and pg_get_constraintdef(oid) like '%ON DELETE SET NULL (category_id)%') as owner_fk_present;"
+          jq -n --arg query "$query" '{query: $query}' > /tmp/event-category-constraint.json
+          response="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/event-category-constraint.json)"
+          printf '%s\n' "$response" | jq .
+          printf '%s\n' "$response" | jq -e 'length == 1 and (.[0] | all(. == true))' > /dev/null
 
       - name: Configure production auth URLs
         env:

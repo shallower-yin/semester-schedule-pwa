@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { weekDates } from "../lib/date";
+import * as weekCalendarLayout from "../lib/weekCalendarLayout";
 import type { ClassPeriod, EventItem, EventOccurrenceState, Semester } from "../types";
 import { WeekCalendar } from "./WeekCalendar";
 
@@ -46,7 +47,23 @@ describe("周视图移动端新增事项", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it("按屏幕尺寸只计算当前视图的布局", () => {
+    const desktopLayout = vi.spyOn(weekCalendarLayout, "buildDesktopWeekLayout");
+    const mobileLayout = vi.spyOn(weekCalendarLayout, "buildMobileWeekLayout");
+    renderWeekCalendar(vi.fn());
+    expect(mobileLayout).toHaveBeenCalled();
+    expect(desktopLayout).not.toHaveBeenCalled();
+
+    cleanup();
+    mobileLayout.mockClear();
+    mockMatchMedia(false);
+    renderWeekCalendar(vi.fn());
+    expect(desktopLayout).toHaveBeenCalled();
+    expect(mobileLayout).not.toHaveBeenCalled();
   });
 
   it("无安排时长按午休空白格可新增，并抑制随后触发的普通点击", () => {

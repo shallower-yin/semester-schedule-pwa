@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": ["vendor/deepmerge-safe"],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -31,6 +32,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "deepmerge": "4.3.1-security.1",
     "@aws-sdk/client-s3": "^3.1089.0",
     "@aws-sdk/s3-request-presigner": "^3.1089.0",
     "@babel/core": "^8.0.1",
@@ -52,6 +54,13 @@
     "vitest": "4.1.12"
   },
   "overrides": {
-    "brace-expansion": "5.0.12"
+    "brace-expansion": "5.0.12",
+    "glob": "14.0.3",
+    "minimatch": "11.0.4",
+    "serialize-javascript": "7.1.4",
+    "ejs": "7.0.2",
+    "@rollup/plugin-node-resolve": {
+      "deepmerge": "4.3.1-security.1"
+    }
   }
 }

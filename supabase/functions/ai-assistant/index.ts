@@ -1,347 +1,24 @@
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "npm:@aws-sdk/client-s3@3.1089.0";
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.1089.0";
+import { relayFetch as fetch, validatePublicRelayBaseUrl, isPrivateAddress } from "../_shared/publicRelayUrl.ts";
 import { estimateMp3BytesPerSecond, extractMp3RangeForAsr, MAX_ASR_AUDIO_CHUNK_BYTES, MAX_ASR_AUDIO_CHUNK_DURATION_MS, MP3_RANGE_OVERLAP_BYTES, splitAudioForAsr, type AudioChunk } from "../_shared/audioChunking.ts";
 import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 import { MIMO_CHAT_MODELS, mimoModelSupportsAttachments, normalizeMimoModel } from "../_shared/mimoModels.ts";
-import { audioSubmissionTask, AudioSubmissionError, executeAudioSubmissionTask, type AudioSubmission } from "../_shared/audioSubmission.ts";
+import { textProviderHeaders, textProviderParameters } from "../_shared/textProviderRequest.ts";
+import { DiagnosticError, PublicHttpError, emptyUsage, jsonResponse, type AiRequestContext, type AiUsageLogInput } from "./requestContext.ts";
+import { createAiRequestHandler } from "./requestHandler.ts";
+import { withAudioSubmission } from "./audioSubmissionHandler.ts";
+import { handleDocumentAction } from "./documentActions.ts";
 
-interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "close_audio_submission" | "transcribe_audio_range" | "transcribe_audio_part" | "plan_audio_transcription" | "plan_audio_parts" | "finalize_audio_transcription" | "summarize_audio_transcript" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
-  audioSubmission?: AudioSubmission;
-  audioSubmissionId?: string;
-  /** Plain transcript text for summarize_audio_transcript (no R2). */
-  audioTranscript?: string;
-  /** When true, finalize only merges segments / optional summary and does not touch R2 objects. */
-  skipAudioObjectCleanup?: boolean;
-  mode?: "assistant" | "translation" | "translation_summary" | "mind_map" | "mind_map_followup" | "audio_transcription" | "audio_followup";
-  /** Per-file segment transcripts from client-orchestrated progressive ASR. */
-  audioSegmentResults?: Array<{
-    name?: string;
-    objectKey?: string;
-    segments?: string[];
-  }>;
-  question?: string;
-  translation?: {
-    direction?: "zh-en" | "en-zh";
-    style?: "natural" | "literal" | "academic" | "conversational";
-    requiredTerms?: string;
-    preservedTerms?: string;
-  };
-  translationSummary?: {
-    focus?: "comprehensive" | "sentence_patterns" | "vocabulary";
-    theme?: string;
-    items?: Array<{
-      sourceText?: string;
-      translation?: string;
-      direction?: "zh-en" | "en-zh";
-    }>;
-  };
-  scheduleContext?: unknown;
-  accessCode?: string;
-  history?: AiAssistantHistoryMessage[];
-  attachments?: AiAssistantAttachment[];
-  audio?: { name?: string; mimeType?: string; size?: number; dataUrl?: string; objectKey?: string };
-  audios?: Array<{ name?: string; mimeType?: string; size?: number; objectKey?: string }>;
-  audioLanguage?: "auto" | "zh" | "en";
-  summarizeAudio?: boolean;
-  mindMapDepth?: MindMapDepth;
-  mindMap?: AiMindMapNode;
-  document?: {
-    documentId?: string;
-    name?: string;
-    pageCount?: number;
-    feature?: "assistant" | "mind_map";
-    pages?: Array<{ pageNumber?: number; size?: number; mimeType?: string }>;
-    objectKeys?: string[];
-    startPage?: number;
-    endPage?: number;
-    text?: string;
-  };
-  audioRange?: {
-    objectKey?: string;
-    fileName?: string;
-    language?: "auto" | "zh" | "en";
-    chunkIndex?: number;
-    chunkCount?: number;
-    nominalStart?: number;
-    nominalEnd?: number;
-    fetchStart?: number;
-    fetchEnd?: number;
-  };
-  /** Optional body fallback when custom headers are stripped by the client runtime. */
-  audioRangeSignature?: string;
-  audioPart?: {
-    objectKey?: string;
-    fileName?: string;
-    mimeType?: string;
-    size?: number;
-    language?: "auto" | "zh" | "en";
-    partIndex?: number;
-    partCount?: number;
-  };
-  audioPartSignature?: string;
-}
-
-interface AiAssistantAttachment {
-  name?: string;
-  mimeType?: string;
-  kind?: "image" | "document";
-  dataUrl?: string;
-  text?: string;
-  pageImages?: string[];
-  remotePages?: Array<{ objectKey?: string; pageNumber?: number; mimeType?: string; size?: number }>;
-  documentId?: string;
-  pageCount?: number;
-  processedPageCount?: number;
-  processingUsage?: AiAssistantUsage;
-}
-
-interface SupabaseUser {
-  id: string;
-  email?: string;
-}
-
-interface AiAccessRow {
-  user_id?: string;
-  enabled: boolean;
-  role: "member" | "admin";
-  expires_at: string | null;
-  note?: string | null;
-}
-
-type AnniversaryKind = "anniversary" | "birthday" | "holiday";
-type EventRecurrenceType = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction | AiUpdateEventAction | AiDeleteEventAction | AiUpdateAnniversaryAction;
-
-interface AiCreateEventAction {
-  type: "create_event";
-  eventType?: "event" | "habit";
-  title: string;
-  startDate: string;
-  endDate?: string | null;
-  startTime?: string | null;
-  endTime?: string | null;
-  allDay?: boolean;
-  location?: string | null;
-  note?: string | null;
-  recurrenceType?: EventRecurrenceType;
-  recurrenceUntil?: string | null;
-  recurrenceInterval?: number;
-  reminderEnabled?: boolean;
-  reminderMinutesBefore?: number;
-}
-
-interface AiCreateAnniversaryAction {
-  type: "create_anniversary";
-  title: string;
-  kind?: AnniversaryKind;
-  date?: string | null;
-  calendarType?: "solar" | "lunar";
-  lunarYear?: number | null;
-  lunarMonth?: number | null;
-  lunarDay?: number | null;
-  lunarIsLeapMonth?: boolean;
-  note?: string | null;
-  reminderEnabled?: boolean;
-  reminderDaysBefore?: number;
-  reminderTime?: string | null;
-}
-
-interface AiCreateMemoAction {
-  type: "create_memo";
-  title: string;
-  content?: string | null;
-  isPinned?: boolean;
-}
-
-interface AiUpdateEventAction {
-  type: "update_event";
-  title: string;
-  date?: string | null;
-  newTitle?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
-  startTime?: string | null;
-  endTime?: string | null;
-  allDay?: boolean | null;
-  location?: string | null;
-  note?: string | null;
-  reminderEnabled?: boolean | null;
-  reminderMinutesBefore?: number | null;
-}
-
-interface AiDeleteEventAction {
-  type: "delete_event";
-  title: string;
-  date?: string | null;
-}
-
-interface AiUpdateAnniversaryAction {
-  type: "update_anniversary";
-  scope?: "title" | "all_lunar_holidays" | "all_holidays";
-  title?: string | null;
-  newTitle?: string | null;
-  kind?: AnniversaryKind | null;
-  calendarType?: "solar" | "lunar" | null;
-  date?: string | null;
-  lunarYear?: number | null;
-  lunarMonth?: number | null;
-  lunarDay?: number | null;
-  lunarIsLeapMonth?: boolean | null;
-  reminderEnabled?: boolean | null;
-  reminderDaysBefore?: number | null;
-  reminderTime?: string | null;
-}
-
-interface AiAssistantResponse {
-  answer: string;
-  actions: AiAssistantAction[];
-  mindMap?: AiMindMapNode;
-  model: string;
-  usage: AiAssistantUsage;
-  processedAttachments?: AiAssistantAttachment[];
-  temporaryDocumentKeys?: string[];
-}
-
-interface ParsedAssistantResponse {
-  answer: string;
-  actions: AiAssistantAction[];
-  mindMap?: AiMindMapNode;
-}
-
-interface AiMindMapNode {
-  label: string;
-  children: AiMindMapNode[];
-}
-
-interface AiAssistantHistoryMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface AiAssistantUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  estimated_cost_cny: number | null;
-}
-
-type AiAccessMethod = "access-code" | "ordinary" | "member" | "admin";
-type AiFeatureKey = "assistant" | "translation" | "mind_map" | "audio_transcription";
-type MindMapDepth = "quick" | "standard" | "deep";
-
-interface AiFeatureQuotaSettings {
-  enabled_for_all: boolean;
-  ordinary_daily_limit: number;
-  ordinary_weekly_limit: number;
-  member_daily_limit: number;
-  member_weekly_limit: number;
-}
-
-interface AiQuotaSnapshot {
-  requests: number;
-  totalTokens: number;
-  estimatedCostCny: number;
-}
-
-interface AiQuotaLimits {
-  daily: number;
-  weekly: number;
-}
-
-interface AiQuotaCheck {
-  allowed: boolean;
-  countsIncludeCurrentRequest?: boolean;
-  reason?: string;
-  rateLimited?: boolean;
-  today?: AiQuotaSnapshot;
-  week?: AiQuotaSnapshot;
-  limits: AiQuotaLimits;
-  usageKnown: boolean;
-}
-
-interface AiPublicQuotaStatus {
-  accessMethod: AiAccessMethod;
-  accessLabel: string;
-  unlimited: boolean;
-  usageKnown: boolean;
-  currentRequestCounted: boolean;
-  daily: { used: number | null; limit: number | null; remaining: number | null };
-  weekly: { used: number | null; limit: number | null; remaining: number | null };
-}
-
-interface AiSettingsRow {
-  enabled_for_all: boolean;
-  ordinary_daily_limit: number;
-  ordinary_weekly_limit: number;
-  member_daily_limit: number;
-  member_weekly_limit: number;
-  provider: AiProvider;
-  model: string;
-  mimo_channel: "payg" | "token_plan";
-  audio_provider: AudioProvider;
-  audio_model: string;
-  text_relay_id?: string | null;
-  audio_relay_id?: string | null;
-  text_relay?: AiRelayRuntime | null;
-  audio_relay?: AiRelayRuntime | null;
-  feature_quotas?: Partial<Record<AiFeatureKey, AiFeatureQuotaSettings>>;
-}
-
-type AiProvider = "deepseek" | "mimo" | "siliconflow" | "tju";
-type AudioProvider = "mimo" | "siliconflow";
-type AiRelayProtocol = "openai_compatible" | "deepseek" | "mimo";
-
-interface AiRelayRuntime {
-  id: string;
-  name: string;
-  protocol: AiRelayProtocol;
-  base_url: string;
-  api_key: string;
-  supports_text: boolean;
-  text_model: string | null;
-  supports_audio: boolean;
-  audio_model: string | null;
-}
-
-interface ProviderCredentials {
-  apiKey: string;
-  endpoint: string;
-  provider?: AiProvider | AudioProvider;
-  model?: string;
-}
-
-interface UploadedAudioInput {
-  name: string;
-  mimeType: string;
-  size: number;
-  objectKey: string;
-}
-
-interface SignedAudioPart extends UploadedAudioInput {
-  language: "auto" | "zh" | "en";
-  partIndex: number;
-  partCount: number;
-}
-
-interface PaidTaskToken {
-  expiresAt: string;
-  nonce: string;
-}
-
-class DiagnosticError extends Error {
-  constructor(message: string, readonly details: Record<string, unknown>) {
-    super(message);
-    this.name = "DiagnosticError";
-  }
-}
-
-class PublicHttpError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message);
-    this.name = "PublicHttpError";
-  }
-}
+import type {
+  AiAssistantRequest, AiAssistantAttachment, SupabaseUser, AiAccessRow,
+  AnniversaryKind, EventRecurrenceType, AiAssistantAction, AiAssistantResponse,
+  ParsedAssistantResponse, AiMindMapNode, AiAssistantHistoryMessage, AiAssistantUsage,
+  AiAccessMethod, AiFeatureKey, MindMapDepth, AiFeatureQuotaSettings,
+  AiQuotaSnapshot, AiQuotaLimits, AiQuotaCheck, AiPublicQuotaStatus,
+  AiSettingsRow, AiProvider, AudioProvider, ProviderCredentials,
+  UploadedAudioInput, SignedAudioPart, PaidTaskToken
+} from "./requestTypes.ts";
 
 const AI_MODELS = {
   deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
@@ -407,18 +84,6 @@ function requiredSecret(name: string): string {
   const value = optionalSecret(name);
   if (!value) throw new Error(`Missing Edge Function secret: ${name}`);
   return value;
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-audio-range-signature, x-audio-part-signature",
-      "access-control-allow-methods": "POST, OPTIONS"
-    }
-  });
 }
 
 const PAID_TASK_TTL_MS = 15 * 60 * 1000;
@@ -587,673 +252,553 @@ const publishableKeys = JSON.parse(requiredSecret("SUPABASE_PUBLISHABLE_KEYS")) 
 const publishableKey = publishableKeys.default;
 if (!publishableKey) throw new Error("Missing default Supabase publishable key");
 
-Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") return jsonResponse({ ok: true });
-  if (request.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
+const documentServices = {
+  checkAiAccess, checkAiQuota, configuredProvider, configuredModel, configuredProviderCredentials: validatedProviderCredentials,
+  modelSupportsAttachments, createR2DocumentPageUploads, deleteR2DocumentPageObjects,
+  sanitizeAttachments, extractRemoteDocumentBatch, sanitizeDocumentTextBatch,
+  summarizeDocumentTextBatch, logAiAssistantUsage
+};
 
-  const startedAt = Date.now();
-  const diagnosticId = crypto.randomUUID();
-  let currentUser: SupabaseUser | null = null;
-  let accessMethod = "";
-  let questionChars = 0;
-  let featureKey: AiFeatureKey = "assistant";
-  let observedUsage = emptyUsage();
-  try {
-    const authorization = request.headers.get("authorization") ?? "";
-    if (!authorization.toLowerCase().startsWith("bearer ")) return jsonResponse({ error: "请先登录后再使用 AI 助手。" }, 401);
-    const body = await request.json() as AiAssistantRequest;
-    const serviceRoleKey = serviceRoleSecret();
-    const settings = serviceRoleKey ? await getAiSettings(serviceRoleKey) : null;
-    const user = await getUser(authorization);
-    currentUser = user;
-    if (body.action === "close_audio_submission") {
-      if (!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(body.audioSubmissionId ?? "")) {
-        throw new PublicHttpError("音频提交编号无效。", 400);
-      }
-      await callServiceRoleRpc("close_ai_audio_submission", { p_user_id: user.id, p_submission_id: body.audioSubmissionId }, serviceRoleKey);
-      return jsonResponse({ ok: true });
-    }
-    let submissionQuota: AiQuotaCheck | undefined;
-    const perform = async (): Promise<Response> => {
-    if (body.action === "configuration") {
-      const provider = configuredProvider(settings);
-      return jsonResponse({
-        supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
-        supportsAudioTranscription: Boolean(configuredAudioCredentials(settings).apiKey),
-        maxDocumentPages: configuredMaxDocumentPages()
-      });
-    }
-    if (body.action === "transcribe_audio_range") {
-      const range = sanitizeInternalAudioRange(body.audioRange, user.id);
-      // Prefer header; body field is a fallback for runtimes that drop custom invoke headers.
-      const suppliedSignature = (request.headers.get("x-audio-range-signature")
-        ?? (typeof body.audioRangeSignature === "string" ? body.audioRangeSignature : "")
-        ?? "").trim();
-      const paidTask = await verifyAudioRangeToken(user.id, range, suppliedSignature);
-      if (!paidTask) {
-        return jsonResponse({ error: "音频分段签名无效或已过期，请重新开始转写。", code: "AUDIO_RANGE_SIGNATURE" }, 403);
-      }
-      featureKey = "audio_transcription";
-      const rangeAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!rangeAccess.allowed) return jsonResponse({ error: rangeAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = rangeAccess.method ?? "";
-      const responseBody = await executeReplaySafePaidTask(user.id, paidTask, serviceRoleKey, async () => {
-        const quota = submissionQuota ?? await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_range");
-        if (!quota.allowed) throw new PublicHttpError(quota.reason ?? "音频转写额度已用完。", 429);
-        const credentials = configuredAudioCredentials(settings);
-        if (!credentials.apiKey) throw new PublicHttpError("音频转写服务暂未配置。", 503);
-        // Byte-range extract often fails on real-world MP3 (VBR/padding). Prefer full-object
-        // frame scan for the nominal window — R2/API cost is acceptable for completion quality.
-        const chunk = await loadMp3ChunkForAsrRange(range.objectKey!, range.nominalStart!, range.nominalEnd!, range.fetchStart!, range.fetchEnd!);
-        const result = await transcribeAudioChunk(
-          chunk,
-          range.language,
-          credentials,
-          range.fileName!,
-          range.chunkIndex!,
-          range.chunkCount!,
-          request.signal
-        );
-        observedUsage = result.usage;
-        await logAiAssistantUsage({
-          userId: user.id,
-          status: "success",
-          accessMethod,
-          featureKey,
-          model: configuredAudioModel(settings),
-          usage: result.usage,
-          latencyMs: Date.now() - startedAt,
-          questionChars: 0,
-          diagnosticId,
-          diagnosticDetails: { stage: "audio_range", chunkIndex: range.chunkIndex, chunkCount: range.chunkCount }
-        });
-        return result as unknown as Record<string, unknown>;
-      });
-      return jsonResponse(responseBody);
-    }
-    if (body.action === "transcribe_audio_part") {
-      const part = sanitizeInternalAudioPart(body.audioPart, user.id);
-      const suppliedSignature = (request.headers.get("x-audio-part-signature")
-        ?? (typeof body.audioPartSignature === "string" ? body.audioPartSignature : "")
-        ?? "").trim();
-      const paidTask = await verifyAudioPartToken(user.id, part, suppliedSignature);
-      if (!paidTask) {
-        return jsonResponse({ error: "音频分段签名无效或已过期，请重新开始转写。", code: "AUDIO_PART_SIGNATURE" }, 403);
-      }
-      featureKey = "audio_transcription";
-      const partAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!partAccess.allowed) return jsonResponse({ error: partAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = partAccess.method ?? "";
-      const responseBody = await executeReplaySafePaidTask(user.id, paidTask, serviceRoleKey, async () => {
-        const quota = submissionQuota ?? await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_part");
-        if (!quota.allowed) throw new PublicHttpError(quota.reason ?? "音频转写额度已用完。", 429);
-        const credentials = configuredAudioCredentials(settings);
-        if (!credentials.apiKey) throw new PublicHttpError("音频转写服务暂未配置。", 503);
-        const rawBytes = await downloadR2AudioObject(part.objectKey);
-        if (rawBytes.length !== part.size || rawBytes.length > MAX_ASR_AUDIO_CHUNK_BYTES) {
-          throw new PublicHttpError("音频分段大小无效，请重新开始转写。", 400);
-        }
-        const chunks = splitAudioForAsr(rawBytes, part.name, part.mimeType);
-        const results = await mapWithRetryIsolation(chunks, 1, (chunk, chunkIndex) =>
-          transcribeAudioChunk(chunk, part.language, credentials, part.name, chunkIndex, chunks.length, request.signal), request.signal
-        );
-        const usage = results.reduce((combined, result) => combineUsage(combined, result.usage), emptyUsage());
-        observedUsage = usage;
-        const result = {
-          transcript: results.map((item) => item.transcript).join("\n\n"),
-          model: `${configuredAudioModel(settings)}-signed-part`,
-          usage
-        };
-        await logAiAssistantUsage({
-          userId: user.id,
-          status: "success",
-          accessMethod,
-          featureKey,
-          model: result.model,
-          usage,
-          latencyMs: Date.now() - startedAt,
-          questionChars: 0,
-          diagnosticId,
-          diagnosticDetails: { stage: "audio_part", partIndex: part.partIndex, partCount: part.partCount }
-        });
-        return result;
-      });
-      return jsonResponse(responseBody);
-    }
-    if (body.action === "create_document_page_uploads") {
-      featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
-      const uploadAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!uploadAccess.allowed) return jsonResponse({ error: uploadAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = uploadAccess.method ?? "";
-      return jsonResponse(await createR2DocumentPageUploads(user.id, body.document));
-    }
-    if (body.action === "extract_document_batch") {
-      featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
-      const batchAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!batchAccess.allowed) return jsonResponse({ error: batchAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = batchAccess.method ?? "";
-      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "document_extract");
-      if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
-      const provider = configuredProvider(settings);
-      const model = configuredModel(settings);
-      const credentials = configuredProviderCredentials(provider, settings);
-      if (!credentials.apiKey) throw new Error("扫描 PDF 读取服务暂未配置。");
-      const document = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, model), user.id)
-        .find((attachment) => attachment.kind === "document" && attachment.remotePages?.length);
-      const pages = document?.remotePages ?? [];
-      if (!document || !pages.length || pages.length > 6) throw new Error("扫描 PDF 分批参数无效，请重新选择文件。");
-      const result = await extractRemoteDocumentBatch(document.name ?? "未命名 PDF", pages, {
-        provider,
-        model,
-        apiKey: credentials.apiKey,
-        endpoint: credentials.endpoint,
-        signal: request.signal
-      });
-      observedUsage = result.usage;
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "success",
-        accessMethod,
-        featureKey,
-        model,
-        usage: result.usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars: 0,
-        diagnosticId,
-        diagnosticDetails: { stage: "document_extract", processedPageCount: pages.length }
-      });
-      await deleteR2DocumentPageObjects(user.id, pages.map((page) => page.objectKey!)).catch((error) => {
-        console.error("Failed to delete extracted PDF pages", { diagnosticId, error: String(error) });
-      });
-      return jsonResponse({ text: result.text, usage: result.usage, processedPageCount: pages.length, model });
-    }
-    if (body.action === "summarize_document_batch") {
-      featureKey = body.document?.feature === "mind_map" ? "mind_map" : "assistant";
-      const batchAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!batchAccess.allowed) return jsonResponse({ error: batchAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = batchAccess.method ?? "";
-      const batchQuota = await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "document_summarize");
-      if (!batchQuota.allowed) return jsonResponse({ error: batchQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
-      const provider = configuredProvider(settings);
-      const model = configuredModel(settings);
-      const credentials = configuredProviderCredentials(provider, settings);
-      if (!credentials.apiKey) throw new Error("长文档整理服务暂未配置。");
-      const batch = sanitizeDocumentTextBatch(body.document);
-      const result = await summarizeDocumentTextBatch(batch, {
-        provider,
-        model,
-        apiKey: credentials.apiKey,
-        endpoint: credentials.endpoint,
-        signal: request.signal
-      });
-      observedUsage = result.usage;
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "success",
-        accessMethod,
-        featureKey,
-        model,
-        usage: result.usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars: batch.text.length,
-        diagnosticId,
-        diagnosticDetails: { stage: "document_summarize", startPage: batch.startPage, endPage: batch.endPage }
-      });
-      return jsonResponse({ text: result.text, usage: result.usage, processedPageCount: batch.endPage - batch.startPage + 1, model });
-    }
-    if (body.action === "delete_document_uploads") {
-      await deleteR2DocumentPageObjects(user.id, body.document?.objectKeys);
-      return jsonResponse({ ok: true });
-    }
-    if (body.action === "create_audio_upload") {
-      featureKey = "audio_transcription";
-      const uploadAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!uploadAccess.allowed) return jsonResponse({ error: uploadAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = uploadAccess.method ?? "";
-      return jsonResponse(await createR2AudioUpload(user.id, body.audio));
-    }
-    if (body.action === "delete_audio_upload") {
-      await deleteR2AudioObject(user.id, body.audio?.objectKey);
-      return jsonResponse({ ok: true });
-    }
-    if (body.action === "plan_audio_transcription") {
-      featureKey = "audio_transcription";
-      const planAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!planAccess.allowed) return jsonResponse({ error: planAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = planAccess.method ?? "";
-      return jsonResponse(await planAudioTranscription(body, user.id, body.audioLanguage));
-    }
-    if (body.action === "plan_audio_parts") {
-      featureKey = "audio_transcription";
-      const planAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!planAccess.allowed) return jsonResponse({ error: planAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = planAccess.method ?? "";
-      return jsonResponse(await planAudioParts(body, user.id, body.audioLanguage));
-    }
-    if (body.action === "finalize_audio_transcription") {
-      featureKey = "audio_transcription";
-      const finalizeAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!finalizeAccess.allowed) return jsonResponse({ error: finalizeAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = finalizeAccess.method ?? "";
-      const finalizeQuota = submissionQuota ?? await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_finalize");
-      if (!finalizeQuota.allowed) {
-        return jsonResponse({ error: finalizeQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
-      }
-      const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, finalizeQuota);
-      questionChars = body.audioSegmentResults?.reduce((sum, file) => sum + (file.segments?.join("").length ?? 0), 0) ?? 0;
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "running",
-        accessMethod,
-        featureKey,
-        model: configuredModel(settings),
-        usage: emptyUsage(),
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId,
-        diagnosticDetails: { stage: "finalize_started" }
-      });
-      const finalized = await finalizeProgressiveAudioTranscription(body, settings, user.id, request.signal);
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "success",
-        accessMethod,
-        featureKey,
-        model: finalized.model,
-        usage: finalized.usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId
-      });
-      return jsonResponse({
-        transcript: finalized.transcript,
-        summary: finalized.summary,
-        warning: finalized.warning,
-        model: finalized.model,
-        access: accessMethod,
-        quota: quotaStatus
-      });
-    }
-    if (body.action === "summarize_audio_transcript") {
-      // Text-only summary after client already assembled the full transcript.
-      // No R2 download — avoids a second long network path that can fail after ASR succeeded.
-      featureKey = "audio_transcription";
-      const summaryAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-      if (!summaryAccess.allowed) return jsonResponse({ error: summaryAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-      accessMethod = summaryAccess.method ?? "";
-      const summaryQuota = submissionQuota ?? await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, "audio_summary");
-      if (!summaryQuota.allowed) return jsonResponse({ error: summaryQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
-      const transcript = String(body.audioTranscript ?? "").trim();
-      if (!transcript) return jsonResponse({ error: "没有可摘要的转写正文。" }, 400);
-      questionChars = transcript.length;
-      try {
-        const summaryResponse = await summarizeAudioTranscript(transcript, settings, request.signal);
-        observedUsage = summaryResponse.usage;
-        await logAiAssistantUsage({
-          userId: user.id,
-          status: "success",
-          accessMethod,
-          featureKey,
-          model: summaryResponse.model,
-          usage: summaryResponse.usage,
-          latencyMs: Date.now() - startedAt,
-          questionChars,
-          diagnosticId,
-          diagnosticDetails: { stage: "audio_summary" }
-        });
-        return jsonResponse({
-          transcript,
-          summary: summaryResponse.summary,
-          warning: null,
-          model: `transcript-summary + ${summaryResponse.model}`,
-          access: accessMethod
-        });
-      } catch (error) {
-        if (request.signal?.aborted) throw error;
-        console.error(error);
-        await logAiAssistantUsage({
-          userId: user.id,
-          status: "error",
-          accessMethod,
-          featureKey,
-          model: configuredModel(settings),
-          usage: emptyUsage(),
-          latencyMs: Date.now() - startedAt,
-          questionChars,
-          error: error instanceof Error ? error.message : String(error),
-          diagnosticId,
-          diagnosticDetails: { stage: "audio_summary" }
-        });
-        return jsonResponse({
-          transcript,
-          summary: null,
-          warning: "转写正文已保留，摘要生成失败。",
-          model: "transcript-summary",
-          access: accessMethod
-        });
-      }
-    }
-    const mode = body.mode === "translation"
-      ? "translation"
-      : body.mode === "translation_summary"
-        ? "translation_summary"
-      : body.mode === "mind_map"
-      ? "mind_map"
-      : body.mode === "mind_map_followup"
-        ? "mind_map_followup"
-      : body.mode === "audio_transcription"
-        ? "audio_transcription"
-        : body.mode === "audio_followup"
-          ? "audio_followup"
-          : "assistant";
-    featureKey = mode === "audio_followup"
-      ? "audio_transcription"
-      : mode === "mind_map_followup"
-        ? "mind_map"
-        : mode === "translation_summary"
-          ? "translation"
-        : mode;
-    const question = body.question?.trim();
-    const translationSummaryInput = mode === "translation_summary"
-      ? sanitizeTranslationSummaryInput(body.translationSummary)
-      : null;
-    if (mode !== "audio_transcription" && mode !== "translation_summary" && !question) return jsonResponse({ error: "问题不能为空。" }, 400);
-    if (mode === "translation" && (question?.length ?? 0) > 20_000) return jsonResponse({ error: "首版单次最多翻译 20,000 个字符。" }, 400);
-    if (mode === "translation_summary" && (translationSummaryInput?.items.length ?? 0) < 3) {
-      return jsonResponse({ error: "至少需要 3 条有效翻译记录才能生成学习总结。" }, 400);
-    }
-    if (mode === "audio_transcription" && !body.audio?.dataUrl && !body.audios?.length) return jsonResponse({ error: "请选择要转写的音频文件。" }, 400);
-    if (mode === "audio_followup" && !body.audioTranscript?.trim()) return jsonResponse({ error: "请先完成音频转写。" }, 400);
-    questionChars = mode === "audio_transcription"
-      ? body.audios?.reduce((total, audio) => total + (Number(audio.size) || 0), body.audio?.dataUrl?.length ?? 0) ?? 0
-      : mode === "translation_summary"
-        ? translationSummaryInput?.items.reduce((total, item) => total + item.sourceText.length + item.translation.length, 0) ?? 0
-      : question?.length ?? 0;
-    const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-    if (!access.allowed) return jsonResponse({
-      error: access.reason,
-      code: "AI_ACCESS_REQUIRED"
-    }, 403);
-    accessMethod = access.method ?? "";
+const audioSubmissionServices = {
+  callServiceRoleRpc, checkAiAccess, sanitizeInternalAudioPart, sanitizeInternalAudioRange,
+  verifyAudioPartToken, verifyAudioRangeToken, quotaLimitsFor, configuredAudioCredentials,
+  configuredModel, assertGlobalAiBudget, quotaSnapshot
+};
 
-    const quota = submissionQuota ?? await checkAiQuota(user.id, accessMethod, serviceRoleKey, settings, featureKey, diagnosticId, mode);
-    if (!quota.allowed) {
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "error",
-        accessMethod,
-        featureKey,
-        model: configuredModel(settings),
-        usage: emptyUsage(),
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        error: quota.reason
-      });
-      return jsonResponse({
-        error: quota.reason,
-        code: "AI_QUOTA_EXCEEDED"
-      }, 429);
-    }
+export const handleAiRequest = createAiRequestHandler({
+  serviceRoleSecret, getAiSettings, getUser, combineUsage, usageFromDiagnosticDetails, logAiAssistantUsage,
+  dispatch: (context) => withAudioSubmission(context, audioSubmissionServices, () => dispatchAiRequest(context))
+});
 
-    const quotaStatus = quotaStatusAfterSuccessfulRequest(accessMethod, quota);
-    if (featureKey !== "assistant") {
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "running",
-        accessMethod,
-        featureKey,
-        model: configuredModel(settings),
-        usage: emptyUsage(),
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId,
-        diagnosticDetails: { stage: "started" }
-      });
-    }
-    if (mode === "audio_transcription") {
-      const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id, authorization, request.signal);
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "success",
-        accessMethod,
-        featureKey,
-        model: audioResponse.model,
-        usage: audioResponse.usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId
-      });
-      return jsonResponse({
-        transcript: audioResponse.transcript,
-        summary: audioResponse.summary,
-        warning: audioResponse.warning,
-        model: audioResponse.model,
-        access: access.method,
-        quota: quotaStatus
-      });
-    }
+Deno.serve(handleAiRequest);
 
-    if (mode === "audio_followup") {
-      const followupResponse = await answerAudioTranscript(
-        question ?? "",
-        body.audioTranscript ?? "",
-        sanitizeHistory(body.history),
-        settings,
-        request.signal
-      );
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "success",
-        accessMethod,
-        featureKey,
-        model: followupResponse.model,
-        usage: followupResponse.usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId
-      });
-      return jsonResponse({
-        answer: followupResponse.answer,
-        model: followupResponse.model,
-        access: access.method,
-        quota: quotaStatus
-      });
-    }
-
-    if (mode === "translation") {
-      const translationResponse = await translateConfiguredProvider(
-        question ?? "",
-        sanitizeTranslationOptions(body.translation),
-        settings,
-        request.signal
-      );
-      observedUsage = translationResponse.usage;
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "success",
-        accessMethod,
-        featureKey,
-        model: translationResponse.model,
-        usage: translationResponse.usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId,
-        diagnosticDetails: { stage: "completed" }
-      });
-      return jsonResponse({
-        translation: translationResponse.translation,
-        access: access.method,
-        quota: quotaStatus
-      });
-    }
-
-    if (mode === "translation_summary") {
-      if (!translationSummaryInput) throw new PublicHttpError("学习总结参数无效。", 400);
-      const summaryResponse = await summarizeTranslationHistoryWithProvider(
-        translationSummaryInput,
-        settings,
-        request.signal
-      );
-      observedUsage = summaryResponse.usage;
-      await logAiAssistantUsage({
-        userId: user.id,
-        status: "success",
-        accessMethod,
-        featureKey,
-        model: summaryResponse.model,
-        usage: summaryResponse.usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId,
-        diagnosticDetails: { stage: "completed" }
-      });
-      return jsonResponse({
-        summary: {
-          ...summaryResponse.summary,
-          sampleCount: translationSummaryInput.items.length,
-          focus: translationSummaryInput.focus,
-          theme: translationSummaryInput.theme
-        },
-        access: access.method,
-        quota: quotaStatus
-      });
-    }
-
-    const history = sanitizeHistory(body.history);
+/** Keep action precedence and legacy unknown-action fallback explicit. */
+async function dispatchAiRequest(context: AiRequestContext): Promise<Response> {
+  const { body, settings } = context;
+  if (body.action === "configuration") {
     const provider = configuredProvider(settings);
-    const attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)), user.id);
-    observedUsage = attachments.reduce((usage, attachment) => combineUsage(usage, attachment.processingUsage ?? emptyUsage()), emptyUsage());
-    if (mode === "mind_map_followup") {
-      const mindMap = sanitizeMindMapNode(body.mindMap, 0, { remaining: 100 }, 6);
-      if (!mindMap) return jsonResponse({ error: "请先生成思维导图后再追问。" }, 400);
-      const credentials = configuredProviderCredentials(provider, settings);
-      if (!credentials.apiKey) throw new Error("思维导图问答模型暂未配置，请稍后再试。");
-      const resolvedDocuments = await resolveRemoteDocumentAttachments(attachments, {
-        provider,
-        model: configuredModel(settings),
-        apiKey: credentials.apiKey,
-        endpoint: credentials.endpoint,
-        signal: request.signal
-      });
-      const followupResponse = await answerMindMapFollowup(
-        question ?? "",
-        mindMap,
-        resolvedDocuments.attachments,
-        history,
-        settings,
+    return jsonResponse({
+      supportsAttachments: modelSupportsAttachments(provider, configuredModel(settings)),
+      supportsAudioTranscription: Boolean(settings?.audio_relay?.supports_audio && settings.audio_relay.api_key
+        || (configuredAudioProvider(settings) === "mimo" ? optionalSecret("MIMO_PAYG_API_KEY") : optionalSecret("SILICONFLOW_API_KEY"))),
+      maxDocumentPages: configuredMaxDocumentPages()
+    });
+  }
+  const signedAudio = await handleSignedAudioAction(context);
+  if (signedAudio) return signedAudio;
+  const document = await handleDocumentAction(context, documentServices);
+  if (document) return document;
+  const audio = await handleAudioAction(context);
+  if (audio) return audio;
+  return handleConversationRequest(context);
+}
+
+async function handleSignedAudioAction(context: AiRequestContext): Promise<Response | null> {
+  const { request, body, user, authorization, serviceRoleKey, settings, state } = context;
+  if (body.action === "transcribe_audio_range") {
+    const range = sanitizeInternalAudioRange(body.audioRange, user.id);
+    // Prefer header; body field is a fallback for runtimes that drop custom invoke headers.
+    const suppliedSignature = (request.headers.get("x-audio-range-signature")
+      ?? (typeof body.audioRangeSignature === "string" ? body.audioRangeSignature : "")
+      ?? "").trim();
+    const paidTask = await verifyAudioRangeToken(user.id, range, suppliedSignature);
+    if (!paidTask) {
+      return jsonResponse({ error: "音频分段签名无效或已过期，请重新开始转写。", code: "AUDIO_RANGE_SIGNATURE" }, 403);
+    }
+    state.featureKey = "audio_transcription";
+    const rangeAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+    if (!rangeAccess.allowed) return jsonResponse({ error: rangeAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    state.accessMethod = rangeAccess.method ?? "";
+    const responseBody = await executeReplaySafePaidTask(user.id, paidTask, serviceRoleKey, async () => {
+      const quota = state.submissionQuota ?? await checkAiQuota(user.id, state.accessMethod, serviceRoleKey, settings, state.featureKey, state.diagnosticId, "audio_range");
+      if (!quota.allowed) throw new PublicHttpError(quota.reason ?? "音频转写额度已用完。", 429);
+      const credentials = await validatedAudioCredentials(settings);
+      if (!credentials.apiKey) throw new PublicHttpError("音频转写服务暂未配置。", 503);
+      // Byte-range extract often fails on real-world MP3 (VBR/padding). Prefer full-object
+      // frame scan for the nominal window — R2/API cost is acceptable for completion quality.
+      const chunk = await loadMp3ChunkForAsrRange(range.objectKey!, range.nominalStart!, range.nominalEnd!, range.fetchStart!, range.fetchEnd!);
+      const result = await transcribeAudioChunk(
+        chunk,
+        range.language,
+        credentials,
+        range.fileName!,
+        range.chunkIndex!,
+        range.chunkCount!,
         request.signal
       );
-      const usage = combineUsage(resolvedDocuments.usage, followupResponse.usage);
+      state.observedUsage = result.usage;
       await logAiAssistantUsage({
         userId: user.id,
         status: "success",
-        accessMethod,
-        featureKey,
-        model: followupResponse.model,
-        usage,
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        diagnosticId
+        accessMethod: state.accessMethod,
+        featureKey: state.featureKey,
+        model: configuredAudioModel(settings),
+        usage: result.usage,
+        latencyMs: Date.now() - state.startedAt,
+        questionChars: 0,
+        diagnosticId: state.diagnosticId,
+        diagnosticDetails: { stage: "audio_range", chunkIndex: range.chunkIndex, chunkCount: range.chunkCount }
       });
-      if (resolvedDocuments.temporaryDocumentKeys.length) {
-        await deleteR2DocumentPageObjects(user.id, resolvedDocuments.temporaryDocumentKeys).catch((error) => {
-          console.error("Failed to delete PDF pages after mind map follow-up", { error: String(error) });
-        });
-      }
-      return jsonResponse({
-        answer: followupResponse.answer,
-        model: followupResponse.model,
-        processedAttachments: resolvedDocuments.processedAttachments,
-        access: access.method,
-        quota: quotaStatus
-      });
+      return result as unknown as Record<string, unknown>;
+    });
+    return jsonResponse(responseBody);
+  }
+  if (body.action === "transcribe_audio_part") {
+    const part = sanitizeInternalAudioPart(body.audioPart, user.id);
+    const suppliedSignature = (request.headers.get("x-audio-part-signature")
+      ?? (typeof body.audioPartSignature === "string" ? body.audioPartSignature : "")
+      ?? "").trim();
+    const paidTask = await verifyAudioPartToken(user.id, part, suppliedSignature);
+    if (!paidTask) {
+      return jsonResponse({ error: "音频分段签名无效或已过期，请重新开始转写。", code: "AUDIO_PART_SIGNATURE" }, 403);
     }
-    const assistantResponse = await askConfiguredProvider(question ?? "", body.scheduleContext, history, quotaStatus, settings, attachments, mode, normalizeMindMapDepth(body.mindMapDepth), request.signal);
+    state.featureKey = "audio_transcription";
+    const partAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+    if (!partAccess.allowed) return jsonResponse({ error: partAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    state.accessMethod = partAccess.method ?? "";
+    const responseBody = await executeReplaySafePaidTask(user.id, paidTask, serviceRoleKey, async () => {
+      const quota = state.submissionQuota ?? await checkAiQuota(user.id, state.accessMethod, serviceRoleKey, settings, state.featureKey, state.diagnosticId, "audio_part");
+      if (!quota.allowed) throw new PublicHttpError(quota.reason ?? "音频转写额度已用完。", 429);
+      const credentials = await validatedAudioCredentials(settings);
+      if (!credentials.apiKey) throw new PublicHttpError("音频转写服务暂未配置。", 503);
+      const rawBytes = await downloadR2AudioObject(part.objectKey);
+      if (rawBytes.length !== part.size || rawBytes.length > MAX_ASR_AUDIO_CHUNK_BYTES) {
+        throw new PublicHttpError("音频分段大小无效，请重新开始转写。", 400);
+      }
+      const chunks = splitAudioForAsr(rawBytes, part.name, part.mimeType);
+      const results = await mapWithRetryIsolation(chunks, 1, (chunk, chunkIndex) =>
+        transcribeAudioChunk(chunk, part.language, credentials, part.name, chunkIndex, chunks.length, request.signal), request.signal
+      );
+      const usage = results.reduce((combined, result) => combineUsage(combined, result.usage), emptyUsage());
+      state.observedUsage = usage;
+      const result = {
+        transcript: results.map((item) => item.transcript).join("\n\n"),
+        model: `${configuredAudioModel(settings)}-signed-part`,
+        usage
+      };
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod: state.accessMethod,
+        featureKey: state.featureKey,
+        model: result.model,
+        usage,
+        latencyMs: Date.now() - state.startedAt,
+        questionChars: 0,
+        diagnosticId: state.diagnosticId,
+        diagnosticDetails: { stage: "audio_part", partIndex: part.partIndex, partCount: part.partCount }
+      });
+      return result;
+    });
+    return jsonResponse(responseBody);
+  }
+  return null;
+}
+
+async function handleAudioAction(context: AiRequestContext): Promise<Response | null> {
+  const { request, body, user, authorization, serviceRoleKey, settings, state } = context;
+  if (body.action === "create_audio_upload") {
+    state.featureKey = "audio_transcription";
+    const uploadAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+    if (!uploadAccess.allowed) return jsonResponse({ error: uploadAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    state.accessMethod = uploadAccess.method ?? "";
+    return jsonResponse(await createR2AudioUpload(user.id, body.audio));
+  }
+  if (body.action === "delete_audio_upload") {
+    await deleteR2AudioObject(user.id, body.audio?.objectKey);
+    return jsonResponse({ ok: true });
+  }
+  if (body.action === "plan_audio_transcription") {
+    state.featureKey = "audio_transcription";
+    const planAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+    if (!planAccess.allowed) return jsonResponse({ error: planAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    state.accessMethod = planAccess.method ?? "";
+    return jsonResponse(await planAudioTranscription(body, user.id, body.audioLanguage));
+  }
+  if (body.action === "plan_audio_parts") {
+    state.featureKey = "audio_transcription";
+    const planAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+    if (!planAccess.allowed) return jsonResponse({ error: planAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    state.accessMethod = planAccess.method ?? "";
+    return jsonResponse(await planAudioParts(body, user.id, body.audioLanguage));
+  }
+  if (body.action === "finalize_audio_transcription") {
+    state.featureKey = "audio_transcription";
+    const finalizeAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+    if (!finalizeAccess.allowed) return jsonResponse({ error: finalizeAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    state.accessMethod = finalizeAccess.method ?? "";
+    const finalizeQuota = state.submissionQuota ?? await checkAiQuota(user.id, state.accessMethod, serviceRoleKey, settings, state.featureKey, state.diagnosticId, "audio_finalize");
+    if (!finalizeQuota.allowed) {
+      return jsonResponse({ error: finalizeQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
+    }
+    const quotaStatus = quotaStatusAfterSuccessfulRequest(state.accessMethod, finalizeQuota);
+    state.questionChars = body.audioSegmentResults?.reduce((sum, file) => sum + (file.segments?.join("").length ?? 0), 0) ?? 0;
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "running",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: configuredModel(settings),
+      usage: emptyUsage(),
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId,
+      diagnosticDetails: { stage: "finalize_started" }
+    });
+    const finalized = await finalizeProgressiveAudioTranscription(body, settings, user.id, request.signal);
     await logAiAssistantUsage({
       userId: user.id,
       status: "success",
-      accessMethod,
-      featureKey,
-      model: assistantResponse.model,
-      usage: assistantResponse.usage,
-      latencyMs: Date.now() - startedAt,
-      questionChars,
-      diagnosticId
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: finalized.model,
+      usage: finalized.usage,
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId
     });
-    if (assistantResponse.temporaryDocumentKeys?.length) {
-      await deleteR2DocumentPageObjects(user.id, assistantResponse.temporaryDocumentKeys).catch((error) => {
-        console.error("Failed to delete processed PDF pages", { error: String(error) });
-      });
-    }
     return jsonResponse({
-      answer: assistantResponse.answer,
-      actions: assistantResponse.actions,
-      mindMap: assistantResponse.mindMap,
-      processedAttachments: assistantResponse.processedAttachments,
-      access: access.method,
-      accessBound: false,
+      transcript: finalized.transcript,
+      summary: finalized.summary,
+      warning: finalized.warning,
+      model: finalized.model,
+      access: state.accessMethod,
       quota: quotaStatus
     });
-    };
-    const submissionTask = await audioSubmissionTask(body, user.id);
-    if (!submissionTask) return await perform();
-    featureKey = "audio_transcription";
-    const submissionAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, featureKey);
-    if (!submissionAccess.allowed) return jsonResponse({ error: submissionAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
-    accessMethod = submissionAccess.method ?? "";
-    // Validate the existing signed leaf capability before reserving a submission.
-    if (body.action === "transcribe_audio_part") {
-      const part = sanitizeInternalAudioPart(body.audioPart, user.id);
-      const token = request.headers.get("x-audio-part-signature") ?? body.audioPartSignature ?? "";
-      if (!await verifyAudioPartToken(user.id, part, token)) throw new PublicHttpError("音频分段签名无效或已过期。", 403);
-    } else if (body.action === "transcribe_audio_range") {
-      const range = sanitizeInternalAudioRange(body.audioRange, user.id);
-      const token = request.headers.get("x-audio-range-signature") ?? body.audioRangeSignature ?? "";
-      if (!await verifyAudioRangeToken(user.id, range, token)) throw new PublicHttpError("音频分段签名无效或已过期。", 403);
-    }
-    const method = accessMethod as AiAccessMethod;
-    const limits = quotaLimitsFor(method, settings, featureKey);
-    if (!configuredAudioCredentials(settings).apiKey) throw new PublicHttpError("音频转写服务暂未配置。", 503);
-    await assertGlobalAiBudget(serviceRoleKey);
-    const response = await executeAudioSubmissionTask(submissionTask, user.id, diagnosticId,
-      (name, args) => callServiceRoleRpc(name, args, serviceRoleKey), {
-        p_access_method: method, p_model: configuredModel(settings),
-        p_daily_limit: Number.isFinite(limits.daily) ? limits.daily : null,
-        p_weekly_limit: Number.isFinite(limits.weekly) ? limits.weekly : null
-      }, async (admission) => {
-        submissionQuota = { allowed: true, usageKnown: true, countsIncludeCurrentRequest: true, limits,
-          today: quotaSnapshot(Number(admission.todayRequests) || 0), week: quotaSnapshot(Number(admission.weekRequests) || 0) };
-        return await perform();
-      });
-    // Replay responses have the same CORS headers as fresh responses.
-    return jsonResponse(await response.json(), response.status);
-  } catch (error) {
-    const diagnosticDetails = error instanceof DiagnosticError ? error.details : {};
-    const failureUsage = combineUsage(observedUsage, usageFromDiagnosticDetails(diagnosticDetails));
-    const publicMessage = error instanceof Error ? error.message : "AI 助手请求失败。";
-    console.error("AI request failed", { diagnosticId, featureKey, message: publicMessage, ...diagnosticDetails });
-    if (currentUser) {
-      await logAiAssistantUsage({
-        userId: currentUser.id,
-        status: "error",
-        accessMethod,
-        featureKey,
-        model: "configured-provider",
-        usage: failureUsage,
-        latencyMs: Date.now() - startedAt,
-        questionChars,
-        error: publicMessage,
-        diagnosticId,
-        diagnosticDetails
-      });
-    }
-    const status = error instanceof PublicHttpError || error instanceof AudioSubmissionError ? error.status : 500;
-    return jsonResponse({
-      error: `${publicMessage}（诊断编号：${diagnosticId.slice(0, 8)}）`,
-      diagnosticId
-    }, status);
   }
-});
+  if (body.action === "summarize_audio_transcript") {
+    // Text-only summary after client already assembled the full transcript.
+    // No R2 download — avoids a second long network path that can fail after ASR succeeded.
+    state.featureKey = "audio_transcription";
+    const summaryAccess = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+    if (!summaryAccess.allowed) return jsonResponse({ error: summaryAccess.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    state.accessMethod = summaryAccess.method ?? "";
+    const summaryQuota = state.submissionQuota ?? await checkAiQuota(user.id, state.accessMethod, serviceRoleKey, settings, state.featureKey, state.diagnosticId, "audio_summary");
+    if (!summaryQuota.allowed) return jsonResponse({ error: summaryQuota.reason, code: "AI_QUOTA_EXCEEDED" }, 429);
+    const transcript = String(body.audioTranscript ?? "").trim();
+    if (!transcript) return jsonResponse({ error: "没有可摘要的转写正文。" }, 400);
+    state.questionChars = transcript.length;
+    try {
+      const summaryResponse = await summarizeAudioTranscript(transcript, settings, request.signal);
+      state.observedUsage = summaryResponse.usage;
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "success",
+        accessMethod: state.accessMethod,
+        featureKey: state.featureKey,
+        model: summaryResponse.model,
+        usage: summaryResponse.usage,
+        latencyMs: Date.now() - state.startedAt,
+        questionChars: state.questionChars,
+        diagnosticId: state.diagnosticId,
+        diagnosticDetails: { stage: "audio_summary" }
+      });
+      return jsonResponse({
+        transcript,
+        summary: summaryResponse.summary,
+        warning: null,
+        model: `transcript-summary + ${summaryResponse.model}`,
+        access: state.accessMethod
+      });
+    } catch (error) {
+      if (request.signal?.aborted) throw error;
+      console.error(error);
+      await logAiAssistantUsage({
+        userId: user.id,
+        status: "error",
+        accessMethod: state.accessMethod,
+        featureKey: state.featureKey,
+        model: configuredModel(settings),
+        usage: emptyUsage(),
+        latencyMs: Date.now() - state.startedAt,
+        questionChars: state.questionChars,
+        error: error instanceof Error ? error.message : String(error),
+        diagnosticId: state.diagnosticId,
+        diagnosticDetails: { stage: "audio_summary" }
+      });
+      return jsonResponse({
+        transcript,
+        summary: null,
+        warning: "转写正文已保留，摘要生成失败。",
+        model: "transcript-summary",
+        access: state.accessMethod
+      });
+    }
+  }
+  return null;
+}
+
+async function handleConversationRequest(context: AiRequestContext): Promise<Response> {
+  const { request, body, user, authorization, serviceRoleKey, settings, state } = context;
+  const mode = body.mode === "translation"
+    ? "translation"
+    : body.mode === "translation_summary"
+      ? "translation_summary"
+    : body.mode === "mind_map"
+    ? "mind_map"
+    : body.mode === "mind_map_followup"
+      ? "mind_map_followup"
+    : body.mode === "audio_transcription"
+      ? "audio_transcription"
+      : body.mode === "audio_followup"
+        ? "audio_followup"
+        : "assistant";
+  state.featureKey = mode === "audio_followup"
+    ? "audio_transcription"
+    : mode === "mind_map_followup"
+      ? "mind_map"
+      : mode === "translation_summary"
+        ? "translation"
+      : mode;
+  const question = body.question?.trim();
+  const translationSummaryInput = mode === "translation_summary"
+    ? sanitizeTranslationSummaryInput(body.translationSummary)
+    : null;
+  if (mode !== "audio_transcription" && mode !== "translation_summary" && !question) return jsonResponse({ error: "问题不能为空。" }, 400);
+  if (mode === "translation" && (question?.length ?? 0) > 20_000) return jsonResponse({ error: "首版单次最多翻译 20,000 个字符。" }, 400);
+  if (mode === "translation_summary" && (translationSummaryInput?.items.length ?? 0) < 3) {
+    return jsonResponse({ error: "至少需要 3 条有效翻译记录才能生成学习总结。" }, 400);
+  }
+  if (mode === "audio_transcription" && !body.audio?.dataUrl && !body.audios?.length) return jsonResponse({ error: "请选择要转写的音频文件。" }, 400);
+  if (mode === "audio_followup" && !body.audioTranscript?.trim()) return jsonResponse({ error: "请先完成音频转写。" }, 400);
+  state.questionChars = mode === "audio_transcription"
+    ? body.audios?.reduce((total, audio) => total + (Number(audio.size) || 0), body.audio?.dataUrl?.length ?? 0) ?? 0
+    : mode === "translation_summary"
+      ? translationSummaryInput?.items.reduce((total, item) => total + item.sourceText.length + item.translation.length, 0) ?? 0
+    : question?.length ?? 0;
+  const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, state.featureKey);
+  if (!access.allowed) return jsonResponse({
+    error: access.reason,
+    code: "AI_ACCESS_REQUIRED"
+  }, 403);
+  state.accessMethod = access.method ?? "";
+
+  const provider = configuredProvider(settings);
+  let attachments: AiAssistantAttachment[];
+  try {
+    attachments = sanitizeAttachments(body.attachments, modelSupportsAttachments(provider, configuredModel(settings)), user.id);
+    if (mode === "audio_transcription") {
+      const uploaded = sanitizeUploadedAudios(body.audios, user.id);
+      if (!uploaded.length) sanitizeTranscriptionAudio(body.audio);
+    }
+  } catch (error) { throw new PublicHttpError(error instanceof Error ? error.message : "附件参数无效。", 400); }
+  const quota = state.submissionQuota ?? await checkAiQuota(user.id, state.accessMethod, serviceRoleKey, settings, state.featureKey, state.diagnosticId, mode);
+  if (!quota.allowed) {
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "error",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: configuredModel(settings),
+      usage: emptyUsage(),
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      error: quota.reason
+    });
+    return jsonResponse({
+      error: quota.reason,
+      code: "AI_QUOTA_EXCEEDED"
+    }, 429);
+  }
+
+  const quotaStatus = quotaStatusAfterSuccessfulRequest(state.accessMethod, quota);
+  if (state.featureKey !== "assistant") {
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "running",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: configuredModel(settings),
+      usage: emptyUsage(),
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId,
+      diagnosticDetails: { stage: "started" }
+    });
+  }
+  if (mode === "audio_transcription") {
+    const audioResponse = await transcribeAndSummarizeAudio(body, settings, user.id, authorization, request.signal);
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "success",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: audioResponse.model,
+      usage: audioResponse.usage,
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId
+    });
+    return jsonResponse({
+      transcript: audioResponse.transcript,
+      summary: audioResponse.summary,
+      warning: audioResponse.warning,
+      model: audioResponse.model,
+      access: access.method,
+      quota: quotaStatus
+    });
+  }
+
+  if (mode === "audio_followup") {
+    const followupResponse = await answerAudioTranscript(
+      question ?? "",
+      body.audioTranscript ?? "",
+      sanitizeHistory(body.history),
+      settings,
+      request.signal
+    );
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "success",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: followupResponse.model,
+      usage: followupResponse.usage,
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId
+    });
+    return jsonResponse({
+      answer: followupResponse.answer,
+      model: followupResponse.model,
+      access: access.method,
+      quota: quotaStatus
+    });
+  }
+
+  if (mode === "translation") {
+    const translationResponse = await translateConfiguredProvider(
+      question ?? "",
+      sanitizeTranslationOptions(body.translation),
+      settings,
+      request.signal
+    );
+    state.observedUsage = translationResponse.usage;
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "success",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: translationResponse.model,
+      usage: translationResponse.usage,
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId,
+      diagnosticDetails: { stage: "completed" }
+    });
+    return jsonResponse({
+      translation: translationResponse.translation,
+      access: access.method,
+      quota: quotaStatus
+    });
+  }
+
+  if (mode === "translation_summary") {
+    if (!translationSummaryInput) throw new PublicHttpError("学习总结参数无效。", 400);
+    const summaryResponse = await summarizeTranslationHistoryWithProvider(
+      translationSummaryInput,
+      settings,
+      request.signal
+    );
+    state.observedUsage = summaryResponse.usage;
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "success",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: summaryResponse.model,
+      usage: summaryResponse.usage,
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId,
+      diagnosticDetails: { stage: "completed" }
+    });
+    return jsonResponse({
+      summary: {
+        ...summaryResponse.summary,
+        sampleCount: translationSummaryInput.items.length,
+        focus: translationSummaryInput.focus,
+        theme: translationSummaryInput.theme
+      },
+      access: access.method,
+      quota: quotaStatus
+    });
+  }
+
+  const history = sanitizeHistory(body.history);
+  state.observedUsage = attachments.reduce((usage, attachment) => combineUsage(usage, attachment.processingUsage ?? emptyUsage()), emptyUsage());
+  if (mode === "mind_map_followup") {
+    const mindMap = sanitizeMindMapNode(body.mindMap, 0, { remaining: 100 }, 6);
+    if (!mindMap) return jsonResponse({ error: "请先生成思维导图后再追问。" }, 400);
+    const credentials = await validatedProviderCredentials(provider, settings);
+    if (!credentials.apiKey) throw new Error("思维导图问答模型暂未配置，请稍后再试。");
+    const resolvedDocuments = await resolveRemoteDocumentAttachments(attachments, {
+      provider,
+      model: configuredModel(settings),
+      apiKey: credentials.apiKey,
+      endpoint: credentials.endpoint,
+      signal: request.signal
+    });
+    const followupResponse = await answerMindMapFollowup(
+      question ?? "",
+      mindMap,
+      resolvedDocuments.attachments,
+      history,
+      settings,
+      request.signal
+    );
+    const usage = combineUsage(resolvedDocuments.usage, followupResponse.usage);
+    await logAiAssistantUsage({
+      userId: user.id,
+      status: "success",
+      accessMethod: state.accessMethod,
+      featureKey: state.featureKey,
+      model: followupResponse.model,
+      usage,
+      latencyMs: Date.now() - state.startedAt,
+      questionChars: state.questionChars,
+      diagnosticId: state.diagnosticId
+    });
+    if (resolvedDocuments.temporaryDocumentKeys.length) {
+      await deleteR2DocumentPageObjects(user.id, resolvedDocuments.temporaryDocumentKeys).catch((error) => {
+        console.error("Failed to delete PDF pages after mind map follow-up", { error: String(error) });
+      });
+    }
+    return jsonResponse({
+      answer: followupResponse.answer,
+      model: followupResponse.model,
+      processedAttachments: resolvedDocuments.processedAttachments,
+      access: access.method,
+      quota: quotaStatus
+    });
+  }
+  const assistantResponse = await askConfiguredProvider(question ?? "", body.scheduleContext, history, quotaStatus, settings, attachments, mode, normalizeMindMapDepth(body.mindMapDepth), request.signal);
+  await logAiAssistantUsage({
+    userId: user.id,
+    status: "success",
+    accessMethod: state.accessMethod,
+    featureKey: state.featureKey,
+    model: assistantResponse.model,
+    usage: assistantResponse.usage,
+    latencyMs: Date.now() - state.startedAt,
+    questionChars: state.questionChars,
+    diagnosticId: state.diagnosticId
+  });
+  if (assistantResponse.temporaryDocumentKeys?.length) {
+    await deleteR2DocumentPageObjects(user.id, assistantResponse.temporaryDocumentKeys).catch((error) => {
+      console.error("Failed to delete processed PDF pages", { error: String(error) });
+    });
+  }
+  return jsonResponse({
+    answer: assistantResponse.answer,
+    actions: assistantResponse.actions,
+    mindMap: assistantResponse.mindMap,
+    processedAttachments: assistantResponse.processedAttachments,
+    access: access.method,
+    accessBound: false,
+    quota: quotaStatus
+  });
+}
 
 async function getUser(authorization: string): Promise<SupabaseUser> {
   const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
@@ -1614,7 +1159,7 @@ async function translateConfiguredProvider(
 ): Promise<TranslationProviderResult> {
   const provider = configuredProvider(settings);
   const model = configuredModel(settings);
-  const credentials = configuredProviderCredentials(provider, settings);
+  const credentials = await validatedProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("翻译服务暂时不可用，请稍后再试。");
   const chunks = splitTranslationSource(sourceText, 4_000);
   let usage = emptyUsage();
@@ -1652,11 +1197,7 @@ async function translateProviderChunk(
   ].filter(Boolean).join("\n\n") || "没有额外术语要求。";
   const response = await fetch(config.endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${config.apiKey}`,
-      ...(config.provider === "mimo" ? { "api-key": config.apiKey } : {})
-    },
+    headers: textProviderHeaders(config.provider, config.apiKey),
     signal: config.signal,
     body: JSON.stringify({
       model: config.model,
@@ -1676,10 +1217,7 @@ async function translateProviderChunk(
         },
         { role: "user", content: sourceText }
       ],
-      ...(config.provider === "deepseek" || config.provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: 0.1,
-      ...(config.provider === "mimo" ? { max_completion_tokens: 6_000 } : { max_tokens: 6_000 }),
-      stream: false
+      ...textProviderParameters(config.provider, { temperature: 0.1, maxTokens: 6_000 })
     })
   });
   const responseText = await response.text();
@@ -1779,7 +1317,7 @@ async function summarizeTranslationHistoryWithProvider(
 ): Promise<{ summary: TranslationLearningSummaryPayload; model: string; usage: AiAssistantUsage }> {
   const provider = configuredProvider(settings);
   const model = configuredModel(settings);
-  const credentials = configuredProviderCredentials(provider, settings);
+  const credentials = await validatedProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("翻译学习总结服务暂时不可用，请稍后再试。");
   const focusInstructions: Record<TranslationSummaryInput["focus"], string> = {
     comprehensive: "均衡整理高频主题、可复用句式、实用词组搭配和下一步口语练习。",
@@ -1797,11 +1335,7 @@ async function summarizeTranslationHistoryWithProvider(
   const supportsJsonOutput = provider === "deepseek" || (provider === "mimo" && (model === "mimo-v2.6-flash" || model === "mimo-v2.6-pro"));
   const response = await fetch(credentials.endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${credentials.apiKey}`,
-      ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
-    },
+    headers: textProviderHeaders(provider, credentials.apiKey),
     signal,
     body: JSON.stringify({
       model,
@@ -1828,11 +1362,7 @@ async function summarizeTranslationHistoryWithProvider(
           content: `请根据以下 ${input.items.length} 条翻译记录生成学习总结：\n\n${samples}`
         }
       ],
-      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: 0.2,
-      ...(provider === "mimo" ? { max_completion_tokens: 2_600 } : { max_tokens: 2_600 }),
-      ...(supportsJsonOutput ? { response_format: { type: "json_object" } } : {}),
-      stream: false
+      ...textProviderParameters(provider, { temperature: 0.2, maxTokens: 2_600, jsonObject: supportsJsonOutput })
     })
   });
   const responseText = await response.text();
@@ -1927,7 +1457,7 @@ async function askConfiguredProvider(
   signal?: AbortSignal
 ): Promise<AiAssistantResponse> {
   const provider = configuredProvider(settings);
-  const { apiKey, endpoint } = configuredProviderCredentials(provider, settings);
+  const { apiKey, endpoint } = await validatedProviderCredentials(provider, settings);
   if (!apiKey) throw new Error("AI 助手暂时不可用，请稍后再试。");
   const model = configuredModel(settings);
   const resolvedDocuments = await resolveRemoteDocumentAttachments(attachments, {
@@ -1976,11 +1506,7 @@ async function askConfiguredProvider(
   const supportsJsonOutput = provider === "deepseek" || (provider === "mimo" && (model === "mimo-v2.6-flash" || model === "mimo-v2.6-pro"));
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-      ...(provider === "mimo" ? { "api-key": apiKey } : {})
-    },
+    headers: textProviderHeaders(provider, apiKey),
     signal,
     body: JSON.stringify({
       model,
@@ -2047,11 +1573,11 @@ async function askConfiguredProvider(
           content: userContent
         }
       ],
-      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: mode === "mind_map" ? 0.3 : 0.2,
-      ...(provider === "mimo" ? { max_completion_tokens: completionLimit } : { max_tokens: completionLimit }),
-      ...(supportsJsonOutput ? { response_format: { type: "json_object" } } : {}),
-      stream: false
+      ...textProviderParameters(provider, {
+        temperature: mode === "mind_map" ? 0.3 : 0.2,
+        maxTokens: completionLimit,
+        jsonObject: supportsJsonOutput
+      })
     })
   });
   const text = await response.text();
@@ -2192,11 +1718,7 @@ async function extractRemoteDocumentBatch(
   const pageLabel = pages.map((page) => page.pageNumber).join("、");
   const { ok, status, text: responseText } = await fetchTextWithTransientRetry(providerConfig.endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${providerConfig.apiKey}`,
-      ...(providerConfig.provider === "mimo" ? { "api-key": providerConfig.apiKey } : {})
-    },
+    headers: textProviderHeaders(providerConfig.provider, providerConfig.apiKey),
     signal: providerConfig.signal,
     body: JSON.stringify({
       model: providerConfig.model,
@@ -2217,10 +1739,7 @@ async function extractRemoteDocumentBatch(
           ]
         }
       ],
-      ...(providerConfig.provider === "deepseek" || providerConfig.provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: 0.1,
-      ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
-      stream: false
+      ...textProviderParameters(providerConfig.provider, { temperature: 0.1, maxTokens: 2500 })
     })
   }, 3, providerConfig.signal);
   if (!ok) {
@@ -2288,11 +1807,7 @@ async function summarizeDocumentTextBatch(
   throwIfAborted(providerConfig.signal);
   const { ok, status, text: responseText } = await fetchTextWithTransientRetry(providerConfig.endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${providerConfig.apiKey}`,
-      ...(providerConfig.provider === "mimo" ? { "api-key": providerConfig.apiKey } : {})
-    },
+    headers: textProviderHeaders(providerConfig.provider, providerConfig.apiKey),
     signal: providerConfig.signal,
     body: JSON.stringify({
       model: providerConfig.model,
@@ -2310,10 +1825,7 @@ async function summarizeDocumentTextBatch(
           content: `文档“${batch.name}”第 ${batch.startPage}-${batch.endPage} 页：\n\n${batch.text}`
         }
       ],
-      ...(providerConfig.provider === "deepseek" || providerConfig.provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: 0.1,
-      ...(providerConfig.provider === "mimo" ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
-      stream: false
+      ...textProviderParameters(providerConfig.provider, { temperature: 0.1, maxTokens: 2500 })
     })
   }, 3, providerConfig.signal);
   if (!ok) {
@@ -2525,10 +2037,10 @@ function sanitizeAudioUploadMetadata(value: AiAssistantRequest["audio"]): { name
   const mimeType = value?.mimeType?.trim().toLowerCase() ?? "";
   const size = Number(value?.size);
   if (!name || !allowedMimeTypes[extension]?.includes(mimeType)) {
-    throw new Error("音频转写仅支持 MP3、WAV、FLAC、M4A 和 OGG 文件。");
+    throw new PublicHttpError("音频转写仅支持 MP3、WAV、FLAC、M4A 和 OGG 文件。", 400);
   }
   if (!Number.isFinite(size) || size <= 0 || size > 100 * 1024 * 1024) {
-    throw new Error("单个音频文件不能超过 100 MB。");
+    throw new PublicHttpError("单个音频文件不能超过 100 MB。", 400);
   }
   return { name, mimeType, size, extension };
 }
@@ -2740,7 +2252,7 @@ async function transcribeAndSummarizeAudio(body: AiAssistantRequest, settings: A
   if (uploadedAudios.length) return await transcribeUploadedAudios(uploadedAudios, body, settings, userId, authorization, signal);
 
   const audio = sanitizeTranscriptionAudio(body.audio);
-  const credentials = configuredAudioCredentials(settings);
+  const credentials = await validatedAudioCredentials(settings);
   {
     if (!credentials.apiKey) throw new Error("音频转写服务暂未配置，请联系管理员。");
     const audioModelName = configuredAudioModel(settings);
@@ -3033,7 +2545,7 @@ async function transcribeUploadedAudios(
   usage: AiAssistantUsage;
 }> {
   // Keep objects until R2 lifecycle expires ai-audio/ (7 days). No immediate delete.
-  const credentials = configuredAudioCredentials(settings);
+  const credentials = await validatedAudioCredentials(settings);
   if (!credentials.apiKey) {
     throw new DiagnosticError("音频转写服务暂未配置，请联系管理员。", {
       stage: "audio_credentials_missing"
@@ -3574,10 +3086,10 @@ function safeProviderError(value: string): string {
 function sanitizeTranscriptionAudio(value: AiAssistantRequest["audio"]): { dataUrl: string } {
   const dataUrl = value?.dataUrl?.trim() ?? "";
   if (!/^data:audio\/(?:mpeg|mp3|wav|x-wav);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl)) {
-    throw new Error("音频转写仅支持 MP3 和 WAV 文件。");
+    throw new PublicHttpError("音频转写仅支持 MP3 和 WAV 文件。", 400);
   }
   if (dataUrl.length > 10 * 1024 * 1024 + 100) {
-    throw new Error("音频编码后不能超过 10 MB，请压缩或拆分后重试。");
+    throw new PublicHttpError("音频编码后不能超过 10 MB，请压缩或拆分后重试。", 400);
   }
   return { dataUrl };
 }
@@ -3597,16 +3109,12 @@ async function summarizeAudioTranscript(transcript: string, settings: AiSettings
   usage: AiAssistantUsage;
 }> {
   const provider = configuredProvider(settings);
-  const credentials = configuredProviderCredentials(provider, settings);
+  const credentials = await validatedProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("音频已转写，但摘要模型暂未配置。");
   const model = configuredModel(settings);
   const response = await fetch(credentials.endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${credentials.apiKey}`,
-      ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
-    },
+    headers: textProviderHeaders(provider, credentials.apiKey),
     signal,
     body: JSON.stringify({
       model,
@@ -3614,10 +3122,7 @@ async function summarizeAudioTranscript(transcript: string, settings: AiSettings
         { role: "system", content: "你是录音整理助手。请忠于转写原文，用简洁中文输出主题、要点、结论和明确的待办；没有的信息不要补充。" },
         { role: "user", content: transcript.slice(0, 24_000) }
       ],
-      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: 0.2,
-      max_tokens: 1200,
-      stream: false
+      ...textProviderParameters(provider, { temperature: 0.2, maxTokens: 1200, tokenField: "max_tokens" })
     })
   });
   const text = await response.text();
@@ -3642,7 +3147,7 @@ async function answerAudioTranscript(
   signal?: AbortSignal
 ): Promise<{ answer: string; model: string; usage: AiAssistantUsage }> {
   const provider = configuredProvider(settings);
-  const credentials = configuredProviderCredentials(provider, settings);
+  const credentials = await validatedProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("音频问答模型暂未配置，请稍后再试。");
   const model = configuredModel(settings);
   const historyText = history.length
@@ -3650,11 +3155,7 @@ async function answerAudioTranscript(
     : "无";
   const response = await fetch(credentials.endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${credentials.apiKey}`,
-      ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
-    },
+    headers: textProviderHeaders(provider, credentials.apiKey),
     signal,
     body: JSON.stringify({
       model,
@@ -3668,10 +3169,7 @@ async function answerAudioTranscript(
           content: `转写原文：\n${transcript.slice(0, 30_000)}\n\n最近问答：\n${historyText}\n\n当前问题：${question}`
         }
       ],
-      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: 0.2,
-      max_tokens: 1400,
-      stream: false
+      ...textProviderParameters(provider, { temperature: 0.2, maxTokens: 1400, tokenField: "max_tokens" })
     })
   });
   const text = await response.text();
@@ -3697,7 +3195,7 @@ async function answerMindMapFollowup(
   signal?: AbortSignal
 ): Promise<{ answer: string; model: string; usage: AiAssistantUsage }> {
   const provider = configuredProvider(settings);
-  const credentials = configuredProviderCredentials(provider, settings);
+  const credentials = await validatedProviderCredentials(provider, settings);
   if (!credentials.apiKey) throw new Error("思维导图问答模型暂未配置，请稍后再试。");
   const model = configuredModel(settings);
   const historyText = history.length
@@ -3728,11 +3226,7 @@ async function answerMindMapFollowup(
     : questionText;
   const response = await fetch(credentials.endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${credentials.apiKey}`,
-      ...(provider === "mimo" ? { "api-key": credentials.apiKey } : {})
-    },
+    headers: textProviderHeaders(provider, credentials.apiKey),
     signal,
     body: JSON.stringify({
       model,
@@ -3751,10 +3245,7 @@ async function answerMindMapFollowup(
         },
         { role: "user", content: userContent }
       ],
-      ...(provider === "deepseek" || provider === "mimo" ? { thinking: { type: "disabled" } } : {}),
-      temperature: 0.45,
-      ...(provider === "mimo" ? { max_completion_tokens: 1800 } : { max_tokens: 1800 }),
-      stream: false
+      ...textProviderParameters(provider, { temperature: 0.45, maxTokens: 1800 })
     })
   });
   const text = await response.text();
@@ -3790,6 +3281,18 @@ function combineUsage(left: AiAssistantUsage, right: AiAssistantUsage): AiAssist
       ? null
       : Number((left.estimated_cost_cny + right.estimated_cost_cny).toFixed(8))
   };
+}
+
+async function validatedProviderCredentials(provider: AiProvider, settings: AiSettingsRow | null): Promise<ProviderCredentials> {
+  const relay = settings?.text_relay;
+  if (relay?.supports_text && relay.api_key && relay.text_model) await validatePublicRelayBaseUrl(relay.base_url);
+  return configuredProviderCredentials(provider, settings);
+}
+
+async function validatedAudioCredentials(settings: AiSettingsRow | null): Promise<ProviderCredentials> {
+  const relay = settings?.audio_relay;
+  if (relay?.supports_audio && relay.api_key && relay.audio_model) await validatePublicRelayBaseUrl(relay.base_url);
+  return configuredAudioCredentials(settings);
 }
 
 function configuredProviderCredentials(provider: AiProvider, settings: AiSettingsRow | null): ProviderCredentials {
@@ -3902,30 +3405,12 @@ function customRelayEndpoint(baseUrl: string, path: string): string {
   const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash
     || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")
-    || hostname === "metadata.google.internal" || isPrivateRelayAddress(hostname)) {
+    || hostname === "metadata.google.internal" || isPrivateAddress(hostname)) {
     throw new Error("管理员配置的 AI 中转地址不安全，已拒绝调用。");
   }
   return `${url.toString().replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
-function isPrivateRelayAddress(value: string): boolean {
-  const address = value.toLowerCase().replace(/^\[|\]$/g, "");
-  if (address.includes(":")) {
-    return address === "::" || address === "::1" || address.startsWith("fc") || address.startsWith("fd")
-      || /^fe[89ab]/.test(address) || address.startsWith("ff") || address.startsWith("::ffff:127.")
-      || address.startsWith("::ffff:10.") || address.startsWith("::ffff:192.168.")
-      || /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(address);
-  }
-  const parts = address.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts;
-  return a === 0 || a === 10 || a === 127 || a >= 224
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || (a === 198 && (b === 18 || b === 19));
-}
 
 function isTokenPlanBaseUrl(value: string): boolean {
   try {
@@ -3949,7 +3434,7 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
     const name = typeof record.name === "string" ? record.name.trim().slice(0, 180) : "未命名附件";
     if (record.kind === "image" && typeof record.dataUrl === "string") {
       const dataUrl = record.dataUrl;
-      if (!/^data:image\/(jpeg|png|gif|webp|bmp);base64,/i.test(dataUrl) || dataUrl.length > 8_500_000) {
+      if (!/^data:image\/(jpeg|png|gif|webp|bmp);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl) || dataUrl.length > 8_500_000) {
         throw new Error(`图片“${name}”格式不支持或文件过大。`);
       }
       result.push({ name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
@@ -4247,34 +3732,13 @@ function usageFromDiagnosticDetails(details: Record<string, unknown>): AiAssista
   return sanitizeClientUsage(details.providerUsage);
 }
 
-function emptyUsage(): AiAssistantUsage {
-  return {
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0,
-    estimated_cost_cny: null
-  };
-}
-
 function estimateCostCny(promptTokens: number, completionTokens: number): number {
   const inputPrice = 1;
   const outputPrice = 2;
   return Number((((promptTokens / 1_000_000) * inputPrice) + ((completionTokens / 1_000_000) * outputPrice)).toFixed(8));
 }
 
-async function logAiAssistantUsage(input: {
-  userId: string;
-  status: "running" | "success" | "error";
-  accessMethod: string;
-  featureKey: AiFeatureKey;
-  model: string;
-  usage: AiAssistantUsage;
-  latencyMs: number;
-  questionChars: number;
-  error?: string;
-  diagnosticId?: string;
-  diagnosticDetails?: Record<string, unknown>;
-}) {
+async function logAiAssistantUsage(input: AiUsageLogInput) {
   const serviceRoleKey = serviceRoleSecret();
   if (!serviceRoleKey) return;
   try {

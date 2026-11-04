@@ -26,6 +26,7 @@ interface MemoPageProps {
 type FolderFilter = "all" | "uncheckedTodos" | string;
 type MemoViewMode = "list" | "grid";
 const GRID_PAGE_SIZE = 9;
+const LIST_PAGE_SIZE = 20;
 // Keep the single-click action behind the common Windows 500 ms double-click
 // window so a deliberately slow double-click never changes checklist data.
 const MEMO_CHECKLIST_CLICK_DELAY_MS = 550;
@@ -66,6 +67,7 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
   const [filter, setFilter] = useState<FolderFilter>("all");
   const [viewMode, setViewMode] = useState<MemoViewMode>("list");
   const [gridPage, setGridPage] = useState(0);
+  const [listPage, setListPage] = useState(0);
   const [memoToEdit, setMemoToEdit] = useState<Memo | null | undefined>(undefined);
   const [memoSearchMatch, setMemoSearchMatch] = useState<SearchNavigationMatch | null>(null);
   const [message, setMessage] = useState("");
@@ -125,6 +127,9 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
   const activeGridPage = Math.min(gridPage, gridPageCount - 1);
   const gridMemos = visibleMemos.slice(activeGridPage * GRID_PAGE_SIZE, activeGridPage * GRID_PAGE_SIZE + GRID_PAGE_SIZE);
   const emptyGridSlots = GRID_PAGE_SIZE - gridMemos.length;
+  const listPageCount = Math.max(1, Math.ceil(visibleMemos.length / LIST_PAGE_SIZE));
+  const activeListPage = Math.min(listPage, listPageCount - 1);
+  const listMemos = visibleMemos.slice(activeListPage * LIST_PAGE_SIZE, (activeListPage + 1) * LIST_PAGE_SIZE);
   const memoToEditForOwner = currentOwnerRecord(memoToEdit, ownerId);
   const memoEditorIdentity = memoToEditForOwner === undefined ? "closed" : `${ownerId}:${memoToEditForOwner?.id ?? "new"}`;
   const memoEditorToken = useMemoEditorInstanceToken(memoEditorIdentity, memoEditorTokenRef);
@@ -132,16 +137,19 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
   function selectFilter(nextFilter: FolderFilter) {
     setFilter(nextFilter);
     setGridPage(0);
+    setListPage(0);
   }
 
   function selectViewMode(nextMode: MemoViewMode) {
     setViewMode(nextMode);
     setGridPage(0);
+    setListPage(0);
   }
 
   function updateQuery(nextQuery: string) {
     setQuery(nextQuery);
     setGridPage(0);
+    setListPage(0);
   }
 
   function openMemo(memo: Memo) {
@@ -343,8 +351,16 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
               </div>
             </>
           ) : (
+            <>
+            {listPageCount > 1 && <nav className="memo-grid-toolbar" aria-label="备忘录分页">
+              <span>列表 {activeListPage + 1} / {listPageCount}</span>
+              <div className="inline-actions">
+                <button type="button" className="button secondary compact" disabled={activeListPage === 0} onClick={() => setListPage(activeListPage - 1)}>上一页</button>
+                <button type="button" className="button secondary compact" disabled={activeListPage === listPageCount - 1} onClick={() => setListPage(activeListPage + 1)}>下一页</button>
+              </div>
+            </nav>}
             <div className="memo-list" role="list" aria-label="备忘录列表">
-              {visibleMemos.map((memo) => (
+              {listMemos.map((memo) => (
                 <MemoCard
                   key={memo.id}
                   memo={memo}
@@ -354,6 +370,7 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
                 />
               ))}
             </div>
+            </>
           )
         ) : (
           <div className="empty-state compact-empty">

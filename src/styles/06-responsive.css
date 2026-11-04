@@ -282,12 +282,6 @@
     display: none;
   }
 
-  .calendar-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 12px;
-  }
-
   .toolbar-actions {
     width: 100%;
     overflow-x: auto;
@@ -300,11 +294,6 @@
 
   .toolbar-actions .button span {
     display: none;
-  }
-
-  .schedule-filter-bar {
-    grid-template-columns: 1fr;
-    margin-bottom: 12px;
   }
 
   .schedule-overview {
@@ -935,33 +924,6 @@
   }
 }
 
-@media (max-width: 420px) {
-  .calendar-toolbar > .toolbar-actions {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    overflow-x: visible;
-  }
-
-  .calendar-toolbar > .toolbar-actions .button {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .calendar-toolbar > .toolbar-actions .button:nth-child(1),
-  .calendar-toolbar > .toolbar-actions .button:nth-child(3) {
-    grid-column: span 1;
-  }
-
-  .calendar-toolbar > .toolbar-actions .button:nth-child(2) {
-    grid-column: span 4;
-  }
-
-  .calendar-toolbar > .toolbar-actions .button:nth-child(4),
-  .calendar-toolbar > .toolbar-actions .button:nth-child(5) {
-    grid-column: span 3;
-  }
-}
-
 @media (max-width: 900px), (pointer: coarse) {
   .attachment-paste-hint {
     display: none;
@@ -1057,24 +1019,6 @@
     max-width: 150px;
   }
 
-  .calendar-title-actions {
-    align-items: flex-start;
-    justify-content: space-between;
-    width: 100%;
-    gap: 10px;
-  }
-
-  .snapshot-toolbar-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    flex: 0 0 auto;
-  }
-
-  .snapshot-toolbar-actions .button {
-    min-width: 0;
-    padding-inline: 9px;
-  }
-
   .snapshot-choice-grid {
     grid-template-columns: 1fr;
   }
@@ -1083,7 +1027,6 @@
     grid-template-columns: 1fr;
   }
 
-  .week-title h1,
   .page-heading h1 {
     font-size: 1.3125rem;
   }

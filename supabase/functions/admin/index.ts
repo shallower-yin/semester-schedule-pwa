@@ -1,4 +1,5 @@
 import { MIMO_CHAT_MODELS, normalizeMimoModel } from "../_shared/mimoModels.ts";
+import { relayFetch as fetch, validatePublicRelayBaseUrl } from "../_shared/publicRelayUrl.ts";
 
 type AdminAction =
   | "whoami"
@@ -1017,52 +1018,6 @@ async function recordRelayTest(
 
 function relayEndpoint(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
-}
-
-async function validatePublicRelayBaseUrl(value: unknown): Promise<string> {
-  const input = String(value ?? "").trim().replace(/\/+$/, "");
-  let url: URL;
-  try {
-    url = new URL(input);
-  } catch {
-    throw new Error("中转地址无效，请填写包含 https:// 的 API 基础地址。");
-  }
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
-    throw new Error("中转地址必须是无账号参数的公网 HTTPS 基础地址。");
-  }
-  if (url.pathname === "/") url.pathname = "";
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")
-    || hostname === "metadata.google.internal" || isPrivateAddress(hostname)) {
-    throw new Error("中转地址不能指向本机、内网或云元数据服务。");
-  }
-  const resolved = await Promise.all([
-    Deno.resolveDns(hostname, "A").catch(() => [] as string[]),
-    Deno.resolveDns(hostname, "AAAA").catch(() => [] as string[])
-  ]);
-  if (resolved.flat().some(isPrivateAddress)) {
-    throw new Error("中转域名解析到了内网地址，已拒绝保存。");
-  }
-  return url.toString().replace(/\/+$/, "");
-}
-
-function isPrivateAddress(value: string): boolean {
-  const address = value.toLowerCase().replace(/^\[|\]$/g, "");
-  if (address.includes(":")) {
-    return address === "::" || address === "::1" || address.startsWith("fc") || address.startsWith("fd")
-      || /^fe[89ab]/.test(address) || address.startsWith("ff") || address.startsWith("::ffff:127.")
-      || address.startsWith("::ffff:10.") || address.startsWith("::ffff:192.168.")
-      || /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(address);
-  }
-  const parts = address.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts;
-  return a === 0 || a === 10 || a === 127 || a >= 224
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || (a === 198 && (b === 18 || b === 19));
 }
 
 async function safeRelayResponseMessage(response: Response): Promise<string> {
