@@ -25,6 +25,7 @@
     "dexie-react-hooks": "^1.1.7",
     "jsonrepair": "3.13.1",
     "lucide-react": "^0.468.0",
+    "lunar-typescript": "1.8.7",
     "mammoth": "https://codeload.github.com/mwilliamson/mammoth.js/tar.gz/5171a9072f8b7343ab1c9ed3a15d6d372cb59b67",
     "pdfjs-dist": "6.2.108",
     "react": "^18.3.1",

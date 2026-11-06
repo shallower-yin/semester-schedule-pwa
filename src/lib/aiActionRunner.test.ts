@@ -297,9 +297,45 @@ describe("AI 动作执行器", () => {
       date: "2026-09-25"
     });
   });
+
+  it("已错误迁移成农历的传统节日也重新校准，其他用户和公历节日保持原样", async () => {
+    const bad = { ...anniversary("bad-mid-autumn", "中秋节"), calendar_type: "lunar" as const,
+      lunar_year: 2026, lunar_month: 9, lunar_day: 17, lunar_is_leap_month: true,
+      lunar_occurrence_dates: ["2026-10-27"], date: "2026-10-27", reminder_sent_for: "2026-10-27" };
+    const national = anniversary("solar", "国庆节");
+    const other = { ...bad, id: "other-user", user_id: "other-user" };
+    await db.anniversaries.bulkPut([bad, national, other]);
+    const first = await applyActionsToLocalRecords([], "把所有传统节日改成农历", userId);
+    expect(first.created).toHaveLength(0);
+    expect(first.updated).toHaveLength(1);
+    expect(await db.anniversaries.get(bad.id)).toMatchObject({ calendar_type: "lunar", lunar_year: 2026,
+      lunar_month: 8, lunar_day: 15, lunar_is_leap_month: false, date: "2026-09-25", reminder_sent_for: null });
+    expect(await db.anniversaries.get(national.id)).toEqual(national);
+    expect(await db.anniversaries.get(other.id)).toEqual(other);
+    await applyActionsToLocalRecords([], "把所有传统节日改成农历", userId);
+    expect(await db.anniversaries.count()).toBe(3);
+  });
+
+  it("修改事项日期时使用原文农历日期并加入同步队列", async () => {
+    const original = { ...event("lunar-event", "2026-11-09"), title: "提交材料" };
+    await db.events.put(original);
+    const result = await applyActionsToLocalRecords([{ type: "update_event", title: "提交材料", startDate: "2026-11-09", endDate: "2026-11-09" }],
+      "把提交材料改成2026年农历十一月初九", userId);
+    expect(result.updated).toHaveLength(1);
+    expect(await db.events.get(original.id)).toMatchObject({ start_date: "2026-12-17", end_date: "2026-12-17" });
+    expect(await db.syncQueue.where("record_id").equals(original.id).count()).toBe(1);
+  });
 });
 
 describe("AI 动作结果汇总", () => {
+  it("纪念日结果显示实际保存的历法原日期及换算后的下次日期", () => {
+    const record = { ...anniversary("lunar-summary", "家人生日", "birthday"), calendar_type: "lunar" as const,
+      lunar_year: 2005, lunar_month: 2, lunar_day: 25, lunar_is_leap_month: false, date: "2005-04-03" };
+    const summary = actionResultsSummary({ created: [{ table: "anniversaries", record }], updated: [], deleted: [], unmatched: [] });
+    expect(summary).toContain("已创建日子：家人生日（农历 2005年二月廿五，下次 ");
+    expect(summary).toMatch(/下次 \d{4}-\d{2}-\d{2}）/);
+  });
+
   it("相同标题合并显示数量", () => {
     const records = Array.from({ length: 9 }, (_, index) => ({
       table: "events" as const,

@@ -1553,6 +1553,8 @@ async function askConfiguredProvider(
             "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"calendarType\":\"solar|lunar\",\"date\":\"YYYY-MM-DD 或 null\",\"lunarYear\":2026,\"lunarMonth\":8,\"lunarDay\":15,\"lunarIsLeapMonth\":false,\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
             "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
             "春节、端午节、中秋节、除夕、元宵、七夕、重阳、腊八和农历生日必须使用 calendarType=lunar，并填写农历年份、月份、日期；不要把农历八月十五写成固定公历 8 月 15 日。date 可以为 null，应用会按农历换算每年的公历发生日。清明节、元旦、国庆节、母亲节、父亲节等公历或按星期计算的节日使用 calendarType=solar。",
+            "用户明确说农历、阴历或旧历时，calendarType=lunar，date=null，lunarYear/lunarMonth/lunarDay 原样保存用户给出的农历年月日及闰月；例如‘农历1970-11-24’表示农历1970年十一月廿四，‘农历五月二十三’表示五月二十三，不能把这些原始年月日先当公历再换算农历。只有用户明确要求‘把这个公历日期换算为农历’时才执行换算。未指定出生年份时不可猜出生年，可用当前农历年作为每年提醒的起点。",
+            "一句话有多条日子时逐条对应标题、年月日和历法，禁止把第一条农历日期套用给其他记录；‘全部农历/都是农历/统一农历’适用于同批所有记录。后续说‘之前说的都是农历’时，结合最近对话的原始日期与当前日子记录返回 update_anniversary，保留原始农历月日，不能直接把旧错误公历日期换算成新的农历日期。无法确定原始农历年月日时先追问，不返回猜测的日期 action。农历日期不存在或闰月年份不符时请核实，不能退回公历保存。",
             "如果用户创建习惯并指定每天、工作日、每周、每月或每隔几天，必须写入 recurrenceType；指定结束日期时写入 recurrenceUntil。没有指定重复时 recurrenceType 为 none。",
             "修改已存在事项使用 update_event，格式：{\"type\":\"update_event\",\"title\":\"要修改的事项标题\",\"date\":\"YYYY-MM-DD 或 null\",\"newTitle\":\"新标题或 null\",\"startDate\":\"新日期或 null\",\"endDate\":\"新日期或 null\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":true/false/null,\"location\":\"新地点或 null\",\"note\":\"新备注或 null\",\"reminderEnabled\":true/false/null,\"reminderMinutesBefore\":数字或 null}。只填写需要修改的字段，不需要修改的字段设为 null；title 用于匹配已有事项，date 可进一步限定匹配范围。",
             "修改已有纪念日、生日或节日使用 update_anniversary，格式：{\"type\":\"update_anniversary\",\"scope\":\"title|all_lunar_holidays|all_holidays\",\"title\":\"目标标题或 null\",\"newTitle\":\"新标题或 null\",\"kind\":\"anniversary|birthday|holiday 或 null\",\"calendarType\":\"solar|lunar 或 null\",\"date\":\"YYYY-MM-DD 或 null\",\"lunarYear\":2026,\"lunarMonth\":8,\"lunarDay\":15,\"lunarIsLeapMonth\":false,\"reminderEnabled\":true/false/null,\"reminderDaysBefore\":数字或 null,\"reminderTime\":\"HH:mm 或 null\"}。只填写要改的字段；scope=all_lunar_holidays 用于‘把农历节日全部改成农历’，会按现有节日标题识别春节、端午、中秋、除夕、元宵、七夕、重阳、腊八。",
@@ -3589,10 +3591,10 @@ function sanitizeAnniversaryAction(record: Record<string, unknown>): AiAssistant
     kind: normalizeAnniversaryKind(record.kind),
     date,
     calendarType,
-    lunarYear: clampNumber(record.lunarYear, 1900, 2100, 0) || null,
-    lunarMonth: clampNumber(record.lunarMonth, 1, 12, 0) || null,
-    lunarDay: clampNumber(record.lunarDay, 1, 30, 0) || null,
-    lunarIsLeapMonth: Boolean(record.lunarIsLeapMonth),
+    lunarYear: optionalLunarInteger(record.lunarYear, 1900, 2100),
+    lunarMonth: optionalLunarInteger(record.lunarMonth, 1, 12),
+    lunarDay: optionalLunarInteger(record.lunarDay, 1, 30),
+    lunarIsLeapMonth: record.lunarIsLeapMonth === true,
     note: typeof record.note === "string" ? record.note.slice(0, 500) : "",
     reminderEnabled: Boolean(record.reminderEnabled),
     reminderDaysBefore: clampNumber(record.reminderDaysBefore, 0, 365, 0),
@@ -3655,9 +3657,9 @@ function sanitizeUpdateAnniversaryAction(record: Record<string, unknown>): AiAss
     kind: record.kind === "anniversary" || record.kind === "birthday" || record.kind === "holiday" ? record.kind : null,
     calendarType: record.calendarType === "solar" || record.calendarType === "lunar" ? record.calendarType : null,
     date: isoDateValue(record.date),
-    lunarYear: clampNumber(record.lunarYear, 1900, 2100, 0) || null,
-    lunarMonth: clampNumber(record.lunarMonth, 1, 12, 0) || null,
-    lunarDay: clampNumber(record.lunarDay, 1, 30, 0) || null,
+    lunarYear: optionalLunarInteger(record.lunarYear, 1900, 2100),
+    lunarMonth: optionalLunarInteger(record.lunarMonth, 1, 12),
+    lunarDay: optionalLunarInteger(record.lunarDay, 1, 30),
     lunarIsLeapMonth: typeof record.lunarIsLeapMonth === "boolean" ? record.lunarIsLeapMonth : null,
     reminderEnabled: typeof record.reminderEnabled === "boolean" ? record.reminderEnabled : null,
     reminderDaysBefore: typeof record.reminderDaysBefore === "number" ? clampNumber(record.reminderDaysBefore, 0, 365, 0) : null,
@@ -3681,6 +3683,12 @@ function normalizeRecurrenceType(value: unknown): EventRecurrenceType {
 
 function isoDateValue(value: unknown): string | null {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : null;
+}
+
+// Null denotes an unchanged/unspecified lunar field. Clamping it would turn
+// Number(null) into a fabricated 1900-01-01 date during ordinary edits.
+function optionalLunarInteger(value: unknown, min: number, max: number): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= min && value <= max ? value : null;
 }
 
 function normalizeTime(value: unknown): string | null {

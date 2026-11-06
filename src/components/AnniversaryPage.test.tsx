@@ -90,6 +90,45 @@ describe("纪念日页面", () => {
       expect(saved?.user_id).toBe("alice");
     });
   });
+
+  it("农历切换到公历再切回时保留刚输入的日期", async () => {
+    render(<AnniversaryPage ownerId="local" />);
+    fireEvent.click(screen.getByRole("button", { name: /新增日子/ }));
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "农历生日" } });
+    fireEvent.change(screen.getByLabelText("历法"), { target: { value: "lunar" } });
+    fireEvent.change(screen.getByLabelText("农历年份"), { target: { value: "2026" } });
+    fireEvent.change(screen.getByLabelText("农历月份"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("农历日期"), { target: { value: "15" } });
+    fireEvent.change(screen.getByLabelText("历法"), { target: { value: "solar" } });
+    expect(screen.getByLabelText("日期")).toHaveValue("2026-09-25");
+    fireEvent.change(screen.getByLabelText("历法"), { target: { value: "lunar" } });
+    expect(screen.getByLabelText("农历年份")).toHaveValue(2026);
+    expect(screen.getByLabelText("农历月份")).toHaveValue("8");
+    expect(screen.getByLabelText("农历日期")).toHaveValue("15");
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(async () => expect(await db.anniversaries.filter((item) => item.title === "农历生日").first())
+      .toMatchObject({ date: "2026-09-25", calendar_type: "lunar", lunar_month: 8, lunar_day: 15 }));
+  });
+
+  it("编辑除夕时显示该年真实农历年末，并保存每年的除夕", async () => {
+    await db.anniversaries.add({
+      ...anniversaryRecord("year-end", "除夕", "holiday"),
+      date: "2024-02-09", calendar_type: "lunar", lunar_year: 2023,
+      lunar_month: 12, lunar_day: 30
+    });
+    render(<AnniversaryPage ownerId="local" />);
+    await waitFor(() => expect(screen.getByText("除夕")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("除夕"));
+    fireEvent.change(screen.getByLabelText("农历年份"), { target: { value: "2026" } });
+    expect(screen.getByLabelText("农历日期")).toHaveValue("29");
+    expect(screen.getByLabelText("农历日期")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(async () => {
+      const saved = await db.anniversaries.get("year-end");
+      expect(saved).toMatchObject({ date: "2027-02-05", lunar_year: 2026, lunar_month: 12, lunar_day: 29 });
+      expect(saved?.lunar_occurrence_dates).toContain("2028-01-25");
+    });
+  });
 });
 
 function anniversaryRecord(id: string, title: string, kind: AnniversaryKind): Anniversary {

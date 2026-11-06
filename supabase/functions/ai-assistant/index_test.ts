@@ -280,6 +280,48 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
       assertEquals(loggedUsage[0].completion_tokens, 10);
       assertEquals(unexpectedCalls, []);
     });
+    await t.step("anniversary fields keep null instead of fabricating lunar 1900-01-01", async () => {
+      const rawActions = [
+        { type: "update_anniversary", title: "甲生日", reminderDaysBefore: 3, calendarType: null,
+          lunarYear: null, lunarMonth: null, lunarDay: null, lunarIsLeapMonth: null },
+        { type: "create_anniversary", title: "乙生日", calendarType: "solar", date: "2005-10-05",
+          lunarYear: null, lunarMonth: null, lunarDay: null },
+        { type: "create_anniversary", title: "丙生日", calendarType: "lunar", date: null,
+          lunarYear: 2005, lunarMonth: 2, lunarDay: 25, lunarIsLeapMonth: false },
+        { type: "update_anniversary", title: "丁生日", calendarType: "lunar",
+          lunarYear: 2026.5, lunarMonth: 13, lunarDay: "25" }
+      ];
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (url.pathname === "/rest/v1/rpc/get_ai_runtime_settings") {
+          return Response.json({ provider: "mimo", model: "mimo-v2.6-flash", mimo_channel: "payg" });
+        }
+        if (url.pathname === "/auth/v1/user") return Response.json({ id: "test-user-id" });
+        if (url.pathname === "/rest/v1/ai_assistant_access") return Response.json([{ enabled: true, role: "admin", expires_at: null }]);
+        if (url.pathname === "/rest/v1/rpc/check_ai_global_budget") return Response.json({ allowed: true });
+        if (url.pathname === "/rest/v1/rpc/reserve_ai_usage") return Response.json({ allowed: true, todayRequests: 1, weekRequests: 1 });
+        if (url.pathname === "/rest/v1/ai_assistant_usage") return new Response(null, { status: 204 });
+        if (request.url === "https://mimo-provider.invalid/v1/chat/completions") {
+          return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "修改日期", actions: rawActions }) } }],
+            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 } });
+        }
+        throw new Error(`Unexpected mocked request: ${request.url}`);
+      };
+      const result = await invoke({ question: "调整生日和提醒" });
+      assertEquals(result.actions.length, 4);
+      for (const index of [0, 1, 3]) {
+        assertEquals(result.actions[index].lunarYear, null);
+        assertEquals(result.actions[index].lunarMonth, null);
+        assertEquals(result.actions[index].lunarDay, null);
+      }
+      assertEquals(result.actions[0].lunarIsLeapMonth, null);
+      assertEquals(result.actions[0].reminderDaysBefore, 3);
+      assertEquals(result.actions[2].lunarYear, 2005);
+      assertEquals(result.actions[2].lunarMonth, 2);
+      assertEquals(result.actions[2].lunarDay, 25);
+      assertEquals(result.actions[2].calendarType, "lunar");
+    });
   } finally {
     Deno.resolveDns = originalDns;
     Deno.serve = originalServe;

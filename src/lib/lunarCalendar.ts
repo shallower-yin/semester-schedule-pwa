@@ -1,4 +1,5 @@
-import { parseLocalDate, toISODate } from "./date";
+import { Lunar, Solar } from "lunar-typescript";
+import { parseLocalDate, productDateTimeParts, toISODate } from "./date";
 
 export const LUNAR_MONTHS = [
   "正月", "二月", "三月", "四月", "五月", "六月",
@@ -11,13 +12,6 @@ export interface LunarDateParts {
   day: number;
   isLeapMonth: boolean;
 }
-
-const formatter = new Intl.DateTimeFormat("zh-CN-u-ca-chinese", {
-  timeZone: "Asia/Shanghai",
-  year: "numeric",
-  month: "long",
-  day: "numeric"
-});
 
 const lunarDateCache = new Map<string, string | null>();
 
@@ -38,16 +32,13 @@ export function lunarDateLabel(year: number, month: number, day: number, isLeapM
 }
 
 export function lunarDateParts(date: Date): LunarDateParts {
-  const parts = formatter.formatToParts(date);
-  const monthText = parts.find((part) => part.type === "month")?.value ?? "正月";
-  const monthAliases: Record<string, number> = { "十一月": 11, "十二月": 12, "闰十一月": 11, "闰十二月": 12 };
-  const month = monthAliases[monthText]
-    ?? (LUNAR_MONTHS.findIndex((label) => monthText === label || monthText === `闰${label}`) + 1);
+  const parts = productDateTimeParts(date);
+  const lunar = Solar.fromYmd(parts.year, parts.month, parts.day).getLunar();
   return {
-    relatedYear: Number(parts.find((part) => String(part.type) === "relatedYear")?.value ?? 0),
-    month: month || 1,
-    day: Number(parts.find((part) => part.type === "day")?.value ?? 1),
-    isLeapMonth: monthText.startsWith("闰")
+    relatedYear: lunar.getYear(),
+    month: Math.abs(lunar.getMonth()),
+    day: lunar.getDay(),
+    isLeapMonth: lunar.getMonth() < 0
   };
 }
 
@@ -64,17 +55,31 @@ export function gregorianDateForLunarDate(
   if (!Number.isInteger(lunarYear) || lunarYear < 1900 || lunarYear > 2100) return null;
   if (!Number.isInteger(lunarMonth) || lunarMonth < 1 || lunarMonth > 12) return null;
   if (!Number.isInteger(lunarDay) || lunarDay < 1 || lunarDay > 30) return null;
-  const start = Date.UTC(lunarYear, 0, 1, 12);
-  const end = Date.UTC(lunarYear + 1, 2, 1, 12);
   let result: string | null = null;
-  for (let time = start; time <= end; time += 86_400_000) {
-    const parts = lunarDateParts(new Date(time));
-    if (parts.relatedYear !== lunarYear || parts.month !== lunarMonth || parts.day !== lunarDay || parts.isLeapMonth !== isLeapMonth) continue;
-    result = toISODate(new Date(time));
-    break;
+  try {
+    // Keep one deterministic calendar on browsers, Android and the server.
+    // ICU's Chinese calendar can differ across versions (e.g. 2027-02-06).
+    result = Lunar.fromYmd(lunarYear, isLeapMonth ? -lunarMonth : lunarMonth, lunarDay).getSolar().toYmd();
+  } catch {
+    // Missing leap months and the 30th day of a short month are invalid dates.
   }
   lunarDateCache.set(key, result);
   return result;
+}
+
+/** 除夕 is the final day of the lunar year, including years with only 29 days in 腊月. */
+export function lunarYearEndDate(lunarYear: number): string | null {
+  return gregorianDateForLunarDate(lunarYear, 12, 30)
+    ?? gregorianDateForLunarDate(lunarYear, 12, 29);
+}
+
+export function lunarYearEndOccurrenceDates(lunarYear: number, fromYear = 1900, toYear = 2100): string[] {
+  const dates: string[] = [];
+  for (let year = Math.max(1900, lunarYear, fromYear); year <= Math.min(2100, toYear); year += 1) {
+    const date = lunarYearEndDate(year);
+    if (date) dates.push(date);
+  }
+  return dates;
 }
 
 export function lunarOccurrenceDates(

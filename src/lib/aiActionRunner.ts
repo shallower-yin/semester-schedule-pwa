@@ -14,6 +14,8 @@ import {
 } from "./aiEventActions";
 import { hardDeleteEventsCascade } from "./hardDelete";
 import { refreshNativeReminderSchedule, resetSentRemindersForChangedEvent } from "./notifications";
+import { anniversarySourceDateLabel, nextAnniversaryOccurrence } from "./anniversaries";
+import { toISODate } from "./date";
 import type { EventItem, SyncTableName } from "../types";
 
 /**
@@ -58,7 +60,7 @@ export async function applyActionsToLocalRecords(
       if (!matches.length) unmatched.push({ action: "update", title: action.title });
       for (const original of matches) {
         if (deleted.some((item) => item.id === original.id)) continue;
-        const next = applyEventUpdate(original, action);
+        const next = applyEventUpdate(original, action, sourceText);
         await commitAction(["events", "eventOccurrenceStates"], signal, async () => {
           await putRecordAndQueue("events", next);
           signal?.throwIfAborted();
@@ -93,7 +95,7 @@ export async function applyActionsToLocalRecords(
       if (!matches.length) unmatched.push({ action: "update", title: action.title ?? action.scope ?? "纪念日" });
       for (const original of matches) {
         if (updated.some((item) => !("event_type" in item.original) && item.original.id === original.id)) continue;
-        const next = applyAnniversaryUpdate(original, action);
+        const next = applyAnniversaryUpdate(original, action, sourceText);
         await commitAction(["anniversaries"], signal, () => putRecordAndQueue("anniversaries", next));
         updated.push({ original, updated: next });
         updatedAnniversaryCount += 1;
@@ -140,12 +142,12 @@ export function actionResultsSummary(results: AiActionResults): string {
   for (const [table, label] of Object.entries(labels)) {
     const titles = results.created
       .filter((item) => item.table === table)
-      .map((item) => item.record.title);
+      .map((item) => item.table === "anniversaries" ? anniversaryResultLabel(item.record) : item.record.title);
     if (!titles.length) continue;
     lines.push("已创建" + label + "：" + mergedTitles(titles));
   }
   const updatedEventTitles = results.updated.filter((item): item is AiUpdatedRecord => "event_type" in item.updated).map((item) => item.updated.title);
-  const updatedAnniversaryTitles = results.updated.filter((item): item is AiUpdatedAnniversaryRecord => !("event_type" in item.updated)).map((item) => item.updated.title);
+  const updatedAnniversaryTitles = results.updated.filter((item): item is AiUpdatedAnniversaryRecord => !("event_type" in item.updated)).map((item) => anniversaryResultLabel(item.updated));
   if (updatedEventTitles.length) lines.push("已修改事项：" + mergedTitles(updatedEventTitles));
   if (updatedAnniversaryTitles.length) lines.push("已修改日子：" + mergedTitles(updatedAnniversaryTitles));
   const deletedTitles = results.deleted.map((item) => item.title);
@@ -155,6 +157,12 @@ export function actionResultsSummary(results: AiActionResults): string {
   const missingDeletes = results.unmatched.filter((item) => item.action === "delete").map((item) => item.title);
   if (missingDeletes.length) lines.push("未找到要删除的事项：" + mergedTitles(missingDeletes));
   return lines.join("\n");
+}
+
+function anniversaryResultLabel(record: AiUpdatedAnniversaryRecord["updated"]): string {
+  const date = anniversarySourceDateLabel(record);
+  const next = toISODate(nextAnniversaryOccurrence(record));
+  return `${record.title}（${record.calendar_type === "lunar" ? date : `公历 ${date}`}，下次 ${next}）`;
 }
 
 function mergedTitles(titles: string[]): string {

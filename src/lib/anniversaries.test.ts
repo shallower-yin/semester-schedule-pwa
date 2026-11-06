@@ -3,11 +3,15 @@ import type { Anniversary } from "../types";
 import {
   anniversaryDistanceLabel,
   anniversaryReminderTimeForOccurrence,
+  anniversaryScheduleChanged,
+  anniversarySourceDateLabel,
+  daysSinceAnniversary,
   dueAnniversaryOccurrence,
   formatAnniversaryReminderLead,
-  nextAnniversaryOccurrence
+  nextAnniversaryOccurrence,
+  yearsSinceAnniversary
 } from "./anniversaries";
-import { gregorianDateForLunarDate } from "./lunarCalendar";
+import { gregorianDateForLunarDate, lunarDateParts, lunarYearEndDate, lunarYearEndOccurrenceDates } from "./lunarCalendar";
 import { dateAtProductTime, parseLocalDate, productDateTimeParts, toISODate } from "./date";
 
 describe("纪念日日期和提醒", () => {
@@ -68,6 +72,81 @@ describe("纪念日日期和提醒", () => {
       lunar_is_leap_month: false
     }, dateAtProductTime("2026-09-26")))).toBe("2027-09-15");
     expect(gregorianDateForLunarDate(2026, 12, 8)).toBe("2027-01-15");
+  });
+
+  it("与香港天文台2026和2027对照表一致，不受系统ICU版本影响", () => {
+    // https://www.hko.gov.hk/tc/gts/time/calendar/pdf/files/2026.pdf
+    // https://www.hko.gov.hk/tc/gts/time/calendar/pdf/files/2027.pdf
+    expect(gregorianDateForLunarDate(2026, 1, 1)).toBe("2026-02-17");
+    expect(gregorianDateForLunarDate(2027, 1, 1)).toBe("2027-02-06");
+    expect(gregorianDateForLunarDate(2026, 1, 15)).toBe("2026-03-03");
+    expect(gregorianDateForLunarDate(2027, 1, 15)).toBe("2027-02-20");
+    expect(gregorianDateForLunarDate(2026, 5, 5)).toBe("2026-06-19");
+    expect(lunarDateParts(dateAtProductTime("2027-02-06", "12:00")))
+      .toEqual({ relatedYear: 2027, month: 1, day: 1, isLeapMonth: false });
+  });
+
+  it("除夕按每年农历年末计算，腊月只有二十九时仍有除夕和提醒", () => {
+    expect(lunarYearEndDate(2023)).toBe("2024-02-09");
+    expect(lunarYearEndDate(2024)).toBe("2025-01-28");
+    expect(lunarYearEndOccurrenceDates(2023, 2023, 2026)).toEqual([
+      "2024-02-09", "2025-01-28", "2026-02-16", "2027-02-05"
+    ]);
+    const anniversary = anniversaryRecord({
+      kind: "holiday",
+      title: "除夕",
+      date: "2024-02-09",
+      calendar_type: "lunar",
+      lunar_year: 2023,
+      lunar_month: 12,
+      lunar_day: 30
+    });
+    expect(toISODate(nextAnniversaryOccurrence(anniversary, dateAtProductTime("2024-02-10")))).toBe("2025-01-28");
+    expect(toISODate(dueAnniversaryOccurrence(anniversary, dateAtProductTime("2025-01-28", "09:00"))!)).toBe("2025-01-28");
+  });
+
+  it("普通农历生日保留指定日，不会把三十擅自改为二十九", () => {
+    expect(gregorianDateForLunarDate(2024, 12, 30)).toBeNull();
+    expect(toISODate(nextAnniversaryOccurrence({
+      kind: "birthday", title: "生日", date: "2024-02-09", calendar_type: "lunar",
+      lunar_year: 2023, lunar_month: 12, lunar_day: 30
+    }, dateAtProductTime("2024-02-10")))).toBe("2030-02-02");
+  });
+
+  it("闰月与常月分别换算，无效闰月不能保存为其他月份", () => {
+    expect(gregorianDateForLunarDate(2025, 6, 1)).toBe("2025-06-25");
+    expect(gregorianDateForLunarDate(2025, 6, 1, true)).toBe("2025-07-25");
+    expect(gregorianDateForLunarDate(2026, 6, 1, true)).toBeNull();
+  });
+
+  it("农历周年数使用发生日期的北京时间日期", () => {
+    expect(yearsSinceAnniversary({
+      date: "2026-02-17", calendar_type: "lunar", lunar_year: 2026, lunar_month: 1, lunar_day: 1
+    }, parseLocalDate("2027-02-06"))).toBe(1);
+  });
+
+  it("农历字段与旧公历日期冲突时，计天和提醒以原始农历为准", () => {
+    const anniversary = anniversaryRecord({
+      date: "2026-10-27", calendar_type: "lunar", lunar_year: 2026, lunar_month: 8, lunar_day: 15
+    });
+    expect(daysSinceAnniversary(anniversary, dateAtProductTime("2026-09-26", "12:00"))).toBe(1);
+    expect(toISODate(dueAnniversaryOccurrence(anniversary, dateAtProductTime("2026-09-25", "09:00"))!))
+      .toBe("2026-09-25");
+  });
+
+  it("将固定农历日期改为除夕时更新提醒计划", () => {
+    const birthday = anniversaryRecord({
+      kind: "birthday", title: "生日", calendar_type: "lunar", lunar_year: 2023, lunar_month: 12, lunar_day: 30
+    });
+    expect(anniversaryScheduleChanged(birthday, { ...birthday, kind: "holiday", title: "除夕" })).toBe(true);
+    expect(anniversaryScheduleChanged(birthday, { ...birthday, title: "改名生日" })).toBe(false);
+  });
+
+  it("缺失或越界的农历字段明确显示待确认，不伪装成公历原始日期", () => {
+    expect(anniversarySourceDateLabel({ date: "2026-09-25", calendar_type: "lunar" })).toBe("农历日期待确认");
+    expect(anniversarySourceDateLabel({
+      date: "2026-09-25", calendar_type: "lunar", lunar_year: 2026, lunar_month: 13, lunar_day: 15
+    })).toBe("农历日期待确认");
   });
 });
 

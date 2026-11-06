@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SyncTableName } from "../types";
-import { lunarOccurrenceDates } from "./lunarCalendar";
+import { gregorianDateForLunarDate, lunarOccurrenceDates, lunarYearEndOccurrenceDates } from "./lunarCalendar";
 import { normalizeRemoteRecord, normalizeUploadPayload } from "./syncRecordTransforms";
 
 vi.mock("./supabase", () => ({ supabase: null }));
 vi.mock("./lunarCalendar", () => ({
-  lunarOccurrenceDates: vi.fn(() => ["2026-02-17"])
+  lunarOccurrenceDates: vi.fn(() => ["2026-02-17"]),
+  gregorianDateForLunarDate: vi.fn(() => "2026-02-17"),
+  lunarYearEndDate: vi.fn(() => "2027-02-05"),
+  lunarYearEndOccurrenceDates: vi.fn(() => ["2027-02-05", "2028-01-25"]),
+  lunarDateParts: vi.fn(() => ({ relatedYear: 2026, month: 12, day: 29, isLeapMonth: false }))
 }));
 
 const syncTables = [
@@ -160,24 +164,42 @@ describe("同步记录上传转换", () => {
       .toEqual({ id: "record-1", timezone: "Asia/Shanghai" });
   });
 
-  it("仅上传完整整数农历日期且缺少日期清单时生成清单", () => {
+  it("上传时从完整农历年月日生成公历日期和提醒日期清单", () => {
     const record = { calendar_type: "lunar", lunar_year: 2026, lunar_month: 1, lunar_day: 1, lunar_is_leap_month: true };
     expect(normalizeUploadPayload("anniversaries", record)).toMatchObject({
-      timezone: "Asia/Shanghai", lunar_occurrence_dates: ["2026-02-17"]
+      date: "2026-02-17", timezone: "Asia/Shanghai", lunar_occurrence_dates: ["2026-02-17"]
     });
     expect(lunarOccurrenceDates).toHaveBeenCalledExactlyOnceWith(2026, 1, 1, true);
   });
 
-  it("已有日期清单或非整数农历字段不触发日期生成", () => {
+  it("已存在的错误公历日期及非空提醒清单也会按农历原日期重算", () => {
     const record = { calendar_type: "lunar", lunar_year: 2026, lunar_month: 1, lunar_day: 1 };
     const dates = ["2030-02-03"];
-    expect(normalizeUploadPayload("anniversaries", { ...record, lunar_occurrence_dates: dates }).lunar_occurrence_dates)
-      .toBe(dates);
-    expect(normalizeUploadPayload("anniversaries", { ...record, lunar_year: "2026" }))
-      .not.toHaveProperty("lunar_occurrence_dates");
-    expect(normalizeUploadPayload("anniversaries", { ...record, lunar_day: null }))
-      .not.toHaveProperty("lunar_occurrence_dates");
+    expect(normalizeUploadPayload("anniversaries", {
+      ...record, date: "2026-01-01", lunar_occurrence_dates: dates, reminder_sent_for: "2026-01-01"
+    })).toMatchObject({ date: "2026-02-17", lunar_occurrence_dates: ["2026-02-17"], reminder_sent_for: null });
+    expect(dates).toEqual(["2030-02-03"]);
+    expect(lunarOccurrenceDates).toHaveBeenCalledExactlyOnceWith(2026, 1, 1, false);
+  });
+
+  it("拒绝上传缺失或无效的农历日期，避免默默保存成公历", () => {
+    const record = { calendar_type: "lunar", lunar_year: 2026, lunar_month: 1, lunar_day: 1 };
+    expect(() => normalizeUploadPayload("anniversaries", { ...record, lunar_year: "2026" })).toThrow("年月日");
+    expect(() => normalizeUploadPayload("anniversaries", { ...record, lunar_day: null })).toThrow("年月日");
+    vi.mocked(gregorianDateForLunarDate).mockReturnValueOnce(null);
+    expect(() => normalizeUploadPayload("anniversaries", { ...record, lunar_month: 13 })).toThrow("日期不存在");
     expect(lunarOccurrenceDates).not.toHaveBeenCalled();
+  });
+
+  it("除夕上传覆盖大小月年末日期，普通腊月生日不套用除夕规则", () => {
+    const record = { calendar_type: "lunar", lunar_year: 2026, lunar_month: 12, lunar_day: 30 };
+    expect(normalizeUploadPayload("anniversaries", { ...record, kind: "holiday", title: "除夕" }))
+      .toMatchObject({ date: "2027-02-05", lunar_month: 12, lunar_day: 29, lunar_is_leap_month: false,
+        lunar_occurrence_dates: ["2027-02-05", "2028-01-25"] });
+    expect(lunarYearEndOccurrenceDates).toHaveBeenCalledExactlyOnceWith(2026);
+    expect(lunarOccurrenceDates).not.toHaveBeenCalled();
+    normalizeUploadPayload("anniversaries", { ...record, kind: "birthday", title: "生日" });
+    expect(lunarOccurrenceDates).toHaveBeenCalledExactlyOnceWith(2026, 12, 30, false);
   });
 
   it("专注模式仅在上传时规范化，并保留四种有效模式", () => {

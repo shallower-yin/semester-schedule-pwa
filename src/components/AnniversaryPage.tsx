@@ -14,6 +14,7 @@ import {
   daysUntilAnniversary,
   formatAnniversaryReminderBody,
   formatAnniversaryReminderLead,
+  isLunarYearEndAnniversary,
   nextAnniversaryOccurrence,
   reminderPreviewText,
   yearsSinceAnniversary
@@ -26,7 +27,7 @@ import { enableNotifications } from "../lib/notifications";
 import { isNativeApp } from "../lib/nativeApp";
 import { findSearchNavigationMatch, searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
-import { gregorianDateForLunarDate, LUNAR_MONTHS, lunarDateLabel, lunarDateParts, lunarDayLabel, lunarOccurrenceDates } from "../lib/lunarCalendar";
+import { gregorianDateForLunarDate, LUNAR_MONTHS, lunarDateLabel, lunarDateParts, lunarDayLabel, lunarOccurrenceDates, lunarYearEndDate, lunarYearEndOccurrenceDates } from "../lib/lunarCalendar";
 import type { Anniversary, AnniversaryCalendarType, AnniversaryKind } from "../types";
 import { Modal } from "./Modal";
 
@@ -151,7 +152,6 @@ export function AnniversaryPage({ ownerId, openAnniversaryId, openSearchMatch, o
         <div className="page-heading anniversary-heading">
           <div>
             <h1>纪念日</h1>
-            <p>记录纪念日、生日和节日，支持公历/农历，并为每个日子单独设置提醒。</p>
           </div>
           <button className="button primary compact" onClick={() => setAnniversaryToEdit(null)}>
             <Plus size={17} />新增日子
@@ -289,10 +289,16 @@ function AnniversaryDialog({ ownerId, anniversary, searchMatch, initialKind, onC
     return () => window.cancelAnimationFrame(frame);
   }, [searchMatch]);
   const [enablingReminder, setEnablingReminder] = useState(false);
+  const isLunarYearEnd = isLunarYearEndAnniversary({ kind, title });
   const convertedLunarDate = calendarType === "lunar"
-    ? gregorianDateForLunarDate(lunarYear, lunarMonth, lunarDay, lunarIsLeapMonth)
+    ? isLunarYearEnd
+      ? lunarYearEndDate(lunarYear)
+      : gregorianDateForLunarDate(lunarYear, lunarMonth, lunarDay, lunarIsLeapMonth)
     : null;
   const effectiveDate = calendarType === "lunar" ? convertedLunarDate ?? "" : date;
+  const yearEndLunarDate = isLunarYearEnd && convertedLunarDate
+    ? lunarDateParts(new Date(`${convertedLunarDate}T12:00:00+08:00`))
+    : null;
 
   const previewDraft: Anniversary = {
     id: anniversary?.id ?? "preview",
@@ -307,9 +313,9 @@ function AnniversaryDialog({ ownerId, anniversary, searchMatch, initialKind, onC
     date: effectiveDate || date,
     calendar_type: calendarType,
     lunar_year: calendarType === "lunar" ? lunarYear : null,
-    lunar_month: calendarType === "lunar" ? lunarMonth : null,
-    lunar_day: calendarType === "lunar" ? lunarDay : null,
-    lunar_is_leap_month: calendarType === "lunar" && lunarIsLeapMonth,
+    lunar_month: calendarType === "lunar" ? yearEndLunarDate?.month ?? lunarMonth : null,
+    lunar_day: calendarType === "lunar" ? yearEndLunarDate?.day ?? lunarDay : null,
+    lunar_is_leap_month: calendarType === "lunar" && !isLunarYearEnd && lunarIsLeapMonth,
     lunar_occurrence_dates: anniversary?.lunar_occurrence_dates ?? [],
     color,
     note,
@@ -331,7 +337,11 @@ function AnniversaryDialog({ ownerId, anniversary, searchMatch, initialKind, onC
   function changeCalendarType(nextType: AnniversaryCalendarType) {
     setCalendarType(nextType);
     setMessage("");
-    if (nextType !== "lunar") return;
+    if (nextType !== "lunar") {
+      if (convertedLunarDate) setDate(convertedLunarDate);
+      return;
+    }
+    if (!date) return;
     const parts = lunarDateParts(new Date(`${date}T12:00:00+08:00`));
     setLunarYear(parts.relatedYear);
     setLunarMonth(parts.month);
@@ -397,18 +407,23 @@ function AnniversaryDialog({ ownerId, anniversary, searchMatch, initialKind, onC
       return;
     }
     setSaving(true);
+    const savedLunarDate = calendarType === "lunar"
+      ? lunarDateParts(new Date(`${effectiveDate}T12:00:00+08:00`))
+      : null;
     const record: Anniversary = {
       ...syncFields(anniversary, ownerId),
       kind,
       title: title.trim(),
       date: effectiveDate,
       calendar_type: calendarType,
-      lunar_year: calendarType === "lunar" ? lunarYear : null,
-      lunar_month: calendarType === "lunar" ? lunarMonth : null,
-      lunar_day: calendarType === "lunar" ? lunarDay : null,
-      lunar_is_leap_month: calendarType === "lunar" && lunarIsLeapMonth,
+      lunar_year: savedLunarDate?.relatedYear ?? null,
+      lunar_month: savedLunarDate?.month ?? null,
+      lunar_day: savedLunarDate?.day ?? null,
+      lunar_is_leap_month: savedLunarDate?.isLeapMonth ?? false,
       lunar_occurrence_dates: calendarType === "lunar"
-        ? lunarOccurrenceDates(lunarYear, lunarMonth, lunarDay, lunarIsLeapMonth)
+        ? isLunarYearEnd
+          ? lunarYearEndOccurrenceDates(lunarYear)
+          : lunarOccurrenceDates(lunarYear, lunarMonth, lunarDay, lunarIsLeapMonth)
         : [],
       color,
       note: note.trim(),
@@ -459,22 +474,24 @@ function AnniversaryDialog({ ownerId, anniversary, searchMatch, initialKind, onC
             <div className="form-grid lunar-date-grid">
               <label>农历年份<input type="number" min={1900} max={2100} value={lunarYear} onChange={(event) => setLunarYear(Number(event.target.value))} /></label>
               <label>农历月份
-                <select value={lunarMonth} onChange={(event) => setLunarMonth(Number(event.target.value))}>
+                <select disabled={isLunarYearEnd} value={yearEndLunarDate?.month ?? lunarMonth} onChange={(event) => setLunarMonth(Number(event.target.value))}>
                   {LUNAR_MONTHS.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}
                 </select>
               </label>
               <label>农历日
-                <select aria-label="农历日期" value={lunarDay} onChange={(event) => setLunarDay(Number(event.target.value))}>
+                <select aria-label="农历日期" disabled={isLunarYearEnd} value={yearEndLunarDate?.day ?? lunarDay} onChange={(event) => setLunarDay(Number(event.target.value))}>
                   {Array.from({ length: 30 }, (_, index) => index + 1).map((day) => <option key={day} value={day}>{lunarDayLabel(day)}</option>)}
                 </select>
               </label>
               <label className="checkbox-label lunar-leap-checkbox">
-                <input type="checkbox" checked={lunarIsLeapMonth} onChange={(event) => setLunarIsLeapMonth(event.target.checked)} />闰月
+                <input type="checkbox" disabled={isLunarYearEnd} checked={!isLunarYearEnd && lunarIsLeapMonth} onChange={(event) => setLunarIsLeapMonth(event.target.checked)} />闰月
               </label>
             </div>
             <p className={convertedLunarDate ? "form-hint" : "auth-message error"}>
               {convertedLunarDate
-                ? `${lunarDateLabel(lunarYear, lunarMonth, lunarDay, lunarIsLeapMonth)}对应公历 ${convertedLunarDate}；以后每年按农历重复。`
+                ? isLunarYearEnd
+                  ? `除夕为每年农历年末，当年公历 ${convertedLunarDate}。`
+                  : `${lunarDateLabel(lunarYear, lunarMonth, lunarDay, lunarIsLeapMonth)}对应公历 ${convertedLunarDate}；以后每年按农历重复。`
                 : "该年份没有这个农历日期，请检查日期或闰月。"}
             </p>
           </section>

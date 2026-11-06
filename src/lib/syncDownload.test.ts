@@ -213,6 +213,28 @@ describe("云端下载分页与镜像删除保护", () => {
     await clearLocalTables();
   });
 
+  it("同步后恢复有农历来源的旧节日并排队上传，保留其他用户及未知生日", async () => {
+    const original = { ...fields("old-mid-autumn"), kind: "holiday", title: "中秋节", date: "2026-10-27",
+      calendar_type: "solar", note: "农历八月十五", reminder_enabled: false, timezone: "Asia/Shanghai" };
+    mockRemote.tables.set("anniversaries", [original, {
+      ...original, ...fields("unknown-birthday"), kind: "birthday", title: "家人生日", note: ""
+    }]);
+    await db.anniversaries.put({ ...original, id: "other-owner", user_id: "other-user" } as never);
+    await pullRemoteNow(USER_ID);
+    expect(await db.anniversaries.get(original.id)).toMatchObject({
+      calendar_type: "lunar", lunar_month: 8, lunar_day: 15, date: "2026-09-25", version: 2
+    });
+    expect(await db.anniversaries.get("unknown-birthday")).toMatchObject({ calendar_type: "solar" });
+    expect(await db.anniversaries.get("other-owner")).toMatchObject({ calendar_type: "solar", user_id: "other-user" });
+    expect(await db.syncQueue.where("owner_id").equals(USER_ID).count()).toBe(1);
+    await syncNow(USER_ID);
+    expect(mockRemote.tables.get("anniversaries")?.find((row) => row.id === original.id))
+      .toMatchObject({ calendar_type: "lunar", date: "2026-09-25" });
+    expect(await db.syncQueue.where("owner_id").equals(USER_ID).count()).toBe(0);
+    await syncNow(USER_ID);
+    expect(mockRemote.upsertCalls.filter((call) => call.tableName === "anniversaries")).toHaveLength(1);
+  });
+
   it("独立数据表最多并行下载4张，全部取回后再合并", async () => {
     let activeRequests = 0;
     let peakRequests = 0;

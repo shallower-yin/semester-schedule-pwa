@@ -5,7 +5,7 @@ import { deduplicateCategories } from "./categories";
 import { getCurrentUserId, syncFields } from "./identity";
 import { deduplicateLocalOccurrenceStates } from "./occurrenceStates";
 import { supabase } from "./supabase";
-import { normalizeRemoteRecord, normalizeUploadPayload } from "./syncRecordTransforms";
+import { normalizeRemoteRecord, normalizeUploadPayload, recoverLunarAnniversary } from "./syncRecordTransforms";
 
 export const SYNC_TABLES: Array<{ local: SyncTableName; remote: string; label: string }> = [
   { local: "semesters", remote: "semesters", label: "学期" },
@@ -580,6 +580,20 @@ async function downloadRemoteTables(userId: string, compareVersions = false): Pr
   }
 
   await deduplicateCategories(userId);
+  // Repair after merging the latest cloud revisions, so a legacy local cache
+  // cannot overwrite a newer edit on another device. Queue the correction via
+  // the same transaction as the row; the normal sync retry persists it online.
+  await db.transaction("rw", db.anniversaries, db.syncQueue, async () => {
+    const anniversaries = await db.anniversaries.filter((record) => record.user_id === userId).toArray();
+    const pendingIds = await pendingChangeIds("anniversaries", userId);
+    for (const anniversary of anniversaries) {
+      if (pendingIds.has(anniversary.id)) continue;
+      const repaired = recoverLunarAnniversary(anniversary as unknown as Record<string, unknown>);
+      if (!repaired) continue;
+      await db.anniversaries.put({ ...repaired, ...syncFields(anniversary) } as unknown as typeof anniversary);
+      await putQueueItem(userId, "anniversaries", anniversary.id);
+    }
+  });
   return { downloaded, kept };
 }
 

@@ -1,5 +1,7 @@
 import type { SyncTableName } from "../types";
-import { lunarOccurrenceDates } from "./lunarCalendar";
+import { isLunarYearEndAnniversary } from "./anniversaries";
+import { knownLunarHoliday } from "./aiEventActions";
+import { gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, lunarYearEndDate, lunarYearEndOccurrenceDates } from "./lunarCalendar";
 import { normalizeMemoImages } from "./memoImages";
 
 // Keep download defaults separate from upload validation: the two directions
@@ -137,20 +139,37 @@ export function normalizeRemoteRecord(table: SyncTableName, record: Record<strin
 export function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
   const { server_updated_at: _serverUpdatedAt, ...payload } = record;
   if (table === "events" || table === "anniversaries") {
-    if (table === "anniversaries" && payload.calendar_type === "lunar"
-      && Number.isInteger(payload.lunar_year)
-      && Number.isInteger(payload.lunar_month)
-      && Number.isInteger(payload.lunar_day)) {
-      const dates = Array.isArray(payload.lunar_occurrence_dates) ? payload.lunar_occurrence_dates : [];
+    if (table === "anniversaries" && payload.calendar_type === "lunar") {
+      if (!Number.isInteger(payload.lunar_year)
+        || !Number.isInteger(payload.lunar_month)
+        || !Number.isInteger(payload.lunar_day)) {
+        throw new Error("农历纪念日缺少有效的年月日，请编辑后重试。");
+      }
+      const year = Number(payload.lunar_year);
+      const month = Number(payload.lunar_month);
+      const day = Number(payload.lunar_day);
+      const isLeap = Boolean(payload.lunar_is_leap_month);
+      const isYearEnd = isLunarYearEndAnniversary({
+        kind: typeof payload.kind === "string" ? payload.kind : undefined,
+        title: typeof payload.title === "string" ? payload.title : undefined
+      });
+      const date = isYearEnd ? lunarYearEndDate(year) : gregorianDateForLunarDate(year, month, day, isLeap);
+      if (!date) throw new Error("农历日期不存在，请检查年份、月份、日期和闰月。");
+      // These are derived fields, not an independent source of truth. Rebuild
+      // them even when an older client supplied a non-empty, stale date list.
       return {
         ...payload,
+        date,
+        ...(isYearEnd ? {
+          lunar_month: 12,
+          lunar_day: lunarDateParts(new Date(`${date}T12:00:00+08:00`)).day,
+          lunar_is_leap_month: false
+        } : {}),
+        ...(payload.date != null && payload.date !== date ? { reminder_sent_for: null } : {}),
         timezone: "Asia/Shanghai",
-        lunar_occurrence_dates: dates.length ? dates : lunarOccurrenceDates(
-          Number(payload.lunar_year),
-          Number(payload.lunar_month),
-          Number(payload.lunar_day),
-          Boolean(payload.lunar_is_leap_month)
-        )
+        lunar_occurrence_dates: isYearEnd
+          ? lunarYearEndOccurrenceDates(year)
+          : lunarOccurrenceDates(year, month, day, isLeap)
       };
     }
     return { ...payload, timezone: "Asia/Shanghai" };
@@ -211,6 +230,40 @@ export function normalizeUploadPayload(table: SyncTableName, record: Record<stri
     pomodoro_plan_id: payload.pomodoro_plan_id ?? null,
     pomodoro_round: payload.pomodoro_round == null ? null : Number(payload.pomodoro_round)
   };
+}
+
+/** Recover only dates whose stored source proves the calendar; never guess a birthday. */
+export function recoverLunarAnniversary(record: Record<string, unknown>): Record<string, unknown> | null {
+  if (record.deleted_at) return null;
+  let source = record;
+  const title = typeof record.title === "string" ? record.title.replace(/\s+/g, "") : "";
+  const isStandardHoliday = record.kind === "holiday"
+    && /^(?:\d{4}年)?(?:春节|农历新年|元宵节?|端午节?|七夕节?|中秋节?|重阳节?|腊八节?|除夕|大年三十)$/.test(title);
+  const holiday = isStandardHoliday ? knownLunarHoliday(title) : null;
+  if (record.calendar_type !== "lunar") {
+    if (!holiday || !/(农历|阴历|旧历)/.test(String(record.note ?? ""))) return null;
+    const [year, month] = String(record.date).split("-").map(Number);
+    source = {
+      ...record,
+      calendar_type: "lunar",
+      lunar_year: year - (holiday.month === 12 && month <= 2 ? 1 : 0),
+      lunar_month: holiday.month,
+      lunar_day: holiday.day,
+      lunar_is_leap_month: false,
+      reminder_sent_for: null
+    };
+  }
+  if (holiday) source = { ...source, lunar_month: holiday.month, lunar_day: holiday.day, lunar_is_leap_month: false };
+  try {
+    const normalized = normalizeUploadPayload("anniversaries", source);
+    const fields = ["date", "calendar_type", "lunar_year", "lunar_month", "lunar_day", "lunar_is_leap_month", "lunar_occurrence_dates"];
+    if (fields.every((key) => JSON.stringify(normalized[key]) === JSON.stringify(record[key]))) return null;
+    return { ...record, ...normalized, reminder_sent_for: null };
+  } catch {
+    // An incomplete old birthday needs its owner's source date, not a guessed
+    // conversion. Keep it recoverable and do not block the owner's other data.
+    return null;
+  }
 }
 
 function normalizeExerciseItems(value: unknown): string[] {
