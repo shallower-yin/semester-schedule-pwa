@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { weekDates } from "./date";
-import { buildDesktopWeekLayout, buildMobileGroupLayers, buildMobileWeekLayout, type WeekCalendarInput } from "./weekCalendarLayout";
+import { buildDesktopWeekLayout, buildMobileGroupLayers, buildMobileWeekLayout, MOBILE_MIN_TITLE_HEIGHT, MOBILE_SLOT_HEIGHT, type WeekCalendarInput } from "./weekCalendarLayout";
 import type { ClassPeriod, EventItem } from "../types";
 
 const fields = {
@@ -97,7 +97,8 @@ describe("周视图纯布局", () => {
       event("late", { start_time: "23:55", end_time: "24:00" })
     ]));
     expect(layout.timeTop(0)).toBe(0);
-    expect(layout.timeTop(1440)).toBe(layout.timelineHeight);
+    expect(layout.timeTop(1440)).toBe(layout.slots.length * MOBILE_SLOT_HEIGHT);
+    expect(layout.timelineHeight).toBe(layout.timeTop(1440));
     expect(layout.entries.find((entry) => entry.key === "late-2026-07-06")?.end).toBe(1440);
     for (const group of layout.displayGroups) {
       expect(group.top + group.height).toBeLessThanOrEqual(layout.timelineHeight);
@@ -124,5 +125,52 @@ describe("周视图纯布局", () => {
       expect(placement.top).toBeCloseTo(layout.timeTop(entry.start) - group.top);
       expect(placement.top + placement.height).toBeLessThanOrEqual(group.height);
     }
+  });
+
+  it("手机普通短事项仍使用原高度并保留时段边界", () => {
+    const layout = buildMobileWeekLayout(input([
+      event("short", { start_time: "09:55", end_time: "10:05" })
+    ], { periods: [period("first", "08:30", "09:15", 1), period("second", "09:20", "10:05", 2)] }));
+    const group = layout.displayGroups[0];
+    expect(group.top).toBe(layout.timeTop(595));
+    expect(group.height).toBeCloseTo(MOBILE_SLOT_HEIGHT * 10 / 45);
+    expect(group.top + group.height).toBeCloseTo(layout.timeTop(605));
+    expect(layout.slots.every((row) => layout.timeTop(row.end) <= layout.timelineHeight)).toBe(true);
+  });
+
+  it("手机相邻短事项沿用原分组，不因桌面高度调整合并下一节", () => {
+    const layout = buildMobileWeekLayout(input([
+      event("first", { end_time: "08:40" }),
+      event("second", { start_time: "08:40", end_time: "08:50" }),
+      event("third", { start_time: "09:20", end_time: "09:30" })
+    ]));
+    expect(layout.displayGroups).toHaveLength(2);
+    expect(layout.displayGroups.map((group) => group.entries.length)).toEqual([2, 1]);
+    expect(layout.displayGroups[0].top + layout.displayGroups[0].height).toBeLessThanOrEqual(layout.displayGroups[1].top);
+  });
+
+  it.each(["23:40", "23:59"])("深夜%s的事项至少保留一行标题且不越过午夜边界", (start) => {
+    const layout = buildMobileWeekLayout(input([event("late", { start_time: start, end_time: "24:00" })]));
+    const group = layout.displayGroups[0];
+    expect(group.height).toBeGreaterThanOrEqual(MOBILE_MIN_TITLE_HEIGHT);
+    expect(group.top).toBe(layout.timelineHeight - MOBILE_MIN_TITLE_HEIGHT);
+    expect(group.top + group.height).toBeLessThanOrEqual(layout.timelineHeight);
+    expect(group.entries[0].time).toBe(`${start}–24:00`);
+  });
+
+  it("深夜重叠组内的靠下事项与汇总也保留一行标题", () => {
+    const layout = buildMobileWeekLayout(input([
+      event("long", { start_time: "20:10", end_time: "24:00" }),
+      event("late-a", { start_time: "23:40", end_time: "24:00" }),
+      event("late-b", { start_time: "23:59", end_time: "24:00" })
+    ]));
+    const group = layout.displayGroups.at(-1)!;
+    const layers = buildMobileGroupLayers(group, layout.timeTop);
+    for (const entry of group.entries.filter((entry) => entry.start >= 1420)) {
+      const placement = layers.entryPlacement(entry);
+      expect(placement.height).toBeGreaterThanOrEqual(MOBILE_MIN_TITLE_HEIGHT);
+      expect(group.top + placement.top + placement.height).toBeLessThanOrEqual(layout.timelineHeight);
+    }
+    if (layers.hiddenFronts.length) expect(layers.summaryHeight).toBeGreaterThanOrEqual(MOBILE_MIN_TITLE_HEIGHT);
   });
 });

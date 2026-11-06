@@ -157,6 +157,44 @@ create table if not exists public.event_occurrence_states (
   foreign key (event_id, user_id) references public.events(id, user_id)
 );
 
+-- Generated from lunar-typescript 1.8.7 solar-term dates for 1900-2100.
+-- This private pure helper is called inside the reminder SECURITY DEFINER RPC.
+create or replace function public.qingming_date_for_year(target_year integer)
+returns date
+language sql
+immutable
+strict
+set search_path = public, pg_temp
+as $qingming$
+  select case when target_year between 1900 and 2100 then
+    make_date(target_year, 4, (array[
+      5, 5, 6, 6, 5, 5, 6, 6, 5, 5, -- 1900-1909
+      6, 6, 5, 5, 5, 6, 5, 5, 5, 6, -- 1910-1919
+      5, 5, 5, 6, 5, 5, 5, 6, 5, 5, -- 1920-1929
+      5, 6, 5, 5, 5, 6, 5, 5, 5, 6, -- 1930-1939
+      5, 5, 5, 6, 5, 5, 5, 5, 5, 5, -- 1940-1949
+      5, 5, 5, 5, 5, 5, 5, 5, 5, 5, -- 1950-1959
+      5, 5, 5, 5, 5, 5, 5, 5, 5, 5, -- 1960-1969
+      5, 5, 5, 5, 5, 5, 4, 5, 5, 5, -- 1970-1979
+      4, 5, 5, 5, 4, 5, 5, 5, 4, 5, -- 1980-1989
+      5, 5, 4, 5, 5, 5, 4, 5, 5, 5, -- 1990-1999
+      4, 5, 5, 5, 4, 5, 5, 5, 4, 4, -- 2000-2009
+      5, 5, 4, 4, 5, 5, 4, 4, 5, 5, -- 2010-2019
+      4, 4, 5, 5, 4, 4, 5, 5, 4, 4, -- 2020-2029
+      5, 5, 4, 4, 5, 5, 4, 4, 5, 5, -- 2030-2039
+      4, 4, 4, 5, 4, 4, 4, 5, 4, 4, -- 2040-2049
+      4, 5, 4, 4, 4, 5, 4, 4, 4, 5, -- 2050-2059
+      4, 4, 4, 5, 4, 4, 4, 5, 4, 4, -- 2060-2069
+      4, 5, 4, 4, 4, 4, 4, 4, 4, 4, -- 2070-2079
+      4, 4, 4, 4, 4, 4, 4, 4, 4, 4, -- 2080-2089
+      4, 4, 4, 4, 4, 4, 4, 4, 4, 4, -- 2090-2099
+      5 -- 2100
+    ])[target_year - 1899])
+  else null end;
+$qingming$;
+
+revoke all on function public.qingming_date_for_year(integer) from public, anon, authenticated;
+
 create table if not exists public.anniversaries (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

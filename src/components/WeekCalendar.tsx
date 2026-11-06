@@ -363,6 +363,10 @@ function DesktopWeekCalendar(props: DesktopWeekCalendarProps) {
             const placement = timePlacementForRows(displayRows, eventItem.start_time, eventItem.end_time);
             const firstRowHeight = displayRows[placement.firstRow]?.kind === "break" ? 96 : 76;
             const lastRowHeight = displayRows[placement.endRow - 1]?.kind === "break" ? 96 : 76;
+            const startOffset = placement.startOffset * firstRowHeight;
+            const visibleStartOffset = placement.firstRow === displayRows.length - 1
+              ? Math.min(startOffset, Math.max(0, firstRowHeight - 34))
+              : startOffset;
             const occurrenceKey = `${eventItem.id}-${toISODate(date)}`;
             return (
               <article
@@ -372,7 +376,7 @@ function DesktopWeekCalendar(props: DesktopWeekCalendarProps) {
                   gridColumn: dayIndex + 2,
                   gridRow: eventItem.all_day ? 2 : `${placement.firstRow + 3} / ${placement.endRow + 3}`,
                   ...(eventItem.all_day ? {} : {
-                    "--time-start-offset": `${placement.startOffset * firstRowHeight}px`,
+                    "--time-start-offset": `${visibleStartOffset}px`,
                     "--time-end-offset": `${placement.endOffset * lastRowHeight}px`
                   }),
                   borderLeftColor: eventItem.color || category?.color || "#e36b32"
@@ -638,7 +642,17 @@ function MobileWeekCalendar(props: MobileWeekCalendarProps) {
                   <article
                     key={entry.key}
                     className={`mobile-week-card mobile-week-visual-card ${height < 72 || startsInRest ? "short" : ""} ${entry.completed ? "completed" : ""} ${entry.canceled ? "canceled" : ""}`}
-                    style={{ "--entry-color": entry.color } as CSSProperties}
+                    style={{ "--entry-color": entry.color, ...(entry.event ? { pointerEvents: "auto", cursor: "pointer" } : {}) } as CSSProperties}
+                    role={entry.event ? "button" : undefined}
+                    tabIndex={entry.event ? 0 : undefined}
+                    aria-label={entry.event ? `查看事项：${entry.title}` : undefined}
+                    onClick={entry.event ? () => openGroupEntries(group, [entry]) : undefined}
+                    onKeyDown={entry.event ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openGroupEntries(group, [entry]);
+                      }
+                    } : undefined}
                     data-occurrence-date={toISODate(props.dates[entry.dayIndex])}
                   >
                     <span className="mobile-week-card-title">{entry.start < group.start ? "续 · " : ""}{entry.canceled ? "已停课 · " : ""}{entry.title}</span>

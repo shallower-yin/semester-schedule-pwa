@@ -16,22 +16,23 @@ export function timeRangesOverlap(startA: string | null, endA: string | null, st
 }
 
 export function findEventConflicts(draft: EventItem, events: EventItem[]): ScheduleConflict[] {
+  if (draft.all_day) return [];
   const from = parseLocalDate(draft.start_date);
   const to = parseLocalDate(draft.recurrence_type === "none" ? draft.end_date : draft.recurrence_until ?? draft.start_date);
   const result: ScheduleConflict[] = [];
   for (const eventItem of events) {
-    if (eventItem.id === draft.id || eventItem.deleted_at) continue;
+    if (eventItem.id === draft.id || eventItem.deleted_at || eventItem.all_day) continue;
     let cursor = new Date(from);
     while (cursor <= to) {
       if (
         eventOccursOn(draft, cursor) &&
         eventOccursOn(eventItem, cursor) &&
-        (draft.all_day || eventItem.all_day || timeRangesOverlap(draft.start_time, draft.end_time, eventItem.start_time, eventItem.end_time))
+        timeRangesOverlap(draft.start_time, draft.end_time, eventItem.start_time, eventItem.end_time)
       ) {
         result.push({
           id: eventItem.id,
           title: eventItem.title,
-          detail: `${cursor.getMonth() + 1}/${cursor.getDate()} ${eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`}`
+          detail: `${cursor.getMonth() + 1}/${cursor.getDate()} ${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`
         });
         break;
       }
@@ -77,6 +78,7 @@ export function findEventCourseConflicts(
   schedules: CourseSchedule[],
   periods: ClassPeriod[]
 ): ScheduleConflict[] {
+  if (draft.all_day) return [];
   const from = parseLocalDate(draft.start_date);
   const to = parseLocalDate(draft.recurrence_type === "none" ? draft.end_date : draft.recurrence_until ?? draft.start_date);
   const courseMap = new Map(courses.map((course) => [course.id, course]));
@@ -89,7 +91,7 @@ export function findEventCourseConflicts(
         const startPeriod = periods.find((period) => period.weekday === schedule.weekday && period.period_number === schedule.start_period);
         const endPeriod = periods.find((period) => period.weekday === schedule.weekday && period.period_number === schedule.end_period);
         if (!startPeriod || !endPeriod) continue;
-        if (draft.all_day || timeRangesOverlap(draft.start_time, draft.end_time, startPeriod.start_time, endPeriod.end_time)) {
+        if (timeRangesOverlap(draft.start_time, draft.end_time, startPeriod.start_time, endPeriod.end_time)) {
           const course = courseMap.get(schedule.course_id);
           result.push({
             id: schedule.id,
@@ -113,7 +115,7 @@ export function findCourseEventConflicts(
 ): ScheduleConflict[] {
   const result: ScheduleConflict[] = [];
   for (const eventItem of events) {
-    if (eventItem.deleted_at) continue;
+    if (eventItem.deleted_at || eventItem.all_day) continue;
     const from = parseLocalDate(eventItem.start_date);
     const to = parseLocalDate(eventItem.recurrence_type === "none" ? eventItem.end_date : eventItem.recurrence_until ?? eventItem.start_date);
     let cursor = new Date(from);
@@ -122,12 +124,12 @@ export function findCourseEventConflicts(
         const dateConflict = findDraftCourseBlockForDate(semester, draftSchedules, periods, cursor);
         if (
           dateConflict &&
-          (eventItem.all_day || timeRangesOverlap(eventItem.start_time, eventItem.end_time, dateConflict.start_time, dateConflict.end_time))
+          timeRangesOverlap(eventItem.start_time, eventItem.end_time, dateConflict.start_time, dateConflict.end_time)
         ) {
           result.push({
             id: eventItem.id,
             title: eventItem.title,
-            detail: `${toISODate(cursor)} ${eventItem.all_day ? "全天" : `${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`}`
+            detail: `${toISODate(cursor)} ${eventItem.start_time ?? ""}-${eventItem.end_time ?? ""}`
           });
           break;
         }

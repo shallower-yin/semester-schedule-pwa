@@ -9,6 +9,7 @@ vi.mock("./lunarCalendar", () => ({
   gregorianDateForLunarDate: vi.fn(() => "2026-02-17"),
   lunarYearEndDate: vi.fn(() => "2027-02-05"),
   lunarYearEndOccurrenceDates: vi.fn(() => ["2027-02-05", "2028-01-25"]),
+  qingmingDateForYear: vi.fn(() => "2028-04-04"),
   lunarDateParts: vi.fn(() => ({ relatedYear: 2026, month: 12, day: 29, isLeapMonth: false }))
 }));
 
@@ -200,6 +201,14 @@ describe("同步记录上传转换", () => {
     expect(lunarOccurrenceDates).not.toHaveBeenCalled();
     normalizeUploadPayload("anniversaries", { ...record, kind: "birthday", title: "生日" });
     expect(lunarOccurrenceDates).toHaveBeenCalledExactlyOnceWith(2026, 12, 30, false);
+  });
+
+  it("误标成农历的清明上传时恢复节气日期和公历历法，不套用农历月日", () => {
+    expect(normalizeUploadPayload("anniversaries", { kind: "holiday", title: "清明节", date: "2028-04-05",
+      calendar_type: "lunar", lunar_year: 2028, lunar_month: 2, lunar_day: 18, lunar_occurrence_dates: ["2028-04-05"] }))
+      .toMatchObject({ date: "2028-04-04", calendar_type: "solar", lunar_year: null, lunar_month: null, lunar_day: null,
+        lunar_occurrence_dates: [], reminder_sent_for: null });
+    expect(lunarOccurrenceDates).not.toHaveBeenCalled();
   });
 
   it("专注模式仅在上传时规范化，并保留四种有效模式", () => {

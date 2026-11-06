@@ -34,10 +34,21 @@ describe("有原始历法依据的旧纪念日恢复", () => {
     expect(repaired?.lunar_occurrence_dates).toContain("2027-02-05");
   });
 
+  it("修复清明的固定公历日期及误标农历，并保留原来的提醒配置", () => {
+    const record = { kind: "holiday", title: "清明节", date: "2028-04-05", calendar_type: "lunar",
+      lunar_year: 2028, lunar_month: 2, lunar_day: 18, lunar_is_leap_month: false,
+      lunar_occurrence_dates: ["2028-04-05"], reminder_enabled: true, reminder_days_before: 3, note: "原有备注" };
+    const repaired = recoverLunarAnniversary(record)!;
+    expect(repaired).toMatchObject({ calendar_type: "solar", date: "2028-04-04", lunar_year: null, lunar_month: null,
+      lunar_day: null, lunar_occurrence_dates: [], reminder_enabled: true, reminder_days_before: 3, note: "原有备注" });
+    expect(recoverLunarAnniversary(repaired)).toBeNull();
+    expect(recoverLunarAnniversary({ ...record, calendar_type: "solar", lunar_year: null, lunar_month: null, lunar_day: null }))
+      .toMatchObject({ calendar_type: "solar", date: "2028-04-04" });
+  });
+
   it.each([
     { kind: "birthday", title: "家人生日", date: "2005-10-05", calendar_type: "solar", note: "" },
     { kind: "holiday", title: "中秋节", date: "2026-10-27", calendar_type: "solar", note: "" },
-    { kind: "holiday", title: "清明节", date: "2026-04-05", calendar_type: "solar", note: "农历二月十八（节气）" },
     { kind: "holiday", title: "劳动节", date: "2026-05-01", calendar_type: "solar", note: "用户曾说农历" },
     { kind: "anniversary", title: "中秋节出游纪念", date: "2026-10-27", calendar_type: "solar", note: "农历" },
     { kind: "birthday", title: "缺少日期", date: "2026-01-01", calendar_type: "lunar", lunar_year: 2026 },

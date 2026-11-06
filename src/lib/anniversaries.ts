@@ -1,6 +1,6 @@
 import type { Anniversary, AnniversaryKind } from "../types";
 import { addDays, dateAtProductTime, differenceInCalendarDays, formatMonthDay, parseLocalDate, toISODate } from "./date";
-import { gregorianDateForLunarDate, lunarDateLabel, lunarDateParts, lunarOccurrenceForDate, lunarYearEndDate } from "./lunarCalendar";
+import { gregorianDateForLunarDate, lunarDateLabel, lunarDateParts, lunarOccurrenceForDate, lunarYearEndDate, qingmingDateForYear } from "./lunarCalendar";
 
 type AnniversaryDateFields = Pick<Anniversary, "date" | "calendar_type" | "lunar_year" | "lunar_month" | "lunar_day" | "lunar_is_leap_month">
   & Partial<Pick<Anniversary, "kind" | "title">>;
@@ -26,7 +26,7 @@ export function occurrenceDateForYear(date: string, year: number): Date {
 }
 
 export function nextAnniversaryOccurrence(anniversary: AnniversaryDateFields, from = new Date()): Date {
-  if (isLunarAnniversary(anniversary)) {
+  if (isLunarAnniversary(anniversary) && !isQingmingAnniversary(anniversary)) {
     if (isLunarYearEndAnniversary(anniversary)) {
       const today = toISODate(from);
       for (let year = Math.max(1900, anniversary.lunar_year!, Number(today.slice(0, 4)) - 1); year <= 2100; year += 1) {
@@ -43,14 +43,14 @@ export function nextAnniversaryOccurrence(anniversary: AnniversaryDateFields, fr
       from
     ) ?? parseLocalDate(anniversary.date);
   }
-  const original = parseLocalDate(anniversary.date);
+  const original = originalAnniversaryDate(anniversary);
   const today = parseLocalDate(toISODate(from));
   for (let year = today.getFullYear(); year <= today.getFullYear() + 4; year += 1) {
-    const occurrence = occurrenceDateForYear(anniversary.date, year);
+    const occurrence = anniversaryOccurrenceForYear(anniversary, year);
     if (occurrence < original) continue;
     if (occurrence >= today) return occurrence;
   }
-  return occurrenceDateForYear(anniversary.date, today.getFullYear() + 5);
+  return anniversaryOccurrenceForYear(anniversary, today.getFullYear() + 5);
 }
 
 export function daysUntilAnniversary(anniversary: AnniversaryDateFields, from = new Date()): number {
@@ -98,7 +98,7 @@ export function anniversaryReminderIsDue(anniversary: Anniversary, occurrence: D
 
 export function dueAnniversaryOccurrence(anniversary: Anniversary, now = new Date()): Date | null {
   if (!anniversary.reminder_enabled || anniversary.deleted_at) return null;
-  if (isLunarAnniversary(anniversary)) {
+  if (isLunarAnniversary(anniversary) && !isQingmingAnniversary(anniversary)) {
     const currentYear = Number(toISODate(now).slice(0, 4));
     for (let lunarYear = Math.max(anniversary.lunar_year!, currentYear - 1); lunarYear <= currentYear + 2; lunarYear += 1) {
       const date = isLunarYearEndAnniversary(anniversary)
@@ -114,10 +114,10 @@ export function dueAnniversaryOccurrence(anniversary: Anniversary, now = new Dat
     }
     return null;
   }
-  const original = parseLocalDate(anniversary.date);
+  const original = originalAnniversaryDate(anniversary);
   const startYear = Number(toISODate(now).slice(0, 4));
   for (let year = startYear; year <= startYear + 2; year += 1) {
-    const occurrence = occurrenceDateForYear(anniversary.date, year);
+    const occurrence = anniversaryOccurrenceForYear(anniversary, year);
     if (occurrence < original) continue;
     if (anniversaryReminderIsDue(anniversary, occurrence, now)) return occurrence;
   }
@@ -133,6 +133,7 @@ export function anniversaryScheduleChanged(previous: Anniversary | undefined, ne
     previous.lunar_day !== next.lunar_day ||
     Boolean(previous.lunar_is_leap_month) !== Boolean(next.lunar_is_leap_month) ||
     isLunarYearEndAnniversary(previous) !== isLunarYearEndAnniversary(next) ||
+    isQingmingAnniversary(previous) !== isQingmingAnniversary(next) ||
     previous.reminder_enabled !== next.reminder_enabled ||
     previous.reminder_days_before !== next.reminder_days_before ||
     previous.reminder_time !== next.reminder_time ||
@@ -173,8 +174,9 @@ export function isLunarYearEndAnniversary(anniversary: { kind?: string; title?: 
 }
 
 export function anniversarySourceDateLabel(anniversary: AnniversaryDateFields): string {
+  if (isQingmingAnniversary(anniversary)) return toISODate(originalAnniversaryDate(anniversary));
   if (!isLunarAnniversary(anniversary)) {
-    return anniversary.calendar_type === "lunar" ? "农历日期待确认" : anniversary.date;
+    return anniversary.calendar_type === "lunar" ? "农历日期待确认" : toISODate(originalAnniversaryDate(anniversary));
   }
   return `农历 ${lunarDateLabel(
     anniversary.lunar_year!,
@@ -185,6 +187,10 @@ export function anniversarySourceDateLabel(anniversary: AnniversaryDateFields): 
 }
 
 function originalAnniversaryDate(anniversary: AnniversaryDateFields): Date {
+  if (isQingmingAnniversary(anniversary)) {
+    const date = qingmingDateForYear(Number(anniversary.date.slice(0, 4)));
+    if (date) return parseLocalDate(date);
+  }
   if (isLunarAnniversary(anniversary)) {
     const converted = isLunarYearEndAnniversary(anniversary)
       ? lunarYearEndDate(anniversary.lunar_year!)
@@ -194,6 +200,16 @@ function originalAnniversaryDate(anniversary: AnniversaryDateFields): Date {
     if (converted) return parseLocalDate(converted);
   }
   return parseLocalDate(anniversary.date);
+}
+
+export function isQingmingAnniversary(anniversary: { kind?: string; title?: string }): boolean {
+  return anniversary.kind === "holiday"
+    && /^(?:\d{4}年)?清明节?$/.test(anniversary.title?.replace(/\s+/g, "") ?? "");
+}
+
+function anniversaryOccurrenceForYear(anniversary: AnniversaryDateFields, year: number): Date {
+  const qingming = isQingmingAnniversary(anniversary) ? qingmingDateForYear(year) : null;
+  return qingming ? parseLocalDate(qingming) : occurrenceDateForYear(anniversary.date, year);
 }
 
 function isLeapYear(year: number): boolean {

@@ -1,7 +1,7 @@
 import { syncFields } from "./identity";
 import type { AnniversaryUpdateScope, DeepSeekAssistantAction } from "./deepSeekAssistant";
 import type { Anniversary, AnniversaryCalendarType, AnniversaryKind, EventItem, EventRecurrenceType, Memo } from "../types";
-import { gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, lunarYearEndDate, lunarYearEndOccurrenceDates, LUNAR_MONTHS } from "./lunarCalendar";
+import { gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, lunarYearEndDate, lunarYearEndOccurrenceDates, qingmingDateForYear, LUNAR_MONTHS } from "./lunarCalendar";
 
 export type AiCreatedRecord =
   | { table: "events"; record: EventItem }
@@ -505,7 +505,8 @@ export function resolveHolidays(text: string, now = new Date()): ResolvedHoliday
   }
 
   if (/清明节|清明/.test(normalized)) {
-    holidays.push({ title: "清明节", kind: "holiday", date: formatDate(year, 4, qingmingDay(year)), calendarType: "solar" });
+    const date = qingmingDateForYear(year);
+    if (date) holidays.push({ title: "清明节", kind: "holiday", date, calendarType: "solar" });
   }
 
   if (/(除夕|大年三十)/.test(normalized)) {
@@ -565,11 +566,6 @@ function extractYear(text: string, now: Date): number {
 
 function formatDate(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-function qingmingDay(year: number): number {
-  const y = year % 100;
-  return Math.floor(y * 0.2422 + 4.81) - Math.floor(y / 4);
 }
 
 function nthWeekdayOfMonth(year: number, month: number, weekday: number, nth: number): string {

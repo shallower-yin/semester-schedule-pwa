@@ -23,7 +23,11 @@
 }
 
 .event-entry:not(.all-day-entry) {
-  min-height: 0;
+  min-height: 96px;
+}
+
+.week-grid:has(.event-entry:not(.all-day-entry)) {
+  padding-bottom: 96px;
 }
 
 @media (max-width: 900px) {

@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 import { dateAtProductTime, toISODate } from "./date";
 import {
   gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, lunarOccurrenceForDate,
-  lunarYearEndDate, lunarYearEndOccurrenceDates
+  lunarYearEndDate, lunarYearEndOccurrenceDates, qingmingDateForYear
 } from "./lunarCalendar";
 
 describe("确定性农历转换", () => {
+  it.each([[1902, "1902-04-06"], [2027, "2027-04-05"], [2028, "2028-04-04"], [2029, "2029-04-04"], [2100, "2100-04-05"]])(
+    "清明按节气计算 %i 年日期 %s", (year, expected) => {
+      expect(qingmingDateForYear(Number(year))).toBe(expected);
+    }
+  );
+  it("不为超出支持范围或非整数年份生成清明日期", () => {
+    for (const year of [1899, 2101, 2028.5, NaN]) expect(qingmingDateForYear(year)).toBeNull();
+  });
   // Hong Kong Observatory's published calendar conversion tables:
   // https://www.hko.gov.hk/tc/gts/time/calendar/pdf/files/2026.pdf
   // https://www.hko.gov.hk/tc/gts/time/calendar/pdf/files/2027.pdf

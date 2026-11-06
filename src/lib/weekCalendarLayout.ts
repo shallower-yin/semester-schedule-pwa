@@ -60,6 +60,7 @@ export interface MobileTimeGroup {
 export const MOBILE_STACK_STEP = 52;
 export const MOBILE_SLOT_HEIGHT = 48;
 export const MOBILE_MIN_CARD_HEIGHT = 44;
+export const MOBILE_MIN_TITLE_HEIGHT = 20;
 
 export function buildDesktopWeekLayout(props: WeekCalendarInput) {
   const courseMap = new Map(props.courses.map((course) => [course.id, course]));
@@ -116,8 +117,18 @@ export function buildMobileWeekLayout(props: WeekCalendarInput) {
     const endTop = Math.max(startTop + 1, timeTop(group.end));
     const lastRow = slots.findIndex((row) => group.end <= row.end);
     const lastRowBottom = (lastRow < 0 ? slots.length : lastRow + 1) * MOBILE_SLOT_HEIGHT;
-    const top = startTop;
-    const height = Math.max(0, Math.min(Math.max(MOBILE_MIN_CARD_HEIGHT, endTop - startTop), lastRowBottom - top));
+    const isLastRow = lastRow === slots.length - 1;
+    // The compressed late-night row must leave one readable title line inside
+    // the day boundary, even for events starting just before midnight.
+    const latestTitleTop = lastRowBottom - MOBILE_MIN_TITLE_HEIGHT;
+    const top = isLastRow ? Math.min(startTop, latestTitleTop) : startTop;
+    const lateTitleBottom = isLastRow ? Math.max(top, ...group.entries.filter((entry) => entry.event).map((entry) =>
+      Math.min(timeTop(Math.max(group.start, entry.start)), latestTitleTop) + MOBILE_MIN_TITLE_HEIGHT
+    )) : top;
+    const height = Math.max(
+      Math.max(0, Math.min(Math.max(MOBILE_MIN_CARD_HEIGHT, endTop - startTop), lastRowBottom - top)),
+      lateTitleBottom - top
+    );
     const previous = displayGroups.at(-1);
     if (previous?.dayIndex === group.dayIndex && top < previous.top + previous.height - 0.1) {
       const bottom = Math.max(previous.top + previous.height, top + height);
@@ -158,7 +169,8 @@ export function buildMobileGroupLayers(
   const visibleFronts = fronts.length <= capacity ? fronts : fronts.slice(0, Math.max(0, capacity - 1));
   const hiddenFronts = fronts.slice(visibleFronts.length);
   const entryPlacement = (entry: MobileCalendarEntry) => {
-    const start = Math.max(0, timeTop(Math.max(group.start, entry.start)) - group.top);
+    const actualTop = timeTop(Math.max(group.start, entry.start));
+    const start = Math.max(0, (entry.event ? Math.min(actualTop, timeTop(1440) - MOBILE_MIN_TITLE_HEIGHT) : actualTop) - group.top);
     const end = Math.min(group.height, timeTop(Math.min(group.end, entry.end)) - group.top);
     const height = Math.max(0, Math.min(group.height - start, Math.max(MOBILE_MIN_CARD_HEIGHT, end - start)));
     return { top: start, height };
@@ -173,7 +185,10 @@ export function buildMobileGroupLayers(
     ...visibleFronts.map((entry) => entryPlacement(entry).top).filter((top) => top > basePlacement.top),
     ...(summaryTop > basePlacement.top ? [summaryTop] : [])
   );
-  const captionHeight = Math.max(12, Math.min(72, basePlacement.height, nextCover - basePlacement.top - 4));
+  const captionHeight = Math.max(
+    base.event && timeTop(Math.max(group.start, base.start)) > timeTop(1440) - MOBILE_MIN_TITLE_HEIGHT ? MOBILE_MIN_TITLE_HEIGHT : 12,
+    Math.min(72, basePlacement.height, nextCover - basePlacement.top - 4)
+  );
   const layerOrder = [...group.entries].sort((left, right) => left.start - right.start || right.end - left.end);
   return {
     base, layered, visibleFronts, hiddenFronts, entryPlacement, basePlacement,

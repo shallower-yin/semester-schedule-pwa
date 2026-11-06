@@ -221,6 +221,12 @@ describe("AI 助手创建动作", () => {
     ]);
   });
 
+  it.each([[1902, "1902-04-06"], [2027, "2027-04-05"], [2028, "2028-04-04"], [2029, "2029-04-04"], [2100, "2100-04-05"]])(
+    "AI 创建 %i 年清明按确定性节气保存为 %s", (year, date) => {
+      expect(resolveHoliday(`创建${year}年清明节`)).toMatchObject({ title: "清明节", date, calendarType: "solar" });
+    }
+  );
+
   it("模型把多个节日合成一个 action 时不重复创建已解析节日", () => {
     const records = recordsFromAiActions([{
       type: "create_anniversary",

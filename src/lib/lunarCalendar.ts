@@ -42,6 +42,12 @@ export function lunarDateParts(date: Date): LunarDateParts {
   };
 }
 
+/** 清明 follows the solar term, so its Gregorian day must be recomputed each year. */
+export function qingmingDateForYear(year: number): string | null {
+  if (!Number.isInteger(year) || year < 1900 || year > 2100) return null;
+  return Solar.fromYmd(year, 4, 5).getLunar().getJieQiTable()["清明"].toYmd();
+}
+
 /** Convert a lunar date in a specific lunar year to a Beijing calendar date. */
 export function gregorianDateForLunarDate(
   lunarYear: number,

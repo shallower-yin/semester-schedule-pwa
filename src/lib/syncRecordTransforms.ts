@@ -1,7 +1,7 @@
 import type { SyncTableName } from "../types";
-import { isLunarYearEndAnniversary } from "./anniversaries";
+import { isLunarYearEndAnniversary, isQingmingAnniversary } from "./anniversaries";
 import { knownLunarHoliday } from "./aiEventActions";
-import { gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, lunarYearEndDate, lunarYearEndOccurrenceDates } from "./lunarCalendar";
+import { gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, lunarYearEndDate, lunarYearEndOccurrenceDates, qingmingDateForYear } from "./lunarCalendar";
 import { normalizeMemoImages } from "./memoImages";
 
 // Keep download defaults separate from upload validation: the two directions
@@ -139,6 +139,20 @@ export function normalizeRemoteRecord(table: SyncTableName, record: Record<strin
 export function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
   const { server_updated_at: _serverUpdatedAt, ...payload } = record;
   if (table === "events" || table === "anniversaries") {
+    if (table === "anniversaries" && isQingmingAnniversary({
+      kind: typeof payload.kind === "string" ? payload.kind : undefined,
+      title: typeof payload.title === "string" ? payload.title : undefined
+    })) {
+      const year = payload.calendar_type === "lunar" && Number.isInteger(payload.lunar_year)
+        ? Number(payload.lunar_year) : Number(String(payload.date).slice(0, 4));
+      const date = qingmingDateForYear(year);
+      if (!date) throw new Error("清明节年份无效，请检查日期。");
+      return {
+        ...payload, date, calendar_type: "solar", lunar_year: null, lunar_month: null, lunar_day: null,
+        lunar_is_leap_month: false, lunar_occurrence_dates: [], timezone: "Asia/Shanghai",
+        ...(payload.calendar_type === "lunar" || payload.date !== date ? { reminder_sent_for: null } : {})
+      };
+    }
     if (table === "anniversaries" && payload.calendar_type === "lunar") {
       if (!Number.isInteger(payload.lunar_year)
         || !Number.isInteger(payload.lunar_month)
@@ -240,7 +254,10 @@ export function recoverLunarAnniversary(record: Record<string, unknown>): Record
   const isStandardHoliday = record.kind === "holiday"
     && /^(?:\d{4}年)?(?:春节|农历新年|元宵节?|端午节?|七夕节?|中秋节?|重阳节?|腊八节?|除夕|大年三十)$/.test(title);
   const holiday = isStandardHoliday ? knownLunarHoliday(title) : null;
-  if (record.calendar_type !== "lunar") {
+  if (record.calendar_type !== "lunar" && !isQingmingAnniversary({
+    kind: typeof record.kind === "string" ? record.kind : undefined,
+    title: typeof record.title === "string" ? record.title : undefined
+  })) {
     if (!holiday || !/(农历|阴历|旧历)/.test(String(record.note ?? ""))) return null;
     const [year, month] = String(record.date).split("-").map(Number);
     source = {

@@ -148,6 +148,45 @@ describe("纪念日日期和提醒", () => {
       date: "2026-09-25", calendar_type: "lunar", lunar_year: 2026, lunar_month: 13, lunar_day: 15
     })).toBe("农历日期待确认");
   });
+
+  it.each([["2027-01-01", "2027-04-05"], ["2027-04-06", "2028-04-04"], ["2028-04-05", "2029-04-04"]])(
+    "清明从 %s 查下一次为 %s，不固定重复原始公历月日", (from, expected) => {
+      const anniversary = anniversaryRecord({ kind: "holiday", title: "清明节", date: "2026-04-05", calendar_type: "solar" });
+      expect(toISODate(nextAnniversaryOccurrence(anniversary, dateAtProductTime(from, "12:00")))).toBe(expected);
+    }
+  );
+
+  it("清明本地提醒按目标年节气日期触发，含提前提醒", () => {
+    const anniversary = anniversaryRecord({ kind: "holiday", title: "2026年清明", date: "2026-04-05", calendar_type: "solar" });
+    expect(toISODate(dueAnniversaryOccurrence(anniversary, dateAtProductTime("2028-04-04", "09:05"))!)).toBe("2028-04-04");
+    expect(dueAnniversaryOccurrence(anniversary, dateAtProductTime("2028-04-05", "09:05"))).toBeNull();
+    expect(toISODate(dueAnniversaryOccurrence({ ...anniversary, reminder_days_before: 2 }, dateAtProductTime("2028-04-02", "09:05"))!))
+      .toBe("2028-04-04");
+  });
+
+  it("已有当年固定错误日期不会阻止真正清明当天显示与提醒", () => {
+    const anniversary = anniversaryRecord({ kind: "holiday", title: " 清 明 节 ", date: "2028-04-05", calendar_type: "solar" });
+    expect(toISODate(nextAnniversaryOccurrence(anniversary, dateAtProductTime("2028-04-04", "12:00")))).toBe("2028-04-04");
+    expect(toISODate(dueAnniversaryOccurrence(anniversary, dateAtProductTime("2028-04-04", "09:05"))!)).toBe("2028-04-04");
+    expect(anniversarySourceDateLabel(anniversary)).toBe("2028-04-04");
+  });
+
+  it("仅清明节日采用节气规则，生日和自定义标题仍保留用户日期", () => {
+    for (const overrides of [{ kind: "birthday" as const, title: "清明" }, { kind: "holiday" as const, title: "清明假期活动" }]) {
+      expect(toISODate(nextAnniversaryOccurrence(anniversaryRecord({ date: "2026-04-05", ...overrides }), dateAtProductTime("2028-01-01", "12:00"))))
+        .toBe("2028-04-05");
+    }
+    const holiday = anniversaryRecord({ kind: "holiday", title: "普通节日", date: "2026-04-05" });
+    expect(anniversaryScheduleChanged(holiday, { ...holiday, title: "清明节" })).toBe(true);
+  });
+
+  it("旧清明被误标为农历时仍按真实节气显示和提醒", () => {
+    const anniversary = anniversaryRecord({ kind: "holiday", title: "清明节", date: "2026-04-05",
+      calendar_type: "lunar", lunar_year: 2026, lunar_month: 2, lunar_day: 18 });
+    expect(toISODate(nextAnniversaryOccurrence(anniversary, dateAtProductTime("2028-04-01", "12:00")))).toBe("2028-04-04");
+    expect(toISODate(dueAnniversaryOccurrence(anniversary, dateAtProductTime("2028-04-04", "09:05"))!)).toBe("2028-04-04");
+    expect(anniversarySourceDateLabel(anniversary)).toBe("2026-04-05");
+  });
 });
 
 function anniversaryRecord(overrides: Partial<Anniversary>): Anniversary {
