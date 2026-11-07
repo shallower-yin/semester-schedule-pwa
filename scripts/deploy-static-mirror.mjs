@@ -15,7 +15,10 @@ const apkFields = [
   "apkTitle", "apkNotes", "apkPublishedAt"
 ];
 
-if (process.env.STATIC_APK_ONLY === "true") await deployApkOnly();
+const apkOnly = process.env.STATIC_APK_ONLY === "true";
+const metadataOnly = process.env.STATIC_APK_METADATA_ONLY === "true";
+if (metadataOnly && !apkOnly) throw new Error("APK metadata repair requires STATIC_APK_ONLY=true");
+if (apkOnly) await deployApkOnly();
 else await deployWebMirror();
 
 async function deployApkOnly() {
@@ -43,8 +46,17 @@ async function deployApkOnly() {
     throw new Error("APK-only publishing requires an existing valid web release.json");
   }
   const previousCode = previous.apkVersionCode ?? 0;
-  if (!Number.isSafeInteger(previousCode) || previousCode < 0 || release.apkVersionCode <= previousCode) {
+  if (!Number.isSafeInteger(previousCode) || previousCode < 0
+    || release.apkVersionCode < previousCode || (!metadataOnly && release.apkVersionCode === previousCode)) {
     throw new Error(`APK versionCode ${release.apkVersionCode} must exceed published versionCode ${previousCode}`);
+  }
+  if (metadataOnly) {
+    const { data, error } = await client.storage.from(bucket).download("android/semester-schedule.apk", {
+      cacheNonce: Date.now().toString()
+    }, { cache: "no-store" });
+    if (error || !data) throw new Error("Cannot verify the currently published APK before metadata repair");
+    const storedSha = createHash("sha256").update(Buffer.from(await data.arrayBuffer())).digest("hex");
+    if (storedSha !== apkSha256) throw new Error("Published APK checksum does not match metadata repair source");
   }
   // Keep every web field and asset on the deployed web version. Browser clients
   // also read this manifest, so an APK release must not advertise a new web build.
@@ -52,7 +64,7 @@ async function deployApkOnly() {
   for (const field of apkFields) merged[field] = release[field];
   merged.apkSha256 = apkSha256;
   const uploads = [
-    ["android/semester-schedule.apk", apkContent],
+    ...(!metadataOnly ? [["android/semester-schedule.apk", apkContent]] : []),
     ["release.json", Buffer.from(`${JSON.stringify(merged, null, 2)}\n`, "utf8")]
   ];
   for (const [objectPath, content] of uploads) {
@@ -62,7 +74,7 @@ async function deployApkOnly() {
     if (error) throw new Error(`Upload ${objectPath} failed: ${error.message}`);
     console.log(`Uploaded ${objectPath} (${content.length} bytes)`);
   }
-  console.log(`APK-only mirror published (versionCode=${release.apkVersionCode}); web release ${previous.version} unchanged`);
+  console.log(`APK ${metadataOnly ? "metadata repaired" : "published"} (versionCode=${release.apkVersionCode}); web release ${previous.version} unchanged`);
 }
 
 async function deployWebMirror() {
@@ -201,7 +213,9 @@ function contentType(path) {
 }
 
 async function downloadJsonObject(objectPath) {
-  const { data, error } = await client.storage.from(bucket).download(objectPath);
+  const { data, error } = await client.storage.from(bucket).download(objectPath, {
+    cacheNonce: Date.now().toString()
+  }, { cache: "no-store" });
   if (error || !data) return null;
   try {
     return JSON.parse(await data.text());

@@ -4,6 +4,19 @@ name: Publish APK to app-hosting mirror
 # The already deployed web release and assets remain unchanged.
 on:
   workflow_dispatch:
+    inputs:
+      repair_metadata_only:
+        description: Restore metadata for an already published and verified APK without rebuilding or uploading it
+        type: boolean
+        default: false
+      expected_apk_code:
+        description: Verified published APK versionCode (required for metadata repair)
+        type: string
+        default: ""
+      expected_apk_sha256:
+        description: Verified published APK SHA-256 (required for metadata repair)
+        type: string
+        default: ""
   push:
     branches: [main]
     paths:
@@ -21,6 +34,7 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.repair_metadata_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -219,3 +233,86 @@ jobs:
           actual_sha=$(sha256sum /tmp/published-semester-schedule.apk | awk '{print tolower($1)}')
           test "$actual_sha" = "$EXPECTED_APK_SHA"
           echo "Published APK verified (versionCode=$EXPECTED_APK_CODE sha256=$actual_sha)"
+
+  restore-metadata:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.repair_metadata_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: app-hosting-mirror
+      cancel-in-progress: false
+    env:
+      EXPECTED_APK_CODE: ${{ inputs.expected_apk_code }}
+      EXPECTED_APK_SHA: ${{ inputs.expected_apk_sha256 }}
+      MIRROR_URL: https://haifsnaupqhlvgfoyvlc.supabase.co/functions/v1/app-hosting
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Validate verified APK identity
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_APK_CODE" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_APK_SHA" =~ ^[0-9a-fA-F]{64}$ ]]
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Download verified APK and read its bundled release metadata
+        run: |
+          set -euo pipefail
+          mkdir -p dist-mirror/android
+          curl --fail --location --silent --show-error \
+            --header 'Cache-Control: no-store' \
+            "$MIRROR_URL/android/semester-schedule.apk?repair=$(date +%s)&sha=$EXPECTED_APK_SHA" \
+            -o dist-mirror/android/semester-schedule.apk
+          python3 - <<'PY'
+          import hashlib, json, os, zipfile
+          path="dist-mirror/android/semester-schedule.apk"
+          expected=os.environ["EXPECTED_APK_SHA"].lower()
+          assert hashlib.sha256(open(path,"rb").read()).hexdigest()==expected, "Published APK checksum mismatch"
+          with zipfile.ZipFile(path) as apk:
+              data=json.loads(apk.read("assets/public/release.json"))
+          for field in ("version","commit","title","publishedAt"):
+              assert isinstance(data.get(field),str) and data[field].strip(), f"Invalid bundled {field}"
+          assert isinstance(data.get("notes"),list) and all(isinstance(note,str) for note in data["notes"])
+          code=int(os.environ["EXPECTED_APK_CODE"])
+          data.update(apkVersionCode=code, apkSha256=expected,
+              apkUrl=f'{os.environ["MIRROR_URL"]}/android/semester-schedule.apk?code={code}&sha={expected}',
+              apkVersion=data["version"], apkCommit=data["commit"], apkTitle=data["title"],
+              apkNotes=data["notes"], apkPublishedAt=data["publishedAt"])
+          with open("dist-mirror/release.json","w",encoding="utf-8") as output:
+              json.dump(data,output,ensure_ascii=False,indent=2)
+              output.write("\n")
+          print(f'Verified existing APK code={code}, bundled commit={data["commit"]}, sha256={expected}')
+          PY
+
+      - name: Restore only APK metadata and verify the stored manifest
+        env:
+          SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STATIC_SOURCE_DIR: dist-mirror
+          STATIC_APK_ONLY: "true"
+          STATIC_APK_METADATA_ONLY: "true"
+        run: |
+          set -euo pipefail
+          node scripts/deploy-static-mirror.mjs
+          node --input-type=module - <<'JS'
+          import { createClient } from '@supabase/supabase-js';
+          import { readFile } from 'node:fs/promises';
+          const client = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {auth:{persistSession:false,autoRefreshToken:false}});
+          const { data, error } = await client.storage.from('app-hosting').download('release.json', {cacheNonce:Date.now().toString()}, {cache:'no-store'});
+          if (error || !data) throw error || new Error('Missing restored release.json');
+          const actual = JSON.parse(await data.text());
+          const expected = JSON.parse(await readFile('dist-mirror/release.json','utf8'));
+          for (const field of ['apkUrl','apkVersionCode','apkSha256','apkVersion','apkCommit','apkTitle','apkNotes','apkPublishedAt']) {
+            if (JSON.stringify(actual[field]) !== JSON.stringify(expected[field])) throw new Error(`Restored ${field} mismatch`);
+          }
+          console.log(`APK metadata restored and verified: code=${actual.apkVersionCode}, web=${actual.version}/${actual.commit}`);
+          JS

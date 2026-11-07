@@ -24,6 +24,9 @@ const nextRelease = {
 // No real credentials, network requests or filesystem writes are used.
 async function executeMirror(options: {
   apkOnly?: boolean;
+  metadataOnly?: boolean;
+  remoteApk?: Buffer | null;
+  stalePrevious?: Record<string, unknown>;
   release?: Record<string, unknown>;
   previous?: Record<string, unknown> | null;
   extraFile?: string;
@@ -40,8 +43,9 @@ async function executeMirror(options: {
   const remoteFiles = new Map<string, string | Buffer>([
     ["index.html", "existing-web-html"],
     ["asset-manifest.json", '{"version":"2026.10.23.2","files":["index.html"]}'],
-    ["android/semester-schedule.apk", "existing-apk"]
+    ["android/semester-schedule.apk", options.metadataOnly ? (options.remoteApk ?? apkBytes) : "existing-apk"]
   ]);
+  if (options.remoteApk === null) remoteFiles.delete("android/semester-schedule.apk");
   if (previous) remoteFiles.set("release.json", JSON.stringify(previous));
   const initialRemoteFiles = new Map(remoteFiles);
   const objectPath = (path: string) => relative(sourceDir, path).split(sep).join("/");
@@ -68,10 +72,16 @@ async function executeMirror(options: {
     }));
   });
   const storage = {
-    download: vi.fn(async (path: string) => ({
-      data: remoteFiles.has(path) ? { text: async () => String(remoteFiles.get(path)) } : null,
-      error: remoteFiles.has(path) ? null : new Error("Not found")
-    })),
+    download: vi.fn(async (path: string, optionsArg?: { cacheNonce?: string }, parameters?: { cache?: string }) => {
+      const fresh = Boolean(optionsArg?.cacheNonce) && parameters?.cache === "no-store";
+      const value = path === "release.json" && !fresh && options.stalePrevious
+        ? JSON.stringify(options.stalePrevious) : remoteFiles.get(path);
+      const bytes = value === undefined ? null : Buffer.isBuffer(value) ? value : Buffer.from(value);
+      return {
+        data: bytes ? { text: async () => bytes.toString("utf8"), arrayBuffer: async () => bytes } : null,
+        error: bytes ? null : new Error("Not found")
+      };
+    }),
     upload: vi.fn(async (path: string, content: string | Buffer) => {
       if (path === options.failUpload) return { error: new Error("Fixture upload failed") };
       remoteFiles.set(path, content);
@@ -91,7 +101,8 @@ async function executeMirror(options: {
     readFile, readdir, writeFile, extname, join, relative, resolve, sep,
     process: { env: {
       SUPABASE_URL: "https://mock.invalid", SUPABASE_SERVICE_ROLE_KEY: "mock-key-not-a-secret",
-      STATIC_SOURCE_DIR: sourceDir, STATIC_APK_ONLY: apkOnly ? "true" : "false"
+      STATIC_SOURCE_DIR: sourceDir, STATIC_APK_ONLY: apkOnly ? "true" : "false",
+      STATIC_APK_METADATA_ONLY: options.metadataOnly ? "true" : "false"
     } },
     console: { log: vi.fn(), warn: vi.fn() }
   };
@@ -162,5 +173,41 @@ describe("APK-only mirror publishing", () => {
     expect(String(result.remoteFiles.get("index.html"))).toBe("new-web-html");
     expect(JSON.parse(String(result.remoteFiles.get("asset-manifest.json"))).version).toBe(webRelease.version);
     expect(result.clientStorage.updateBucket).toHaveBeenCalledOnce();
+  });
+
+  it("web publishing reads fresh APK metadata instead of rolling it back from a cached manifest", async () => {
+    const webRelease = Object.fromEntries(Object.entries(nextRelease).filter(([field]) => !apkFields.includes(field)));
+    const freshRelease = { ...previousRelease, ...Object.fromEntries(apkFields.map((field) => [field, nextRelease[field as keyof typeof nextRelease]])) };
+    const result = await executeMirror({ apkOnly: false, release: webRelease, previous: freshRelease, stalePrevious: previousRelease });
+    expect(result.error).toBeUndefined();
+    const published = JSON.parse(String(result.remoteFiles.get("release.json")));
+    expect(published.apkVersionCode).toBe(nextRelease.apkVersionCode);
+    expect(published.apkSha256).toBe(nextRelease.apkSha256);
+    expect(published.version).toBe(webRelease.version);
+  });
+
+  it("repairs only APK metadata after verifying the existing APK, preserving all other objects", async () => {
+    const result = await executeMirror({ metadataOnly: true });
+    expect(result.error).toBeUndefined();
+    expect(result.storage.upload.mock.calls.map(([path]) => path)).toEqual(["release.json"]);
+    const published = JSON.parse(String(result.remoteFiles.get("release.json")));
+    expect(published).toEqual({ ...previousRelease, ...Object.fromEntries(apkFields.map((field) => [field, nextRelease[field as keyof typeof nextRelease]])) });
+    for (const [path, bytes] of result.initialRemoteFiles) {
+      if (path !== "release.json") expect(result.remoteFiles.get(path)).toEqual(bytes);
+    }
+    expect(result.storage.download).toHaveBeenCalledWith("android/semester-schedule.apk", { cacheNonce: expect.any(String) }, { cache: "no-store" });
+    expect(result.storage.remove).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { remoteApk: Buffer.from("different-published-apk") },
+    { remoteApk: null },
+    { previous: { ...previousRelease, apkVersionCode: nextRelease.apkVersionCode + 1 } },
+    { apkOnly: false }
+  ])("rejects metadata repair with an unverified APK, newer channel, or wrong mode before writing", async (options) => {
+    const result = await executeMirror({ metadataOnly: true, ...options });
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.storage.upload).not.toHaveBeenCalled();
+    expect(result.remoteFiles).toEqual(result.initialRemoteFiles);
   });
 });
