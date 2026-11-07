@@ -364,23 +364,31 @@ function DesktopWeekCalendar(props: DesktopWeekCalendarProps) {
             const firstRowHeight = displayRows[placement.firstRow]?.kind === "break" ? 96 : 76;
             const lastRowHeight = displayRows[placement.endRow - 1]?.kind === "break" ? 96 : 76;
             const startOffset = placement.startOffset * firstRowHeight;
-            const visibleStartOffset = placement.firstRow === displayRows.length - 1
-              ? Math.min(startOffset, Math.max(0, firstRowHeight - 34))
-              : startOffset;
+            const endOffset = placement.endOffset * lastRowHeight;
+            const spanHeight = displayRows.slice(placement.firstRow, placement.endRow)
+              .reduce((height, row) => height + (row.kind === "break" ? 96 : 76), 0);
+            const naturalHeight = Math.max(0, spanHeight - startOffset - endOffset - 6);
+            // Only unreadably small cards get a 48px footprint (two title lines
+            // of space). Keep that footprint inside the existing time rows.
+            const visibleHeight = naturalHeight < 24 ? Math.min(48, spanHeight - 6) : naturalHeight;
+            const visibleStartOffset = Math.min(startOffset, Math.max(0, spanHeight - visibleHeight - 6));
+            const visibleEndOffset = Math.max(0, spanHeight - visibleStartOffset - visibleHeight - 6);
+            const compact = !eventItem.all_day && visibleHeight < 64;
             const occurrenceKey = `${eventItem.id}-${toISODate(date)}`;
             return (
               <article
                 key={occurrenceKey}
-                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${isHabit ? "habit-entry" : ""} ${overlapClass(occurrenceKey)}`}
+                className={`calendar-entry event-entry day-column day-${dayIndex} ${dayIndex === props.selectedDay ? "mobile-selected" : ""} ${completed ? "completed" : ""} ${eventItem.all_day ? "all-day-entry" : ""} ${compact ? "compact-event-entry" : ""} ${isHabit ? "habit-entry" : ""} ${overlapClass(occurrenceKey)}`}
                 style={entryStyle(occurrenceKey, {
                   gridColumn: dayIndex + 2,
                   gridRow: eventItem.all_day ? 2 : `${placement.firstRow + 3} / ${placement.endRow + 3}`,
                   ...(eventItem.all_day ? {} : {
                     "--time-start-offset": `${visibleStartOffset}px`,
-                    "--time-end-offset": `${placement.endOffset * lastRowHeight}px`
+                    "--time-end-offset": `${visibleEndOffset}px`
                   }),
                   borderLeftColor: eventItem.color || category?.color || "#e36b32"
                 } as CSSProperties)}
+                title={[eventItem.title, eventItem.all_day ? "全天" : `${eventItem.start_time}–${eventItem.end_time}`, eventItem.location?.trim(), isHabit ? "习惯" : category?.name, eventItem.reminder_enabled ? `提前 ${eventItem.reminder_minutes_before} 分钟提醒` : ""].filter(Boolean).join(" · ")}
                 onClick={() => props.onEditEvent(eventItem)}
               >
                 <div className="entry-title">{eventItem.title}</div>

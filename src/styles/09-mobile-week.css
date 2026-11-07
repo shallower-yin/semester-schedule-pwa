@@ -23,11 +23,18 @@
 }
 
 .event-entry:not(.all-day-entry) {
-  min-height: 96px;
+  min-height: 0;
 }
 
-.week-grid:has(.event-entry:not(.all-day-entry)) {
-  padding-bottom: 96px;
+.event-entry.compact-event-entry {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.compact-event-entry .entry-location,
+.compact-event-entry .entry-category,
+.compact-event-entry .entry-reminder {
+  display: none;
 }
 
 @media (max-width: 900px) {

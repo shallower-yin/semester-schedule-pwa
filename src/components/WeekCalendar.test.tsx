@@ -636,7 +636,8 @@ describe("周视图移动端新增事项", () => {
       eventRecord("desktop-late", "电脑深夜事项", { start_time: startTime, end_time: "24:00" })
     ], semester, []);
     const card = screen.getByText("电脑深夜事项").closest("article") as HTMLElement;
-    expect(Number.parseFloat(card.style.getPropertyValue("--time-start-offset"))).toBe(42);
+    expect(Number.parseFloat(card.style.getPropertyValue("--time-start-offset"))).toBe(22);
+    expect(Number.parseFloat(card.style.getPropertyValue("--time-end-offset"))).toBe(0);
     expect(within(card).getByText(`${startTime}–24:00`)).toBeInTheDocument();
   });
 
@@ -695,14 +696,35 @@ describe("周视图移动端新增事项", () => {
   it("电脑端事项按节次内的真实分钟位置显示", () => {
     mockMatchMedia(false);
     const eventItem = eventRecord("event-minute-position", "分钟定位", {
-      start_time: "08:45",
-      end_time: "09:00"
+      start_time: "08:40",
+      end_time: "09:10"
     });
     renderWeekCalendar(vi.fn(), [eventItem]);
 
     const card = screen.getByText("分钟定位").closest("article") as HTMLElement;
-    expect(Number.parseFloat(card.style.getPropertyValue("--time-start-offset"))).toBeCloseTo(25.33, 1);
-    expect(Number.parseFloat(card.style.getPropertyValue("--time-end-offset"))).toBeCloseTo(25.33, 1);
+    expect(Number.parseFloat(card.style.getPropertyValue("--time-start-offset"))).toBeCloseTo(76 * 10 / 45, 4);
+    expect(Number.parseFloat(card.style.getPropertyValue("--time-end-offset"))).toBeCloseTo(76 * 5 / 45, 4);
+  });
+
+  it.each([
+    ["08:30", "09:15", 70],
+    ["09:20", "10:05", 70],
+    ["11:15", "12:00", 70],
+    ["13:30", "14:15", 70],
+    ["00:00", "00:30", 48],
+    ["09:00", "09:02", 48],
+    ["09:00", "09:00", 48]
+  ])("电脑%s–%s的正常事项保持时段高度，仅短卡补到最小高度", (startTime, endTime, expectedHeight) => {
+    mockMatchMedia(false);
+    renderWeekCalendar(vi.fn(), [eventRecord("height", "高度回归", { start_time: startTime, end_time: endTime })], semester, []);
+    const card = screen.getByText("高度回归").closest("article") as HTMLElement;
+    const startOffset = Number.parseFloat(card.style.getPropertyValue("--time-start-offset"));
+    const endOffset = Number.parseFloat(card.style.getPropertyValue("--time-end-offset"));
+    expect(76 - startOffset - endOffset - 6).toBeCloseTo(expectedHeight, 4);
+    expect(startOffset).toBeGreaterThanOrEqual(0);
+    expect(endOffset).toBeGreaterThanOrEqual(0);
+    expect(startOffset + expectedHeight + 6).toBeLessThanOrEqual(76);
+    expect(card.classList.contains("compact-event-entry")).toBe(expectedHeight < 64);
   });
 
   it("显示第一节前的清晨事项和第十二节后的深夜事项", () => {

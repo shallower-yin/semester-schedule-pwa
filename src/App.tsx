@@ -107,6 +107,7 @@ import { buildScheduleOverview, type ScheduleOverviewItem } from "./lib/overview
 import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
+import { activateWaitingServiceWorker } from "./lib/serviceWorkerUpdate";
 import { AI_TASK_OPEN_EVENT, type AiTaskFeature } from "./lib/aiBackgroundTasks";
 import { appHistoryLayer, appHistoryPage, initializeAppHistory, isAppHistoryUnwinding, navigateAppHistory } from "./lib/appHistory";
 import { useHistoryLayer } from "./lib/useHistoryLayer";
@@ -248,6 +249,12 @@ export default function App() {
   const [installMessage, setInstallMessage] = useState("");
   const [updatingApp, setUpdatingApp] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
+  const updateReloadRequested = useRef(false);
+  const reloadAppOnce = useCallback(() => {
+    if (updateReloadRequested.current) return;
+    updateReloadRequested.current = true;
+    window.location.reload();
+  }, []);
   const pageRef = useRef(page);
   pageRef.current = page;
   const requestSidebarClose = useHistoryLayer(sidebarOpen, () => setSidebarOpen(false), "sidebar");
@@ -484,7 +491,7 @@ export default function App() {
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker
-  } = useRegisterSW();
+  } = useRegisterSW({ onNeedReload: reloadAppOnce });
 
   const checkRelease = useCallback(async (options?: { force?: boolean }) => {
     if (options?.force) clearSkippedRelease();
@@ -832,36 +839,17 @@ export default function App() {
       return;
     }
 
-    setUpdateMessage("正在通知后台服务安装新版本…");
-    let reloaded = false;
-    let fallbackTimer: number | null = null;
-
-    const reloadOnce = () => {
-      if (reloaded) return;
-      reloaded = true;
-      window.location.reload();
-    };
-    const handleControllerChange = () => {
-      setUpdateMessage("新版本已接管，正在刷新页面…");
-      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
-      reloadOnce();
-    };
-
+    setUpdateMessage("正在检查并安装新版本…");
     try {
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange, { once: true });
-        setUpdateMessage("正在等待新版本接管页面…");
-        fallbackTimer = window.setTimeout(reloadOnce, 3000);
+        await activateWaitingServiceWorker();
+        setUpdateMessage("新版本已接管，正在刷新页面…");
+        reloadAppOnce();
       } else {
         setUpdateMessage("当前浏览器没有后台服务，正在直接刷新…");
-        fallbackTimer = window.setTimeout(reloadOnce, 500);
+        reloadAppOnce();
       }
-      await updateServiceWorker(true);
     } catch (error) {
-      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
-      }
       setUpdatingApp(false);
       const regularError = error instanceof Error ? error.message : "请稍后重试。";
       const message = `更新失败：${regularError}`;
@@ -1294,7 +1282,6 @@ export default function App() {
                           const found = await checkRelease({ force: true });
                           if (found) {
                             setUpdateMessage("发现新版本，请确认更新说明。");
-                            showToast("发现新版本", "success");
                             return;
                           }
                           setUpdateMessage("已是最新版本");
