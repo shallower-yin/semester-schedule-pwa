@@ -62,7 +62,11 @@ async function openOrFocusApp(targetUrl, appUrl) {
   });
 
   if (appClient) {
-    if (typeof appClient.navigate === "function" && appClient.url !== targetUrl) {
+    const feature = new URL(targetUrl).searchParams.get("ai");
+    if (["assistant", "translation", "mind_map", "audio_transcription"].includes(feature)) {
+      // Keep the live page and its in-flight requests intact when opening a result.
+      appClient.postMessage({ type: "ai-task-open", feature });
+    } else if (typeof appClient.navigate === "function" && appClient.url !== targetUrl) {
       try {
         await appClient.navigate(targetUrl);
       } catch {

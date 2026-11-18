@@ -25,6 +25,7 @@ interface MindMapFollowupTurn {
 
 export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
   const initialSession = useMemo(() => loadMindMapSession(ownerId), [ownerId]);
+  const [sessionOwnerId, setSessionOwnerId] = useState(ownerId);
   const [prompt, setPrompt] = useState(() => initialSession.prompt);
   const [accessCode, setAccessCode] = useState("");
   const [mindMap, setMindMap] = useState<AiMindMapNode | null>(() => initialSession.mindMap);
@@ -62,9 +63,23 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
     setDepth(session.depth);
     setAttachments(session.attachments);
     setFollowupError("");
+    setSessionOwnerId(ownerId);
   }, [ownerId]);
 
   useEffect(() => {
+    if (task.status !== "success") return;
+    // The request may belong to a dialog that was closed while it ran.
+    const session = loadMindMapSession(ownerId);
+    setMindMap(session.mindMap);
+    setFollowupTurns(session.followupTurns);
+    setAttachments((current) => replaceProcessedAttachments(current, session.attachments.filter((item) => item.kind === "document")));
+    setFollowupError("");
+    setAttachmentProgress("");
+    setZoom(1);
+  }, [ownerId, task.status, task.completedAt]);
+
+  useEffect(() => {
+    if (sessionOwnerId !== ownerId) return;
     saveMindMapSession(ownerId, {
       mindMap,
       followupTurns,
@@ -72,7 +87,7 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
       depth,
       attachments
     });
-  }, [ownerId, mindMap, followupTurns, prompt, depth, attachments]);
+  }, [ownerId, sessionOwnerId, mindMap, followupTurns, prompt, depth, attachments]);
 
   useEffect(() => {
     if (!previewing) return;
@@ -262,10 +277,20 @@ export function MindMapDialog({ input, ownerId, onClose }: MindMapDialogProps) {
           onAttachmentsProcessed: (nextAttachments) => {
             if (signal.aborted) return;
             taskAttachments = nextAttachments;
+            saveMindMapSession(ownerId, { ...loadMindMapSession(ownerId), attachments: nextAttachments });
             setAttachments(nextAttachments);
           }
         }),
       onSuccess: (result) => {
+        // Save before announcing completion, even when this component is unmounted.
+        saveMindMapSession(ownerId, {
+          ...loadMindMapSession(ownerId),
+          mindMap: result.mindMap,
+          followupTurns: [],
+          attachments: result.processedAttachments?.length
+            ? replaceProcessedAttachments(taskAttachments, result.processedAttachments)
+            : taskAttachments
+        });
         setAttachmentProgress("");
         // New mind map starts a new topic: keep attachments/prompt, reset follow-up thread.
         setMindMap(result.mindMap);
@@ -643,6 +668,7 @@ function emptyMindMapSession(): MindMapSession {
 }
 
 function loadMindMapSession(ownerId: string): MindMapSession {
+  let session = emptyMindMapSession();
   try {
     const rawSession = localStorage.getItem(mindMapSessionStorageKey(ownerId));
     if (rawSession) {
@@ -657,21 +683,26 @@ function loadMindMapSession(ownerId: string): MindMapSession {
       const attachments = Array.isArray(parsed.attachments)
         ? parsed.attachments.filter((item): item is AiAssistantAttachment => Boolean(item && item.name && item.kind)).slice(0, 3)
         : [];
-      return {
+      session = {
         mindMap,
         followupTurns,
         prompt: typeof parsed.prompt === "string" ? parsed.prompt.slice(0, 6000) : "",
         depth,
         attachments
       };
+      if (mindMap) return session;
     }
+  } catch {
+    // A broken session must not hide the independently stored last map.
+  }
+  try {
     // Backward compatible: older builds only stored the mind-map tree.
     const legacy = JSON.parse(localStorage.getItem(mindMapStorageKey(ownerId)) ?? "null") as AiMindMapNode | null;
-    if (legacy?.label) return { ...emptyMindMapSession(), mindMap: legacy };
+    if (legacy?.label) return { ...session, mindMap: legacy };
   } catch {
-    // Fall through to empty session.
+    // Keep any recoverable prompt and follow-up context.
   }
-  return emptyMindMapSession();
+  return session;
 }
 
 function saveMindMapSession(ownerId: string, session: MindMapSession): void {

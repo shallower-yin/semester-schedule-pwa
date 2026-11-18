@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Anniversary, EventItem, TodoItem } from "../types";
 import { NATIVE_NOTIFICATION_OPEN_EVENT } from "./nativeApp";
 import { useNotificationNavigation } from "./useNotificationNavigation";
+import { AI_TASK_OPEN_EVENT } from "./aiBackgroundTasks";
 
 const bridge = vi.hoisted(() => ({ pending: vi.fn(), unwinding: vi.fn(), toast: vi.fn() }));
 vi.mock("./nativeApp", () => ({
@@ -22,7 +23,7 @@ function input(overrides: Partial<Input> = {}): Input {
 function actions() {
   return {
     navigate: vi.fn(), goToday: vi.fn(), openQuickEntry: vi.fn(), createTodo: vi.fn(),
-    openEvent: vi.fn(), openAnniversary: vi.fn(), openTodo: vi.fn()
+    openEvent: vi.fn(), openAnniversary: vi.fn(), openTodo: vi.fn(), openAiTask: vi.fn()
   };
 }
 function notify(key: string) {
@@ -41,6 +42,49 @@ afterEach(() => {
 });
 
 describe("通知导航生命周期", () => {
+  it("脑图通知冷启动等待账号恢复，使用新账号回调并且只打开一次", () => {
+    window.history.replaceState({ page: "today" }, "", "/schedule/?ai=mind_map&keep=1#result");
+    const local = actions();
+    const signedIn = actions();
+    const { rerender } = renderHook(({ data, callbacks }) => useNotificationNavigation(data, callbacks), {
+      initialProps: { data: input({ ownerId: "local", authReady: false }), callbacks: local }
+    });
+    expect(local.openAiTask).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("?keep=1");
+    expect(window.location.hash).toBe("#result");
+    expect(window.history.state).toEqual({ page: "today" });
+    rerender({ data: input({ ownerId: "alice" }), callbacks: signedIn });
+    expect(signedIn.openAiTask).toHaveBeenCalledExactlyOnceWith("mind_map");
+    act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+    rerender({ data: input({ ownerId: "alice" }), callbacks: signedIn });
+    expect(signedIn.openAiTask).toHaveBeenCalledOnce();
+  });
+
+  it("处理后台服务发来的脑图通知并在卸载后移除监听", () => {
+    const worker = new EventTarget();
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: worker });
+    try {
+      const callbacks = actions();
+      const { unmount } = renderHook(() => useNotificationNavigation(input(), callbacks));
+      act(() => worker.dispatchEvent(new MessageEvent("message", { data: { type: "ai-task-open", feature: "mind_map" } })));
+      expect(callbacks.openAiTask).toHaveBeenCalledExactlyOnceWith("mind_map");
+      act(() => worker.dispatchEvent(new MessageEvent("message", { data: { type: "ai-task-open", feature: "invalid" } })));
+      expect(callbacks.openAiTask).toHaveBeenCalledOnce();
+      unmount();
+      act(() => worker.dispatchEvent(new MessageEvent("message", { data: { type: "ai-task-open", feature: "mind_map" } })));
+      expect(callbacks.openAiTask).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(navigator, "serviceWorker");
+    }
+  });
+
+  it("应用内任务入口继续打开对应功能", () => {
+    const callbacks = actions();
+    renderHook(() => useNotificationNavigation(input(), callbacks));
+    act(() => window.dispatchEvent(new CustomEvent(AI_TASK_OPEN_EVENT, { detail: { feature: "mind_map" } })));
+    expect(callbacks.openAiTask).toHaveBeenCalledExactlyOnceWith("mind_map");
+  });
+
   it.each([
     ["route:today", "today"], ["route:todos", "todos"], ["route:focus", "focus"], ["health", "health"]
   ])("%s 无需等账号查询即可跳转，且冷启动仅消费一次", (key, page) => {
@@ -137,10 +181,10 @@ describe("通知导航生命周期", () => {
   it("浏览器通知参数只消费一次，保留其他参数、hash和历史状态", () => {
     const callbacks = actions();
     const state = { page: "today", layer: "test" };
-    window.history.replaceState(state, "", "/?notification=route%3Afocus&ai=assistant#section");
+    window.history.replaceState(state, "", "/?notification=route%3Afocus&keep=1#section");
     renderHook(() => useNotificationNavigation(input(), callbacks));
     expect(callbacks.navigate).toHaveBeenCalledExactlyOnceWith("focus");
-    expect(window.location.search).toBe("?ai=assistant");
+    expect(window.location.search).toBe("?keep=1");
     expect(window.location.hash).toBe("#section");
     expect(window.history.state).toEqual(state);
     act(() => window.dispatchEvent(new PopStateEvent("popstate")));

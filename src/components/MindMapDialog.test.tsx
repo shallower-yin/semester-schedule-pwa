@@ -28,7 +28,7 @@ vi.mock("../lib/assistantAttachments", async (importOriginal) => {
 
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { MindMapDialog } from "./MindMapDialog";
-import { clearAllAiTasks } from "../lib/aiBackgroundTasks";
+import { clearAllAiTasks, dismissAiTask, getAiTaskSnapshot } from "../lib/aiBackgroundTasks";
 
 const emptyInput: ScheduleAssistantInput = {
   events: [],
@@ -280,5 +280,66 @@ describe("AI 思维导图", () => {
     expect(screen.getByRole("img", { name: "项目计划 思维导图" })).toBeInTheDocument();
     expect(screen.getByText(/敏感元件/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/输入要梳理的主题/)).toHaveValue("整理振动测试");
+  });
+
+  it("关闭窗口后后台生成的脑图会独立保存，提示消失后仍可恢复", async () => {
+    let finish!: (result: { mindMap: { label: string; children: [] } }) => void;
+    askAiMindMapMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const { unmount } = render(<MindMapDialog input={emptyInput} ownerId="user-background" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "后台整理项目" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await waitFor(() => expect(askAiMindMapMock).toHaveBeenCalledOnce());
+    unmount();
+
+    await act(async () => finish({ mindMap: { label: "后台项目脑图", children: [] } }));
+    await waitFor(() => expect(getAiTaskSnapshot("mind_map").status).toBe("success"));
+    expect(localStorage.getItem("semester-schedule-mind-map:user-background")).toContain("后台项目脑图");
+    dismissAiTask("mind_map");
+
+    render(<MindMapDialog input={emptyInput} ownerId="user-background" onClose={vi.fn()} />);
+    expect(screen.getByRole("img", { name: "后台项目脑图 思维导图" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/输入要梳理的主题/)).toHaveValue("后台整理项目");
+    expect(askAiMindMapMock).toHaveBeenCalledOnce();
+  });
+
+  it("生成期间关闭再打开，后台完成后当前窗口立即显示新脑图", async () => {
+    let finish!: (result: { mindMap: { label: string; children: [] } }) => void;
+    askAiMindMapMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const first = render(<MindMapDialog input={emptyInput} ownerId="user-reopen" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/输入要梳理的主题/), { target: { value: "重新打开的项目" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成脑图" }));
+    await waitFor(() => expect(askAiMindMapMock).toHaveBeenCalledOnce());
+    first.unmount();
+    render(<MindMapDialog input={emptyInput} ownerId="user-reopen" onClose={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "取消生成" })).toBeInTheDocument();
+    await act(async () => finish({ mindMap: { label: "重新打开后完成", children: [] } }));
+    expect(await screen.findByRole("img", { name: "重新打开后完成 思维导图" })).toBeInTheDocument();
+  });
+
+  it.each(["null", "{invalid"])("会话缺少脑图或损坏时从旧存储恢复上一次脑图：%s", (raw) => {
+    localStorage.setItem("semester-schedule-mind-map:user-legacy", JSON.stringify({ label: "保留的脑图", children: [] }));
+    localStorage.setItem("semester-schedule-mind-map-session:user-legacy", raw === "null" ? JSON.stringify({ mindMap: null, prompt: "保留的主题" }) : raw);
+    render(<MindMapDialog input={emptyInput} ownerId="user-legacy" onClose={vi.fn()} />);
+    expect(screen.getByRole("img", { name: "保留的脑图 思维导图" })).toBeInTheDocument();
+    expect(localStorage.getItem("semester-schedule-mind-map:user-legacy")).toContain("保留的脑图");
+  });
+
+  it("账号变化时不把旧账号会话写入新账号", () => {
+    for (const owner of ["alice", "bob"]) {
+      localStorage.setItem(`semester-schedule-mind-map-session:${owner}`, JSON.stringify({
+        mindMap: { label: `${owner} 的脑图`, children: [] }, prompt: `${owner} 的主题`
+      }));
+    }
+    const { rerender } = render(<MindMapDialog input={emptyInput} ownerId="alice" onClose={vi.fn()} />);
+    const writes = vi.spyOn(Storage.prototype, "setItem");
+    try {
+      rerender(<MindMapDialog input={emptyInput} ownerId="bob" onClose={vi.fn()} />);
+      expect(screen.getByRole("img", { name: "bob 的脑图 思维导图" })).toBeInTheDocument();
+      const bobWrites = writes.mock.calls.filter(([key]) => key.endsWith(":bob"));
+      expect(bobWrites.length).toBeGreaterThan(0);
+      for (const [, value] of bobWrites) expect(value).not.toContain("alice");
+    } finally {
+      writes.mockRestore();
+    }
   });
 });

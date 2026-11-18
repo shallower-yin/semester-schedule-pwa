@@ -108,7 +108,6 @@ import { ensureScheduledLocalBackup } from "./lib/autoBackup";
 import { BACKUP_STATUS_CHANGED_EVENT, getLastBackupAt } from "./lib/backupStatus";
 import { showToast } from "./lib/toast";
 import { activateWaitingServiceWorker } from "./lib/serviceWorkerUpdate";
-import { AI_TASK_OPEN_EVENT, type AiTaskFeature } from "./lib/aiBackgroundTasks";
 import { appHistoryLayer, appHistoryPage, initializeAppHistory, isAppHistoryUnwinding, navigateAppHistory } from "./lib/appHistory";
 import { useHistoryLayer } from "./lib/useHistoryLayer";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
@@ -280,34 +279,6 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePageHistory);
   }, []);
 
-  useEffect(() => {
-    const openFeature = (feature: AiTaskFeature) => {
-      if (feature === "assistant") setShowDeepSeekAssistant(true);
-      if (feature === "translation") setShowTranslation(true);
-      if (feature === "mind_map") setShowMindMap(true);
-      if (feature === "audio_transcription") setShowAudioTranscription(true);
-    };
-    const consumeFeatureFromUrl = () => {
-      if (isAppHistoryUnwinding()) return;
-      const url = new URL(window.location.href);
-      const feature = url.searchParams.get("ai");
-      if (feature !== "assistant" && feature !== "translation" && feature !== "mind_map" && feature !== "audio_transcription") return;
-      openFeature(feature);
-      url.searchParams.delete("ai");
-      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-    };
-    const handleOpenTask = (event: Event) => {
-      const feature = (event as CustomEvent<{ feature?: AiTaskFeature }>).detail?.feature;
-      if (feature) openFeature(feature);
-    };
-    consumeFeatureFromUrl();
-    window.addEventListener(AI_TASK_OPEN_EVENT, handleOpenTask);
-    window.addEventListener("popstate", consumeFeatureFromUrl);
-    return () => {
-      window.removeEventListener(AI_TASK_OPEN_EVENT, handleOpenTask);
-      window.removeEventListener("popstate", consumeFeatureFromUrl);
-    };
-  }, []);
   const [availableRelease, setAvailableRelease] = useState<AppRelease | null>(null);
   const [mobileNavItems, setMobileNavItems] = useState<PageId[]>(() => loadMobileNavSettings());
   const [headerToolItems, setHeaderToolItems] = useState<HeaderToolId[]>(() => loadHeaderToolSettings());
@@ -465,7 +436,13 @@ export default function App() {
     createTodo: () => setTodoCreateRequest(crypto.randomUUID()),
     openEvent: setEventToEdit,
     openAnniversary: setAnniversaryToOpen,
-    openTodo: setTodoToOpen
+    openTodo: setTodoToOpen,
+    openAiTask: (feature) => {
+      if (feature === "assistant") setShowDeepSeekAssistant(true);
+      if (feature === "translation") setShowTranslation(true);
+      if (feature === "mind_map") setShowMindMap(true);
+      if (feature === "audio_transcription") setShowAudioTranscription(true);
+    }
   });
   const filteredCourses = useMemo(() => {
     const query = scheduleQuery.trim().toLowerCase();

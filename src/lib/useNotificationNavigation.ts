@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Anniversary, EventItem, PageId, TodoItem } from "../types";
 import { isAppHistoryUnwinding } from "./appHistory";
+import { AI_TASK_OPEN_EVENT, isAiTaskFeature, type AiTaskFeature } from "./aiBackgroundTasks";
 import { consumePendingNativeNotificationKey, NATIVE_NOTIFICATION_OPEN_EVENT } from "./nativeApp";
 import { showToast } from "./toast";
 
@@ -20,6 +21,7 @@ interface NotificationNavigationActions {
   openEvent: (event: EventItem) => void;
   openAnniversary: (id: string) => void;
   openTodo: (id: string) => void;
+  openAiTask: (feature: AiTaskFeature) => void;
 }
 
 /** Consume browser/native links once, waiting for the current owner's data. */
@@ -28,8 +30,47 @@ export function useNotificationNavigation(
   actions: NotificationNavigationActions
 ): void {
   const [notificationKey, setNotificationKey] = useState(() => consumePendingNativeNotificationKey());
+  const [aiFeature, setAiFeature] = useState<AiTaskFeature | null>(null);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+
+  useEffect(() => {
+    const consumeAiFeatureFromUrl = () => {
+      if (isAppHistoryUnwinding()) return;
+      const url = new URL(window.location.href);
+      const feature = url.searchParams.get("ai");
+      if (!isAiTaskFeature(feature)) return;
+      setAiFeature(feature);
+      url.searchParams.delete("ai");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    };
+    const handleOpenTask = (event: Event) => {
+      const feature = (event as CustomEvent<{ feature?: unknown }>).detail?.feature;
+      if (isAiTaskFeature(feature)) setAiFeature(feature);
+    };
+    const handleWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === "ai-task-open" && isAiTaskFeature(event.data.feature)) {
+        setAiFeature(event.data.feature);
+      }
+    };
+    consumeAiFeatureFromUrl();
+    window.addEventListener(AI_TASK_OPEN_EVENT, handleOpenTask);
+    window.addEventListener("popstate", consumeAiFeatureFromUrl);
+    const serviceWorker = navigator.serviceWorker;
+    serviceWorker?.addEventListener("message", handleWorkerMessage);
+    return () => {
+      window.removeEventListener(AI_TASK_OPEN_EVENT, handleOpenTask);
+      window.removeEventListener("popstate", consumeAiFeatureFromUrl);
+      serviceWorker?.removeEventListener("message", handleWorkerMessage);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Account restoration closes old-owner dialogs. Open only after it settles.
+    if (!authReady || !aiFeature) return;
+    actionsRef.current.openAiTask(aiFeature);
+    setAiFeature(null);
+  }, [authReady, aiFeature]);
 
   useEffect(() => {
     const handleOpen = (event: Event) => setNotificationKey((event as CustomEvent<string>).detail || null);

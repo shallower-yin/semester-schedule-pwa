@@ -29,6 +29,39 @@ function loadNotificationClickListener(scope = "https://example.com/") {
 }
 
 describe("通知点击跳转", () => {
+  it("点击脑图完成通知向现有窗口发送打开指令，保留页面中的后台任务", async () => {
+    const { listener, openWindow, matchAll } = loadNotificationClickListener("https://example.com/schedule/");
+    const client = {
+      url: "https://example.com/schedule/", focus: vi.fn().mockResolvedValue(undefined),
+      navigate: vi.fn(), postMessage: vi.fn()
+    };
+    matchAll.mockResolvedValue([client]);
+    let completion: Promise<unknown> | undefined;
+    listener({
+      notification: { close: vi.fn(), data: { url: "https://example.com/schedule/?ai=mind_map" } },
+      waitUntil: (operation) => { completion = operation; }
+    });
+    await completion;
+    expect(client.postMessage).toHaveBeenCalledExactlyOnceWith({ type: "ai-task-open", feature: "mind_map" });
+    expect(client.navigate).not.toHaveBeenCalled();
+    expect(client.focus).toHaveBeenCalledOnce();
+    expect(openWindow).not.toHaveBeenCalled();
+  });
+
+  it("脑图通知冷启动保留功能参数和应用子路径", async () => {
+    const { listener, openWindow } = loadNotificationClickListener("https://example.com/schedule/");
+    const focus = vi.fn().mockResolvedValue(undefined);
+    openWindow.mockResolvedValue({ focus });
+    let completion: Promise<unknown> | undefined;
+    listener({
+      notification: { close: vi.fn(), data: { url: "https://example.com/schedule/?ai=mind_map" } },
+      waitUntil: (operation) => { completion = operation; }
+    });
+    await completion;
+    expect(openWindow).toHaveBeenCalledExactlyOnceWith("https://example.com/schedule/?ai=mind_map");
+    expect(focus).toHaveBeenCalledOnce();
+  });
+
   it("手机端应用已在后台时优先聚焦现有 PWA 窗口", async () => {
     const { listener, openWindow, matchAll } = loadNotificationClickListener();
     const focus = vi.fn().mockResolvedValue(undefined);

@@ -279,7 +279,7 @@ function persistTasks(): void {
   }
 }
 
-function isAiTaskFeature(value: unknown): value is AiTaskFeature {
+export function isAiTaskFeature(value: unknown): value is AiTaskFeature {
   return value === "assistant" || value === "translation" || value === "mind_map" || value === "audio_transcription";
 }
 
