@@ -26,6 +26,7 @@ interface TransformCase {
 }
 
 const remoteDefaults: TransformCase[] = [
+  { table: "courses", expected: { reminder_enabled: false, reminder_minutes_before: 10 } },
   {
     table: "classPeriods", input: { start_time: "08:30:00", end_time: "09:15:00", period_number: "2" },
     expected: { kind: "period", sort_order: 2, start_time: "08:30", end_time: "09:15", period_number: "2" }
@@ -99,7 +100,7 @@ describe("同步记录下载转换", () => {
   });
 
   it.each<SyncTableName>([
-    "semesters", "categories", "courses", "courseSchedules", "courseCancellations", "memoFolders"
+    "semesters", "categories", "courseSchedules", "courseCancellations", "memoFolders"
   ])("未定义下载转换的 %s 保持原对象", (table) => {
     const record = { id: "record-1", nullable: null, server_updated_at: "2026-01-01T00:00:00Z" };
     expect(normalizeRemoteRecord(table, record)).toBe(record);

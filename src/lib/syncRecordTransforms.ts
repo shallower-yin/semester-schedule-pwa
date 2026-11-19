@@ -7,6 +7,9 @@ import { normalizeMemoImages } from "./memoImages";
 // Keep download defaults separate from upload validation: the two directions
 // intentionally differ, and uploads must not include server-managed fields.
 export function normalizeRemoteRecord(table: SyncTableName, record: Record<string, unknown>) {
+  if (table === "courses") {
+    return { ...record, reminder_enabled: Boolean(record.reminder_enabled), reminder_minutes_before: Number(record.reminder_minutes_before ?? 10) };
+  }
   if (table === "classPeriods") {
     return {
       ...record,
@@ -138,6 +141,9 @@ export function normalizeRemoteRecord(table: SyncTableName, record: Record<strin
 
 export function normalizeUploadPayload(table: SyncTableName, record: Record<string, unknown>): Record<string, unknown> {
   const { server_updated_at: _serverUpdatedAt, ...payload } = record;
+  if (table === "courses") {
+    return { ...payload, reminder_enabled: Boolean(payload.reminder_enabled), reminder_minutes_before: Number(payload.reminder_minutes_before ?? 10) };
+  }
   if (table === "events" || table === "anniversaries") {
     if (table === "anniversaries" && isQingmingAnniversary({
       kind: typeof payload.kind === "string" ? payload.kind : undefined,

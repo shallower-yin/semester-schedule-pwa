@@ -71,6 +71,25 @@ jobs:
       - name: Apply pending database migrations once
         run: node scripts/apply-supabase-migrations.mjs
 
+      - name: Verify course reminder schema without claiming deliveries
+        run: |
+          set -euo pipefail
+          query="select
+            exists (select 1 from public.app_schema_migrations where name = '20261119_course_reminders.sql') as migration_applied,
+            to_regprocedure('public.claim_due_course_reminders(text)') is not null as course_rpc_present,
+            exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'courses' and column_name = 'reminder_enabled') as course_preference_present,
+            exists (select 1 from pg_constraint where conrelid = 'public.reminder_deliveries'::regclass and conname = 'reminder_deliveries_course_schedule_owner_fkey') as course_owner_constraint_present,
+            to_regclass('public.reminder_deliveries_course_unique_idx') is not null as course_dedup_index_present;"
+          jq -n --arg query "$query" '{query: $query}' > /tmp/course-reminder-schema.json
+          response="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/course-reminder-schema.json)"
+          printf '%s\n' "$response" | jq .
+          printf '%s\n' "$response" | jq -e 'length == 1 and (.[0] | all(. == true))' > /dev/null
+
       - name: Verify event category owner constraint without changing user data
         run: |
           set -euo pipefail
@@ -389,17 +408,17 @@ jobs:
             --header "Content-Type: application/json" \
             --data @/tmp/reminder-cron-query.json
 
-      - name: Verify function responds
+      - name: Verify reminder endpoint without dispatching deliveries
         if: steps.reminder_changes.outputs.changed == 'true'
         run: |
-          response="$(curl --fail-with-body \
-            --request POST \
+          set -euo pipefail
+          status="$(curl --silent --show-error \
+            --output /tmp/reminder-endpoint-health.json --write-out '%{http_code}' \
             --url "https://$PROJECT_REF.supabase.co/functions/v1/send-reminders" \
-            --header "apikey: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}" \
-            --header "x-reminder-dispatcher-token: $REMINDER_DISPATCHER_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data '{"source":"deployment-check"}')"
-          echo "$response"
+            --header "apikey: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}")"
+          cat /tmp/reminder-endpoint-health.json
+          test "$status" = '405'
+          jq -e '.error == "Method not allowed"' /tmp/reminder-endpoint-health.json > /dev/null
 
       - name: Verify cron runs automatically
         if: steps.reminder_changes.outputs.changed == 'true'

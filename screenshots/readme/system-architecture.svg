@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+<title id="title">日程计划表系统架构</title>
+<desc id="desc">电脑、手机与 Android 共用业务层；业务先写本机，云端提供可选同步、提醒和 AI 服务。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b8294"/></marker></defs>
+<rect width="1280" height="720" fill="#ffffff"/>
+<g font-family="'Microsoft YaHei','Noto Sans CJK SC','Noto Sans SC',Arial,sans-serif"><text x="40" y="46" font-size="30" font-weight="600" text-anchor="start" fill="#18334b">系统架构：本机使用与可选云端服务</text>
+<rect x="40" y="84" width="372" height="104" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="62" y="121" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">电脑浏览器 / PWA</text><text x="62" y="157" font-size="21" font-weight="400" text-anchor="start" fill="#476074">周课表、检索与批量处理</text>
+<rect x="454" y="84" width="372" height="104" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="476" y="121" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">手机浏览器 / PWA</text><text x="476" y="157" font-size="21" font-weight="400" text-anchor="start" fill="#476074">日程查看、快速录入与打卡</text>
+<rect x="868" y="84" width="372" height="104" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="890" y="121" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">Android APK</text><text x="890" y="157" font-size="21" font-weight="400" text-anchor="start" fill="#476074">复用页面，衔接通知与闹钟</text>
+<path d="M226 188 V248" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M640 188 V248" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1054 188 V248" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="248" width="1200" height="114" rx="16" fill="#edf6ef" stroke="#aac6b1" stroke-width="1.6"/>
+<text x="64" y="290" font-size="27" font-weight="600" text-anchor="start" fill="#18334b">共享界面与业务规则</text>
+<text x="64" y="332" font-size="23" font-weight="400" text-anchor="start" fill="#476074">React + TypeScript · 日期与重复规则 · 冲突检测 · AI 动作执行</text>
+<path d="M300 362 V432" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="323" y="406" font-size="20" font-weight="400" text-anchor="start" fill="#476074">本地读写</text>
+<path d="M980 362 V432" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="1003" y="406" font-size="20" font-weight="400" text-anchor="start" fill="#476074">登录与云端请求</text>
+<rect x="40" y="432" width="520" height="216" rx="16" fill="#f2f6fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="62" y="469" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">本机：先保存，即时显示</text><text x="62" y="505" font-size="21" font-weight="400" text-anchor="start" fill="#476074">IndexedDB：业务记录与同步队列</text><text x="62" y="536" font-size="21" font-weight="400" text-anchor="start" fill="#476074">Service Worker：应用资源缓存</text><text x="62" y="567" font-size="21" font-weight="400" text-anchor="start" fill="#476074">JSON 备份 / ICS 日历导出</text>
+<rect x="720" y="432" width="520" height="216" rx="16" fill="#fff8ed" stroke="#d8c39e" stroke-width="1.6"/><text x="742" y="469" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">可选云端：同步与智能服务</text><text x="742" y="505" font-size="21" font-weight="400" text-anchor="start" fill="#476074">Supabase：登录、数据库隔离、文件存储</text><text x="742" y="536" font-size="21" font-weight="400" text-anchor="start" fill="#476074">Edge Functions：提醒派发与 AI 代理</text><text x="742" y="567" font-size="21" font-weight="400" text-anchor="start" fill="#476074">模型服务 / R2 临时文件处理</text>
+<path d="M560 538 H720" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="640" y="515" font-size="20" font-weight="400" text-anchor="middle" fill="#476074">联网同步</text>
+<text x="40" y="694" font-size="22" font-weight="400" text-anchor="start" fill="#18334b">本地模式可独立使用；网络恢复后处理待同步变更，AI 功能需要联网。</text></g>
+</svg>

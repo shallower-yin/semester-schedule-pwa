@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="790" viewBox="0 0 1280 790" role="img" aria-labelledby="title desc">
+<title id="title">AI 日程操作流程</title>
+<desc id="desc">用户指令与日程上下文经服务端检查、模型返回、业务校验和事务写入后，在界面反馈真实执行结果。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b8294"/></marker></defs>
+<rect width="1280" height="790" fill="#ffffff"/>
+<g font-family="'Microsoft YaHei','Noto Sans CJK SC','Noto Sans SC',Arial,sans-serif"><text x="40" y="46" font-size="30" font-weight="600" text-anchor="start" fill="#18334b">核心流程：从一句指令到日程记录</text>
+<rect x="40" y="78" width="1200" height="104" rx="16" fill="#f7f9fc" stroke="#c4d0db" stroke-width="1.6"/>
+<text x="64" y="109" font-size="20" font-weight="600" text-anchor="start" fill="#476074">用户提出请求</text>
+<text x="64" y="151" font-size="25" font-weight="500" text-anchor="start" fill="#18334b">明天 19:00 到 19:30 复习线性代数，提前 10 分钟提醒我。</text>
+<path d="M220 182 V242" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="242" width="360" height="114" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="62" y="279" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">组织上下文</text><text x="62" y="315" font-size="21" font-weight="400" text-anchor="start" fill="#476074">当前账号的日程、对话与附件</text>
+<rect x="460" y="242" width="360" height="114" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="482" y="279" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">服务端检查</text><text x="482" y="315" font-size="21" font-weight="400" text-anchor="start" fill="#476074">身份、功能权限与可用额度</text>
+<rect x="880" y="242" width="360" height="114" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="902" y="279" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">模型返回</text><text x="902" y="315" font-size="21" font-weight="400" text-anchor="start" fill="#476074">回答与受支持的结构化动作</text>
+<path d="M400 299 H460" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M820 299 H880" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1060 356 V446" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="1085" y="408" font-size="20" font-weight="400" text-anchor="start" fill="#476074">受控执行</text>
+<rect x="880" y="446" width="360" height="136" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="902" y="483" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">匹配与校验</text><text x="902" y="519" font-size="21" font-weight="400" text-anchor="start" fill="#476074">目标记录、日期和重复范围</text><text x="902" y="550" font-size="21" font-weight="400" text-anchor="start" fill="#476074">未匹配时反馈未找到记录</text>
+<rect x="460" y="446" width="360" height="136" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="482" y="483" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">逐项提交</text><text x="482" y="519" font-size="21" font-weight="400" text-anchor="start" fill="#476074">业务记录与同步队列</text><text x="482" y="550" font-size="21" font-weight="400" text-anchor="start" fill="#476074">在同一事务中写入</text>
+<rect x="40" y="446" width="360" height="136" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="62" y="483" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">界面反馈</text><text x="62" y="519" font-size="21" font-weight="400" text-anchor="start" fill="#476074">显示真实创建、修改、删除结果</text><text x="62" y="550" font-size="21" font-weight="400" text-anchor="start" fill="#476074">更新日程与对应页面</text>
+<path d="M880 514 H820" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M460 514 H400" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="638" width="1200" height="112" rx="16" fill="#edf6ef" stroke="#aac6b1" stroke-width="1.6"/>
+<text x="64" y="675" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">执行范围由应用定义</text>
+<text x="64" y="712" font-size="22" font-weight="400" text-anchor="start" fill="#18334b">每个动作提交前检查取消信号；取消中止尚未提交的动作，已提交的记录保留。</text>
+<text x="40" y="778" font-size="20" font-weight="400" text-anchor="start" fill="#476074">相对日期按北京时间理解；日期、重复范围和删除目标仍需用户核对。</text></g>
+</svg>

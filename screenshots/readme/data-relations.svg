@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="840" viewBox="0 0 1280 840" role="img" aria-labelledby="title desc">
+<title id="title">日程计划表核心数据关系</title>
+<desc id="desc">学期关联课程和上课安排；事项关联逐次完成状态与可选专注记录；备忘录按文件夹整理，独立待办不依赖学期。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b8294"/></marker></defs>
+<rect width="1280" height="840" fill="#ffffff"/>
+<g font-family="'Microsoft YaHei','Noto Sans CJK SC','Noto Sans SC',Arial,sans-serif"><text x="40" y="46" font-size="30" font-weight="600" text-anchor="start" fill="#18334b">数据关联：计划、完成状态与专注记录</text>
+<rect x="40" y="76" width="1200" height="58" rx="12" fill="#f4f7fa" stroke="#c1cfda" stroke-width="1.6"/>
+<text x="64" y="113" font-size="23" font-weight="400" text-anchor="start" fill="#18334b">已登录数据通过 user_id 归属账号；云端关联同时核对记录 ID 与账号。</text>
+<rect x="40" y="170" width="320" height="104" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="62" y="207" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">学期</text><text x="62" y="243" font-size="21" font-weight="400" text-anchor="start" fill="#476074">开学日期、教学周数</text>
+<rect x="480" y="170" width="320" height="104" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="502" y="207" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">课程</text><text x="502" y="243" font-size="21" font-weight="400" text-anchor="start" fill="#476074">名称、教师、教室</text>
+<rect x="920" y="170" width="320" height="104" rx="16" fill="#f0f5fb" stroke="#a9bfd2" stroke-width="1.6"/><text x="942" y="207" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">上课安排</text><text x="942" y="243" font-size="21" font-weight="400" text-anchor="start" fill="#476074">星期、节次、上课周数</text>
+<path d="M360 222 H480" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="420" y="205" font-size="20" font-weight="400" text-anchor="middle" fill="#476074">一对多</text>
+<path d="M800 222 H920" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="860" y="205" font-size="20" font-weight="400" text-anchor="middle" fill="#476074">一对多</text>
+<rect x="40" y="354" width="320" height="132" rx="16" fill="#edf6ef" stroke="#aac6b1" stroke-width="1.6"/><text x="62" y="391" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">事项 / 习惯</text><text x="62" y="427" font-size="21" font-weight="400" text-anchor="start" fill="#476074">起止日期与时间</text><text x="62" y="458" font-size="21" font-weight="400" text-anchor="start" fill="#476074">重复规则、分类与提醒</text>
+<rect x="480" y="354" width="320" height="132" rx="16" fill="#edf6ef" stroke="#aac6b1" stroke-width="1.6"/><text x="502" y="391" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">逐次完成状态</text><text x="502" y="427" font-size="21" font-weight="400" text-anchor="start" fill="#476074">事项 ID + 发生日期</text><text x="502" y="458" font-size="21" font-weight="400" text-anchor="start" fill="#476074">每次完成分别记录</text>
+<rect x="920" y="354" width="320" height="132" rx="16" fill="#edf6ef" stroke="#aac6b1" stroke-width="1.6"/><text x="942" y="391" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">专注记录</text><text x="942" y="427" font-size="21" font-weight="400" text-anchor="start" fill="#476074">时长、模式、关联事项</text><text x="942" y="458" font-size="21" font-weight="400" text-anchor="start" fill="#476074">专注与休息分别统计</text>
+<path d="M360 420 H480" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="420" y="403" font-size="20" font-weight="400" text-anchor="middle" fill="#476074">一对多</text>
+<path d="M200 486 V548 H1080 V486" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="640" y="582" font-size="22" font-weight="400" text-anchor="middle" fill="#476074">可选关联：一个事项可以对应多次专注</text>
+<rect x="40" y="650" width="320" height="104" rx="16" fill="#fff8ed" stroke="#d8c39e" stroke-width="1.6"/><text x="62" y="687" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">备忘录文件夹</text><text x="62" y="723" font-size="21" font-weight="400" text-anchor="start" fill="#476074">按资料或主题分类</text>
+<rect x="480" y="650" width="320" height="104" rx="16" fill="#fff8ed" stroke="#d8c39e" stroke-width="1.6"/><text x="502" y="687" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">备忘录</text><text x="502" y="723" font-size="21" font-weight="400" text-anchor="start" fill="#476074">文字、清单与图片</text>
+<path d="M360 702 H480" fill="none" stroke="#6b8294" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="420" y="685" font-size="20" font-weight="400" text-anchor="middle" fill="#476074">一对多</text>
+<rect x="920" y="650" width="320" height="104" rx="16" fill="#f4f7fa" stroke="#c1cfda" stroke-width="1.6"/><text x="942" y="687" font-size="25" font-weight="600" text-anchor="start" fill="#18334b">独立待办</text><text x="942" y="723" font-size="21" font-weight="400" text-anchor="start" fill="#476074">不依赖课程或日程</text>
+<text x="40" y="812" font-size="22" font-weight="400" text-anchor="start" fill="#18334b">完成状态按“事项 + 日期”保存：完成今天，不会把后续重复安排一起结束。</text></g>
+</svg>

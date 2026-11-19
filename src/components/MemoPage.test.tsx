@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
@@ -99,6 +99,29 @@ describe("备忘录视图", () => {
 
     expect(screen.getByText("九宫格 1 / 1")).toBeInTheDocument();
     expect(within(grid).getByText("备忘录 10")).toBeInTheDocument();
+  });
+
+  it("手机端固定列表并移除视图选择，切回电脑保留原有选择", async () => {
+    let mobile = true;
+    let onChange: (() => void) | undefined;
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      get matches() { return mobile; }, media: query,
+      addEventListener: (_type: string, listener: () => void) => { onChange = listener; },
+      removeEventListener: vi.fn()
+    } as unknown as MediaQueryList));
+    await db.memos.put(memoRecord(1));
+    render(<MemoPage ownerId="local" />);
+    expect(await screen.findByRole("list", { name: "备忘录列表" })).toBeInTheDocument();
+    expect(screen.queryByText("展示视图")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /九宫格/ })).not.toBeInTheDocument();
+    act(() => { mobile = false; onChange?.(); });
+    fireEvent.click(screen.getByRole("button", { name: /九宫格/ }));
+    expect(screen.getByRole("list", { name: "九宫格备忘录" })).toBeInTheDocument();
+    act(() => { mobile = true; onChange?.(); });
+    expect(screen.getByRole("list", { name: "备忘录列表" })).toBeInTheDocument();
+    expect(screen.queryByText("展示视图")).not.toBeInTheDocument();
+    act(() => { mobile = false; onChange?.(); });
+    expect(screen.getByRole("list", { name: "九宫格备忘录" })).toBeInTheDocument();
   });
 
   it("千条列表限制首屏卡片，后续页、全量搜索和全局定位仍可访问", async () => {

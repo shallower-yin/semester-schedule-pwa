@@ -1,4 +1,4 @@
-import type { Anniversary, EventItem, EventOccurrenceState, TodoItem } from "../types";
+import type { Anniversary, ClassPeriod, Course, CourseCancellation, CourseSchedule, EventItem, EventOccurrenceState, Semester, TodoItem } from "../types";
 import {
   anniversaryReminderTimeForOccurrence,
   formatAnniversaryReminderBody,
@@ -6,10 +6,12 @@ import {
 } from "./anniversaries";
 import {
   addDays,
+  courseScheduleOccursOn,
   dateAtProductTime,
   eventOccursOn,
   parseLocalDate,
   productDateTimeParts,
+  semesterWeekStart,
   toISODate
 } from "./date";
 import { reminderTimeForOccurrence } from "./reminderTime";
@@ -34,7 +36,15 @@ export interface ScheduledReminder {
   at: Date;
 }
 
-export interface ComputeRemindersInput {
+export interface CourseReminderInput {
+  courses?: Course[];
+  semesters?: Semester[];
+  courseSchedules?: CourseSchedule[];
+  courseCancellations?: CourseCancellation[];
+  periods?: ClassPeriod[];
+}
+
+export interface ComputeRemindersInput extends CourseReminderInput {
   events: EventItem[];
   anniversaries: Anniversary[];
   occurrenceStates: EventOccurrenceState[];
@@ -42,6 +52,45 @@ export interface ComputeRemindersInput {
   now?: Date;
   horizonDays?: number;
   max?: number;
+}
+
+export interface CourseReminder extends ScheduledReminder {
+  scheduleId: string;
+}
+
+/** Expand actual teaching weeks rather than treating a course as a weekly event. */
+export function computeCourseReminders(input: CourseReminderInput, from: Date, until: Date): CourseReminder[] {
+  const courses = new Map((input.courses ?? []).filter((course) => !course.deleted_at && course.reminder_enabled).map((course) => [course.id, course]));
+  const semesters = new Map((input.semesters ?? []).filter((semester) => !semester.deleted_at).map((semester) => [semester.id, semester]));
+  const reminders: CourseReminder[] = [];
+  for (const schedule of input.courseSchedules ?? []) {
+    const course = courses.get(schedule.course_id);
+    const semester = course && semesters.get(course.semester_id);
+    if (!course || !semester || schedule.deleted_at || schedule.user_id !== course.user_id || semester.user_id !== course.user_id) continue;
+    const period = (input.periods ?? []).find((item) => (
+      item.user_id === course.user_id && item.semester_id === semester.id && item.weekday === schedule.weekday
+      && item.period_number === schedule.start_period && item.kind !== "break" && !item.deleted_at
+    ));
+    if (!period) continue;
+    for (const week of new Set(schedule.weeks)) {
+      const date = addDays(semesterWeekStart(semester), (week - 1) * 7 + schedule.weekday - 1);
+      if (!courseScheduleOccursOn(schedule, semester, date)) continue;
+      const iso = toISODate(date);
+      if ((input.courseCancellations ?? []).some((item) => (
+        item.user_id === course.user_id && item.course_schedule_id === schedule.id && item.occurrence_date === iso && !item.deleted_at
+      ))) continue;
+      const at = new Date(dateAtProductTime(iso, period.start_time).getTime() - (course.reminder_minutes_before ?? 10) * 60_000);
+      if (at < from || at > until) continue;
+      const key = `course:${course.id}:${schedule.id}:${iso}`;
+      reminders.push({
+        key, id: reminderNotificationId(key), scheduleId: schedule.id,
+        title: course.name || "课程提醒",
+        body: `${iso} ${period.start_time.slice(0, 5)} 开始${course.classroom.trim() ? ` · ${course.classroom.trim()}` : ""}`,
+        at
+      });
+    }
+  }
+  return reminders;
 }
 
 // Deterministic 31-bit positive id from a stable reminder key, so re-running the computation yields
@@ -159,6 +208,7 @@ export function computeScheduledReminders(input: ComputeRemindersInput): Schedul
     });
   }
 
+  reminders.push(...computeCourseReminders(input, new Date(nowMs + 1), new Date(horizonEnd)));
   reminders.sort((left, right) => left.at.getTime() - right.at.getTime());
 
   const seenIds = new Set<number>();

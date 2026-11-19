@@ -20,18 +20,21 @@ import {
 } from "./nativeReminders";
 import {
   computeScheduledReminders,
+  computeCourseReminders,
   formatEventReminderBody,
   formatTodoReminderBody,
   HEALTH_NOTIFICATION_ID,
   TEST_NOTIFICATION_ID,
   todoReminderTime
 } from "./reminderSchedule";
+import type { CourseReminderInput } from "./reminderSchedule";
 import { withTimeout } from "./asyncTimeout";
 import { computeNextHealthReminder } from "./healthReminderSchedule";
 
 const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 let nativeReminderRefreshGeneration = 0;
 let nativeReminderRefreshTail: Promise<void> = Promise.resolve();
+const inFlightCourseReminders = new Set<string>();
 
 export type NotificationStatus =
   | "unsupported"
@@ -507,15 +510,16 @@ async function rescheduleNativeRemindersForGeneration(ownerId: string, generatio
   if (!isCurrent()) return 0;
   if ((await ensureNativeReminderPermission(false)) !== "granted") return 0;
   if (!isCurrent()) return 0;
-  const [events, anniversaries, occurrenceStates, healthProfile, todos] = await Promise.all([
+  const [events, anniversaries, occurrenceStates, healthProfile, todos, courseInput] = await Promise.all([
     db.events.filter((event) => event.user_id === ownerId).toArray(),
     db.anniversaries.filter((anniversary) => anniversary.user_id === ownerId).toArray(),
     db.eventOccurrenceStates.filter((state) => state.user_id === ownerId).toArray(),
     db.healthProfiles.filter((profile) => profile.user_id === ownerId && !profile.deleted_at).first(),
-    db.todos.filter((todo) => todo.user_id === ownerId).toArray()
+    db.todos.filter((todo) => todo.user_id === ownerId).toArray(),
+    loadCourseReminderInput(ownerId)
   ]);
   if (!isCurrent()) return 0;
-  const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates, todos });
+  const reminders = computeScheduledReminders({ events, anniversaries, occurrenceStates, todos, ...courseInput });
   const scheduledCount = await syncNativeReminders(reminders);
   // A newer owner refresh is queued behind this one.  Let it become the final
   // OS state and do not let the stale run replace the shared health schedule.
@@ -631,5 +635,34 @@ export async function checkDueLocalReminders(ownerId: string): Promise<number> {
     await putRecordAndQueue("todos", updated);
     sent += 1;
   }
+  const courseInput = await loadCourseReminderInput(ownerId);
+  const courseReminders = computeCourseReminders(courseInput, new Date(now.getTime() - 15 * 60_000), now);
+  for (const reminder of courseReminders) {
+    if (ownerId !== getCurrentUserId()) break;
+    // Keep one local delivery marker per schedule. Unlike event occurrence states,
+    // these markers have no event foreign key and are not queued as event data.
+    const storageKey = `course-reminder-delivered:${ownerId}:${reminder.scheduleId}`;
+    const deliveryKey = `${reminder.key}:${reminder.at.toISOString()}`;
+    if (localStorage.getItem(storageKey) === deliveryKey || inFlightCourseReminders.has(deliveryKey)) continue;
+    inFlightCourseReminders.add(deliveryKey);
+    try {
+      await showReminder(reminder.title, reminder.body, reminder.key.replaceAll(":", "-"), reminder.key);
+      localStorage.setItem(storageKey, deliveryKey);
+      sent += 1;
+    } finally {
+      inFlightCourseReminders.delete(deliveryKey);
+    }
+  }
   return sent;
+}
+
+async function loadCourseReminderInput(ownerId: string): Promise<CourseReminderInput> {
+  const [courses, semesters, courseSchedules, courseCancellations, periods] = await Promise.all([
+    db.courses.filter((item) => item.user_id === ownerId && !item.deleted_at && Boolean(item.reminder_enabled)).toArray(),
+    db.semesters.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
+    db.courseSchedules.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
+    db.courseCancellations.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray(),
+    db.classPeriods.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()
+  ]);
+  return { courses, semesters, courseSchedules, courseCancellations, periods };
 }

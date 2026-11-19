@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Anniversary, EventItem, TodoItem } from "../types";
+import type { Anniversary, Course, EventItem, TodoItem } from "../types";
 import { NATIVE_NOTIFICATION_OPEN_EVENT } from "./nativeApp";
 import { useNotificationNavigation } from "./useNotificationNavigation";
 import { AI_TASK_OPEN_EVENT } from "./aiBackgroundTasks";
@@ -18,12 +18,12 @@ vi.mock("./toast", () => ({ showToast: bridge.toast }));
 
 type Input = Parameters<typeof useNotificationNavigation>[0];
 function input(overrides: Partial<Input> = {}): Input {
-  return { ownerId: "alice", authReady: true, events: [], anniversaries: [], todos: [], ...overrides };
+  return { ownerId: "alice", authReady: true, events: [], anniversaries: [], todos: [], courses: [], ...overrides };
 }
 function actions() {
   return {
     navigate: vi.fn(), goToday: vi.fn(), openQuickEntry: vi.fn(), createTodo: vi.fn(),
-    openEvent: vi.fn(), openAnniversary: vi.fn(), openTodo: vi.fn(), openAiTask: vi.fn()
+    openEvent: vi.fn(), openAnniversary: vi.fn(), openTodo: vi.fn(), openCourse: vi.fn(), openAiTask: vi.fn()
   };
 }
 function notify(key: string) {
@@ -42,6 +42,28 @@ afterEach(() => {
 });
 
 describe("通知导航生命周期", () => {
+  it("课程通知等待课程查询并打开当前账号的对应课程", () => {
+    window.history.replaceState(null, "", "/?notification=course:course-1:schedule-1:2026-11-19");
+    const callbacks = actions();
+    const props = input({ authReady: false, courses: undefined });
+    const { rerender } = renderHook((value) => useNotificationNavigation(value, callbacks), { initialProps: props });
+    expect(callbacks.openCourse).not.toHaveBeenCalled();
+    const course = { id: "course-1", user_id: "alice", deleted_at: null } as Course;
+    rerender(input({ courses: [course] }));
+    expect(callbacks.navigate).toHaveBeenCalledWith("calendar");
+    expect(callbacks.openCourse).toHaveBeenCalledExactlyOnceWith(course);
+    rerender(input({ courses: [course] }));
+    expect(callbacks.openCourse).toHaveBeenCalledOnce();
+  });
+
+  it("课程通知不打开其他账号或已删除的课程", () => {
+    const callbacks = actions();
+    renderHook(() => useNotificationNavigation(input({ courses: [{ id: "course-1", user_id: "bob" } as Course] }), callbacks));
+    notify("course:course-1:schedule-1:2026-11-19");
+    expect(callbacks.openCourse).not.toHaveBeenCalled();
+    expect(bridge.toast).toHaveBeenCalledWith("这条提醒对应的课程已被删除。", "info");
+  });
+
   it("脑图通知冷启动等待账号恢复，使用新账号回调并且只打开一次", () => {
     window.history.replaceState({ page: "today" }, "", "/schedule/?ai=mind_map&keep=1#result");
     const local = actions();

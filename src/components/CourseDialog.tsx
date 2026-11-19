@@ -1,11 +1,13 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { Plus, Trash2 } from "lucide-react";
+import { BellRing, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { db, putRecordAndQueue } from "../db";
 import { WEEKDAY_NAMES } from "../data/defaults";
 import { findCourseEventConflicts, findCourseScheduleConflicts } from "../lib/conflicts";
 import { hardDeleteCoursesCascade, hardDeleteLocalRecords } from "../lib/hardDelete";
 import { syncFields } from "../lib/identity";
+import { enableNotifications } from "../lib/notifications";
+import { isNativeApp } from "../lib/nativeApp";
 import { searchMatchFieldClass, type SearchNavigationMatch } from "../lib/searchNavigation";
 import { showToast } from "../lib/toast";
 import type { Course, CourseSchedule, Semester, Weekday } from "../types";
@@ -36,6 +38,10 @@ export function CourseDialog({ semester, course, searchMatch, onClose }: CourseD
   const [classroom, setClassroom] = useState(course?.classroom ?? "");
   const [color, setColor] = useState(course?.color ?? "#5b78df");
   const [note, setNote] = useState(course?.note ?? "");
+  const [reminderEnabled, setReminderEnabled] = useState(course?.reminder_enabled ?? false);
+  const [reminderMinutes, setReminderMinutes] = useState(course?.reminder_minutes_before ?? 10);
+  const [enablingReminder, setEnablingReminder] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState("");
   const [schedules, setSchedules] = useState<ScheduleDraft[]>([
     { weekday: 1, start_period: 1, end_period: 2, weeks: Array.from({ length: semester.total_weeks }, (_, index) => index + 1) }
   ]);
@@ -130,6 +136,31 @@ export function CourseDialog({ semester, course, searchMatch, onClose }: CourseD
     });
   }
 
+  async function toggleReminder(enabled: boolean) {
+    setReminderMessage("");
+    setReminderEnabled(enabled);
+    if (!enabled) return;
+    setEnablingReminder(true);
+    try {
+      const result = await enableNotifications();
+      if (result === "denied") {
+        setReminderEnabled(false);
+        setReminderMessage(isNativeApp() ? "未获得系统通知权限，请在系统设置中允许通知后重试。" : "浏览器未允许通知，请在网站权限中开启后重试。");
+      } else if (result === "unsupported") {
+        setReminderEnabled(false);
+        setReminderMessage("当前浏览器不支持系统通知。请使用 Android Edge/Chrome 或 Windows Edge/Chrome。");
+      } else if (result === "local-only") {
+        setReminderMessage("应用打开时提醒；登录后可在账号与同步中开启后台推送。");
+      }
+    } catch (error) {
+      const permissionGranted = "Notification" in window && Notification.permission === "granted";
+      if (!permissionGranted) setReminderEnabled(false);
+      setReminderMessage(`${error instanceof Error ? error.message : "通知订阅失败"}。${permissionGranted ? "应用打开时仍可提醒。" : "请重新启用提醒。"}`);
+    } finally {
+      setEnablingReminder(false);
+    }
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
     const operationOwnerId = semester.user_id;
@@ -148,7 +179,9 @@ export function CourseDialog({ semester, course, searchMatch, onClose }: CourseD
       teacher: teacher.trim(),
       classroom: classroom.trim(),
       color,
-      note: note.trim()
+      note: note.trim(),
+      reminder_enabled: reminderEnabled,
+      reminder_minutes_before: reminderMinutes
     };
     const existingCourses = await db.courses.where("semester_id").equals(semester.id).filter((item) => !item.deleted_at).toArray();
     const existingCourseIds = new Set(existingCourses.map((item) => item.id));
@@ -204,18 +237,46 @@ export function CourseDialog({ semester, course, searchMatch, onClose }: CourseD
   }
 
   return (
-    <Modal title={course ? "编辑课程" : "新增课程"} onClose={onClose} wide>
+    <Modal title={course ? "编辑课程" : "新增课程"} onClose={onClose} wide className="course-dialog">
       <form ref={formRef} className="form-stack" onSubmit={save}>
         <div className="form-grid">
-          <label data-search-field="name" className={`span-2 ${searchMatchFieldClass(searchMatch, "name")}`.trim()}>课程名称<input required autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <div className="course-name-color span-2">
+            <label data-search-field="name" className={searchMatchFieldClass(searchMatch, "name")}>课程名称<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
+            <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
+          </div>
           <label data-search-field="teacher" className={searchMatchFieldClass(searchMatch, "teacher")}>教师<input value={teacher} onChange={(event) => setTeacher(event.target.value)} /></label>
           <label data-search-field="classroom" className={searchMatchFieldClass(searchMatch, "classroom")}>教室<input value={classroom} onChange={(event) => setClassroom(event.target.value)} /></label>
-          <label>颜色<input className="color-input" type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
-          <label data-search-field="note" className={`span-2 ${searchMatchFieldClass(searchMatch, "note")}`.trim()}>备注<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         </div>
 
+        <div className="course-reminder-row">
+          <label className="checkbox-label event-inline-toggle">
+            <input type="checkbox" checked={reminderEnabled} disabled={enablingReminder} onChange={(event) => void toggleReminder(event.target.checked)} />
+            <BellRing size={17} />提醒我
+          </label>
+          {reminderEnabled && (
+            <label className="course-reminder-time"><span>提前时间</span>
+              <select value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))}>
+                <option value={0}>开始时</option>
+                <option value={5}>提前 5 分钟</option>
+                <option value={10}>提前 10 分钟</option>
+                <option value={15}>提前 15 分钟</option>
+                <option value={30}>提前 30 分钟</option>
+                <option value={60}>提前 1 小时</option>
+                <option value={1440}>提前 1 天</option>
+                <option value={4320}>提前 3 天</option>
+                <option value={7200}>提前 5 天</option>
+                <option value={10080}>提前 7 天</option>
+              </select>
+            </label>
+          )}
+        </div>
+        <section className="event-reminder-details">
+          {reminderMessage && <p role="status">{reminderMessage}</p>}
+        </section>
+        <label data-search-field="note" className={searchMatchFieldClass(searchMatch, "note")}>备注<textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+
         <div className="section-heading">
-          <div><h3>上课安排</h3><p>每个安排可以选择不同的星期、节次和周数。</p></div>
+          <h3>上课安排</h3>
           <button
             type="button"
             className="button secondary compact"
@@ -243,15 +304,15 @@ export function CourseDialog({ semester, course, searchMatch, onClose }: CourseD
                   {periodsForWeekday(schedule.weekday).map((period) => <option key={period.id} value={period.period_number}>{period.name}（{period.end_time}）</option>)}
                 </select>
               </label>
-              {schedules.length > 1 && (
-                <button type="button" className="icon-button danger" onClick={() => setSchedules((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label="删除安排">
-                  <Trash2 size={18} />
-                </button>
-              )}
             </div>
             <div className="week-picker-label">
               <span>上课周数（已选 {schedule.weeks.length} 周）</span>
               <div>
+                {schedules.length > 1 && (
+                  <button type="button" className="icon-button danger" onClick={() => setSchedules((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label="删除安排">
+                    <Trash2 size={16} />
+                  </button>
+                )}
                 <button type="button" className="text-button" onClick={() => updateSchedule(index, { weeks: Array.from({ length: semester.total_weeks }, (_, itemIndex) => itemIndex + 1) })}>全选</button>
                 <button type="button" className="text-button" onClick={() => updateSchedule(index, { weeks: [] })}>清空</button>
               </div>
@@ -272,12 +333,10 @@ export function CourseDialog({ semester, course, searchMatch, onClose }: CourseD
         ))}
         {message && <p className="auth-message">{message}</p>}
 
-        <div className="form-actions split">
-          <div>{course && <button type="button" className="button danger-button" onClick={removeCourse}>彻底删除课程</button>}</div>
-          <div className="inline-actions">
-            <button type="button" className="button secondary" onClick={onClose}>取消</button>
-            <button className="button primary" disabled={saving}>{saving ? "保存中…" : "保存课程"}</button>
-          </div>
+        <div className={`form-actions course-form-actions${course ? " has-course" : ""}`}>
+          {course && <button type="button" className="button danger-button" disabled={saving || enablingReminder} onClick={removeCourse}>删除课程</button>}
+          <button type="button" className="button secondary" onClick={onClose}>取消</button>
+          <button className="button primary" disabled={saving || enablingReminder}>{saving ? "保存中…" : enablingReminder ? "启用提醒…" : "保存课程"}</button>
         </div>
       </form>
     </Modal>

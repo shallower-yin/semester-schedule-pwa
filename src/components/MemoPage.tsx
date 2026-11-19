@@ -66,6 +66,7 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FolderFilter>("all");
   const [viewMode, setViewMode] = useState<MemoViewMode>("list");
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const [gridPage, setGridPage] = useState(0);
   const [listPage, setListPage] = useState(0);
   const [memoToEdit, setMemoToEdit] = useState<Memo | null | undefined>(undefined);
@@ -73,6 +74,13 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
   const [message, setMessage] = useState("");
   const previousOwnerIdRef = useRef(ownerId);
   const memoEditorTokenRef = useRef("closed");
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsMobile(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (!openMemoId) return;
@@ -229,7 +237,7 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
           <Search size={17} />
           <input placeholder="搜索备忘录" value={query} onChange={(event) => updateQuery(event.target.value)} />
         </div>
-        <div className="memo-sidebar-section memo-view-section">
+        {!isMobile && <div className="memo-sidebar-section memo-view-section">
           <span>展示视图</span>
           <div className="memo-view-toggle">
             <button
@@ -251,7 +259,7 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
               <Grid3X3 size={15} />九宫格
             </button>
           </div>
-        </div>
+        </div>}
         <div className="memo-sidebar-section memo-folder-section">
           <div className="memo-sidebar-title">
             <span>文件夹</span>
@@ -307,7 +315,7 @@ export function MemoPage({ ownerId, openMemoId, openSearchMatch, onOpenMemoConsu
         </div>
         {message && <p className="status-message memo-status">{message}</p>}
         {visibleMemos.length ? (
-          viewMode === "grid" ? (
+          !isMobile && viewMode === "grid" ? (
             <>
               <div className="memo-grid-toolbar">
                 <span>九宫格 {activeGridPage + 1} / {gridPageCount}</span>

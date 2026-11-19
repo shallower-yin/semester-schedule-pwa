@@ -1,29 +1,12 @@
 // @ts-types="npm:@types/web-push@3.6.4"
 import webpush from "npm:web-push@3.6.7";
+import { buildReminderPayload, type ReminderRow } from "./payload.ts";
 
-interface ReminderRow {
-  delivery_id: string;
-  source_type?: "event" | "anniversary" | "todo" | "health";
-  source_id?: string;
-  event_id?: string | null;
-  anniversary_id?: string | null;
-  todo_id?: string | null;
-  title: string;
-  occurrence_date: string;
-  start_time: string | null;
-  all_day?: boolean | null;
-  location?: string | null;
-  anniversary_kind?: "anniversary" | "birthday" | "holiday" | null;
-  endpoint: string;
-  p256dh: string;
-  auth: string;
-}
 
 interface Delivery {
   reminder: ReminderRow;
   subscriptions: webpush.PushSubscription[];
 }
-
 function requiredSecret(name: string): string {
   const value = Deno.env.get(name)?.trim();
   if (!value) throw new Error(`Missing Edge Function secret: ${name}`);
@@ -75,13 +58,14 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const [scheduleRows, healthRows] = await Promise.all([
+    const [scheduleRows, healthRows, courseRows] = await Promise.all([
       callRpc<ReminderRow[]>("claim_due_reminders", {
         dispatcher_token: dispatcherToken
       }),
-      claimHealthRows()
+      claimHealthRows(),
+      claimCourseRows()
     ]);
-    const rows = [...(Array.isArray(scheduleRows) ? scheduleRows : []), ...healthRows];
+    const rows = [...(Array.isArray(scheduleRows) ? scheduleRows : []), ...healthRows, ...courseRows];
     if (!Array.isArray(rows) || rows.length === 0) {
       return jsonResponse({ claimed: 0, delivered: 0, failed: 0 });
     }
@@ -103,7 +87,7 @@ Deno.serve(async (request) => {
       let delivered = false;
       const errors: string[] = [];
       const expiredEndpoints: string[] = [];
-      const payload = JSON.stringify(buildPayload(delivery.reminder));
+      const payload = JSON.stringify(buildReminderPayload(delivery.reminder, appUrl));
 
       for (const subscription of delivery.subscriptions) {
         try {
@@ -154,60 +138,6 @@ function constantTimeEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
-function buildPayload(row: ReminderRow) {
-  const sourceType = row.source_type ?? "event";
-  const sourceId = row.source_id ?? row.event_id ?? row.anniversary_id ?? row.todo_id ?? "unknown";
-  if (sourceType === "health") {
-    return {
-      title: "起来活动一下",
-      body: "喝口水，活动肩颈或走动几分钟。完成后可在健康页记录。",
-      tag: "health-movement-reminder",
-      url: appUrl,
-      sourceType: "health",
-      reminderAt: `${row.occurrence_date}T${String(row.start_time ?? "00:00:00").slice(0, 8)}+08:00`
-    };
-  }
-  if (sourceType === "anniversary") {
-    return {
-      title: row.title,
-      body: `${anniversaryKindLabel(row.anniversary_kind)} · ${row.occurrence_date}`,
-      tag: `anniversary-${sourceId}-${row.occurrence_date}`,
-      url: notificationUrl(`anniversary:${sourceId}:${row.occurrence_date}`)
-    };
-  }
-  if (sourceType === "todo") {
-    return {
-      title: row.title || "待办提醒",
-      body: formatTodoReminderBody(row),
-      tag: `todo-${sourceId}`,
-      url: notificationUrl(`todo:${sourceId}`)
-    };
-  }
-  return {
-    title: row.title,
-    body: formatEventReminderBody(row),
-    tag: `event-${sourceId}-${row.occurrence_date}`,
-    url: notificationUrl(`event:${sourceId}:${row.occurrence_date}`)
-  };
-}
-
-function formatEventReminderBody(row: ReminderRow): string {
-  const timeText = row.all_day || !row.start_time
-    ? "全天事项"
-    : `${String(row.start_time).slice(0, 5)} 开始`;
-  const location = row.location?.trim();
-  return location ? `${row.occurrence_date} ${timeText} · ${location}` : `${row.occurrence_date} ${timeText}`;
-}
-
-function formatTodoReminderBody(row: ReminderRow): string {
-  return `${row.occurrence_date} ${String(row.start_time ?? "00:00").slice(0, 5)} 待办提醒`;
-}
-
-function notificationUrl(key: string): string {
-  const url = new URL(appUrl);
-  url.searchParams.set("notification", key);
-  return url.toString();
-}
 
 async function claimHealthRows(): Promise<ReminderRow[]> {
   try {
@@ -223,8 +153,14 @@ async function claimHealthRows(): Promise<ReminderRow[]> {
   }
 }
 
-function anniversaryKindLabel(kind: ReminderRow["anniversary_kind"]): string {
-  if (kind === "birthday") return "生日";
-  if (kind === "holiday") return "节日";
-  return "纪念日";
+async function claimCourseRows(): Promise<ReminderRow[]> {
+  try {
+    const rows = await callRpc<ReminderRow[]>("claim_due_course_reminders", { dispatcher_token: dispatcherToken });
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    // The new schema and dispatcher may deploy in either order. Existing reminders
+    // must remain available while the additive course RPC is being installed.
+    console.warn("Course reminder claim skipped", error);
+    return [];
+  }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Anniversary, EventItem, PageId, TodoItem } from "../types";
+import type { Anniversary, Course, EventItem, PageId, TodoItem } from "../types";
 import { isAppHistoryUnwinding } from "./appHistory";
 import { AI_TASK_OPEN_EVENT, isAiTaskFeature, type AiTaskFeature } from "./aiBackgroundTasks";
 import { consumePendingNativeNotificationKey, NATIVE_NOTIFICATION_OPEN_EVENT } from "./nativeApp";
@@ -11,6 +11,7 @@ interface NotificationNavigationInput {
   events: EventItem[] | undefined;
   anniversaries: Anniversary[] | undefined;
   todos: TodoItem[] | undefined;
+  courses: Course[] | undefined;
 }
 
 interface NotificationNavigationActions {
@@ -21,12 +22,13 @@ interface NotificationNavigationActions {
   openEvent: (event: EventItem) => void;
   openAnniversary: (id: string) => void;
   openTodo: (id: string) => void;
+  openCourse: (course: Course) => void;
   openAiTask: (feature: AiTaskFeature) => void;
 }
 
 /** Consume browser/native links once, waiting for the current owner's data. */
 export function useNotificationNavigation(
-  { ownerId, authReady, events, anniversaries, todos }: NotificationNavigationInput,
+  { ownerId, authReady, events, anniversaries, todos, courses }: NotificationNavigationInput,
   actions: NotificationNavigationActions
 ): void {
   const [notificationKey, setNotificationKey] = useState(() => consumePendingNativeNotificationKey());
@@ -116,6 +118,7 @@ export function useNotificationNavigation(
       const eventMatch = /^event:([^:]+):/.exec(notificationKey);
       const anniversaryMatch = /^anniversary:([^:]+):/.exec(notificationKey);
       const todoMatch = /^todo:([^:]+)$/.exec(notificationKey);
+      const courseMatch = /^course:([^:]+):/.exec(notificationKey);
       if (eventMatch) {
         if (!authReady || events === undefined) return;
         const target = events.find((item) => item.id === eventMatch[1] && item.user_id === ownerId);
@@ -138,10 +141,16 @@ export function useNotificationNavigation(
         } else {
           showToast("这条提醒对应的待办已被删除。", "info");
         }
+      } else if (courseMatch) {
+        if (!authReady || courses === undefined) return;
+        const target = courses.find((item) => item.id === courseMatch[1] && item.user_id === ownerId && !item.deleted_at);
+        current.navigate("calendar");
+        if (target) current.openCourse(target);
+        else showToast("这条提醒对应的课程已被删除。", "info");
       } else if (notificationKey === "health") {
         current.navigate("health");
       }
     }
     setNotificationKey(null);
-  }, [anniversaries, authReady, events, notificationKey, ownerId, todos]);
+  }, [anniversaries, authReady, courses, events, notificationKey, ownerId, todos]);
 }

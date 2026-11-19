@@ -525,6 +525,86 @@ textarea {
   gap: 10px;
 }
 
+.course-name-color {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 62px;
+  gap: 14px;
+}
+
+.course-reminder-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.course-reminder-row > .event-inline-toggle {
+  flex: 0 0 auto;
+  min-height: 40px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.course-dialog .course-reminder-time {
+  display: grid;
+  flex: 1;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.course-dialog .schedule-row {
+  grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
+}
+
+.course-dialog .schedule-row label:first-child {
+  grid-column: auto;
+}
+
+.course-dialog .schedule-row select {
+  min-width: 0;
+}
+
+.course-dialog .week-picker-label > div {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.course-dialog .week-picker-label .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.course-dialog .event-reminder-details:empty {
+  display: none;
+}
+
+.course-dialog .course-form-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.course-dialog .course-form-actions.has-course {
+  grid-template-columns: minmax(0, 0.85fr) repeat(2, minmax(0, 1fr));
+}
+
+.course-dialog .course-form-actions .button {
+  min-width: 0;
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 580px) {
+  .course-dialog .schedule-row {
+    gap: 6px;
+  }
+
+  .course-dialog .schedule-row select {
+    padding-inline: 4px;
+    font-size: 0.75rem;
+  }
+}
+
 .week-picker-label {
   display: flex;
   margin: 15px 0 8px;

@@ -96,7 +96,7 @@ import { setEventCompletedForDate } from "./lib/eventActions";
 import type { EventStatusFilter } from "./lib/eventStatusFilter";
 import { setCurrentUserId, syncFields } from "./lib/identity";
 import { deleteSemesterCascade } from "./lib/semesters";
-import { checkDueLocalReminders, enableNotifications } from "./lib/notifications";
+import { checkDueLocalReminders, enableNotifications, refreshNativeReminderSchedule } from "./lib/notifications";
 import { checkDueHealthReminder, recordHealthMovementReminderSent } from "./lib/health";
 import { DESKTOP_HEADER_TOOLS, loadHeaderToolSettings, type HeaderToolId } from "./lib/headerToolSettings";
 import { applyAppFontSize, appFontSizeLabel, loadAppFontSize, type AppFontSizeId } from "./lib/fontSizes";
@@ -219,6 +219,7 @@ export default function App() {
   const [showFontSizeSettings, setShowFontSizeSettings] = useState(false);
   const [fontSize, setFontSize] = useState<AppFontSizeId>(() => loadAppFontSize());
   const [courseToEdit, setCourseToEdit] = useState<Course | null | undefined>(undefined);
+  const [notificationCourseToOpen, setNotificationCourseToOpen] = useState<Course | null>(null);
   const [eventToEdit, setEventToEdit] = useState<EventItem | null | undefined>(undefined);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
   const [showAddSchedule, setShowAddSchedule] = useState(false);
@@ -358,6 +359,30 @@ export default function App() {
     occurrenceStates, anniversaries, memos, todos, focusSessions, periods,
     widgetDataReady
   } = useScheduleData({ ownerId, authReady });
+  const notificationCoursesResult = useLiveQuery(
+    async () => scopedLiveQueryValue(ownerId, await db.courses.filter((item) => item.user_id === ownerId && !item.deleted_at).toArray()),
+    [ownerId]
+  );
+  const notificationCourses = currentLiveQueryValue(notificationCoursesResult, ownerId);
+
+  useEffect(() => {
+    if (!notificationCourseToOpen) return;
+    if (notificationCourseToOpen.user_id !== ownerId) {
+      setNotificationCourseToOpen(null);
+      return;
+    }
+    if (!widgetDataReady) return;
+    const targetSemester = semesters.find((item) => item.id === notificationCourseToOpen.semester_id);
+    if (!targetSemester) {
+      showToast("这条提醒对应的学期已被删除。", "info");
+      setNotificationCourseToOpen(null);
+    } else if (semester?.id !== targetSemester.id) {
+      void activateSemester(targetSemester);
+    } else {
+      setCourseToEdit(notificationCourseToOpen);
+      setNotificationCourseToOpen(null);
+    }
+  }, [notificationCourseToOpen, ownerId, semester?.id, semesters, widgetDataReady]);
   const courseToEditForSemester = courseToEditForOwner == null
     ? courseToEditForOwner
     : courseToEditForOwner.semester_id === semester?.id
@@ -428,7 +453,8 @@ export default function App() {
     authReady,
     events: eventsQuery,
     anniversaries: anniversariesQuery,
-    todos: todosQuery
+    todos: todosQuery,
+    courses: notificationCourses
   }, {
     navigate,
     goToday,
@@ -437,6 +463,7 @@ export default function App() {
     openEvent: setEventToEdit,
     openAnniversary: setAnniversaryToOpen,
     openTodo: setTodoToOpen,
+    openCourse: setNotificationCourseToOpen,
     openAiTask: (feature) => {
       if (feature === "assistant") setShowDeepSeekAssistant(true);
       if (feature === "translation") setShowTranslation(true);
@@ -622,6 +649,10 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [ownerId]);
+
+  useEffect(() => {
+    void refreshNativeReminderSchedule(ownerId);
+  }, [ownerId, courses, schedules, cancellations, periods, semesters]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;

@@ -38,6 +38,8 @@ export interface Course extends SyncFields {
   classroom: string;
   color: string;
   note: string;
+  reminder_enabled?: boolean;
+  reminder_minutes_before?: number;
 }
 
 export interface CourseSchedule extends SyncFields {

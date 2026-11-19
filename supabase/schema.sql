@@ -53,6 +53,8 @@ create table if not exists public.courses (
   classroom text not null default '',
   color text not null default '#5b78df',
   note text not null default '',
+  reminder_enabled boolean not null default false,
+  reminder_minutes_before integer not null default 10 check (reminder_minutes_before between 0 and 10080),
   unique (id, user_id),
   foreign key (semester_id, user_id) references public.semesters(id, user_id)
 );
