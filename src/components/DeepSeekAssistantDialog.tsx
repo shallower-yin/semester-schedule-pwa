@@ -101,6 +101,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   }, [loading, messages]);
 
   async function sendMessage(text: string, baseMessages: Message[], userMessageId: string, requestAttachments: AiAssistantAttachment[] = []) {
+    if (preparingAttachment) { showToast("附件正在读取，请稍后发送。", "error"); return; }
     const effectiveAttachments = mergeAttachments(contextAttachments, requestAttachments);
     const trimmed = text.trim() || (effectiveAttachments.length ? "请识别附件中的日程信息，并创建对应事项。" : "");
     if (!trimmed || loading) return;
@@ -446,7 +447,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
                 showToast("已停止生成，可继续修改或发送新问题。", "success");
               }}><Square size={14} />停止</button>
             ) : (
-              <button className="button primary assistant-send-button" disabled={Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
+              <button className="button primary assistant-send-button" disabled={preparingAttachment || Boolean(editingMessageId) || (!question.trim() && attachments.length === 0)}><Send size={16} />发送</button>
             )}
           </div>
         </form>

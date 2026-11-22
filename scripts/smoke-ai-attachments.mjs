@@ -71,6 +71,7 @@ try {
     const dialog = page.getByRole("dialog", { name: "AI 助手", exact: true });
     await dialog.getByRole("button", { name: "导入图片或文档" }).waitFor();
     await dialog.locator('input[type="file"]').first().setInputFiles(fixture.images.map((image) => ({ name: image.name, mimeType: image.mimeType, buffer: Buffer.from(image.base64, "base64") })));
+    await page.waitForFunction((count) => document.querySelectorAll('.assistant-input .assistant-attachment-open').length === count, fixture.images.length);
     await dialog.getByRole("button", { name: "发送", exact: true }).waitFor();
     await dialog.locator("textarea.assistant-composer-textarea").fill(fixture.question);
     const responsePromise = page.waitForResponse((response) => {
@@ -82,7 +83,7 @@ try {
     const payload = await response.json();
     assert(response.ok(), `${fixture.id}: ${payload.error || `HTTP ${response.status()}`}`);
     const eventActions = payload.actions?.filter((action) => action.type === "create_event") ?? [];
-    assert.equal(eventActions.length, fixture.events.length, `${fixture.id}: real model event count`);
+    assert.equal(eventActions.length, fixture.events.length, `${fixture.id}: real model event count; response ${String(payload.answer).slice(0, 500)}`);
     await dialog.getByText(/已创建备忘录：/).waitFor({ timeout: 60_000 });
     const local = await page.evaluate(async (ownerId) => {
       const databases = await indexedDB.databases();

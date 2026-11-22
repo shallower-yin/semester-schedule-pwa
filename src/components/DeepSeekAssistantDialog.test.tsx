@@ -401,4 +401,24 @@ describe("AI 助手消息编辑", () => {
     expect(await db.memos.count()).toBe(0);
     expect(await db.syncQueue.count()).toBe(0);
   });
+
+  it("大图读取尚未完成时不能通过按钮或回车发送空附件请求", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
+    let finish!: (value: unknown) => void;
+    prepareAiAssistantAttachmentMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="large-upload-race" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "导入图片或文档" });
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(["large"], "large.png", { type: "image/png" })] } });
+    const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
+    fireEvent.change(composer, { target: { value: "按图片创建事项" } });
+    expect(screen.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
+    expect(askDeepSeekAssistantMock).not.toHaveBeenCalled();
+    await act(async () => finish({ name: "large.png", kind: "image", mimeType: "image/png", dataUrl: "data:image/png;base64,aW1n" }));
+    await screen.findByRole("button", { name: "查看附件 large.png" });
+    expect(screen.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "发送", exact: true }));
+    await waitFor(() => expect(askDeepSeekAssistantMock).toHaveBeenCalledTimes(1));
+    expect(askDeepSeekAssistantMock.mock.calls[0][4]).toEqual([expect.objectContaining({ name: "large.png" })]);
+  });
 });
