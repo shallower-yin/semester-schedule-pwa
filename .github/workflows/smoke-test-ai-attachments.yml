@@ -43,6 +43,7 @@ jobs:
       SOURCE_KEY_1: codex-smoke-source/${{ inputs.request_id }}/assistant-fixtures.json
       FIXTURES_SHA256: ${{ inputs.fixtures_sha256 }}
       EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      PLAYWRIGHT_MODULE: ${{ runner.temp }}/ai-attachment-browser/node_modules/playwright/index.mjs
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Preflight without model calls or user writes
@@ -60,8 +61,8 @@ jobs:
       - name: Install browser only after preflight
         if: steps.preflight.outputs.ready == 'true'
         run: |
-          npm install --no-save --package-lock=false playwright@1.58.2
-          npx playwright install --with-deps chromium
+          npm install --prefix "$RUNNER_TEMP/ai-attachment-browser" --no-save --package-lock=false playwright@1.58.2
+          node "$RUNNER_TEMP/ai-attachment-browser/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Verify original images through the deployed app and real model
         if: steps.preflight.outputs.ready == 'true'
         run: node scripts/smoke-ai-attachments.mjs

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { GetObjectCommand, DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { chromium } from "playwright";
+import { pathToFileURL } from "node:url";
+
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright");
 
 const env = (name) => { const value = process.env[name]?.trim(); if (!value) throw new Error(`Missing ${name}`); return value; };
 const base = env("SUPABASE_URL").replace(/\/$/, "");
