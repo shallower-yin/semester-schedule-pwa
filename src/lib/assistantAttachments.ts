@@ -333,8 +333,10 @@ export async function processAiRemoteDocumentAttachments(attachments: AiAssistan
   onProgress?: (completed: number, total: number) => void;
   onUpdate?: (attachments: AiAssistantAttachment[]) => void;
 } = {}): Promise<AiAssistantAttachment[]> {
-  if (!supabase) throw new Error("云端服务未配置，暂时无法读取长篇扫描 PDF。");
   const working = attachments.map(cloneAttachment);
+  options.signal?.throwIfAborted();
+  if (!working.some((attachment) => attachment.remotePages?.length || attachment.pendingTextBatches?.length)) return working;
+  if (!supabase) throw new Error("云端服务未配置，暂时无法读取长篇扫描 PDF。");
   const totals = working.map((attachment) => attachmentProgress(attachment));
   const total = totals.reduce((sum, value) => sum + value.total, 0);
   let completed = totals.reduce((sum, value) => sum + value.completed, 0);
