@@ -174,3 +174,17 @@ Deno.test("格式兼容不会把数字日期或重复行号悄悄当成正确任
     ...plan, rows: plan.rows.map((row, index) => index === 1 ? { ...row, sourceIndex: "1", rowIndex: "1" } : row)
   }), question, 3, now), Error, "遗漏或重复");
 });
+
+Deno.test("线上原图返回的无年份跨年说明按既定年份规则处理，不阻止14个事项创建", () => {
+  const plan = studyPlan();
+  plan.uncertainties = ["附件中日期均未标注年份，已按无年份的 MM-DD 格式提取；12-28 至 01-03、01-04 至 01-08、01-09 至 01-12 跨年区间请确认是否为 12-28 至 01-03 等跨年日期。"];
+  const result = parseAttachmentSchedule(JSON.stringify(plan), question, 3, now);
+  const events = result.actions.filter((action) => action.type === "create_event");
+  assertEquals(events.length, 14);
+  assertEquals(events[11].endDate, "2027-01-03");
+  assertEquals(events[13].endDate, "2027-01-12");
+  plan.uncertainties.push("第三张图第二行的日期看不清");
+  assertThrows(() => parseAttachmentSchedule(JSON.stringify(plan), question, 3, now), Error, "看不清");
+  plan.uncertainties = ["没有年份，日期也看不清"];
+  assertThrows(() => parseAttachmentSchedule(JSON.stringify(plan), question, 3, now), Error, "看不清");
+});

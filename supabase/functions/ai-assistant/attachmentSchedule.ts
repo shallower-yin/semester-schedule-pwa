@@ -22,6 +22,7 @@ export function attachmentScheduleInstructions(attachmentCount: number, now: str
     "先数出每份附件的日期行数，再逐行提取，sourceRowCounts 与 rows 数量必须相同。不是日程的附件填 count=0。rowIndex 在每份附件中从 1 连续递增。",
     "按用户要求映射各列；默认第一列是日期，第二列是任务标题，第三列是 details（具体内容），第四列是 outcome（预期成果）。没有表格时每个独立活动提取为一行；没有相应内容的单元格填空字符串。完整保留正文，不要摘要、漏项或改写公式和章节编号。",
     "startDate/endDate 只来自对应行的日期列；有年份用 YYYY-MM-DD，没有年份用 MM-DD，不得拿论文年份、文件名或研究年份作日期年份。跨月、跨年都保留原来的起止月日，单日的两者相同。",
+    "没有标注年份是正常输入，不属于识别疑问：应用以当前北京时间所在年作为计划起始年，按任务顺序遇到12月至1月会自动顺延到次年。12-28至01-03明确表示跨年区间，不需要用户确认年份，也不能将缺少年份或正常跨年写入uncertainties。",
     "日期范围表示任务阶段，保留整个阶段，不能只保留第一天。不要编造小时；确有时刻才写 startTime/endTime（HH:mm），否则写 null。",
     "图片明确给出的活动地点填写 location；没有则空字符串。没有日期的任务不要猜测今天或明天，将所需的日期信息写入 uncertainties，应用会向用户询问。",
     "用户明确要求全天时保留日期区间，应用会设为全天。用户要求不用提醒时绝不能开启提醒。",
@@ -110,7 +111,8 @@ export function parseAttachmentSchedule(content: string, question: string, attac
     fail("表格提取结果不完整，请重试。");
   }
   const rawUncertainties = parsed.uncertainties == null ? [] : Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [parsed.uncertainties];
-  const uncertainties = rawUncertainties.map((item, index) => text(item, 500, "识别疑问", `uncertainties[${index}]`)).filter(Boolean);
+  const uncertainties = rawUncertainties.map((item, index) => text(item, 500, "识别疑问", `uncertainties[${index}]`))
+    .filter((message) => message && !isResolvableYearNotice(message));
   if (uncertainties.length) fail(uncertainties.join("；"), { field: "uncertainties", issue: "uncertain_source" });
   if (!Array.isArray(parsed.rows) || !parsed.rows.length || parsed.rows.length > MAX_ATTACHMENT_SCHEDULE_ROWS || !Array.isArray(parsed.sourceRowCounts)) {
     fail(`未提取到完整任务，或任务超过 ${MAX_ATTACHMENT_SCHEDULE_ROWS} 行，请核对附件或分批导入。`);
@@ -218,4 +220,12 @@ export function parseAttachmentSchedule(content: string, question: string, attac
   actions.push(...[...new Set(folderNames.filter(Boolean))].map((name) => ({ type: "create_memo_folder" as const, name })));
   if (memoAction) actions.push(memoAction);
   return { answer: "已提取附件中的任务。", actions };
+}
+
+function isResolvableYearNotice(message: string): boolean {
+  const missingYear = /(未.{0,4}(标注|注明|提供|给出|指定).{0,3}年份|未标年份|没有.{0,4}年份|缺少.{0,3}年份|无年份|年份未)/.test(message);
+  // Numeric month/day validity and ordering are still validated below. Only a
+  // missing year is deterministic; unreadable, contradictory or missing dates
+  // must continue to stop the import.
+  return missingYear && !/(看不清|不清晰|模糊|辨认|无法识别|日期缺失|缺少日期|月份不明|日期不明|冲突|矛盾)/.test(message);
 }
