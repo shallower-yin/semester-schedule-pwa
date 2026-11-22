@@ -1125,8 +1125,10 @@ export default function App() {
         <div className="mobile-sidebar-backdrop" onClick={requestSidebarClose}>
           <aside className="mobile-sidebar" onClick={(event) => event.stopPropagation()}>
             <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={requestSidebarClose}><X /></button></div>
-            <nav>{renderNavigation(navItems)}</nav>
-            <button className="mobile-ai-toolbox-entry" onClick={() => { setShowOtp(true); setSidebarOpen(false); }}><KeyRound size={18} />身份验证器<ChevronRight size={17} /></button>
+            <nav>
+              {renderNavigation(navItems)}
+              <button onClick={() => { setShowOtp(true); setSidebarOpen(false); }}><KeyRound size={18} />身份验证器</button>
+            </nav>
             <button className="mobile-ai-toolbox-entry" onClick={() => { setShowAiToolbox(true); setSidebarOpen(false); }}><Sparkles size={18} />AI 工具箱<ChevronRight size={17} /></button>
           </aside>
         </div>
