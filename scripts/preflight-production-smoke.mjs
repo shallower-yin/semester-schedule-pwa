@@ -64,6 +64,17 @@ async function verifyPublicAiConfiguration() {
     },
     body: JSON.stringify({ action: "configuration" })
   });
+  if (response.status === 401) {
+    // The deployed handler requires a real user session. Check its read-only
+    // configuration RPC with service credentials before creating any test user.
+    const runtime = await fetch(`${env("SUPABASE_URL").replace(/\/$/, "")}/rest/v1/rpc/get_ai_runtime_settings`, {
+      method: "POST", headers: { ...serviceHeaders(), "content-type": "application/json" }, body: "{}"
+    });
+    if (!runtime.ok) throw new PreflightError(`AI 运行配置不可用（HTTP ${runtime.status}）`);
+    const settings = await runtime.json();
+    if (!settings || typeof settings !== "object") throw new PreflightError("AI 运行配置为空");
+    return;
+  }
   if (!response.ok) throw new PreflightError(`AI 配置端点不可用（HTTP ${response.status}）`);
 }
 

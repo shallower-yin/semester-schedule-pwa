@@ -31,10 +31,12 @@ afterEach(async () => {
 });
 
 describe("production smoke preflight", () => {
-  it.each(["ready", "stale", "version"])("原图验证预检在%s条件下只读检查，缺素材或版本不符不启动模型", async (mode) => {
+  it.each(["ready", "authenticated", "stale", "version"])("原图验证预检在%s条件下只读检查，缺素材或版本不符不启动模型", async (mode) => {
     const calls: string[] = [];
     const server = createServer((request, response) => {
       calls.push(`${request.method} ${request.url}`);
+      if (mode === "authenticated" && request.url === "/functions/v1/ai-assistant") { response.writeHead(401); response.end(); return; }
+      if (request.url === "/rest/v1/rpc/get_ai_runtime_settings") { response.writeHead(200, { "content-type": "application/json" }); response.end('{"provider":"mimo","model":"mimo-v2.6-pro"}'); return; }
       if (request.method === "HEAD") {
         response.writeHead(200, { "content-length": "24482348", "last-modified": new Date(Date.now() - (mode === "stale" ? 3 * 3600_000 : 0)).toUTCString() }); response.end(); return;
       }
@@ -49,8 +51,8 @@ describe("production smoke preflight", () => {
       SOURCE_KEY_1: "codex-smoke-source/request-12345/assistant-fixtures.json", FIXTURES_SHA256: "a".repeat(64), EXPECTED_COMMIT: "abcdef0"
     });
     expect(result.code, JSON.stringify(result)).toBe(0);
-    expect(result.stdout).toContain(`{"ready":"${mode === "ready"}"}`);
-    expect(calls.filter((value) => value.startsWith("POST"))).toEqual(["POST /functions/v1/ai-assistant"]);
+    expect(result.stdout).toContain(`{"ready":"${mode === "ready" || mode === "authenticated"}"}`);
+    expect(calls.filter((value) => value.startsWith("POST"))).toEqual(mode === "authenticated" ? ["POST /functions/v1/ai-assistant", "POST /rest/v1/rpc/get_ai_runtime_settings"] : ["POST /functions/v1/ai-assistant"]);
   });
 
   it("skips missing prerequisites without creating a failed process", async () => {
