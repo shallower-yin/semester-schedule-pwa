@@ -411,13 +411,13 @@ describe("AI 助手消息编辑", () => {
     fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(["large"], "large.png", { type: "image/png" })] } });
     const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
     fireEvent.change(composer, { target: { value: "按图片创建事项" } });
-    expect(screen.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^发送$/ })).toBeDisabled();
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
     expect(askDeepSeekAssistantMock).not.toHaveBeenCalled();
     await act(async () => finish({ name: "large.png", kind: "image", mimeType: "image/png", dataUrl: "data:image/png;base64,aW1n" }));
     await screen.findByRole("button", { name: "查看附件 large.png" });
-    expect(screen.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "发送", exact: true }));
+    expect(screen.getByRole("button", { name: /^发送$/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /^发送$/ }));
     await waitFor(() => expect(askDeepSeekAssistantMock).toHaveBeenCalledTimes(1));
     expect(askDeepSeekAssistantMock.mock.calls[0][4]).toEqual([expect.objectContaining({ name: "large.png" })]);
   });
