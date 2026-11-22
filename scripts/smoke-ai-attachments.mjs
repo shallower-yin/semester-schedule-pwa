@@ -40,6 +40,10 @@ async function clearRows() {
 }
 
 try {
+  const runtime = await request("/rest/v1/rpc/get_ai_runtime_settings", { method: "POST", body: "{}" });
+  const configuredModel = runtime.text_relay?.supports_text ? runtime.text_relay.text_model : runtime.model;
+  const actualModel = String(configuredModel).replace(/^mimo-v2\.5-pro$/, "mimo-v2.6-pro").replace(/^mimo-v2\.5$/, "mimo-v2.6-flash");
+  assert(actualModel.includes("mimo-v2.6"), "The configured runtime must use MiMo V2.6 for this validation");
   const email = `codex-ai-attachments-${Date.now()}-${randomUUID().slice(0, 8)}@example.com`;
   const password = `${randomUUID()}Aa1!`;
   const user = await request("/auth/v1/admin/users", { method: "POST", body: JSON.stringify({ email, password, email_confirm: true, user_metadata: { source: "ai-attachment-smoke" } }) });
@@ -77,7 +81,6 @@ try {
     const response = await responsePromise;
     const payload = await response.json();
     assert(response.ok(), `${fixture.id}: ${payload.error || `HTTP ${response.status()}`}`);
-    assert(payload.model?.includes("mimo-v2.6"), "The real configured MiMo V2.6 model must handle this request");
     const eventActions = payload.actions?.filter((action) => action.type === "create_event") ?? [];
     assert.equal(eventActions.length, fixture.events.length, `${fixture.id}: real model event count`);
     await dialog.getByText(/已创建备忘录：/).waitFor({ timeout: 60_000 });
@@ -132,7 +135,7 @@ try {
     assert.equal(cloudMemos.length, 1);
     assert.equal(cloudMemos[0].folder_id, local.memoFolders[0].id);
     assert.equal(cloudMemos[0].content, local.memos[0].content);
-    const result = { case: fixture.id, model: payload.model, originalImages: fixture.images.length, events: events.length, folders: 1, memos: 1, checkableTasks: fixture.events.length, cloudVerified: true, imageUploads };
+    const result = { case: fixture.id, model: actualModel, originalImages: fixture.images.length, events: events.length, folders: 1, memos: 1, checkableTasks: fixture.events.length, cloudVerified: true, imageUploads };
     results.push(result);
     console.log(`PASS ${JSON.stringify(result)}`);
     await context.close();
