@@ -24,6 +24,8 @@ await configure("CORS", new PutBucketCorsCommand({
       AllowedMethods: ["GET", "HEAD", "PUT"],
       AllowedOrigins: [
         "https://schedule.nfsg.eu.cc",
+        "https://shallower-yin.github.io",
+        "https://haifsnaupqhlvgfoyvlc.supabase.co",
         // Capacitor Android WebView serves the app from https://localhost; iOS uses capacitor://localhost.
         // Without these, direct R2 uploads (audio transcription, long PDF) fail in the APK with a CORS
         // "Failed to fetch" even though they work in the browser PWA.
