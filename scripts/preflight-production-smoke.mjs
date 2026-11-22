@@ -28,12 +28,15 @@ if (missingNames.length > 0) {
     if (smokeKind === "ai-attachments") {
       if (!/^codex-smoke-source\/[a-zA-Z0-9_-]{8,80}\/assistant-fixtures\.json$/.test(env("SOURCE_KEY_1"))) throw new PreflightError("原图素材不属于本次验证请求");
       if (!/^[a-f0-9]{64}$/.test(env("FIXTURES_SHA256"))) throw new PreflightError("缺少原图素材校验值");
-      const source = await headR2Object(env("SOURCE_KEY_1"));
+      // Some R2 gateways omit Content-Length on HEAD. Read one signed byte;
+      // the full private bundle checksum is checked before creating a test user.
+      const source = await headR2Object(env("SOURCE_KEY_1"), "GET");
       const age = Date.now() - new Date(source.headers.get("last-modified") || "").getTime();
       if (!source.ok) throw new PreflightError(`原图素材读取失败（HTTP ${source.status}）`);
       if (Number(source.headers.get("content-length")) <= 0) throw new PreflightError("原图素材为空");
       if (!Number.isFinite(age)) throw new PreflightError("原图素材缺少上传时间");
       if (age > 120 * 60_000) throw new PreflightError(`原图素材已超过有效期（${Math.floor(age / 60_000)} 分钟）`);
+      await source.body?.cancel();
       const release = await fetch(new URL("release.json", env("APP_URL"))).then((response) => response.json());
       if (release.commit !== env("EXPECTED_COMMIT") && release.commit !== env("EXPECTED_COMMIT").slice(0, 7)) throw new PreflightError("线上版本尚未更新到待验证提交");
     }
@@ -117,7 +120,7 @@ async function verifyR2Access() {
   throw new PreflightError(`R2 鉴权不可用（HTTP ${response.status}）`);
 }
 
-async function headR2Object(objectKey) {
+async function headR2Object(objectKey, method = "HEAD") {
   const endpoint = new URL(env("R2_ENDPOINT"));
   const pathParts = [
     ...endpoint.pathname.split("/").filter(Boolean),
@@ -140,7 +143,7 @@ async function headR2Object(objectKey) {
   ].join("\n");
   const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
   const canonicalRequest = [
-    "HEAD",
+    method,
     canonicalUri,
     "",
     canonicalHeaders,
@@ -161,11 +164,12 @@ async function headR2Object(objectKey) {
   const signature = hmac(signingKey, stringToSign).toString("hex");
 
   return fetch(endpoint, {
-    method: "HEAD",
+    method,
     headers: {
       authorization: `AWS4-HMAC-SHA256 Credential=${env("R2_ACCESS_KEY_ID")}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
       "x-amz-content-sha256": payloadHash,
       "x-amz-date": amzDate
+      ,...(method === "GET" ? { range: "bytes=0-0" } : {})
     }
   });
 }

@@ -37,8 +37,8 @@ describe("production smoke preflight", () => {
       calls.push(`${request.method} ${request.url}`);
       if (mode === "authenticated" && request.url === "/functions/v1/ai-assistant") { response.writeHead(401); response.end(); return; }
       if (request.url === "/rest/v1/rpc/get_ai_runtime_settings") { response.writeHead(200, { "content-type": "application/json" }); response.end('{"provider":"mimo","model":"mimo-v2.6-pro"}'); return; }
-      if (request.method === "HEAD") {
-        response.writeHead(200, { "content-length": "24482348", "last-modified": new Date(Date.now() - (mode === "stale" ? 3 * 3600_000 : 0)).toUTCString() }); response.end(); return;
+      if (request.headers.range === "bytes=0-0") {
+        response.writeHead(206, { "content-length": "1", "content-range": "bytes 0-0/24482348", "last-modified": new Date(Date.now() - (mode === "stale" ? 3 * 3600_000 : 0)).toUTCString() }); response.end("x"); return;
       }
       response.writeHead(200, { "content-type": "application/json" });
       response.end(request.url === "/release.json" ? JSON.stringify({ commit: mode === "version" ? "old-sha" : "abcdef0" }) : request.url?.includes("admin/users") ? '{"users":[]}' : '{"supportsAttachments":true}');
