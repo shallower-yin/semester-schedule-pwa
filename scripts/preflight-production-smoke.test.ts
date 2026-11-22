@@ -16,6 +16,9 @@ const relevantEnvironment = [
   "SOURCE_KEY_1",
   "SOURCE_KEY_2",
   "SMOKE_PAGE_COUNT",
+  "FIXTURES_SHA256",
+  "EXPECTED_COMMIT",
+  "APP_URL",
   "GITHUB_OUTPUT",
   "GITHUB_STEP_SUMMARY"
 ];
@@ -28,6 +31,28 @@ afterEach(async () => {
 });
 
 describe("production smoke preflight", () => {
+  it.each(["ready", "stale", "version"])("原图验证预检在%s条件下只读检查，缺素材或版本不符不启动模型", async (mode) => {
+    const calls: string[] = [];
+    const server = createServer((request, response) => {
+      calls.push(`${request.method} ${request.url}`);
+      if (request.method === "HEAD") {
+        response.writeHead(200, { "content-length": "24482348", "last-modified": new Date(Date.now() - (mode === "stale" ? 3 * 3600_000 : 0)).toUTCString() }); response.end(); return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(request.url === "/release.json" ? JSON.stringify({ commit: mode === "version" ? "old-sha" : "abcdef0" }) : request.url?.includes("admin/users") ? '{"users":[]}' : '{"supportsAttachments":true}');
+    });
+    servers.push(server);
+    const endpoint = `http://127.0.0.1:${await listen(server)}`;
+    const result = await runPreflight({
+      SMOKE_KIND: "ai-attachments", SUPABASE_URL: endpoint, APP_URL: `${endpoint}/`, PUBLISHABLE_KEY: "public-test", SERVICE_ROLE_KEY: "service-test",
+      R2_ENDPOINT: endpoint, R2_BUCKET: "smoke", R2_ACCESS_KEY_ID: "access-test", R2_SECRET_ACCESS_KEY: "secret-test",
+      SOURCE_KEY_1: "codex-smoke-source/request-12345/assistant-fixtures.json", FIXTURES_SHA256: "a".repeat(64), EXPECTED_COMMIT: "abcdef0"
+    });
+    expect(result.code, JSON.stringify(result)).toBe(0);
+    expect(result.stdout).toContain(`{"ready":"${mode === "ready"}"}`);
+    expect(calls.filter((value) => value.startsWith("POST"))).toEqual(["POST /functions/v1/ai-assistant"]);
+  });
+
   it("skips missing prerequisites without creating a failed process", async () => {
     const result = await runPreflight({ SMOKE_KIND: "audio" });
 

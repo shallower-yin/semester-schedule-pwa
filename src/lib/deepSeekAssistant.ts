@@ -4,7 +4,7 @@ import { addDays, courseScheduleOccursOn, eventOccursOn, parseLocalDate, startOf
 import { eventCompletionForDate } from "./eventCompletion";
 import { focusDailyTotals } from "./focus";
 import type { AnniversaryCalendarType, AnniversaryKind, EventRecurrenceType } from "../types";
-import type { AiAssistantAttachment } from "./assistantAttachments";
+import { withUploadedAiImages, type AiAssistantAttachment } from "./assistantAttachments";
 import { aiModelSupportsAttachments, defaultAiModel, type AiProvider, type AudioProvider } from "./aiModels";
 
 export interface DeepSeekAssistantResult {
@@ -360,16 +360,16 @@ export async function askDeepSeekAssistant(
   signal?.throwIfAborted();
   if (!supabase) throw new Error("云端服务未配置，暂时无法使用 AI 助手。");
   const client = supabase;
-  const { data, error } = await invokeFunctionWithTransientRetry(() => client.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
+  const { data, error } = await withUploadedAiImages(attachments?.slice(0, 3) ?? [], { accessCode, signal }, (wireAttachments) => invokeFunctionWithTransientRetry(() => client.functions.invoke<DeepSeekAssistantResult>("ai-assistant", {
       signal,
       body: {
         question,
         scheduleContext: context,
         accessCode: accessCode || undefined,
         history: history?.slice(-10),
-        attachments: attachments?.slice(0, 3)
+        attachments: wireAttachments
       }
-    }), 2, signal);
+    }), 2, signal));
   if (error) {
     throw new Error(await functionErrorMessage(error));
   }

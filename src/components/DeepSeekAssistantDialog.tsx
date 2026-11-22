@@ -1,7 +1,7 @@
 import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Sparkles, Square, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { db } from "../db";
-import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
+import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, processAiRemoteDocumentAttachments, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { extractClipboardFiles } from "../lib/clipboardFiles";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
@@ -132,7 +132,11 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         const memoFolders = await db.memoFolders.filter((folder) => folder.user_id === ownerId && !folder.deleted_at).sortBy("sort_order");
         signal.throwIfAborted();
         const requestContext = buildDeepSeekScheduleContext({ ...input, memoFolders }, trimmed);
-        const result = await askDeepSeekAssistant(trimmed, requestContext, accessCode.trim(), history, effectiveAttachments, signal);
+        const processed = await processAiRemoteDocumentAttachments(effectiveAttachments, {
+          accessCode: accessCode.trim(), signal,
+          onUpdate: (working) => { setContextAttachments(working); void saveAttachmentContext(ownerId, working); }
+        });
+        const result = await askDeepSeekAssistant(trimmed, requestContext, accessCode.trim(), history, processed, signal);
         signal.throwIfAborted();
         const actionResults = await applyActionsToLocalRecords(result.actions ?? [], trimmed, ownerId, signal);
         return {
@@ -163,7 +167,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         const next = [...messagesWithQuestion, {
           id: `e-${Date.now()}`,
           role: "assistant" as const,
-          content: `暂时不能使用 AI 助手：${error.message}`
+          content: error.message.startsWith("未导入任何记录：") ? error.message : `暂时不能使用 AI 助手：${error.message}`
         }];
         saveAssistantHistory(ownerId, next);
         setMessages(next);
@@ -531,14 +535,21 @@ function messageBody(message: Message): string {
 }
 
 function AssistantAttachmentPreview({ attachment, onClose }: { attachment: AiAssistantAttachment; onClose: () => void }) {
+  const [originalUrl, setOriginalUrl] = useState("");
+  useEffect(() => {
+    if (!attachment.imageBlob) return;
+    const url = URL.createObjectURL(attachment.imageBlob);
+    setOriginalUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [attachment.imageBlob]);
   const images = useMemo(() => {
-    const urls = attachment.kind === "image" && attachment.dataUrl ? [attachment.dataUrl] : attachment.pageImages ?? [];
+    const urls = attachment.kind === "image" && (originalUrl || attachment.dataUrl) ? [originalUrl || attachment.dataUrl!] : attachment.pageImages ?? [];
     return urls.map((url, index) => ({
       id: `${attachment.id ?? attachment.name}-${index}`,
       name: urls.length > 1 ? `${attachment.name} · 第 ${index + 1} 页` : attachment.name,
       url
     }));
-  }, [attachment]);
+  }, [attachment, originalUrl]);
   if (images.length) return <MemoImagePreview images={images} initialIndex={0} onClose={onClose} />;
   const text = attachment.pendingTextBatches?.length
     ? attachment.pendingTextBatches.map((batch) => batch.text).join("\n\n")

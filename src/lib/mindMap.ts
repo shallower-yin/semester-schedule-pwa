@@ -1,4 +1,4 @@
-import { processAiRemoteDocumentAttachments, type AiAssistantAttachment } from "./assistantAttachments";
+import { processAiRemoteDocumentAttachments, withUploadedAiImages, type AiAssistantAttachment } from "./assistantAttachments";
 import { canvasToPngBlob, exportBlob, type ExportedFile } from "./fileExport";
 import { supabase } from "./supabase";
 
@@ -80,17 +80,18 @@ export async function askAiMindMap(input: {
     onUpdate: input.onAttachmentsProcessed
   });
   input.onAttachmentsProcessed?.(processedAttachments);
-  const { data, error } = await supabase.functions.invoke<AiMindMapResult>("ai-assistant", {
+  const client = supabase;
+  const { data, error } = await withUploadedAiImages(processedAttachments, { accessCode: input.accessCode, signal: input.signal, feature: "mind_map" }, (wireAttachments) => client.functions.invoke<AiMindMapResult>("ai-assistant", {
     signal: input.signal,
     body: {
       mode: "mind_map",
       question: input.prompt.trim(),
       scheduleContext: input.context,
       accessCode: input.accessCode?.trim() || undefined,
-      attachments: processedAttachments,
+      attachments: wireAttachments,
       mindMapDepth: input.depth ?? "standard"
     }
-  });
+  }));
   if (!error && data?.mindMap?.label) {
     return { ...data, processedAttachments: processedAttachments.map(clearProcessingUsage) };
   }
@@ -109,17 +110,18 @@ export async function askAiMindMapFollowup(input: {
   signal?: AbortSignal;
 }): Promise<AiMindMapFollowupResult> {
   if (!supabase) throw new Error("云端服务未配置，暂时无法追问思维导图。");
-  const { data, error } = await supabase.functions.invoke<AiMindMapFollowupResult>("ai-assistant", {
+  const client = supabase;
+  const { data, error } = await withUploadedAiImages(input.attachments?.slice(0, 3) ?? [], { accessCode: input.accessCode, signal: input.signal, feature: "mind_map" }, (wireAttachments) => client.functions.invoke<AiMindMapFollowupResult>("ai-assistant", {
     signal: input.signal,
     body: {
       mode: "mind_map_followup",
       question: input.question.trim(),
       mindMap: input.mindMap,
       accessCode: input.accessCode?.trim() || undefined,
-      attachments: input.attachments?.slice(0, 3),
+      attachments: wireAttachments,
       history: input.history?.slice(-6)
     }
-  });
+  }));
   if (!error && data?.answer?.trim()) return data;
   throw new Error(error ? await mindMapFunctionError(error) : "AI 没有返回有效回答。");
 }

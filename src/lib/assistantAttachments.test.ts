@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getDocumentMock, invokeMock } = vi.hoisted(() => ({ getDocumentMock: vi.fn(), invokeMock: vi.fn() }));
 
@@ -11,12 +11,67 @@ vi.mock("pdfjs-dist", () => ({
 
 vi.mock("pdfjs-dist/build/pdf.worker.mjs?url", () => ({ default: "pdf.worker.mjs" }));
 
-import { prepareAiAssistantAttachment, processAiRemoteDocumentAttachments } from "./assistantAttachments";
+import { prepareAiAssistantAttachment, processAiRemoteDocumentAttachments, withUploadedAiImages } from "./assistantAttachments";
 
 describe("AI 助手附件", () => {
   beforeEach(() => {
     getDocumentMock.mockReset();
     invokeMock.mockReset();
+  });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it("超过旧6MB门槛的图片保留原文件，生成预览并使用二进制上传", async () => {
+    const close = vi.fn();
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue({ width: 6000, height: 4000, close }));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => callback(new Blob(["preview"], { type: "image/jpeg" })));
+    const file = new File([new Uint8Array(7 * 1024 * 1024)], "large.png", { type: "image/png" });
+    const attachment = await prepareAiAssistantAttachment(file);
+    expect(attachment.imageBlob).toBe(file);
+    expect(attachment.dataUrl).toMatch(/^data:image\/jpeg/);
+    expect(attachment.kind).toBe("image");
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("图片原始体积超过50MB时自动适配而不是拒绝上传", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue({ width: 9000, height: 9000, close: vi.fn() }));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => callback(new Blob(["adapted"], { type: "image/jpeg" })));
+    const file = new File(["source"], "huge.png", { type: "image/png" });
+    Object.defineProperty(file, "size", { value: 80 * 1024 * 1024 });
+    const attachment = await prepareAiAssistantAttachment(file);
+    expect(attachment.imageBlob?.type).toBe("image/jpeg");
+    expect(attachment.imageBlob!.size).toBeLessThanOrEqual(50 * 1024 * 1024);
+  });
+
+  it("文档50MB边界一致，长文本分批保存到末尾而不静默截断", async () => {
+    const text = "文".repeat(50_000) + "末尾不得丢失";
+    const file = new File(["text"], "notes.txt", { type: "text/plain" });
+    Object.defineProperty(file, "size", { value: 50 * 1024 * 1024, configurable: true });
+    Object.defineProperty(file, "text", { value: async () => text });
+    const attachment = await prepareAiAssistantAttachment(file);
+    expect(attachment.pendingTextBatches?.map((part) => part.text).join("")).toBe(text);
+    Object.defineProperty(file, "size", { value: 50 * 1024 * 1024 + 1 });
+    await expect(prepareAiAssistantAttachment(file)).rejects.toThrow("50 MB");
+    const pdf = new File(["pdf"], "paper.pdf", { type: "application/pdf" });
+    Object.defineProperty(pdf, "size", { value: 50 * 1024 * 1024 + 1 });
+    await expect(prepareAiAssistantAttachment(pdf)).rejects.toThrow("50 MB");
+  });
+
+  it.each([true, false])("大图上传后成功=%s均清理临时对象，不把原始Blob塞入JSON请求", async (success) => {
+    invokeMock.mockImplementation(async (_name, options) => options.body.action === "create_image_upload"
+      ? { data: { objectKey: "ai-images/owner/image.png", uploadUrl: "https://uploads.invalid/image" }, error: null }
+      : { data: { ok: true }, error: null });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const original = { name: "image.png", mimeType: "image/png", kind: "image" as const, imageBlob: new Blob(["original"], { type: "image/png" }), dataUrl: "data:image/jpeg;base64,cHJldmlldw==" };
+    const run = vi.fn(async (wire) => { expect(wire[0].imageBlob).toBeUndefined(); expect(wire[0].imageObjectKey).toBe("ai-images/owner/image.png"); if (!success) throw new Error("model failed"); return "done"; });
+    const result = withUploadedAiImages([original], {}, run);
+    if (success) expect(await result).toBe("done");
+    else await expect(result).rejects.toThrow("model failed");
+    expect(fetchMock).toHaveBeenCalledWith("https://uploads.invalid/image", expect.objectContaining({ method: "PUT", body: original.imageBlob }));
+    expect(invokeMock).toHaveBeenLastCalledWith("ai-assistant", expect.objectContaining({ body: { action: "delete_image_upload", image: { objectKey: "ai-images/owner/image.png" } } }));
+    expect(original.imageBlob.size).toBe(8);
   });
 
   it("按扩展名识别移动端返回的空 MIME 图片", async () => {

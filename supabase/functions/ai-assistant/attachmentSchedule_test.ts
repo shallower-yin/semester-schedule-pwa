@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes, assertThrows } from "jsr:@std/assert@1";
 import { parseAttachmentSchedule, wantsAttachmentSchedule } from "./attachmentSchedule.ts";
+import { DiagnosticError } from "./requestContext.ts";
 
 const question = "帮我记录到全天事项里面，不用提醒，第三四列放到备注里面，同时创建新的文件夹，命名毕设，然后创建一个备忘录开题前准备，里面放上这些要干的事情，列表编号用待办，可勾选完成的那种";
 const now = new Date("2026-11-22T03:00:00+08:00");
@@ -102,4 +103,74 @@ Deno.test("提问、修正已有事项和单独写备忘录不会进入附件创
   assertEquals(wantsAttachmentSchedule("把附件整理成备忘录", 3), false);
   assertEquals(wantsAttachmentSchedule("创建每天重复的习惯事项", 3), false);
   assertEquals(wantsAttachmentSchedule(question, 0), false);
+});
+
+Deno.test("模型把单元格输出成分行数组或文字对象时仍导入全部14行", () => {
+  const original = studyPlan();
+  const normalized = parseAttachmentSchedule(JSON.stringify(original), question, 3, now);
+  const variant = {
+    ...original,
+    sourceRowCounts: original.sourceRowCounts.map(({ sourceIndex, count }) => ({ sourceIndex: String(sourceIndex), count: String(count) })),
+    rows: original.rows.map((row) => ({
+      ...row,
+      sourceIndex: String(row.sourceIndex), rowIndex: String(row.rowIndex),
+      startDate: { value: row.startDate }, endDate: { text: row.endDate },
+      title: { text: row.title }, details: [{ text: row.details }], outcome: [row.outcome]
+    })),
+    folderNames: [{ name: "毕设" }],
+    memoRequest: { title: { text: "开题前准备" }, folderName: { name: "毕设" }, format: "checklist" }
+  };
+  assertEquals(parseAttachmentSchedule(JSON.stringify(variant), question, 3, now), normalized);
+});
+
+Deno.test("多行单元格完整保留，空白单元格的null不会阻止创建", () => {
+  const original = studyPlan();
+  const variant = {
+    ...original,
+    rows: original.rows.map((row, index) => index === 0
+      ? { ...row, details: ["第2.1节：机构组成", { text: "第2.2节：公式(1)～(7)" }], outcome: { content: "解释位姿和支链长度" } }
+      : index === 1 ? { ...row, outcome: null } : row)
+  };
+  const events = parseAttachmentSchedule(JSON.stringify(variant), question, 3, now).actions.filter((action) => action.type === "create_event");
+  assertEquals(events.length, 14);
+  assertEquals(events[0].note, "具体内容：第2.1节：机构组成\n第2.2节：公式(1)～(7)\n预期成果：解释位姿和支链长度");
+  assertStringIncludes(events[1].note!, original.rows[1].details);
+});
+
+Deno.test("未知文字结构提示具体字段，不再误报内容太长要求分批", () => {
+  const plan = studyPlan();
+  const error = assertThrows(() => parseAttachmentSchedule(JSON.stringify({
+    ...plan, rows: plan.rows.map((row, index) => index === 0 ? { ...row, title: { unexpected: "任务" } } : row)
+  }), question, 3, now), Error);
+  assertStringIncludes(error.message, "第 1 份附件第 1 行的标题");
+  assertEquals(error.message.includes("分批"), false);
+  assertEquals(error.message.includes("过长"), false);
+  assertEquals((error as DiagnosticError).details, { stage: "attachment_schedule_validation", field: "rows[0].title", issue: "text_format", receivedType: "object" });
+});
+
+Deno.test("真正超长时指出具体字段和长度限制", () => {
+  const plan = studyPlan();
+  plan.rows[0].details = "内".repeat(10_001);
+  const error = assertThrows(() => parseAttachmentSchedule(JSON.stringify(plan), question, 3, now), Error);
+  assertStringIncludes(error.message, "第 1 份附件第 1 行的具体内容");
+  assertStringIncludes(error.message, "10000");
+});
+
+Deno.test("结构化识别疑问保留具体原因，不会伪装成文件过大", () => {
+  const plan = studyPlan();
+  const error = assertThrows(() => parseAttachmentSchedule(JSON.stringify({
+    ...plan, uncertainties: [{ sourceIndex: 3, rowIndex: 2, message: "第三张图第二行的日期看不清" }]
+  }), question, 3, now), Error);
+  assertStringIncludes(error.message, "第三张图第二行的日期看不清");
+  assertEquals(error.message.includes("过长"), false);
+});
+
+Deno.test("格式兼容不会把数字日期或重复行号悄悄当成正确任务", () => {
+  const plan = studyPlan();
+  assertThrows(() => parseAttachmentSchedule(JSON.stringify({
+    ...plan, rows: plan.rows.map((row, index) => index === 0 ? { ...row, startDate: { value: 11.22 } } : row)
+  }), question, 3, now), Error, "开始日期");
+  assertThrows(() => parseAttachmentSchedule(JSON.stringify({
+    ...plan, rows: plan.rows.map((row, index) => index === 1 ? { ...row, sourceIndex: "1", rowIndex: "1" } : row)
+  }), question, 3, now), Error, "遗漏或重复");
 });

@@ -9,6 +9,11 @@ on:
       rsa_public_key_base64:
         description: One-use RSA public PEM encoded as base64
         required: true
+      fixture_kind:
+        description: Temporary source fixture type
+        type: choice
+        default: audio
+        options: [audio, assistant]
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ jobs:
     env:
       REQUEST_ID: ${{ inputs.request_id }}
       RSA_PUBLIC_KEY_BASE64: ${{ inputs.rsa_public_key_base64 }}
+      FIXTURE_KIND: ${{ inputs.fixture_kind }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

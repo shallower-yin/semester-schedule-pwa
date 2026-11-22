@@ -2,7 +2,8 @@ import type { AudioSubmission } from "../_shared/audioSubmission.ts";
 import type { TextProvider } from "../_shared/textProviderRequest.ts";
 
 export interface AiAssistantRequest {
-  action?: "configuration" | "create_audio_upload" | "delete_audio_upload" | "close_audio_submission" | "transcribe_audio_range" | "transcribe_audio_part" | "plan_audio_transcription" | "plan_audio_parts" | "finalize_audio_transcription" | "summarize_audio_transcript" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
+  action?: "configuration" | "create_image_upload" | "delete_image_upload" | "create_audio_upload" | "delete_audio_upload" | "close_audio_submission" | "transcribe_audio_range" | "transcribe_audio_part" | "plan_audio_transcription" | "plan_audio_parts" | "finalize_audio_transcription" | "summarize_audio_transcript" | "create_document_page_uploads" | "extract_document_batch" | "summarize_document_batch" | "delete_document_uploads";
+  image?: { name?: string; mimeType?: string; size?: number; objectKey?: string; feature?: "assistant" | "mind_map" };
   audioSubmission?: AudioSubmission;
   audioSubmissionId?: string;
   /** Plain transcript text for summarize_audio_transcript (no R2). */
@@ -83,6 +84,9 @@ export interface AiAssistantAttachment {
   mimeType?: string;
   kind?: "image" | "document";
   dataUrl?: string;
+  imageObjectKey?: string;
+  imageSize?: number;
+  imageUrl?: string;
   text?: string;
   pageImages?: string[];
   remotePages?: Array<{ objectKey?: string; pageNumber?: number; mimeType?: string; size?: number }>;

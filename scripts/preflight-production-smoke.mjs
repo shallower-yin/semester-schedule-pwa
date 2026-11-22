@@ -1,17 +1,20 @@
 import { createHash, createHmac } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 
+class PreflightError extends Error {}
+
 const smokeKind = process.env.SMOKE_KIND?.trim() || "";
-const supportedKinds = new Set(["audio", "long-pdf", "ai-access", "memo-images"]);
+const supportedKinds = new Set(["audio", "long-pdf", "ai-access", "memo-images", "ai-attachments"]);
 if (!supportedKinds.has(smokeKind)) {
   throw new Error(`Unsupported SMOKE_KIND: ${smokeKind || "(empty)"}`);
 }
 
 const requiredNames = ["SUPABASE_URL", "PUBLISHABLE_KEY", "SERVICE_ROLE_KEY"];
-if (smokeKind === "audio" || smokeKind === "long-pdf") {
+if (smokeKind === "audio" || smokeKind === "long-pdf" || smokeKind === "ai-attachments") {
   requiredNames.push("R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY");
 }
 if (smokeKind === "audio") requiredNames.push("SOURCE_KEY_1", "SOURCE_KEY_2");
+if (smokeKind === "ai-attachments") requiredNames.push("SOURCE_KEY_1", "FIXTURES_SHA256", "EXPECTED_COMMIT", "APP_URL");
 
 const missingNames = requiredNames.filter((name) => !process.env[name]?.trim());
 if (missingNames.length > 0) {
@@ -22,6 +25,15 @@ if (missingNames.length > 0) {
     if (smokeKind !== "memo-images") await verifyPublicAiConfiguration();
 
     if (smokeKind === "audio") await verifyFreshAudioSources();
+    if (smokeKind === "ai-attachments") {
+      if (!/^codex-smoke-source\/[a-zA-Z0-9_-]{8,80}\/assistant-fixtures\.json$/.test(env("SOURCE_KEY_1"))) throw new PreflightError("原图素材不属于本次验证请求");
+      if (!/^[a-f0-9]{64}$/.test(env("FIXTURES_SHA256"))) throw new PreflightError("缺少原图素材校验值");
+      const source = await headR2Object(env("SOURCE_KEY_1"));
+      const age = Date.now() - new Date(source.headers.get("last-modified") || "").getTime();
+      if (!source.ok || Number(source.headers.get("content-length")) <= 0 || !Number.isFinite(age) || age > 120 * 60_000) throw new PreflightError("原图素材缺失、为空或已过期");
+      const release = await fetch(new URL("release.json", env("APP_URL"))).then((response) => response.json());
+      if (release.commit !== env("EXPECTED_COMMIT") && release.commit !== env("EXPECTED_COMMIT").slice(0, 7)) throw new PreflightError("线上版本尚未更新到待验证提交");
+    }
     if (smokeKind === "long-pdf") {
       verifyPageCount();
       await verifyR2Access();
@@ -216,5 +228,3 @@ function safeReason(error) {
 function escapeWorkflowCommand(value) {
   return String(value).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
 }
-
-class PreflightError extends Error {}

@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
+import { S3Client, HeadObjectCommand, DeleteObjectCommand } from "npm:@aws-sdk/client-s3@3.1089.0";
 
 type Handler = (request: Request) => Response | Promise<Response>;
 
@@ -11,6 +12,10 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
     SERVICE_ROLE_KEY: "test-service-role-key",
     MIMO_PAYG_API_KEY: "test-mimo-key",
     MIMO_PAYG_BASE_URL: "https://mimo-provider.invalid/v1",
+    R2_ENDPOINT: "https://r2.invalid",
+    R2_BUCKET: "test-images",
+    R2_ACCESS_KEY_ID: "test-access",
+    R2_SECRET_ACCESS_KEY: "test-secret",
   };
   const previousEnvironment = new Map(
     Object.keys(testEnvironment).map((name) => [name, Deno.env.get(name)]),
@@ -274,6 +279,29 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
       const messages = providerCalls[0].messages as Array<{ content: string | Array<{ type: string }> }>;
       assertEquals((messages[1].content as Array<{ type: string }>).filter((part) => part.type === "image_url").length, 3);
       assertEquals(providerCalls[0].max_completion_tokens, 16000);
+      const importBody = {
+        question: "按图片记录到全天事项，不用提醒，创建毕设文件夹和开题前准备备忘录，用可勾选待办",
+        attachments: ["aW1hZ2Ux", "aW1hZ2Uy", "aW1hZ2Uz"].map((value) => ({ name: "image.png", kind: "image", dataUrl: `data:image/png;base64,${value}` }))
+      };
+      const originalPlan = payload;
+      payload = {
+        ...originalPlan,
+        sourceRowCounts: (originalPlan.sourceRowCounts as Array<{ sourceIndex: number; count: number }>).map((source) => ({ sourceIndex: String(source.sourceIndex), count: String(source.count) })),
+        rows: (originalPlan.rows as Array<Record<string, unknown>>).map((row) => ({ ...row, title: { text: row.title }, details: [row.details], outcome: { value: row.outcome } })),
+        folderNames: [{ name: "毕设" }],
+        memoRequest: { title: { text: "开题前准备" }, folderName: { name: "毕设" }, format: "checklist" }
+      };
+      const variantResult = await invoke(importBody);
+      assertEquals(variantResult.actions, result.actions, "Common model field representations must produce identical records");
+      payload = { ...originalPlan, rows: (originalPlan.rows as Array<Record<string, unknown>>).map((row, index) => index === 0 ? { ...row, title: { invalid: "任务" } } : row) };
+      const malformedImport = await handler!(new Request("https://edge.invalid/ai-assistant", {
+        method: "POST", headers: { authorization: "Bearer test-user-token", "content-type": "application/json" }, body: JSON.stringify(importBody)
+      }));
+      const malformedBody = await malformedImport.json();
+      assert(!malformedImport.ok);
+      assert(malformedBody.error.includes("第 1 份附件第 1 行的标题"));
+      assert(!malformedBody.error.includes("分批"));
+      assertEquals(malformedBody.actions, undefined);
       payload = { answer: "将创建文件夹与清单", actions: [
         { type: "create_memo_folder", name: "毕设" },
         { type: "create_memo", title: "开题前准备", folderName: "毕设", format: "checklist", items: [{ text: "查文献", completed: false }] }
@@ -289,6 +317,53 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
         body: JSON.stringify({ question: "创建事项" })
       }));
       assert(!invalid.ok, "Unsupported actions must fail instead of being silently dropped");
+    });
+    await t.step("large images use owned temporary URLs and validate stored size before a model call", async () => {
+      const originalSend = S3Client.prototype.send;
+      const imageKey = "ai-images/test-user-id/11111111-1111-4111-8111-111111111111.png";
+      const imageSize = 8 * 1024 * 1024;
+      let actualSize = imageSize;
+      let providerCalls = 0;
+      let deleted = 0;
+      S3Client.prototype.send = (async (command: unknown) => {
+        if (command instanceof HeadObjectCommand) return { ContentLength: actualSize };
+        if (command instanceof DeleteObjectCommand) { deleted++; return {}; }
+        throw new Error("Unexpected storage operation");
+      }) as typeof S3Client.prototype.send;
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (url.pathname === "/rest/v1/rpc/get_ai_runtime_settings") return Response.json({ provider: "mimo", model: "mimo-v2.6-flash", mimo_channel: "payg" });
+        if (url.pathname === "/auth/v1/user") return Response.json({ id: "test-user-id" });
+        if (url.pathname === "/rest/v1/ai_assistant_access") return Response.json([{ enabled: true, role: "admin", expires_at: null }]);
+        if (url.pathname === "/rest/v1/rpc/check_ai_global_budget") return Response.json({ allowed: true });
+        if (url.pathname === "/rest/v1/rpc/reserve_ai_usage") return Response.json({ allowed: true, todayRequests: 1, weekRequests: 1 });
+        if (url.pathname === "/rest/v1/ai_assistant_usage") return new Response(null, { status: 204 });
+        if (url.hostname === "mimo-provider.invalid") {
+          providerCalls++;
+          const body = await request.json();
+          const image = body.messages[1].content.find((part: { type: string }) => part.type === "image_url");
+          assert(new URL(image.image_url.url).hostname.endsWith("r2.invalid"), "Provider must receive the signed owned-image URL");
+          assert(!image.image_url.url.includes("base64"));
+          return Response.json({ choices: [{ finish_reason: "stop", message: { content: '{"answer":"图片说明","actions":[]}' } }] });
+        }
+        throw new Error("Unexpected mocked request");
+      };
+      const rawInvoke = (body: Record<string, unknown>) => handler!(new Request("https://edge.invalid/ai-assistant", { method: "POST", headers: { authorization: "Bearer test-user-token", "content-type": "application/json" }, body: JSON.stringify(body) }));
+      try {
+        const ticket = await invoke({ action: "create_image_upload", image: { name: "image.png", mimeType: "image/png", size: imageSize } });
+        assert(ticket.uploadUrl.startsWith("https://"));
+        assertEquals(providerCalls, 0);
+        await invoke({ question: "解释图片", attachments: [{ kind: "image", name: "image.png", imageObjectKey: imageKey, imageSize }] });
+        assertEquals(providerCalls, 1);
+        actualSize--;
+        assert(!(await rawInvoke({ question: "解释图片", attachments: [{ kind: "image", imageObjectKey: imageKey, imageSize }] })).ok);
+        assertEquals(providerCalls, 1);
+        assertEquals((await rawInvoke({ action: "delete_image_upload", image: { objectKey: imageKey.replace("test-user-id", "another-user") } })).status, 400);
+        assertEquals(deleted, 0);
+        await invoke({ action: "delete_image_upload", image: { objectKey: imageKey } });
+        assertEquals(deleted, 1);
+      } finally { S3Client.prototype.send = originalSend; }
     });
     await t.step("client document usage cannot poison the global AI budget", async () => {
       const loggedUsage: Array<Record<string, unknown>> = [];

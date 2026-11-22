@@ -389,4 +389,16 @@ describe("AI 助手消息编辑", () => {
     const folder = await db.memoFolders.filter((item) => item.name === "毕设").first();
     expect((await db.memos.toArray())[0]).toMatchObject({ folder_id: folder?.id, content: "○ 阅读论文\n○ 写开题报告" });
   });
+
+  it("表格识别错误保留具体原因，不误称整个AI助手无法使用", async () => {
+    const reason = "未导入任何记录：第 1 份附件第 1 行的标题识别结果格式不正确，请重试。";
+    askDeepSeekAssistantMock.mockRejectedValueOnce(new Error(reason));
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="import-error" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业"), { target: { value: "创建图片里的事项" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(screen.queryByText(/暂时不能使用 AI 助手/)).not.toBeInTheDocument();
+    expect(await db.memos.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
+  });
 });

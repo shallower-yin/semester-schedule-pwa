@@ -56,6 +56,12 @@ await configure("lifecycle", new PutBucketLifecycleConfigurationCommand({
         Status: "Enabled",
         Filter: { Prefix: "ai-documents/" },
         Expiration: { Days: 1 }
+      },
+      {
+        ID: "delete-abandoned-ai-images",
+        Status: "Enabled",
+        Filter: { Prefix: "ai-images/" },
+        Expiration: { Days: 1 }
       }
     ]
   }
@@ -65,11 +71,11 @@ if (failures.length) {
   throw new Error(
     `R2 bucket management failed: ${failures.join(", ")}. ` +
     `Use R2_ADMIN_ACCESS_KEY_ID/R2_ADMIN_SECRET_ACCESS_KEY from an R2 Admin Read & Write token, ` +
-    `or configure CORS and ai-audio/ + ai-documents/ lifecycle rules manually in the Cloudflare dashboard.`
+    `or configure CORS and ai-audio/ + ai-documents/ + ai-images/ lifecycle rules manually in the Cloudflare dashboard.`
   );
 }
 
-console.log(`R2 bucket "${bucket}" management configuration succeeded using the CI-only admin token; browser + APK WebView CORS, 7-day ai-audio and 1-day ai-documents lifecycle cleanup are configured.`);
+console.log(`R2 bucket "${bucket}" management configuration succeeded using the CI-only admin token; browser + APK WebView CORS, 7-day ai-audio and 1-day ai-documents/ai-images lifecycle cleanup are configured.`);
 
 function required(name) {
   const value = process.env[name]?.trim();

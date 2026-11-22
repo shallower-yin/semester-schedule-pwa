@@ -1,0 +1,67 @@
+name: Smoke test AI attachments
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Permit real model calls and temporary test account writes
+        type: choice
+        options: [CANCEL, RUN_PAID_AI_SMOKE]
+        default: CANCEL
+        required: true
+      request_id:
+        description: Fresh one-use source request ID
+        required: true
+      fixtures_sha256:
+        description: SHA256 of the private original-image fixture bundle
+        required: true
+      expected_commit:
+        description: Deployed commit to verify
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-ai-attachment-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: ${{ inputs.confirmation == 'RUN_PAID_AI_SMOKE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
+      APP_URL: https://shallower-yin.github.io/semester-schedule-pwa/
+      PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      SOURCE_KEY_1: codex-smoke-source/${{ inputs.request_id }}/assistant-fixtures.json
+      FIXTURES_SHA256: ${{ inputs.fixtures_sha256 }}
+      EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Preflight without model calls or user writes
+        id: preflight
+        env:
+          SMOKE_KIND: ai-attachments
+        run: node scripts/preflight-production-smoke.mjs
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.preflight.outputs.ready == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.preflight.outputs.ready == 'true'
+        run: npm ci
+      - name: Install browser only after preflight
+        if: steps.preflight.outputs.ready == 'true'
+        run: |
+          npm install --no-save --package-lock=false playwright@1.58.2
+          npx playwright install --with-deps chromium
+      - name: Verify original images through the deployed app and real model
+        if: steps.preflight.outputs.ready == 'true'
+        run: node scripts/smoke-ai-attachments.mjs

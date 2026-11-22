@@ -12,7 +12,9 @@ const client = new S3Client({
   credentials: { accessKeyId: required("R2_ACCESS_KEY_ID"), secretAccessKey: required("R2_SECRET_ACCESS_KEY") }
 });
 
-const sources = [
+const sources = process.env.FIXTURE_KIND === "assistant" ? [
+  { key: `codex-smoke-source/${requestId}/assistant-fixtures.json`, contentType: "application/json" }
+] : [
   { key: `codex-smoke-source/${requestId}/audio-1.mp3`, contentType: "audio/mpeg" },
   { key: `codex-smoke-source/${requestId}/audio-2.m4a`, contentType: "audio/mp4" }
 ];

@@ -26,6 +26,9 @@ export interface AiAssistantAttachment {
   mimeType: string;
   kind: "image" | "document";
   dataUrl?: string;
+  imageBlob?: Blob;
+  imageObjectKey?: string;
+  imageSize?: number;
   text?: string;
   pageImages?: string[];
   remotePages?: AiRemoteDocumentPage[];
@@ -45,9 +48,9 @@ export interface AiAttachmentContextRecord {
 }
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
-const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
-const MAX_PDF_BYTES = 100 * 1024 * 1024;
+const INLINE_IMAGE_BYTES = 5 * 1024 * 1024;
+const MODEL_IMAGE_BYTES = 50 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 const MAX_DOCUMENT_TEXT = 40_000;
 const MAX_PDF_IMAGE_PAGES = 24;
 const DEFAULT_MAX_PDF_TOTAL_PAGES = 120;
@@ -70,13 +73,15 @@ export async function prepareAiAssistantAttachment(file: File, options: {
   const inferredImageType = imageMimeTypeForExtension(extension);
   const imageMimeType = IMAGE_TYPES.has(file.type) ? file.type : inferredImageType;
   if (imageMimeType) {
-    if (file.size > MAX_IMAGE_BYTES) throw new Error("单张图片不能超过 6 MB。");
+    if (file.size > INLINE_IMAGE_BYTES) {
+      const imageBlob = file.size > MODEL_IMAGE_BYTES ? await adaptImage(file, MODEL_IMAGE_BYTES) : file;
+      const preview = await adaptImage(file, INLINE_IMAGE_BYTES, 1600);
+      return { name: file.name, mimeType: imageBlob.type || imageMimeType, kind: "image", imageBlob, dataUrl: await readDataUrl(preview, preview.type) };
+    }
     return { name: file.name, mimeType: imageMimeType, kind: "image", dataUrl: await readDataUrl(file, imageMimeType) };
   }
   const isPdf = file.type === "application/pdf" || extension === "pdf";
-  if (file.size > (isPdf ? MAX_PDF_BYTES : MAX_DOCUMENT_BYTES)) {
-    throw new Error(isPdf ? "单个 PDF 不能超过 100 MB。" : "单个文档不能超过 12 MB。");
-  }
+  if (file.size > MAX_DOCUMENT_BYTES) throw new Error("单个文档不能超过 50 MB。");
 
   if (isPdf) return await extractPdfAttachment(file, options);
 
@@ -87,12 +92,72 @@ export async function prepareAiAssistantAttachment(file: File, options: {
 
   const normalized = text.replace(/\u0000/g, "").trim();
   if (!normalized) throw new Error("没有从该文档中读取到文字内容。");
+  if (normalized.length > MAX_DOCUMENT_TEXT) {
+    const pendingTextBatches: AiDocumentTextBatch[] = [];
+    for (let offset = 0; offset < normalized.length; offset += PDF_TEXT_BATCH_CHARS) {
+      const part = pendingTextBatches.length + 1;
+      pendingTextBatches.push({ startPage: part, endPage: part, text: normalized.slice(offset, offset + PDF_TEXT_BATCH_CHARS) });
+    }
+    return { name: file.name, mimeType: file.type || mimeTypeForExtension(extension), kind: "document", pendingTextBatches, pageCount: pendingTextBatches.length, processedPageCount: 0 };
+  }
   return {
     name: file.name,
     mimeType: file.type || mimeTypeForExtension(extension),
     kind: "document",
-    text: normalized.slice(0, MAX_DOCUMENT_TEXT)
+    text: normalized,
   };
+}
+
+async function adaptImage(file: Blob, byteLimit: number, previewDimension?: number): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    let scale = previewDimension ? Math.min(1, previewDimension / Math.max(bitmap.width, bitmap.height)) : 1;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("当前设备无法读取这张图片，请重试。");
+    for (let attempt = 0; attempt < 12; attempt++) {
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      context.fillStyle = "white";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (blob && blob.size <= byteLimit) return blob;
+      scale *= 0.8;
+    }
+    throw new Error("当前设备未能完成图片读取，请重试。");
+  } finally {
+    bitmap.close();
+  }
+}
+
+export async function withUploadedAiImages<T>(attachments: AiAssistantAttachment[], options: {
+  accessCode?: string; feature?: "assistant" | "mind_map"; signal?: AbortSignal;
+}, run: (attachments: AiAssistantAttachment[]) => Promise<T>): Promise<T> {
+  const uploaded: string[] = [];
+  try {
+    const wire: AiAssistantAttachment[] = [];
+    for (const attachment of attachments) {
+      options.signal?.throwIfAborted();
+      const { imageBlob, ...metadata } = attachment;
+      if (!imageBlob) { wire.push(metadata); continue; }
+      if (!supabase) throw new Error("云端服务未配置，暂时无法上传图片。");
+      const { data, error } = await supabase.functions.invoke<{ objectKey: string; uploadUrl: string }>("ai-assistant", {
+        signal: options.signal,
+        body: { action: "create_image_upload", accessCode: options.accessCode, image: { name: attachment.name, mimeType: imageBlob.type || attachment.mimeType, size: imageBlob.size, feature: options.feature ?? "assistant" } }
+      });
+      if (error || !data?.uploadUrl || !data.objectKey) throw new Error(await functionErrorMessage(error, "图片上传准备失败，请重试。"));
+      uploaded.push(data.objectKey);
+      const response = await fetch(data.uploadUrl, { method: "PUT", body: imageBlob, headers: { "content-type": imageBlob.type || attachment.mimeType }, signal: options.signal });
+      if (!response.ok) throw new Error(`图片上传失败（HTTP ${response.status}），请重试。`);
+      wire.push({ ...metadata, imageObjectKey: data.objectKey, imageSize: imageBlob.size });
+    }
+    return await run(wire);
+  } finally {
+    for (const objectKey of uploaded) {
+      await supabase?.functions.invoke("ai-assistant", { body: { action: "delete_image_upload", image: { objectKey } } }).catch(() => undefined);
+    }
+  }
 }
 
 async function extractPdfAttachment(file: File, options: {
@@ -527,7 +592,7 @@ async function extractDocxText(file: File): Promise<string> {
   return result.value;
 }
 
-function readDataUrl(file: File, mimeType: string): Promise<string> {
+function readDataUrl(file: Blob, mimeType: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

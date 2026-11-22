@@ -1,4 +1,6 @@
 import type { AiAssistantAction, ParsedAssistantResponse } from "./requestTypes.ts";
+import { DiagnosticError } from "./requestContext.ts";
+import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 export const MAX_ATTACHMENT_SCHEDULE_ROWS = 64;
 
@@ -18,16 +20,18 @@ export function attachmentScheduleInstructions(attachmentCount: number, now: str
     `当前北京时间：${now}。附件按输入顺序编号 1-${attachmentCount}；用户文字中另外明确新增的事项使用 sourceIndex=0。`,
     "必须读取所有附件、所有日期行；跨图片的续表接着处理。每一行就是一个独立任务，不能把多行合并成一个总事项。",
     "先数出每份附件的日期行数，再逐行提取，sourceRowCounts 与 rows 数量必须相同。不是日程的附件填 count=0。rowIndex 在每份附件中从 1 连续递增。",
-    "按用户要求映射各列；默认第一列是日期，第二列是任务标题，第三列是 details（具体内容），第四列是 outcome（预期成果）。完整保留正文，不要摘要、漏项或改写公式和章节编号。",
+    "按用户要求映射各列；默认第一列是日期，第二列是任务标题，第三列是 details（具体内容），第四列是 outcome（预期成果）。没有表格时每个独立活动提取为一行；没有相应内容的单元格填空字符串。完整保留正文，不要摘要、漏项或改写公式和章节编号。",
     "startDate/endDate 只来自对应行的日期列；有年份用 YYYY-MM-DD，没有年份用 MM-DD，不得拿论文年份、文件名或研究年份作日期年份。跨月、跨年都保留原来的起止月日，单日的两者相同。",
     "日期范围表示任务阶段，保留整个阶段，不能只保留第一天。不要编造小时；确有时刻才写 startTime/endTime（HH:mm），否则写 null。",
+    "图片明确给出的活动地点填写 location；没有则空字符串。没有日期的任务不要猜测今天或明天，将所需的日期信息写入 uncertainties，应用会向用户询问。",
     "用户明确要求全天时保留日期区间，应用会设为全天。用户要求不用提醒时绝不能开启提醒。",
     "用户只选某几行时在 selectedRows 中逐项填写 sourceIndex/rowIndex；没有明确筛选时 selectedRows=null，应用将导入全部行。",
     "用户还要求备忘录时填写 memoRequest；标题、文件夹名称必须按原话填写，未指定文件夹时 folderName=null；待办、勾选、完成清单使用 format=checklist，纯编号使用 numbered，其他使用 plain。备忘录默认包含所有选中行。",
     "用户要求新建的文件夹逐个填入 folderNames；仅写文件夹名称不是创建完成，不能把创建文件夹省略为一句说明。",
     `最多 ${MAX_ATTACHMENT_SCHEDULE_ROWS} 行；看不清、日期不确定、超出行数时在 uncertainties 中说明，不能输出猜测的日期。`,
     "只返回 JSON，不要返回 actions 或 Markdown。格式：",
-    '{"sourceRowCounts":[{"sourceIndex":1,"count":2}],"rows":[{"sourceIndex":1,"rowIndex":1,"startDate":"12-28","endDate":"01-03","title":"任务","details":"完整具体内容","outcome":"完整预期成果","startTime":null,"endTime":null}],"selectedRows":null,"folderNames":[],"memoRequest":{"title":"标题","folderName":"文件夹或null","format":"checklist|numbered|plain"},"uncertainties":[]}',
+    '{"sourceRowCounts":[{"sourceIndex":1,"count":1}],"rows":[{"sourceIndex":1,"rowIndex":1,"startDate":"12-28","endDate":"01-03","title":"任务","details":"完整具体内容","outcome":"完整预期成果","startTime":null,"endTime":null}],"selectedRows":null,"folderNames":[],"memoRequest":{"title":"标题","folderName":null,"format":"checklist"},"uncertainties":[]}',
+    "文字单元格、文件夹名和备忘录标题用字符串；多行内容在同一个字符串中用换行连接，空单元格用空字符串。folderNames 是名称字符串数组，uncertainties 是疑问字符串数组。行号、附件编号和数量用数字。",
     "不需要备忘录时 memoRequest=null。不要漏掉 rows，不要把用户的命令当作任务正文。"
   ].join("\n");
 }
@@ -41,10 +45,11 @@ interface Row {
   note: string;
   startTime: string | null;
   endTime: string | null;
+  location: string;
 }
 
-function fail(reason: string): never {
-  throw new Error(`未导入任何记录：${reason}`);
+function fail(reason: string, details: Record<string, unknown> = {}): never {
+  throw new DiagnosticError(`未导入任何记录：${reason}`, { stage: "attachment_schedule_validation", ...details });
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -52,13 +57,27 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function text(value: unknown, limit = 10_000): string {
+function text(value: unknown, limit = 10_000, label = "表格文字", field = "", allowNumber = true, depth = 0): string {
   if (value == null) return "";
-  if (typeof value !== "string" || value.length > limit) fail("表格内容不完整或过长，请分批导入。");
-  return value.trim();
+  let result: string;
+  if (typeof value === "string") result = value;
+  else if (allowNumber && typeof value === "number" && Number.isFinite(value)) result = String(value);
+  else if (depth < 4 && Array.isArray(value)) {
+    result = value.map((item) => text(item, limit, label, field, allowNumber, depth + 1)).filter(Boolean).join("\n");
+  } else if (depth < 4 && typeof value === "object" && !Array.isArray(value)) {
+    const cell = value as Record<string, unknown>;
+    const keys = ["text", "content", "value", "name", "message", "reason", "lines", "items"].filter((key) => cell[key] != null);
+    if (keys.length === 1) return text(cell[keys[0]], limit, label, field, allowNumber, depth + 1);
+    fail(`${label}的识别结果格式不正确，请重试。`, { field, issue: "text_format", receivedType: "object" });
+  } else {
+    fail(`${label}的识别结果格式不正确，请重试。`, { field, issue: "text_format", receivedType: Array.isArray(value) ? "array" : typeof value });
+  }
+  if (result.length > limit) fail(`${label}超过 ${limit} 个字符，请缩短该项内容后重试。`, { field, issue: "text_length", receivedLength: result.length, limit });
+  return result.trim();
 }
 
 function integer(value: unknown, min: number, max: number): number {
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) value = Number(value.trim());
   if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) fail("表格行号或数量不完整，请重试。");
   return value;
 }
@@ -86,13 +105,13 @@ function time(value: unknown): string | null {
 export function parseAttachmentSchedule(content: string, question: string, attachmentCount: number, now = new Date()): ParsedAssistantResponse {
   let parsed: Record<string, unknown>;
   try {
-    parsed = object(JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
+    parsed = object(parseMindMapJson(content).value);
   } catch {
     fail("表格提取结果不完整，请重试。");
   }
-  if (!Array.isArray(parsed.uncertainties) || parsed.uncertainties.length) {
-    fail(Array.isArray(parsed.uncertainties) ? parsed.uncertainties.map((item) => text(item, 500)).join("；") : "请确认附件中不清晰的日期和任务。");
-  }
+  const rawUncertainties = parsed.uncertainties == null ? [] : Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [parsed.uncertainties];
+  const uncertainties = rawUncertainties.map((item, index) => text(item, 500, "识别疑问", `uncertainties[${index}]`)).filter(Boolean);
+  if (uncertainties.length) fail(uncertainties.join("；"), { field: "uncertainties", issue: "uncertain_source" });
   if (!Array.isArray(parsed.rows) || !parsed.rows.length || parsed.rows.length > MAX_ATTACHMENT_SCHEDULE_ROWS || !Array.isArray(parsed.sourceRowCounts)) {
     fail(`未提取到完整任务，或任务超过 ${MAX_ATTACHMENT_SCHEDULE_ROWS} 行，请核对附件或分批导入。`);
   }
@@ -106,10 +125,13 @@ export function parseAttachmentSchedule(content: string, question: string, attac
   for (let index = 1; index <= attachmentCount; index++) {
     if (!counts.has(index)) fail(`第 ${index} 份附件尚未完整读取，请重试。`);
   }
-  const rawRows = parsed.rows.map(object).sort((a, b) => {
-    const sourceA = integer(a.sourceIndex, 0, attachmentCount) || attachmentCount + 1;
-    const sourceB = integer(b.sourceIndex, 0, attachmentCount) || attachmentCount + 1;
-    return sourceA - sourceB || integer(a.rowIndex, 1, MAX_ATTACHMENT_SCHEDULE_ROWS) - integer(b.rowIndex, 1, MAX_ATTACHMENT_SCHEDULE_ROWS);
+  const rawRows = parsed.rows.map((value): Record<string, unknown> & { sourceIndex: number; rowIndex: number } => {
+    const row = object(value);
+    return { ...row, sourceIndex: integer(row.sourceIndex, 0, attachmentCount), rowIndex: integer(row.rowIndex, 1, MAX_ATTACHMENT_SCHEDULE_ROWS) };
+  }).sort((a, b) => {
+    const sourceA = a.sourceIndex || attachmentCount + 1;
+    const sourceB = b.sourceIndex || attachmentCount + 1;
+    return sourceA - sourceB || a.rowIndex - b.rowIndex;
   });
   const rowIds = new Set<string>();
   for (const row of rawRows) {
@@ -124,9 +146,12 @@ export function parseAttachmentSchedule(content: string, question: string, attac
   }
   let year = Number(now.toLocaleString("en-US", { timeZone: "Asia/Shanghai", year: "numeric" }));
   let previousMonth = 0;
-  const rows: Row[] = rawRows.map((raw) => {
-    const start = dateParts(text(raw.startDate, 30));
-    const end = dateParts(text(raw.endDate, 30) || text(raw.startDate, 30));
+  const rows: Row[] = rawRows.map((raw, index) => {
+    const label = raw.sourceIndex ? `第 ${raw.sourceIndex} 份附件第 ${raw.rowIndex} 行` : `用户补充的第 ${raw.rowIndex} 项`;
+    const field = `rows[${index}]`;
+    const startText = text(raw.startDate, 30, `${label}的开始日期`, `${field}.startDate`, false);
+    const start = dateParts(startText);
+    const end = dateParts(text(raw.endDate, 30, `${label}的结束日期`, `${field}.endDate`, false) || startText);
     if (start.year) year = start.year;
     else if (previousMonth === 12 && start.month === 1) year++;
     previousMonth = start.month;
@@ -134,11 +159,11 @@ export function parseAttachmentSchedule(content: string, question: string, attac
     const endYear = end.year ?? (end.month < start.month ? year + 1 : year);
     const endDate = isoDate(end, endYear);
     if (endDate < startDate) fail("结束日期早于开始日期，请核对年份。");
-    const title = text(raw.title, 500);
+    const title = text(raw.title, 500, `${label}的标题`, `${field}.title`);
     if (!title) fail("表格中有任务缺少标题，请核对。");
-    if (typeof raw.details !== "string" || typeof raw.outcome !== "string") fail("表格中的具体内容或预期成果尚未提取完整，请重试。");
-    const details = text(raw.details);
-    const outcome = text(raw.outcome);
+    if (!Object.hasOwn(raw, "details") || !Object.hasOwn(raw, "outcome")) fail(`${label}的具体内容或预期成果尚未提取完整，请重试。`, { field, issue: "missing_cell" });
+    const details = text(raw.details, 10_000, `${label}的具体内容`, `${field}.details`);
+    const outcome = text(raw.outcome, 10_000, `${label}的预期成果`, `${field}.outcome`);
     const startTime = time(raw.startTime);
     const endTime = time(raw.endTime) ?? startTime;
     if (!startTime && endTime) fail("表格中有任务缺少开始时刻，请核对。");
@@ -146,6 +171,7 @@ export function parseAttachmentSchedule(content: string, question: string, attac
     return {
       sourceIndex: raw.sourceIndex as number, rowIndex: raw.rowIndex as number,
       startDate, endDate, title, startTime, endTime,
+      location: text(raw.location, 200, `${label}的地点`, `${field}.location`),
       note: [details && `具体内容：${details}`, outcome && `预期成果：${outcome}`].filter(Boolean).join("\n")
     };
   });
@@ -168,16 +194,17 @@ export function parseAttachmentSchedule(content: string, question: string, attac
     startDate: row.startDate, endDate: row.endDate,
     startTime: allDayRequested ? null : row.startTime, endTime: allDayRequested ? null : row.endTime,
     allDay: allDayRequested || !row.startTime, note: row.note,
+    location: row.location,
     recurrenceType: "none", reminderEnabled: remindersRequested, reminderMinutesBefore: 10
   }));
-  if (!Array.isArray(parsed.folderNames)) fail("文件夹信息不完整，请重试。");
-  const folderNames = parsed.folderNames.map((name) => text(name, 200));
+  const rawFolderNames = parsed.folderNames == null ? [] : Array.isArray(parsed.folderNames) ? parsed.folderNames : [parsed.folderNames];
+  const folderNames = rawFolderNames.map((name, index) => text(name, 200, "文件夹名称", `folderNames[${index}]`));
   let memoAction: Extract<AiAssistantAction, { type: "create_memo" }> | null = null;
   if (parsed.memoRequest != null) {
     const memo = object(parsed.memoRequest);
-    const title = text(memo.title, 500);
+    const title = text(memo.title, 500, "备忘录标题", "memoRequest.title");
     if (!title) fail("备忘录缺少标题，请补充。");
-    const folderName = text(memo.folderName, 200);
+    const folderName = text(memo.folderName, 200, "备忘录的文件夹名称", "memoRequest.folderName");
     if (folderName) folderNames.push(folderName);
     const format = /(勾选|可选中|待办|打勾|复选)/.test(question) ? "checklist" : memo.format === "numbered" ? "numbered" : memo.format === "checklist" ? "checklist" : "plain";
     memoAction = {

@@ -54,8 +54,8 @@ export async function readAiRequest(request: Request, byteLimit = MAX_AI_BODY_BY
   // strings are intentionally allowed by their existing feature validators).
   const objectArrays = new Set(["attachments", "audios", "audioSegmentResults", "pages", "remotePages", "items"]);
   const stringArrays = new Set(["pageImages", "objectKeys", "segments"]);
-  const strings = new Set(["name", "fileName", "mimeType", "dataUrl", "objectKey", "text", "documentId", "feature", "language", "sourceText", "requiredTerms", "preservedTerms", "theme", "focus", "direction", "style"]);
-  const numbers = new Set(["size", "pageNumber", "pageCount", "processedPageCount", "startPage", "endPage", "partIndex", "partCount", "chunkIndex", "chunkCount", "nominalStart", "nominalEnd", "fetchStart", "fetchEnd"]);
+  const strings = new Set(["name", "fileName", "mimeType", "dataUrl", "objectKey", "imageObjectKey", "text", "documentId", "feature", "language", "sourceText", "requiredTerms", "preservedTerms", "theme", "focus", "direction", "style"]);
+  const numbers = new Set(["size", "imageSize", "pageNumber", "pageCount", "processedPageCount", "startPage", "endPage", "partIndex", "partCount", "chunkIndex", "chunkCount", "nominalStart", "nominalEnd", "fetchStart", "fetchEnd"]);
   const allNodes: unknown[] = [body]; let nodes = 0;
   while (allNodes.length) {
     if (++nodes > 100_000) large();

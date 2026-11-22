@@ -275,7 +275,7 @@ Deno.serve(handleAiRequest);
 
 /** Keep action precedence and legacy unknown-action fallback explicit. */
 async function dispatchAiRequest(context: AiRequestContext): Promise<Response> {
-  const { body, settings } = context;
+  const { body, settings, user, authorization } = context;
   if (body.action === "configuration") {
     const provider = configuredProvider(settings);
     return jsonResponse({
@@ -289,6 +289,25 @@ async function dispatchAiRequest(context: AiRequestContext): Promise<Response> {
   if (signedAudio) return signedAudio;
   const document = await handleDocumentAction(context, documentServices);
   if (document) return document;
+
+  if (body.action === "delete_image_upload") {
+    const { client, bucket } = r2Configuration();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: userImageObjectKey(user.id, body.image?.objectKey) }));
+    return jsonResponse({ ok: true });
+  }
+  if (body.action === "create_image_upload") {
+    const feature = body.image?.feature === "mind_map" ? "mind_map" : "assistant";
+    const access = await checkAiAccess(user, authorization, body.accessCode?.trim(), settings, feature);
+    if (!access.allowed) return jsonResponse({ error: access.reason, code: "AI_ACCESS_REQUIRED" }, 403);
+    const mimeType = body.image?.mimeType ?? "";
+    const extension = ({ "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp" } as Record<string, string>)[mimeType];
+    const size = Number(body.image?.size);
+    if (!extension || !Number.isInteger(size) || size <= 0 || size > 50 * 1024 * 1024) throw new PublicHttpError("图片传输参数无效，请重新添加图片。", 400);
+    const { client, bucket } = r2Configuration();
+    const objectKey = `ai-images/${user.id}/${crypto.randomUUID()}.${extension}`;
+    const uploadUrl = await getSignedUrl(client, new PutObjectCommand({ Bucket: bucket, Key: objectKey, ContentType: mimeType, ContentLength: size }), { expiresIn: 900 });
+    return jsonResponse({ objectKey, uploadUrl });
+  }
   const audio = await handleAudioAction(context);
   if (audio) return audio;
   return handleConversationRequest(context);
@@ -1490,11 +1509,13 @@ async function askConfiguredProvider(
     .map((attachment, index) => attachment.kind === "document" && attachment.text ? `附件 ${index + 1}，文档 ${attachment.name ?? "未命名"}：\n${attachment.text}` : "")
     .filter(Boolean)
     .join("\n\n");
-  const userText = mode === "mind_map"
+  const userText = importingSchedule
+    ? `${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户要求：${question}`
+    : mode === "mind_map"
     ? `${contextText && contextText !== "{}" ? `可参考的当前用户信息：\n${contextText}\n\n` : ""}${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}需要生成思维导图的主题或内容：${question}`
     : `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户问题：${question}`;
   const visualAttachments = resolvedAttachments.flatMap((attachment) => {
-    if (attachment.kind === "image" && attachment.dataUrl) return [attachment.dataUrl];
+    if (attachment.kind === "image" && (attachment.imageUrl || attachment.dataUrl)) return [attachment.imageUrl || attachment.dataUrl!];
     if (attachment.kind === "document" && attachment.pageImages?.length) return attachment.pageImages;
     return [];
   });
@@ -1502,7 +1523,7 @@ async function askConfiguredProvider(
     ? [
       ...resolvedAttachments.flatMap((attachment, index) => [
         { type: "text", text: `附件 ${index + 1}：${attachment.name ?? "未命名"}` },
-        ...(attachment.kind === "image" && attachment.dataUrl ? [attachment.dataUrl] : attachment.pageImages ?? [])
+        ...(attachment.kind === "image" && (attachment.imageUrl || attachment.dataUrl) ? [attachment.imageUrl || attachment.dataUrl!] : attachment.pageImages ?? [])
           .map((url) => ({ type: "image_url", image_url: { url } }))
       ]),
       { type: "text", text: userText }
@@ -1652,7 +1673,10 @@ async function askConfiguredProvider(
       ? parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason, providerUsage })
       : importingSchedule ? parseAttachmentSchedule(content, question, resolvedAttachments.length) : parseAssistantResponse(content, question);
   } catch (error) {
-    if (mode !== "assistant" || !resolvedDocuments.processedAttachments.length) throw error;
+    if (mode !== "assistant" || !resolvedDocuments.processedAttachments.length) {
+      if (error instanceof DiagnosticError) throw new DiagnosticError(error.message, { ...error.details, provider, model, finishReason, providerUsage });
+      throw error;
+    }
     // Return extracted text with a failed plan so retries can reuse the OCR result.
     parsedResponse = { answer: error instanceof Error ? error.message : "操作内容不完整，未执行任何操作，请重试。", actions: [] };
   }
@@ -1688,6 +1712,13 @@ async function resolveRemoteDocumentAttachments(
   const temporaryDocumentKeys: string[] = [];
   let usage = emptyUsage();
   for (const attachment of attachments) {
+    if (attachment.imageObjectKey) {
+      const { client, bucket } = r2Configuration();
+      const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: attachment.imageObjectKey }));
+      if (head.ContentLength !== attachment.imageSize || !head.ContentLength || head.ContentLength > 50 * 1024 * 1024) throw new Error("图片上传不完整，请重新添加图片。");
+      resolved.push({ ...attachment, imageUrl: await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: attachment.imageObjectKey }), { expiresIn: 900 }) });
+      continue;
+    }
     usage = combineUsage(usage, attachment.processingUsage ?? emptyUsage());
     const remotePages = attachment.remotePages?.filter((page) => page.objectKey && page.pageNumber) ?? [];
     if (!remotePages.length) {
@@ -2142,6 +2173,12 @@ function userDocumentPageObjectKey(userId: string, value: unknown): string {
     throw new Error("无效的临时 PDF 页面。");
   }
   return objectKey;
+}
+
+function userImageObjectKey(userId: string, value: unknown): string {
+  const key = typeof value === "string" ? value.trim() : "";
+  if (!key.startsWith(`ai-images/${userId}/`) || !/^ai-images\/[a-zA-Z0-9-]+\/[a-f0-9-]{36}\.(jpg|png|gif|webp|bmp)$/.test(key)) throw new PublicHttpError("无效的临时图片。", 400);
+  return key;
 }
 
 async function downloadR2DocumentPage(objectKey: string): Promise<Uint8Array> {
@@ -3230,7 +3267,7 @@ async function answerMindMapFollowup(
     .join("\n\n")
     .slice(0, 60_000);
   const visualAttachments = attachments.flatMap((attachment) => {
-    if (attachment.kind === "image" && attachment.dataUrl) return [attachment.dataUrl];
+    if (attachment.kind === "image" && (attachment.imageUrl || attachment.dataUrl)) return [attachment.imageUrl || attachment.dataUrl!];
     if (attachment.kind === "document" && attachment.pageImages?.length) return attachment.pageImages;
     return [];
   });
@@ -3455,6 +3492,13 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
     if (!item || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name.trim().slice(0, 180) : "未命名附件";
+    if (record.kind === "image" && record.imageObjectKey != null) {
+      const objectKey = userImageObjectKey(userId, record.imageObjectKey);
+      const size = Number(record.imageSize);
+      if (!Number.isInteger(size) || size <= 0 || size > 50 * 1024 * 1024) throw new PublicHttpError("临时图片大小无效。", 400);
+      result.push({ name, kind: "image", mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", imageObjectKey: objectKey, imageSize: size });
+      continue;
+    }
     if (record.kind === "image" && typeof record.dataUrl === "string") {
       const dataUrl = record.dataUrl;
       if (!/^data:image\/(jpeg|png|gif|webp|bmp);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl) || dataUrl.length > 8_500_000) {
