@@ -6,6 +6,7 @@ import android.app.Instrumentation;
 import android.appwidget.AppWidgetHost;
 import android.appwidget.AppWidgetHostView;
 import android.appwidget.AppWidgetManager;
+import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -13,6 +14,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.PixelFormat;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.Gravity;
@@ -60,6 +62,12 @@ public class WidgetScrollingTest {
             widgetId = host.allocateAppWidgetId();
             assertTrue(manager.bindAppWidgetIdIfAllowed(widgetId,
                 new ComponentName(context, TodayScheduleWidgetProvider.class)));
+            AppWidgetProviderInfo provider = manager.getAppWidgetInfo(widgetId);
+            assertEquals(AppWidgetProviderInfo.RESIZE_NONE, provider.resizeMode);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                assertEquals(4, provider.targetCellWidth);
+                assertEquals(3, provider.targetCellHeight);
+            }
             Bundle size = new Bundle();
             size.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, HOST_WIDTH_DP);
             size.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, HOST_WIDTH_DP);

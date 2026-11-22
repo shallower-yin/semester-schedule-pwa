@@ -128,7 +128,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest --no-daemon --console=plain
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --console=plain
 
       - name: Enable isolated widget emulator acceleration
         if: steps.widget_changes.outputs.changed == 'true'
