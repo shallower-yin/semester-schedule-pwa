@@ -30,7 +30,10 @@ if (missingNames.length > 0) {
       if (!/^[a-f0-9]{64}$/.test(env("FIXTURES_SHA256"))) throw new PreflightError("缺少原图素材校验值");
       const source = await headR2Object(env("SOURCE_KEY_1"));
       const age = Date.now() - new Date(source.headers.get("last-modified") || "").getTime();
-      if (!source.ok || Number(source.headers.get("content-length")) <= 0 || !Number.isFinite(age) || age > 120 * 60_000) throw new PreflightError("原图素材缺失、为空或已过期");
+      if (!source.ok) throw new PreflightError(`原图素材读取失败（HTTP ${source.status}）`);
+      if (Number(source.headers.get("content-length")) <= 0) throw new PreflightError("原图素材为空");
+      if (!Number.isFinite(age)) throw new PreflightError("原图素材缺少上传时间");
+      if (age > 120 * 60_000) throw new PreflightError(`原图素材已超过有效期（${Math.floor(age / 60_000)} 分钟）`);
       const release = await fetch(new URL("release.json", env("APP_URL"))).then((response) => response.json());
       if (release.commit !== env("EXPECTED_COMMIT") && release.commit !== env("EXPECTED_COMMIT").slice(0, 7)) throw new PreflightError("线上版本尚未更新到待验证提交");
     }
