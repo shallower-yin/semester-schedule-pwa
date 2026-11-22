@@ -206,7 +206,7 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
           const messages = body.messages as Array<
             { content: Array<{ type: string; image_url?: { url: string } }> }
           >;
-          assertEquals(messages[1].content[0], {
+          assertEquals(messages[1].content.find((part) => part.type === "image_url"), {
             type: "image_url",
             image_url: { url: imageUrl },
           });
@@ -247,6 +247,7 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
           { sourceIndex: 2, rowIndex: 1, startDate: "12-28", endDate: "01-03", title: "毕设开题方案设计", details: "研究目标与技术路线", outcome: "开题报告提纲", startTime: null, endTime: null },
           { sourceIndex: 3, rowIndex: 1, startDate: "01-04", endDate: "01-08", title: "开题报告撰写", details: "同步制作PPT", outcome: "开题报告及PPT初稿", startTime: null, endTime: null }
         ],
+        request: { createEvents: true, createMemo: true, createFolders: true, scope: "all", allDay: true, reminderEnabled: false },
         selectedRows: null, folderNames: ["毕设"], memoRequest: { title: "开题前准备", folderName: "毕设", format: "checklist" }, uncertainties: []
       };
       const providerCalls: Array<Record<string, unknown>> = [];
@@ -261,7 +262,8 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
         if (url.pathname === "/rest/v1/ai_assistant_usage") return new Response(null, { status: 204 });
         if (request.url === "https://mimo-provider.invalid/v1/chat/completions") {
           providerCalls.push(await request.json());
-          return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(payload) } }], usage: { total_tokens: 30 } });
+          const responsePayload = payload.rows ? { answer: "任务已整理", actions: [], attachmentPlan: payload } : payload;
+          return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(responsePayload) } }], usage: { total_tokens: 30 } });
         }
         throw new Error(`Unexpected request: ${url.pathname}`);
       };
@@ -293,6 +295,14 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
       };
       const variantResult = await invoke(importBody);
       assertEquals(variantResult.actions, result.actions, "Common model field representations must produce identical records");
+      const continuedResult = await invoke({ ...importBody, question: "剩下的也按刚才的意思办好", history: [{ role: "user", content: importBody.question }, { role: "assistant", content: "第一张图已处理" }] });
+      assertEquals(continuedResult.actions, result.actions, "Continuation wording must not select a different code path");
+      const continuationPrompt = (providerCalls.at(-1)!.messages as Array<{ content: unknown }>)[1].content as Array<{ type: string; text?: string }>;
+      assert(continuationPrompt.some((part) => part.text?.includes(importBody.question)), "The model needs original task context");
+      payload = { answer: "这里有三份附件，第二份包含四条任务。", actions: [], attachmentPlan: null };
+      const explanation = await invoke({ ...importBody, question: "不用创建，只解释图里的安排" });
+      assertEquals(explanation.actions, []);
+      assertEquals(explanation.answer, payload.answer);
       payload = { ...originalPlan, rows: (originalPlan.rows as Array<Record<string, unknown>>).map((row, index) => index === 0 ? { ...row, title: { invalid: "任务" } } : row) };
       const malformedImport = await handler!(new Request("https://edge.invalid/ai-assistant", {
         method: "POST", headers: { authorization: "Bearer test-user-token", "content-type": "application/json" }, body: JSON.stringify(importBody)

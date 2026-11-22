@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes, assertThrows } from "jsr:@std/assert@1";
-import { parseAttachmentSchedule, wantsAttachmentSchedule } from "./attachmentSchedule.ts";
+import { parseAttachmentSchedule } from "./attachmentSchedule.ts";
 import { DiagnosticError } from "./requestContext.ts";
 
 const question = "帮我记录到全天事项里面，不用提醒，第三四列放到备注里面，同时创建新的文件夹，命名毕设，然后创建一个备忘录开题前准备，里面放上这些要干的事情，列表编号用待办，可勾选完成的那种";
@@ -13,6 +13,7 @@ function studyPlan() {
   ];
   const titles = ["2022年论文第2.1、2.2节", "2022年论文第2.2、3.1.1节", "2022年论文第3.1.2、3.3节", "2024年论文第0、1.1、1.2节", "2024年论文第2、3节", "毕伟尧博士论文", "梅斌博士论文", "解增辉博士论文", "罗璇博士论文", "已有研究成果整理", "现有研究资源梳理", "毕设开题方案设计", "开题报告撰写", "开题材料修改定稿"];
   return {
+    request: { createEvents: true, createMemo: true, createFolders: true, scope: "all", allDay: true, reminderEnabled: false },
     sourceRowCounts: [{ sourceIndex: 1, count: 5 }, { sourceIndex: 2, count: 4 }, { sourceIndex: 3, count: 5 }],
     rows: dates.map(([startDate, endDate], index) => ({
       sourceIndex: index < 5 ? 1 : index < 9 ? 2 : 3,
@@ -22,7 +23,7 @@ function studyPlan() {
     })),
     selectedRows: null as null | Array<{ sourceIndex: number; rowIndex: number }>,
     folderNames: ["毕设"],
-    memoRequest: { title: "开题前准备", folderName: "毕设", format: "numbered" },
+    memoRequest: { title: "开题前准备", folderName: "毕设", format: "checklist" },
     uncertainties: [] as string[]
   };
 }
@@ -79,6 +80,7 @@ Deno.test("用户未筛选时不能自行只导入部分表格行", () => {
   const plan = studyPlan();
   plan.selectedRows = [{ sourceIndex: 3, rowIndex: 1 }];
   assertThrows(() => parseAttachmentSchedule(JSON.stringify(plan), question, 3, now), Error, "全部任务");
+  plan.request.scope = "selected";
   const result = parseAttachmentSchedule(JSON.stringify(plan), question + "，只导入第三张图第一行", 3, now);
   assertEquals(result.actions.filter((action) => action.type === "create_event").length, 1);
 });
@@ -93,16 +95,6 @@ Deno.test("日期不明确以及遗漏文件夹或备忘录要求时不生成部
   missingFolder.folderNames = [];
   missingFolder.memoRequest.folderName = "";
   assertThrows(() => parseAttachmentSchedule(JSON.stringify(missingFolder), question, 3, now), Error, "文件夹");
-});
-
-Deno.test("提问、修正已有事项和单独写备忘录不会进入附件创建流程", () => {
-  assertEquals(wantsAttachmentSchedule(question, 3), true);
-  assertEquals(wantsAttachmentSchedule("请识别附件中的日程信息，并创建对应事项。", 3), true);
-  assertEquals(wantsAttachmentSchedule("为什么只创建了一个事项？", 3), false);
-  assertEquals(wantsAttachmentSchedule("按图修改之前创建的事项", 3), false);
-  assertEquals(wantsAttachmentSchedule("把附件整理成备忘录", 3), false);
-  assertEquals(wantsAttachmentSchedule("创建每天重复的习惯事项", 3), false);
-  assertEquals(wantsAttachmentSchedule(question, 0), false);
 });
 
 Deno.test("模型把单元格输出成分行数组或文字对象时仍导入全部14行", () => {
@@ -187,4 +179,25 @@ Deno.test("线上原图返回的无年份跨年说明按既定年份规则处理
   assertThrows(() => parseAttachmentSchedule(JSON.stringify(plan), question, 3, now), Error, "看不清");
   plan.uncertainties = ["没有年份，日期也看不清"];
   assertThrows(() => parseAttachmentSchedule(JSON.stringify(plan), question, 3, now), Error, "看不清");
+});
+
+Deno.test("任务语义由模型给出，程序不依赖追问里的触发词", () => {
+  const request = { createEvents: true, createMemo: true, createFolders: true, scope: "all", allDay: true, reminderEnabled: false };
+  for (const followup of ["重新处理", "继续处理", "剩下的也弄好", "照刚才的意思来", "嗯，都帮我记好吧"]) {
+    const plan = { ...studyPlan(), request, memoRequest: { title: "开题前准备", folderName: "毕设", format: "checklist" } };
+    const result = parseAttachmentSchedule(JSON.stringify(plan), followup, 3, now, ["image-1", "image-2", "image-3"]);
+    assertEquals(result.actions.filter((action) => action.type === "create_event").length, 14);
+    const memo = result.actions.find((action) => action.type === "create_memo");
+    assertEquals(memo?.items?.length, 14);
+    assertEquals(memo?.folderName, "毕设");
+    assertEquals(memo?.format, "checklist");
+    assertEquals(result.actions[0].type === "create_event" && result.actions[0].sourceKey, "image-1:row:1");
+  }
+  const memoOnly = parseAttachmentSchedule(JSON.stringify({ ...studyPlan(), request: { ...request, createEvents: false } }), "整理成那种能勾选的", 3, now);
+  assertEquals(memoOnly.actions.filter((action) => action.type === "create_event").length, 0);
+  assertEquals(memoOnly.actions.some((action) => action.type === "create_memo"), true);
+  const missingMemo = { ...studyPlan(), request, memoRequest: null };
+  assertThrows(() => parseAttachmentSchedule(JSON.stringify(missingMemo), "继续", 3, now), Error, "备忘录");
+  const missingSource = { ...studyPlan(), request, rows: studyPlan().rows.slice(0, 5) };
+  assertThrows(() => parseAttachmentSchedule(JSON.stringify(missingSource), "继续", 3, now), Error, "数量");
 });

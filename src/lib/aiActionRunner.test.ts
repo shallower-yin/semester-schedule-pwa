@@ -431,6 +431,45 @@ describe("AI 动作执行器", () => {
       db.memos.hook("creating").unsubscribe(failSecond);
     }
   });
+
+  it("图片任务整批提交，末尾备忘录失败时回滚前面事项、文件夹及全部同步记录", async () => {
+    const failMemo = () => { throw new Error("模拟备忘录失败"); };
+    db.memos.hook("creating", failMemo);
+    try {
+      await expect(applyActionsToLocalRecords([
+        { type: "create_event", title: "第一张图片任务", startDate: "2026-12-21", sourceKey: "image-1:row:1" },
+        { type: "create_event", title: "第三张图片任务", startDate: "2027-01-04", sourceKey: "image-3:row:1" },
+        { type: "create_memo_folder", name: "毕设" },
+        { type: "create_memo", title: "开题前准备", folderName: "毕设", sourceKey: "all-images:memo", format: "checklist", items: [{ text: "两项任务" }] }
+      ], "重新处理", userId)).rejects.toThrow("模拟备忘录失败");
+    } finally { db.memos.hook("creating").unsubscribe(failMemo); }
+    expect(await db.events.count()).toBe(0);
+    expect(await db.memoFolders.count()).toBe(0);
+    expect(await db.memos.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
+  });
+
+  it("重新处理同批附件不会重复创建，已勾选的备忘录内容保留", async () => {
+    const actions: DeepSeekAssistantAction[] = [
+      { type: "create_event", title: "第一张图片任务", startDate: "2026-12-21", sourceKey: "image-1:row:1" },
+      { type: "create_event", title: "第三张图片任务", startDate: "2027-01-04", sourceKey: "image-3:row:1" },
+      { type: "create_memo_folder", name: "毕设" },
+      { type: "create_memo", title: "开题前准备", folderName: "毕设", sourceKey: "all-images:memo", format: "checklist", items: [{ text: "第一项" }, { text: "第二项" }] }
+    ];
+    const initial = await applyActionsToLocalRecords(actions, "重新处理", userId);
+    expect(initial.created).toHaveLength(4);
+    const memo = (await db.memos.toArray())[0];
+    await db.memos.put({ ...memo, content: memo.content.replace("○", "●") });
+    const repeated = await applyActionsToLocalRecords(actions.map((action) => action.type === "create_event" ? { ...action, title: action.title + "学习" } : action), "重新处理", userId);
+    expect(repeated.created).toHaveLength(0);
+    expect(repeated.reused).toHaveLength(3);
+    expect(await db.events.count()).toBe(2);
+    expect(await db.memos.count()).toBe(1);
+    expect(await db.memoFolders.count()).toBe(1);
+    expect((await db.memos.get(memo.id))?.content).toBe("● 第一项\n○ 第二项");
+    expect(await db.syncQueue.count()).toBe(4);
+    expect(actionResultsSummary(repeated)).toContain("未重复创建");
+  });
 });
 
 describe("AI 动作结果汇总", () => {

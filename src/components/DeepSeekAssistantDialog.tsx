@@ -161,7 +161,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         if (summary) {
           const applied = actionResults.created.length + actionResults.updated.length + actionResults.deleted.length;
           const failed = Boolean(actionResults.failures?.length || actionResults.unmatched.length);
-          showToast(failed ? "部分操作未完成，请查看回复。" : applied ? `已完成 ${applied} 项操作。` : "已使用指定文件夹。", failed ? "error" : "success");
+          showToast(failed ? "部分操作未完成，请查看回复。" : applied ? `已完成 ${applied} 项操作。` : actionResults.reused?.length ? "已处理，未重复创建。" : "已使用指定文件夹。", failed ? "error" : "success");
         }
       },
       onError: (error) => {

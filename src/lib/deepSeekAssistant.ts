@@ -37,6 +37,7 @@ export interface DeepSeekAssistantQuotaStatus {
 export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction | DeepSeekCreateMemoFolderAction | DeepSeekUpdateEventAction | DeepSeekDeleteEventAction | DeepSeekUpdateAnniversaryAction;
 
 export interface DeepSeekCreateEventAction {
+  sourceKey?: string;
   type: "create_event";
   eventType?: "event" | "habit";
   title: string;
@@ -71,6 +72,7 @@ export interface DeepSeekCreateAnniversaryAction {
 }
 
 export interface DeepSeekCreateMemoAction {
+  sourceKey?: string;
   type: "create_memo";
   title: string;
   content?: string | null;

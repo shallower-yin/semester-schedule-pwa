@@ -9,7 +9,7 @@ import { DiagnosticError, PublicHttpError, emptyUsage, jsonResponse, type AiRequ
 import { createAiRequestHandler } from "./requestHandler.ts";
 import { withAudioSubmission } from "./audioSubmissionHandler.ts";
 import { handleDocumentAction } from "./documentActions.ts";
-import { attachmentScheduleInstructions, parseAttachmentSchedule, wantsAttachmentSchedule } from "./attachmentSchedule.ts";
+import { attachmentScheduleInstructions, parseAttachmentSchedule } from "./attachmentSchedule.ts";
 
 import type {
   AiAssistantRequest, AiAssistantAttachment, SupabaseUser, AiAccessRow,
@@ -1488,7 +1488,7 @@ async function askConfiguredProvider(
     signal
   });
   const resolvedAttachments = resolvedDocuments.attachments;
-  const importingSchedule = mode === "assistant" && wantsAttachmentSchedule(question, resolvedAttachments.length);
+  const hasAttachmentContext = mode === "assistant" && resolvedAttachments.length > 0;
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
   const historyText = history.length
     ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 6_000)
@@ -1509,9 +1509,7 @@ async function askConfiguredProvider(
     .map((attachment, index) => attachment.kind === "document" && attachment.text ? `附件 ${index + 1}，文档 ${attachment.name ?? "未命名"}：\n${attachment.text}` : "")
     .filter(Boolean)
     .join("\n\n");
-  const userText = importingSchedule
-    ? `${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户要求：${question}`
-    : mode === "mind_map"
+  const userText = mode === "mind_map"
     ? `${contextText && contextText !== "{}" ? `可参考的当前用户信息：\n${contextText}\n\n` : ""}${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}需要生成思维导图的主题或内容：${question}`
     : `日程上下文 JSON：\n${contextText}\n\n最近对话：\n${historyText}\n\n${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}用户问题：${question}`;
   const visualAttachments = resolvedAttachments.flatMap((attachment) => {
@@ -1519,7 +1517,7 @@ async function askConfiguredProvider(
     if (attachment.kind === "document" && attachment.pageImages?.length) return attachment.pageImages;
     return [];
   });
-  const userContent: string | Array<Record<string, unknown>> = importingSchedule
+  const userContent: string | Array<Record<string, unknown>> = hasAttachmentContext
     ? [
       ...resolvedAttachments.flatMap((attachment, index) => [
         { type: "text", text: `附件 ${index + 1}：${attachment.name ?? "未命名"}` },
@@ -1545,7 +1543,7 @@ async function askConfiguredProvider(
       messages: [
         {
           role: "system",
-          content: importingSchedule ? attachmentScheduleInstructions(resolvedAttachments.length, beijingNow) : mode === "mind_map" ? [
+          content: mode === "mind_map" ? [
             "你是专业的思维导图整理助手。",
             "请根据用户主题、文字、图片或文档，提炼一棵结构清楚、层级合理的思维导图。",
             "用户输入和附件是主要资料。只有用户明确要求查询自己的日程、课程、事项或某个时间范围时，才使用可参考的当前用户信息；否则禁止主动加入日程内容。",
@@ -1603,7 +1601,7 @@ async function askConfiguredProvider(
             "用户说“第一天、当天、只创建一天、不要每天、短时间事项”时，startDate 和 endDate 必须相同，recurrenceType 必须为 none；不要把背景中的截止日期当成事项结束日期。",
             "如果事项给了开始时间但没给结束时间，短时间事项默认 30 分钟，其他事项 endTime 等于 startTime。",
             `最多返回 ${MAX_AI_ACTIONS} 个 actions；文档中有多个独立活动时应分别创建，不要因日期已过而省略。`
-          ].join("\n")
+          ].join("\n") + (hasAttachmentContext ? `\n${attachmentScheduleInstructions(resolvedAttachments.length, beijingNow)}` : "")
         },
         {
           role: "user",
@@ -1669,9 +1667,21 @@ async function askConfiguredProvider(
   const providerUsage = normalizeUsage(data.usage);
   let parsedResponse: ParsedAssistantResponse;
   try {
-    parsedResponse = mode === "mind_map"
-      ? parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason, providerUsage })
-      : importingSchedule ? parseAttachmentSchedule(content, question, resolvedAttachments.length) : parseAssistantResponse(content, question);
+    const attachmentIds = hasAttachmentContext ? await Promise.all(resolvedAttachments.map(async (attachment) => {
+      if (attachment.id) return attachment.id;
+      const bytes = new TextEncoder().encode(JSON.stringify([attachment.name, attachment.dataUrl, attachment.text, attachment.pageImages, attachment.imageObjectKey]));
+      return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (value) => value.toString(16).padStart(2, "0")).join("");
+    })) : [];
+    if (mode === "mind_map") parsedResponse = parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason, providerUsage });
+    else {
+      const output = hasAttachmentContext ? parseMindMapJson(content).value as Record<string, unknown> : null;
+      if (output?.attachmentPlan) {
+        if (Array.isArray(output.actions) && output.actions.length) throw new Error("附件任务需要统一处理，未保存任何记录，请重试。");
+        parsedResponse = parseAttachmentSchedule(JSON.stringify(output.attachmentPlan), question, resolvedAttachments.length, new Date(), attachmentIds);
+      } else {
+        parsedResponse = parseAssistantResponse(content, question);
+      }
+    }
   } catch (error) {
     if (mode !== "assistant" || !resolvedDocuments.processedAttachments.length) {
       if (error instanceof DiagnosticError) throw new DiagnosticError(error.message, { ...error.details, provider, model, finishReason, providerUsage });
@@ -1738,6 +1748,7 @@ async function resolveRemoteDocumentAttachments(
       .join("\n\n")
       .slice(0, 100_000);
     const processed: AiAssistantAttachment = {
+      id: attachment.id,
       name: attachment.name,
       mimeType: attachment.mimeType,
       kind: "document",
@@ -3492,11 +3503,12 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
     if (!item || typeof item !== "object") continue;
     const record = item as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name.trim().slice(0, 180) : "未命名附件";
+    const id = typeof record.id === "string" && /^[a-f0-9-]{36}$/i.test(record.id) ? record.id : undefined;
     if (record.kind === "image" && record.imageObjectKey != null) {
       const objectKey = userImageObjectKey(userId, record.imageObjectKey);
       const size = Number(record.imageSize);
       if (!Number.isInteger(size) || size <= 0 || size > 50 * 1024 * 1024) throw new PublicHttpError("临时图片大小无效。", 400);
-      result.push({ name, kind: "image", mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", imageObjectKey: objectKey, imageSize: size });
+      result.push({ id, name, kind: "image", mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", imageObjectKey: objectKey, imageSize: size });
       continue;
     }
     if (record.kind === "image" && typeof record.dataUrl === "string") {
@@ -3504,7 +3516,7 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
       if (!/^data:image\/(jpeg|png|gif|webp|bmp);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl) || dataUrl.length > 8_500_000) {
         throw new Error(`图片“${name}”格式不支持或文件过大。`);
       }
-      result.push({ name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
+      result.push({ id, name, mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/jpeg", kind: "image", dataUrl });
     } else if (record.kind === "document") {
       const processedPageCount = clampNumber(record.processedPageCount, 0, configuredMaxDocumentPages(), 0);
       // Client checkpoints are not trusted billing evidence. Extraction requests already
@@ -3542,6 +3554,7 @@ function sanitizeAttachments(value: unknown, allowed: boolean, userId: string): 
       }
       if (!text && !pageImages.length && !remotePages.length) continue;
       result.push({
+        id,
         name,
         mimeType: typeof record.mimeType === "string" ? record.mimeType.slice(0, 120) : "text/plain",
         kind: "document",

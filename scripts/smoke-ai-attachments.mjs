@@ -73,6 +73,20 @@ try {
     await dialog.locator('input[type="file"]').first().setInputFiles(fixture.images.map((image) => ({ name: image.name, mimeType: image.mimeType, buffer: Buffer.from(image.base64, "base64") })));
     await page.waitForFunction((count) => document.querySelectorAll('.assistant-input .assistant-attachment-open').length === count, fixture.images.length);
     await dialog.getByRole("button", { name: "发送", exact: true }).waitFor();
+    if (fixture.prelude) {
+      await dialog.locator("textarea.assistant-composer-textarea").fill(fixture.prelude);
+      const preludeResponse = page.waitForResponse((response) => {
+        if (!response.url().includes("/functions/v1/ai-assistant") || response.request().method() !== "POST") return false;
+        try { return response.request().postDataJSON()?.question === fixture.prelude; } catch { return false; }
+      }, { timeout: 240_000 });
+      await dialog.getByRole("button", { name: "发送", exact: true }).click();
+      const response = await preludeResponse;
+      const answer = await response.json();
+      assert(response.ok(), `${fixture.id}: initial conversation failed`);
+      assert.equal(answer.actions?.length ?? 0, 0, "A request to review without saving must not create records");
+      await page.waitForFunction(() => !document.querySelector('.assistant-input textarea')?.disabled);
+      console.log(`PASS ${JSON.stringify({ case: fixture.id, stage: "understand-without-saving" })}`);
+    }
     await dialog.locator("textarea.assistant-composer-textarea").fill(fixture.question);
     const responsePromise = page.waitForResponse((response) => {
       if (!response.url().includes("/functions/v1/ai-assistant") || response.request().method() !== "POST") return false;
@@ -136,6 +150,31 @@ try {
     assert.equal(cloudMemos.length, 1);
     assert.equal(cloudMemos[0].folder_id, local.memoFolders[0].id);
     assert.equal(cloudMemos[0].content, local.memos[0].content);
+    if (fixture.retryQuestion) {
+      await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
+      await page.getByRole("button", { name: "AI 助手", exact: true }).click();
+      const assistant = page.getByRole("dialog", { name: "AI 助手", exact: true });
+      await assistant.locator("textarea.assistant-composer-textarea").fill(fixture.retryQuestion);
+      const retryResponse = page.waitForResponse((response) => {
+        if (!response.url().includes("/functions/v1/ai-assistant") || response.request().method() !== "POST") return false;
+        try { return response.request().postDataJSON()?.question === fixture.retryQuestion; } catch { return false; }
+      }, { timeout: 240_000 });
+      await assistant.getByRole("button", { name: "发送", exact: true }).click();
+      const response = await retryResponse;
+      assert(response.ok(), "A natural-language continuation must succeed");
+      await page.waitForFunction(() => !document.querySelector('.assistant-input textarea')?.disabled);
+      const counts = await page.evaluate(async (ownerId) => {
+        for (const { name } of await indexedDB.databases()) {
+          const db = await new Promise((resolve) => { const request = indexedDB.open(name); request.onsuccess = () => resolve(request.result); });
+          if (!db.objectStoreNames.contains("events")) { db.close(); continue; }
+          const counts = {};
+          for (const name of ["events", "memos", "memoFolders"]) counts[name] = await new Promise((resolve) => { const request = db.transaction(name).objectStore(name).getAll(); request.onsuccess = () => resolve(request.result.filter((row) => row.user_id === ownerId && !row.deleted_at).length); });
+          db.close(); return counts;
+        }
+      }, userId);
+      assert.deepEqual(counts, { events: fixture.events.length, memos: 1, memoFolders: 1 }, "Continuation must not create duplicate records");
+      console.log(`PASS ${JSON.stringify({ case: fixture.id, stage: "natural-continuation-no-duplicates", ...counts })}`);
+    }
     const result = { case: fixture.id, model: actualModel, originalImages: fixture.images.length, events: events.length, folders: 1, memos: 1, checkableTasks: fixture.events.length, cloudVerified: true, imageUploads };
     results.push(result);
     console.log(`PASS ${JSON.stringify(result)}`);

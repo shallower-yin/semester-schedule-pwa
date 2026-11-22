@@ -4,19 +4,12 @@ import { parseMindMapJson } from "../_shared/mindMapJson.ts";
 
 export const MAX_ATTACHMENT_SCHEDULE_ROWS = 64;
 
-export function wantsAttachmentSchedule(question: string, attachmentCount: number): boolean {
-  if (/(修改|更改|调整|更新|删除|移除|取消(?!提醒))/.test(question)) return false;
-  if (/(为什么|为何|原因|怎么回事)/.test(question) && !/(请|帮我|给我|麻烦).{0,16}(创建|添加|录入|记录|导入)/.test(question)) return false;
-  return attachmentCount > 0
-    && /(创建|新建|添加|加入|录入|记录|导入|安排|生成|记到|记在|记下|帮我记)/.test(question)
-    && /(事项|日程)/.test(question)
-    && !/(习惯|重复|每天|每周|工作日|每月|每隔)/.test(question)
-    && !/(不要|不用|无需|不需要|别).{0,5}(创建|添加|录入|记录|导入).{0,3}(事项|日程)/.test(question);
-}
-
 export function attachmentScheduleInstructions(attachmentCount: number, now: string): string {
   return [
-    "你负责提取附件中的日程表格。只提取资料和用户明确要求的操作，不要自行执行或声称已完成。",
+    "附件任务通过语义理解处理：结合完整对话、当前问题和全部附件，自行判断用户要回答问题、继续原任务、补齐遗漏、修改记录还是创建记录。不要求用户使用固定短语。",
+    "简短的承接表达要继承原任务的对象、范围、日期、提醒、文件夹和清单要求；除非用户明确改变范围，不能自行只做第一张图或把备忘录留到下一轮。纯提问、取消或解释请求不要创建记录。",
+    "需要从附件创建事项或备忘录时，返回 attachmentPlan，actions=[]；其他正常回答或修改已有记录时 attachmentPlan=null，沿用 answer/actions。不要直接把附件中的创建任务塞进actions。",
+    "attachmentPlan 中的 request 由你根据对话语义确定：createEvents/createMemo/createFolders 是本轮需要完成的操作；scope=all 表示全部原任务，scope=selected 才使用 selectedRows；allDay=true 表示统一全天、false保留具体时刻、null按每行有无时刻判断；reminderEnabled 表示是否提醒。用户改变要求时使用最新要求。",
     `当前北京时间：${now}。附件按输入顺序编号 1-${attachmentCount}；用户文字中另外明确新增的事项使用 sourceIndex=0。`,
     "必须读取所有附件、所有日期行；跨图片的续表接着处理。每一行就是一个独立任务，不能把多行合并成一个总事项。",
     "先数出每份附件的日期行数，再逐行提取，sourceRowCounts 与 rows 数量必须相同。不是日程的附件填 count=0。rowIndex 在每份附件中从 1 连续递增。",
@@ -30,8 +23,8 @@ export function attachmentScheduleInstructions(attachmentCount: number, now: str
     "用户还要求备忘录时填写 memoRequest；标题、文件夹名称必须按原话填写，未指定文件夹时 folderName=null；待办、勾选、完成清单使用 format=checklist，纯编号使用 numbered，其他使用 plain。备忘录默认包含所有选中行。",
     "用户要求新建的文件夹逐个填入 folderNames；仅写文件夹名称不是创建完成，不能把创建文件夹省略为一句说明。",
     `最多 ${MAX_ATTACHMENT_SCHEDULE_ROWS} 行；看不清、日期不确定、超出行数时在 uncertainties 中说明，不能输出猜测的日期。`,
-    "只返回 JSON，不要返回 actions 或 Markdown。格式：",
-    '{"sourceRowCounts":[{"sourceIndex":1,"count":1}],"rows":[{"sourceIndex":1,"rowIndex":1,"startDate":"12-28","endDate":"01-03","title":"任务","details":"完整具体内容","outcome":"完整预期成果","startTime":null,"endTime":null}],"selectedRows":null,"folderNames":[],"memoRequest":{"title":"标题","folderName":null,"format":"checklist"},"uncertainties":[]}',
+    "外层只返回 JSON，不要 Markdown。创建附件任务时格式：",
+    '{"answer":"准备处理附件任务","actions":[],"attachmentPlan":{"request":{"createEvents":true,"createMemo":true,"createFolders":false,"scope":"all","allDay":true,"reminderEnabled":false},"sourceRowCounts":[{"sourceIndex":1,"count":1}],"rows":[{"sourceIndex":1,"rowIndex":1,"startDate":"12-28","endDate":"01-03","title":"任务","details":"完整具体内容","outcome":"完整预期成果","startTime":null,"endTime":null}],"selectedRows":null,"folderNames":[],"memoRequest":{"title":"标题","folderName":null,"format":"checklist"},"uncertainties":[]}}',
     "文字单元格、文件夹名和备忘录标题用字符串；多行内容在同一个字符串中用换行连接，空单元格用空字符串。folderNames 是名称字符串数组，uncertainties 是疑问字符串数组。行号、附件编号和数量用数字。",
     "不需要备忘录时 memoRequest=null。不要漏掉 rows，不要把用户的命令当作任务正文。"
   ].join("\n");
@@ -103,7 +96,7 @@ function time(value: unknown): string | null {
   return value;
 }
 
-export function parseAttachmentSchedule(content: string, question: string, attachmentCount: number, now = new Date()): ParsedAssistantResponse {
+export function parseAttachmentSchedule(content: string, _question: string, attachmentCount: number, now = new Date(), attachmentIds: string[] = []): ParsedAssistantResponse {
   let parsed: Record<string, unknown>;
   try {
     parsed = object(parseMindMapJson(content).value);
@@ -118,6 +111,11 @@ export function parseAttachmentSchedule(content: string, question: string, attac
     fail(`未提取到完整任务，或任务超过 ${MAX_ATTACHMENT_SCHEDULE_ROWS} 行，请核对附件或分批导入。`);
   }
   const counts = new Map<number, number>();
+  const request = object(parsed.request);
+  if (typeof request.createEvents !== "boolean" || typeof request.createMemo !== "boolean" || typeof request.createFolders !== "boolean"
+    || !["all", "selected"].includes(String(request.scope)) || ![true, false, null].includes(request.allDay as boolean | null) || typeof request.reminderEnabled !== "boolean") {
+    fail("需要保存的任务信息不完整，未保存任何记录，请重试。", { field: "request", issue: "operation_format" });
+  }
   for (const value of parsed.sourceRowCounts) {
     const source = object(value);
     const index = integer(source.sourceIndex, 0, attachmentCount);
@@ -185,18 +183,20 @@ export function parseAttachmentSchedule(content: string, question: string, attac
       return `${integer(ref.sourceIndex, 0, attachmentCount)}:${integer(ref.rowIndex, 1, MAX_ATTACHMENT_SCHEDULE_ROWS)}`;
     });
     if (new Set(selectedIds).size !== selectedIds.length || selectedIds.some((id) => !rowIds.has(id))) fail("选中的表格行不存在或重复，请核对。");
-    if (!/(只|仅|第.{0,10}行|筛选|选中|选出|除外|不要.{0,8}(行|任务))/.test(question) && selectedIds.length !== rows.length) fail("未按要求提取全部任务，请重试。");
+    if (request.scope === "all" && selectedIds.length !== rows.length) fail("未按要求提取全部任务，请重试。");
     selected = rows.filter((row) => selectedIds.includes(`${row.sourceIndex}:${row.rowIndex}`));
   }
-  const allDayRequested = /全天/.test(question) && !/(不要|不用|别|不是).{0,3}全天/.test(question);
-  const remindersDisabled = /(不用|不要|无需|不需要|不必|关闭|取消).{0,4}提醒/.test(question);
-  const remindersRequested = !remindersDisabled && /(提醒我|需要提醒|开启提醒|设置提醒)/.test(question);
-  const actions: AiAssistantAction[] = selected.map((row) => ({
+  if (request.scope === "selected" && parsed.selectedRows == null) fail("缺少要处理的任务范围，未保存任何记录，请重试。");
+  const allDayRequested = request.allDay === true;
+  const remindersRequested = request.reminderEnabled === true;
+  const actions: AiAssistantAction[] = (request.createEvents === false ? [] : selected).map((row) => ({
     type: "create_event", eventType: "event", title: row.title,
     startDate: row.startDate, endDate: row.endDate,
     startTime: allDayRequested ? null : row.startTime, endTime: allDayRequested ? null : row.endTime,
     allDay: allDayRequested || !row.startTime, note: row.note,
     location: row.location,
+    ...(row.sourceIndex === 0 && attachmentIds.length ? { sourceKey: `${attachmentIds.join(":")}:extra:${row.rowIndex}` }
+      : attachmentIds[row.sourceIndex - 1] ? { sourceKey: `${attachmentIds[row.sourceIndex - 1]}:row:${row.rowIndex}` } : {}),
     recurrenceType: "none", reminderEnabled: remindersRequested, reminderMinutesBefore: 10
   }));
   const rawFolderNames = parsed.folderNames == null ? [] : Array.isArray(parsed.folderNames) ? parsed.folderNames : [parsed.folderNames];
@@ -208,15 +208,17 @@ export function parseAttachmentSchedule(content: string, question: string, attac
     if (!title) fail("备忘录缺少标题，请补充。");
     const folderName = text(memo.folderName, 200, "备忘录的文件夹名称", "memoRequest.folderName");
     if (folderName) folderNames.push(folderName);
-    const format = /(勾选|可选中|待办|打勾|复选)/.test(question) ? "checklist" : memo.format === "numbered" ? "numbered" : memo.format === "checklist" ? "checklist" : "plain";
+    const format = memo.format === "numbered" ? "numbered" : memo.format === "checklist" ? "checklist" : "plain";
     memoAction = {
       type: "create_memo", title, folderName: folderName || null, format,
+      ...(attachmentIds.length ? { sourceKey: `${attachmentIds.join(":")}:memo:${title}` } : {}),
       items: selected.map((row) => ({ text: `${row.startDate}${row.endDate !== row.startDate ? ` 至 ${row.endDate}` : ""} ${row.title}${row.note ? `\n${row.note}` : ""}`, completed: false }))
     };
-  } else if (/(创建|新建|建|写).{0,12}(备忘录|备忘)/.test(question)) {
+  } else if (request.createMemo) {
     fail("备忘录要求尚未提取完整，请重试。");
   }
-  if (/(创建|新建|建).{0,12}文件夹/.test(question) && !folderNames.some(Boolean)) fail("新建文件夹的名称尚未提取，请重试。");
+  if (request.createMemo === false && memoAction) fail("备忘录操作与当前任务不一致，未保存任何记录，请重试。");
+  if (request.createFolders && !folderNames.some(Boolean)) fail("新建文件夹的名称尚未提取，请重试。");
   actions.push(...[...new Set(folderNames.filter(Boolean))].map((name) => ({ type: "create_memo_folder" as const, name })));
   if (memoAction) actions.push(memoAction);
   return { answer: "已提取附件中的任务。", actions };

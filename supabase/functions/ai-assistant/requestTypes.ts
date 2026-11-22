@@ -80,6 +80,7 @@ export interface AiAssistantRequest {
 }
 
 export interface AiAssistantAttachment {
+  id?: string;
   name?: string;
   mimeType?: string;
   kind?: "image" | "document";
@@ -114,6 +115,7 @@ export type EventRecurrenceType = "none" | "daily" | "weekdays" | "weekly" | "mo
 export type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction | AiCreateMemoFolderAction | AiUpdateEventAction | AiDeleteEventAction | AiUpdateAnniversaryAction;
 
 export interface AiCreateEventAction {
+  sourceKey?: string;
   type: "create_event";
   eventType?: "event" | "habit";
   title: string;
@@ -148,6 +150,7 @@ export interface AiCreateAnniversaryAction {
 }
 
 export interface AiCreateMemoAction {
+  sourceKey?: string;
   type: "create_memo";
   title: string;
   content?: string | null;

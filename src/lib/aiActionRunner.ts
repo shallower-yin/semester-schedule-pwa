@@ -7,6 +7,7 @@ import {
   matchAnniversariesByAction,
   matchEventsByTitle,
   memoFromAiAction,
+  eventItemFromAiAction,
   recordsFromAiActions,
   type AiCreatedRecord,
   type AiActionResults,
@@ -36,6 +37,9 @@ export async function applyActionsToLocalRecords(
   signal?: AbortSignal
 ): Promise<AiActionResults> {
   signal?.throwIfAborted();
+  if (actions.some((action) => (action.type === "create_event" || action.type === "create_memo") && action.sourceKey)) {
+    return applyAttachmentImport(actions, sourceText, ownerId, signal);
+  }
   const inferredAnniversaryUpdate = actions.some((action) => action.type === "update_anniversary")
     ? null
     : inferAnniversaryUpdateAction(sourceText);
@@ -178,6 +182,67 @@ function normalizeFolderName(name: string): string {
   return name.trim().normalize("NFKC").toLocaleLowerCase();
 }
 
+async function applyAttachmentImport(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string, signal?: AbortSignal): Promise<AiActionResults> {
+  const prepared = await Promise.all(actions.map(async (action) => {
+    if (action.type === "create_memo_folder") return { action, id: "" };
+    if ((action.type !== "create_event" && action.type !== "create_memo") || !action.sourceKey) throw new Error("附件任务不完整，未保存任何记录，请重试。");
+    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ownerId}:${action.type}:${action.sourceKey}`)));
+    bytes[6] = (bytes[6] & 15) | 80;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes.slice(0, 16)].map((value) => value.toString(16).padStart(2, "0")).join("");
+    return { action, id: `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}` };
+  }));
+  const created: AiCreatedRecord[] = [];
+  const reused: AiCreatedRecord[] = [];
+  const folders = new Map<string, MemoFolder>();
+  await commitAction(["events", "memos", "memoFolders"], signal, async () => {
+    for (const { action, id } of prepared) {
+      signal?.throwIfAborted();
+      if (action.type === "create_memo_folder") {
+        const result = await getOrCreateMemoFolder(action.name, ownerId);
+        folders.set(result.folder.id, result.folder);
+        if (result.created) created.push({ table: "memoFolders", record: result.folder });
+      } else if (action.type === "create_event") {
+        const existing = await db.events.get(id);
+        if (existing) {
+          if (existing.user_id !== ownerId || existing.deleted_at) throw new Error("已导入的事项状态已变化，请核对后重试。");
+          reused.push({ table: "events", record: existing });
+          continue;
+        }
+        const record = eventItemFromAiAction(action, sourceText, ownerId, new Date());
+        if (!record) throw new Error("附件中有事项日期无效，未保存任何记录。");
+        record.id = id;
+        await putRecordAndQueue("events", record);
+        created.push({ table: "events", record });
+      } else if (action.type === "create_memo") {
+        const existing = await db.memos.get(id);
+        if (existing) {
+          if (existing.user_id !== ownerId || existing.deleted_at) throw new Error("已导入的备忘录状态已变化，请核对后重试。");
+          reused.push({ table: "memos", record: existing });
+          continue;
+        }
+        const record = memoFromAiAction(action, sourceText, ownerId);
+        if (!record) throw new Error("备忘录标题无效，未保存任何记录。");
+        if (action.folderId) {
+          const folder = await db.memoFolders.get(action.folderId);
+          if (!folder || folder.user_id !== ownerId || folder.deleted_at) throw new Error("指定文件夹不可用，未保存任何记录。");
+          record.folder_id = folder.id;
+          folders.set(folder.id, folder);
+        } else if (action.folderName) {
+          const result = await getOrCreateMemoFolder(action.folderName, ownerId);
+          record.folder_id = result.folder.id;
+          folders.set(result.folder.id, result.folder);
+          if (result.created) created.push({ table: "memoFolders", record: result.folder });
+        }
+        record.id = id;
+        await putRecordAndQueue("memos", record);
+        created.push({ table: "memos", record });
+      }
+    }
+  });
+  return { created, reused, updated: [], deleted: [], unmatched: [], folders: [...folders.values()] };
+}
+
 async function getOrCreateMemoFolder(name: string, ownerId: string): Promise<{ folder: MemoFolder; created: boolean }> {
   const normalized = normalizeFolderName(name);
   if (!normalized) throw new Error("文件夹名称不能为空。");
@@ -250,6 +315,11 @@ export function actionResultsSummary(results: AiActionResults): string {
   const missingDeletes = results.unmatched.filter((item) => item.action === "delete").map((item) => item.title);
   if (missingDeletes.length) lines.push("未找到要删除的事项：" + mergedTitles(missingDeletes));
   if (results.failures?.length) lines.push(...results.failures);
+  if (results.reused?.length) {
+    const events = results.reused.filter((item) => item.table === "events").length;
+    const memos = results.reused.filter((item) => item.table === "memos").length;
+    lines.push(`已保留${[events && `${events} 条已导入事项`, memos && `${memos} 份已导入备忘录`].filter(Boolean).join("、")}，未重复创建。`);
+  }
   return lines.join("\n");
 }
 

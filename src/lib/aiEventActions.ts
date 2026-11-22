@@ -25,6 +25,7 @@ export interface AiActionResults {
   unmatched: AiUnmatchedAction[];
   folders?: MemoFolder[];
   failures?: string[];
+  reused?: AiCreatedRecord[];
 }
 
 export function inferAnniversaryUpdateAction(sourceText: string): Extract<DeepSeekAssistantAction, { type: "update_anniversary" }> | null {
