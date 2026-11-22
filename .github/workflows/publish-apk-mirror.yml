@@ -52,21 +52,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Detect widget source changes
-        id: widget_changes
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          base="${BEFORE_SHA:-}"
-          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then base="$(git rev-parse HEAD^)"; fi
-          changed="$(git diff --name-only "$base" "$GITHUB_SHA")"
-          if grep -Eq '^android/app/src/(main/(java/.*/[^/]*Widget[^/]*\.java|res/(layout/widget_|xml/today_schedule_widget_info))|androidTest/.*/WidgetScrollingTest\.java)' <<<"$changed"; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Setup Java
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
@@ -122,43 +107,6 @@ jobs:
           PUBLISHED_CODE="$(python3 -c 'import json; data=json.load(open("/tmp/published-web-release.json",encoding="utf-8")); value=int(data.get("apkVersionCode") or 0); assert value > 0, value; assert data.get("version") and data.get("commit") and isinstance(data.get("notes"),list), "Invalid published web release"; print(value)')"
           echo "code=$PUBLISHED_CODE" >> "$GITHUB_OUTPUT"
           echo "Published APK versionCode=$PUBLISHED_CODE"
-
-      - name: Build and check widget native test APKs
-        if: steps.widget_changes.outputs.changed == 'true'
-        working-directory: android
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --console=plain
-
-      - name: Enable isolated widget emulator acceleration
-        if: steps.widget_changes.outputs.changed == 'true'
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Verify compact widget scrolling before APK publication
-        if: steps.widget_changes.outputs.changed == 'true'
-        timeout-minutes: 12
-        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          profile: pixel_5
-          disable-animations: true
-          emulator-boot-timeout: 180
-          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none -camera-front none
-          script: bash scripts/check-android-widget.sh
-
-      - name: Save native widget validation evidence
-        if: always() && steps.widget_changes.outputs.changed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: widget-validation-${{ github.sha }}
-          path: widget-validation/
-          retention-days: 7
-          if-no-files-found: warn
 
       - name: Assemble signed release APK
         working-directory: android

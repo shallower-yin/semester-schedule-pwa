@@ -229,10 +229,10 @@ export function OtpDialog({ ownerId, onClose, onSignIn }: OtpDialogProps) {
           <div className="otp-toolbar">
             <input type="search" aria-label="搜索验证账号" placeholder="搜索服务或账号" value={query} onChange={event => setQuery(event.target.value)} />
             <button className="button primary compact" disabled={busy || draft !== undefined} onClick={() => setDraft(null)}><Plus size={16} />添加账号</button>
+            <span className="otp-sync" role="status" title={pending ? "有未同步修改，联网后解锁可继续同步。" : undefined}>{syncing ? "正在同步…" : pending ? "待同步" : "已同步"}</span>
             <button className="icon-button" disabled={busy || syncing} onClick={() => void sync()} aria-label="同步验证码" title="同步验证码"><RefreshCw size={18} className={syncing ? "spinning" : ""} /></button>
             <button className="icon-button" onClick={lock} aria-label="锁定身份验证器" title="锁定"><LockKeyhole size={18} /></button>
           </div>
-          <p className="otp-sync" role="status">{syncing ? "正在同步…" : pending ? "有未同步修改，联网后解锁可继续同步。" : "已同步"}</p>
           {draft !== undefined && <OtpAccountForm key={`${draft?.id ?? "new"}:${qrRevision.current}`} account={draft} initial={qrParameters} disabled={busy} onSave={saveAccount} onChooseQr={() => qrInput.current?.click()} onCancel={() => { setDraft(undefined); setQrParameters(null); setQrFile(null); setBusy(false); }} />}
           {visible.length ? <ul className="otp-list" aria-label="验证账号">{visible.map(account => {
             const remaining = account.period - Math.floor(now / 1000) % account.period;
