@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 20
     env:
       SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
-      APP_URL: https://shallower-yin.github.io/semester-schedule-pwa/
+      APP_URL: https://schedule.nfsg.eu.cc/
       PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
