@@ -29,7 +29,7 @@ concurrency:
 jobs:
   smoke:
     if: ${{ inputs.confirmation == 'RUN_PAID_AI_SMOKE' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       SUPABASE_URL: https://haifsnaupqhlvgfoyvlc.supabase.co
