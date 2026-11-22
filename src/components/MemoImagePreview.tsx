@@ -5,7 +5,7 @@ import type { MemoImage } from "../types";
 import { Modal } from "./Modal";
 
 interface MemoImagePreviewProps {
-  images: MemoImage[];
+  images: Array<MemoImage | { id: string; name: string; url: string }>;
   initialIndex: number;
   onClose: () => void;
 }
@@ -73,6 +73,11 @@ export function MemoImagePreview({ images, initialIndex, onClose }: MemoImagePre
     setImageUrl("");
     setErrorMessage("");
     setPhase("signing");
+    if ("url" in activeImage) {
+      setImageUrl(activeImage.url);
+      setPhase("image");
+      return;
+    }
     void getMemoImageUrls([activeImage])
       .then((urls) => {
         if (!current) return;

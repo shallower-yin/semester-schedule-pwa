@@ -1,20 +1,28 @@
 import { BrainCircuit, Clipboard, FileText, Image as ImageIcon, KeyRound, PencilLine, Send, Sparkles, Square, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent as ReactClipboardEvent } from "react";
 import { db } from "../db";
 import { AI_DOCUMENT_ACCEPT, AI_IMAGE_ACCEPT, prepareAiAssistantAttachment, releaseAiAssistantAttachments, type AiAssistantAttachment } from "../lib/assistantAttachments";
 import { cancelAiTask, getAiTaskSnapshot, setAiTaskDialogOpen, startAiTask, subscribeAiTasks } from "../lib/aiBackgroundTasks";
 import { extractClipboardFiles } from "../lib/clipboardFiles";
 import { askDeepSeekAssistant, buildDeepSeekScheduleContext, getAiAssistantConfiguration, type AiAssistantConfiguration, type DeepSeekAssistantHistoryMessage } from "../lib/deepSeekAssistant";
-import { actionResultsSummary, applyActionsToLocalRecords } from "../lib/aiActionRunner";
+import { actionResultsSummary, applyActionsToLocalRecords, assistantReplyAfterActions } from "../lib/aiActionRunner";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { showToast } from "../lib/toast";
 import { Modal } from "./Modal";
 import { AttachmentSourcePicker } from "./AttachmentSourcePicker";
+import { MemoImagePreview } from "./MemoImagePreview";
+
+interface MessageAttachment {
+  id?: string;
+  name: string;
+  kind?: AiAssistantAttachment["kind"];
+}
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: MessageAttachment[];
 }
 
 interface DeepSeekAssistantDialogProps {
@@ -42,6 +50,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   const [configuration, setConfiguration] = useState<AiAssistantConfiguration>({ provider: "deepseek", model: "deepseek-v4-flash", supportsAttachments: false });
   const [attachments, setAttachments] = useState<AiAssistantAttachment[]>([]);
   const [contextAttachments, setContextAttachments] = useState<AiAssistantAttachment[]>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<AiAssistantAttachment | null>(null);
   const [preparingAttachment, setPreparingAttachment] = useState(false);
   const [attachmentProgress, setAttachmentProgress] = useState("");
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -52,6 +61,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
   useEffect(() => {
     setMessages(loadAssistantHistory(ownerId));
     setContextAttachments([]);
+    setPreviewAttachment(null);
     setEditingMessageId(null);
     setEditingText("");
     let canceled = false;
@@ -95,12 +105,14 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     const trimmed = text.trim() || (effectiveAttachments.length ? "请识别附件中的日程信息，并创建对应事项。" : "");
     if (!trimmed || loading) return;
     const history = messagesToHistory(baseMessages);
-    // Build context with the current question so relative-time scopes such as “本周” and “明天”
-    // actually constrain the records sent to the model.
-    const requestContext = buildDeepSeekScheduleContext(input, trimmed);
     setQuestion("");
     const attachmentLabel = requestAttachments.length ? `\n附件：${requestAttachments.map((item) => item.name).join("、")}` : "";
-    const messagesWithQuestion = [...baseMessages, { id: userMessageId, role: "user" as const, content: `${trimmed}${attachmentLabel}` }];
+    const messagesWithQuestion = [...baseMessages, {
+      id: userMessageId,
+      role: "user" as const,
+      content: `${trimmed}${attachmentLabel}`,
+      ...(requestAttachments.length ? { attachments: requestAttachments.map(({ id, name, kind }) => ({ id, name, kind })) } : {})
+    }];
     setMessages(messagesWithQuestion);
     saveAssistantHistory(ownerId, messagesWithQuestion);
     setAttachments([]);
@@ -117,14 +129,16 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       label: "AI 助手正在回答",
       successMessage: "AI 助手已回答，点击可查看当前对话。",
       run: async (signal) => {
+        const memoFolders = await db.memoFolders.filter((folder) => folder.user_id === ownerId && !folder.deleted_at).sortBy("sort_order");
+        signal.throwIfAborted();
+        const requestContext = buildDeepSeekScheduleContext({ ...input, memoFolders }, trimmed);
         const result = await askDeepSeekAssistant(trimmed, requestContext, accessCode.trim(), history, effectiveAttachments, signal);
         signal.throwIfAborted();
         const actionResults = await applyActionsToLocalRecords(result.actions ?? [], trimmed, ownerId, signal);
-        const summary = actionResultsSummary(actionResults);
         return {
           access: result.access,
           actionResults,
-          content: [result.answer, summary].filter(Boolean).join("\n"),
+          content: assistantReplyAfterActions(result.answer, actionResults, result.actions?.length ?? 0, trimmed),
           processedAttachments: result.processedAttachments
         };
       },
@@ -141,7 +155,8 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         const summary = actionResultsSummary(actionResults);
         if (summary) {
           const applied = actionResults.created.length + actionResults.updated.length + actionResults.deleted.length;
-          showToast(summary.replace(/\n/g, "；"), applied ? "success" : "error");
+          const failed = Boolean(actionResults.failures?.length || actionResults.unmatched.length);
+          showToast(failed ? "部分操作未完成，请查看回复。" : applied ? `已完成 ${applied} 项操作。` : "已使用指定文件夹。", failed ? "error" : "success");
         }
       },
       onError: (error) => {
@@ -175,7 +190,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
         accessCode,
         feature: "assistant",
         onProgress: (completed, total) => setAttachmentProgress(`上传 PDF ${completed}/${total} 页`)
-      })));
+      }).then((attachment) => ({ ...attachment, id: attachment.id ?? crypto.randomUUID() }))));
       setAttachments((current) => [...current, ...prepared].slice(0, 3));
       if (source === "paste" && prepared.length) showToast(`已粘贴 ${prepared.length} 个附件。`, "success");
     } catch (error) {
@@ -213,7 +228,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
 
   function editMessage(message: Message) {
     setEditingMessageId(message.id);
-    setEditingText(message.content);
+    setEditingText(messageBody(message));
     window.setTimeout(() => {
       editingRef.current?.focus();
       editingRef.current?.setSelectionRange(editingRef.current.value.length, editingRef.current.value.length);
@@ -240,6 +255,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
     setMessages([]);
     setAttachments([]);
     setContextAttachments([]);
+    setPreviewAttachment(null);
     void db.aiAttachmentContexts.delete(aiAttachmentContextId(ownerId));
     showToast("历史已清空。", "success");
   }
@@ -252,6 +268,18 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
       void saveAttachmentContext(ownerId, next);
       return next;
     });
+  }
+
+  function previewMessageAttachment(reference: MessageAttachment) {
+    const available = [...contextAttachments, ...attachments];
+    const matches = reference.id
+      ? available.filter((attachment) => attachment.id === reference.id)
+      : available.filter((attachment) => attachment.name === reference.name);
+    if (matches.length !== 1) {
+      showToast("附件已移除或过期，请重新添加。", "error");
+      return;
+    }
+    setPreviewAttachment(matches[0]);
   }
 
   return (
@@ -316,7 +344,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
                   </form>
                 ) : (
                   <p>
-                    {message.content}
+                    {messageBody(message)}
                     <span className="assistant-inline-actions">
                       <button type="button" className="icon-button" title="复制" aria-label="复制这条消息" onClick={() => void copyMessage(message.content)}><Clipboard size={13} /></button>
                       {message.role === "user" && (
@@ -324,6 +352,17 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
                       )}
                     </span>
                   </p>
+                )}
+                {messageAttachmentReferences(message).length > 0 && (
+                  <div className="assistant-attachments assistant-message-attachments" aria-label="消息附件">
+                    {messageAttachmentReferences(message).map((attachment, index) => (
+                      <span key={attachment.id ?? `${attachment.name}-${index}`}>
+                        <button type="button" className="assistant-attachment-open" aria-label={`查看附件 ${attachment.name}`} onClick={() => previewMessageAttachment(attachment)}>
+                          {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}<strong>{attachment.name}</strong>
+                        </button>
+                      </span>
+                    ))}
+                  </div>
                 )}
               </div>
             </article>
@@ -344,8 +383,10 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
               <small>上下文</small>
               {contextAttachments.map((attachment, index) => (
                 <span key={`context-${attachment.name}-${index}`}>
-                  {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}
-                  <strong>{attachment.name}</strong>
+                  <button type="button" className="assistant-attachment-open" aria-label={`查看附件 ${attachment.name}`} onClick={() => setPreviewAttachment(attachment)}>
+                    {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}
+                    <strong>{attachment.name}</strong>
+                  </button>
                   <button type="button" className="icon-button" aria-label={`移除上下文 ${attachment.name}`} onClick={() => removeContextAttachment(index)}><X size={13} /></button>
                 </span>
               ))}
@@ -355,8 +396,10 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
             <div className="assistant-attachments">
               {attachments.map((attachment, index) => (
                 <span key={`${attachment.name}-${index}`}>
-                  {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}
-                  <strong>{attachment.name}</strong>
+                  <button type="button" className="assistant-attachment-open" aria-label={`查看附件 ${attachment.name}`} onClick={() => setPreviewAttachment(attachment)}>
+                    {attachment.kind === "image" ? <ImageIcon size={14} /> : <FileText size={14} />}
+                    <strong>{attachment.name}</strong>
+                  </button>
                   <button type="button" className="icon-button" aria-label={`移除 ${attachment.name}`} onClick={() => setAttachments((current) => {
                     const removed = current[index];
                     if (removed) void releaseAiAssistantAttachments([removed]);
@@ -404,6 +447,7 @@ export function DeepSeekAssistantDialog({ input, ownerId, onClose }: DeepSeekAss
           </div>
         </form>
       </div>
+      {previewAttachment && <AssistantAttachmentPreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />}
     </Modal>
   );
 }
@@ -442,7 +486,7 @@ async function loadAttachmentContext(ownerId: string): Promise<AiAssistantAttach
     await db.aiAttachmentContexts.delete(id);
     return [];
   }
-  return saved.attachments.slice(0, 3);
+  return saved.attachments.slice(0, 3).map((attachment) => ({ ...attachment, id: attachment.id ?? crypto.randomUUID() }));
 }
 
 async function saveAttachmentContext(ownerId: string, attachments: AiAssistantAttachment[]): Promise<void> {
@@ -460,14 +504,50 @@ async function saveAttachmentContext(ownerId: string, attachments: AiAssistantAt
 }
 
 function mergeAttachments(existing: AiAssistantAttachment[], incoming: AiAssistantAttachment[]): AiAssistantAttachment[] {
-  const merged = new Map(existing.map((attachment) => [`${attachment.kind}:${attachment.name}`, attachment]));
-  incoming.forEach((attachment) => merged.set(`${attachment.kind}:${attachment.name}`, attachment));
+  const merged = new Map<string | AiAssistantAttachment, AiAssistantAttachment>();
+  [...existing, ...incoming].forEach((attachment) => merged.set(attachment.id ?? attachment, attachment));
   return [...merged.values()].slice(-3);
 }
 
 function replaceProcessedAttachments(current: AiAssistantAttachment[], processed: AiAssistantAttachment[]): AiAssistantAttachment[] {
-  const replacements = new Map(processed.map((attachment) => [`${attachment.kind}:${attachment.name}`, attachment]));
-  return current.map((attachment) => replacements.get(`${attachment.kind}:${attachment.name}`) ?? attachment);
+  const remaining = [...processed];
+  return current.map((attachment) => {
+    if (!attachment.remotePages?.length) return attachment;
+    const index = remaining.findIndex((item) => item.kind === attachment.kind && item.name === attachment.name);
+    if (index < 0) return attachment;
+    return { ...remaining.splice(index, 1)[0], id: attachment.id };
+  });
+}
+
+function messageAttachmentReferences(message: Message): MessageAttachment[] {
+  if (message.attachments?.length) return message.attachments;
+  if (message.role !== "user") return [];
+  const label = /\n附件：([^\n]+)$/.exec(message.content);
+  return label ? label[1].split("、").map((name) => ({ name })) : [];
+}
+
+function messageBody(message: Message): string {
+  return messageAttachmentReferences(message).length ? message.content.replace(/\n附件：[^\n]+$/, "") : message.content;
+}
+
+function AssistantAttachmentPreview({ attachment, onClose }: { attachment: AiAssistantAttachment; onClose: () => void }) {
+  const images = useMemo(() => {
+    const urls = attachment.kind === "image" && attachment.dataUrl ? [attachment.dataUrl] : attachment.pageImages ?? [];
+    return urls.map((url, index) => ({
+      id: `${attachment.id ?? attachment.name}-${index}`,
+      name: urls.length > 1 ? `${attachment.name} · 第 ${index + 1} 页` : attachment.name,
+      url
+    }));
+  }, [attachment]);
+  if (images.length) return <MemoImagePreview images={images} initialIndex={0} onClose={onClose} />;
+  const text = attachment.pendingTextBatches?.length
+    ? attachment.pendingTextBatches.map((batch) => batch.text).join("\n\n")
+    : attachment.remotePages?.length ? "" : attachment.text;
+  return (
+    <Modal title={`查看附件：${attachment.name}`} onClose={onClose} wide className="assistant-document-preview-modal">
+      {text ? <pre className="assistant-document-preview-text">{text}</pre> : <p role="status">{attachment.remotePages?.length ? "文档尚未识别，识别完成后可查看文字。" : "此附件没有可预览的内容。"}</p>}
+    </Modal>
+  );
 }
 
 function messagesToHistory(messages: Message[]): DeepSeekAssistantHistoryMessage[] {

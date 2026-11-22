@@ -27,6 +27,18 @@ describe("备忘录图片查看器", () => {
 
   afterEach(() => cleanup());
 
+  it("本地附件直接预览和切换，不请求私有存储地址", async () => {
+    const localImages = [
+      { id: "local-1", name: "第一页.png", url: "data:image/png;base64,aW1hZ2Ux" },
+      { id: "local-2", name: "第二页.png", url: "data:image/png;base64,aW1hZ2Uy" }
+    ];
+    render(<MemoImagePreview images={localImages} initialIndex={0} onClose={() => undefined} />);
+    expect(await screen.findByRole("img", { name: "第一页.png" })).toHaveAttribute("src", localImages[0].url);
+    fireEvent.click(screen.getByRole("button", { name: "下一张图片" }));
+    expect(await screen.findByRole("img", { name: "第二页.png" })).toHaveAttribute("src", localImages[1].url);
+    expect(getMemoImageUrlsMock).not.toHaveBeenCalled();
+  });
+
   it("打开和切换图片时重新取得私有地址，并支持缩放与滚轮复位", async () => {
     let request = 0;
     getMemoImageUrlsMock.mockImplementation(async (requested: MemoImage[]) => {

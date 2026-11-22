@@ -15,8 +15,9 @@ import { buildScheduleOverview, type ScheduleOverviewItem } from "./overview";
 
 export const WIDGET_SNAPSHOT_SCHEMA = 1 as const;
 export const WIDGET_SNAPSHOT_DAYS = 7;
-export const WIDGET_MAX_ITEMS_PER_DAY = 8;
-export const WIDGET_MAX_TODOS = 3;
+// Dataset bounds are separate from the native viewport's five visible rows.
+export const WIDGET_MAX_ITEMS_PER_DAY = 100;
+export const WIDGET_MAX_TODOS = 1000;
 
 export interface WidgetSnapshotItem {
   /** Deep-link key understood by the existing native notification router. */
@@ -91,7 +92,7 @@ export function buildWidgetSnapshot(
 ): WidgetSnapshot {
   const ownerId = input.ownerId.trim();
   const dayCount = clampInteger(options.days ?? WIDGET_SNAPSHOT_DAYS, 1, 7);
-  const maxItemsPerDay = clampInteger(options.maxItemsPerDay ?? WIDGET_MAX_ITEMS_PER_DAY, 1, 12);
+  const maxItemsPerDay = clampInteger(options.maxItemsPerDay ?? WIDGET_MAX_ITEMS_PER_DAY, 1, WIDGET_MAX_ITEMS_PER_DAY);
   const owned = <T extends { user_id: string }>(items: T[]): T[] => items.filter((item) => item.user_id === ownerId);
   const semester = input.semester?.user_id === ownerId ? input.semester : null;
   const courses = owned(input.courses);
@@ -128,7 +129,8 @@ export function buildWidgetSnapshot(
       occurrenceStates,
       periods,
       focusSessions,
-      maxItems: maxItemsPerDay
+      // Filter completed items before applying the widget's dataset bound.
+      maxItems: Math.max(maxItemsPerDay, events.length + schedules.length)
     }, dateNow);
     return {
       date,

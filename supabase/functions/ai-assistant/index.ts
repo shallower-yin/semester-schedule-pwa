@@ -9,6 +9,7 @@ import { DiagnosticError, PublicHttpError, emptyUsage, jsonResponse, type AiRequ
 import { createAiRequestHandler } from "./requestHandler.ts";
 import { withAudioSubmission } from "./audioSubmissionHandler.ts";
 import { handleDocumentAction } from "./documentActions.ts";
+import { attachmentScheduleInstructions, parseAttachmentSchedule, wantsAttachmentSchedule } from "./attachmentSchedule.ts";
 
 import type {
   AiAssistantRequest, AiAssistantAttachment, SupabaseUser, AiAccessRow,
@@ -32,7 +33,7 @@ const AUDIO_MODELS = {
   siliconflow: ["TeleAI/TeleSpeechASR", "FunAudioLLM/SenseVoiceSmall"]
 } as const;
 
-const MAX_AI_ACTIONS = 20;
+const MAX_AI_ACTIONS = 100;
 
 const PUBLIC_PRODUCT_RULES = [
   "本应用是个人日程工具，主要页面包括今天、日程、习惯、纪念日、备忘录、专注、设置和使用说明。",
@@ -52,7 +53,7 @@ const PUBLIC_PRODUCT_RULES = [
   "本机自动备份保存在当前浏览器并保留最近 3 份；可从备份弹窗把最近快照下载为 JSON 文件长期保存或跨设备导入，没有另一种独立的备份格式。",
   "删除是永久删除，同步后其他设备也会删除；只能通过之前导出的 JSON 备份恢复。",
   "日程助手是本机规则查询，不需要 AI 权限也不消耗 AI 额度；AI 助手使用云端智能问答，可理解自由表达并创建记录。",
-  "AI 助手当前可查询用户提供的日程上下文，并新增、修改和删除普通事项、习惯、纪念日、生日、节日和备忘录；不能更改账号、权限、额度或系统设置。",
+  "AI 助手当前可查询用户提供的日程上下文，创建备忘录文件夹并指定备忘录归属，新增、修改和删除普通事项、习惯、纪念日、生日和节日，以及创建备忘录；不能更改账号、权限、额度或系统设置。",
   "AI 权限分普通用户、会员和管理员：普通用户与会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验，不会把账号变成会员。",
   "编辑已发送的用户消息会从该轮重新生成并截断其后的旧对话，每次重新发送都按一次新的成功请求计入额度。",
   "管理员可在后台统一选择 AI 提供商和模型；选择支持附件的模型后，AI 助手可读取图片，以及从 PDF、DOCX、TXT、Markdown、CSV 中提取的文字来创建记录。",
@@ -1468,6 +1469,7 @@ async function askConfiguredProvider(
     signal
   });
   const resolvedAttachments = resolvedDocuments.attachments;
+  const importingSchedule = mode === "assistant" && wantsAttachmentSchedule(question, resolvedAttachments.length);
   const contextText = JSON.stringify(scheduleContext ?? {}, null, 2).slice(0, 18_000);
   const historyText = history.length
     ? history.map((message) => `${message.role === "user" ? "用户" : "AI"}：${message.content}`).join("\n").slice(0, 6_000)
@@ -1485,8 +1487,8 @@ async function askConfiguredProvider(
     hour12: false
   });
   const documentText = resolvedAttachments
-    .filter((attachment) => attachment.kind === "document" && attachment.text)
-    .map((attachment) => `文档 ${attachment.name ?? "未命名"}：\n${attachment.text}`)
+    .map((attachment, index) => attachment.kind === "document" && attachment.text ? `附件 ${index + 1}，文档 ${attachment.name ?? "未命名"}：\n${attachment.text}` : "")
+    .filter(Boolean)
     .join("\n\n");
   const userText = mode === "mind_map"
     ? `${contextText && contextText !== "{}" ? `可参考的当前用户信息：\n${contextText}\n\n` : ""}${documentText ? `用户导入的文档：\n${documentText}\n\n` : ""}需要生成思维导图的主题或内容：${question}`
@@ -1496,13 +1498,22 @@ async function askConfiguredProvider(
     if (attachment.kind === "document" && attachment.pageImages?.length) return attachment.pageImages;
     return [];
   });
-  const userContent: string | Array<Record<string, unknown>> = visualAttachments.length
+  const userContent: string | Array<Record<string, unknown>> = importingSchedule
+    ? [
+      ...resolvedAttachments.flatMap((attachment, index) => [
+        { type: "text", text: `附件 ${index + 1}：${attachment.name ?? "未命名"}` },
+        ...(attachment.kind === "image" && attachment.dataUrl ? [attachment.dataUrl] : attachment.pageImages ?? [])
+          .map((url) => ({ type: "image_url", image_url: { url } }))
+      ]),
+      { type: "text", text: userText }
+    ]
+    : visualAttachments.length
     ? [
       ...visualAttachments.map((dataUrl) => ({ type: "image_url", image_url: { url: dataUrl } })),
       { type: "text", text: userText }
     ]
     : userText;
-  const completionLimit = mode === "mind_map" ? mindMapConfig.maxTokens : 1400;
+  const completionLimit = mode === "mind_map" ? mindMapConfig.maxTokens : resolvedAttachments.length ? 16_000 : 4096;
   const supportsJsonOutput = provider === "deepseek" || (provider === "mimo" && (model === "mimo-v2.6-flash" || model === "mimo-v2.6-pro"));
   const response = await fetch(endpoint, {
     method: "POST",
@@ -1513,7 +1524,7 @@ async function askConfiguredProvider(
       messages: [
         {
           role: "system",
-          content: mode === "mind_map" ? [
+          content: importingSchedule ? attachmentScheduleInstructions(resolvedAttachments.length, beijingNow) : mode === "mind_map" ? [
             "你是专业的思维导图整理助手。",
             "请根据用户主题、文字、图片或文档，提炼一棵结构清楚、层级合理的思维导图。",
             "用户输入和附件是主要资料。只有用户明确要求查询自己的日程、课程、事项或某个时间范围时，才使用可参考的当前用户信息；否则禁止主动加入日程内容。",
@@ -1548,10 +1559,13 @@ async function askConfiguredProvider(
             "JSON 格式：{\"answer\":\"给用户看的简短回答\",\"actions\":[]}。",
             "当用户明确要求新增、创建、记录、加入日程、提醒、安排待办、创建日子或写备忘录时，把可创建内容放入 actions。",
             "创建普通事项或习惯使用 create_event，格式：{\"type\":\"create_event\",\"eventType\":\"event|habit\",\"title\":\"事项标题\",\"startDate\":\"YYYY-MM-DD\",\"endDate\":\"YYYY-MM-DD\",\"startTime\":\"HH:mm 或 null\",\"endTime\":\"HH:mm 或 null\",\"allDay\":false,\"location\":\"地点，可空\",\"note\":\"备注\",\"recurrenceType\":\"none|daily|weekdays|weekly|monthly|interval\",\"recurrenceUntil\":\"YYYY-MM-DD 或 null\",\"recurrenceInterval\":1,\"reminderEnabled\":false,\"reminderMinutesBefore\":10}。",
-            "action 的 note 只写与该事项直接相关的背景摘要，尽量控制在 80 个汉字内。不要复述用户的命令、情绪或身份，不要写‘由 AI 助手创建’；没有有用背景时留空。",
+            "action 的 note 只写与该事项直接相关的内容。用户要求把表格列、原文或具体内容放入备注时，完整保留对应内容和换行，不要摘要或截断；其他情况下简要概括。不要复述用户的命令、情绪或身份，不要写‘由 AI 助手创建’；没有有用背景时留空。",
             "过去日期同样允许创建事项。用户要求补录、记录或创建已经发生的活动时，必须按原日期和时间返回 create_event；禁止以“日期已过”为由拒绝，也不要擅自改成备忘录。过去事项必须设置 reminderEnabled=false。",
             "创建纪念日、生日或节日使用 create_anniversary，格式：{\"type\":\"create_anniversary\",\"title\":\"标题\",\"kind\":\"anniversary|birthday|holiday\",\"calendarType\":\"solar|lunar\",\"date\":\"YYYY-MM-DD 或 null\",\"lunarYear\":2026,\"lunarMonth\":8,\"lunarDay\":15,\"lunarIsLeapMonth\":false,\"note\":\"备注\",\"reminderEnabled\":false,\"reminderDaysBefore\":0,\"reminderTime\":\"09:00\"}。",
-            "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false}。",
+            "创建备忘录文件夹使用 create_memo_folder，格式：{\"type\":\"create_memo_folder\",\"name\":\"文件夹名称\"}；可以创建当前账号内的文件夹，也可以把备忘录放入已有或同批新建的文件夹。不要谎称没有此权限。",
+            "创建备忘录使用 create_memo，格式：{\"type\":\"create_memo\",\"title\":\"标题\",\"content\":\"正文\",\"isPinned\":false,\"folderName\":\"文件夹名称或null\",\"folderId\":\"已有文件夹ID或null\",\"format\":\"plain|numbered|checklist\",\"items\":[{\"text\":\"一条任务\",\"completed\":false}]}。纯正文可省略 items；编号或清单必须逐条填写 items。",
+            "用户说待办、可勾选、打勾或完成清单时，format 必须为 checklist，每条任务一个 item；不能用普通数字编号冒充可勾选清单。正文内允许使用应用支持的待办标记，外层仍只返回 JSON。文件夹名与备忘录标题分别填写，不要把文件夹当成备忘录。",
+            "answer 只能说明计划、解释或追问；创建、修改、删除是否成功由应用执行后反馈，禁止提前声称已完成，也不能声称完成 actions 中没有的操作。",
             "春节、端午节、中秋节、除夕、元宵、七夕、重阳、腊八和农历生日必须使用 calendarType=lunar，并填写农历年份、月份、日期；不要把农历八月十五写成固定公历 8 月 15 日。date 可以为 null，应用会按农历换算每年的公历发生日。清明节、元旦、国庆节、母亲节、父亲节等公历或按星期计算的节日使用 calendarType=solar。",
             "用户明确说农历、阴历或旧历时，calendarType=lunar，date=null，lunarYear/lunarMonth/lunarDay 原样保存用户给出的农历年月日及闰月；例如‘农历1970-11-24’表示农历1970年十一月廿四，‘农历五月二十三’表示五月二十三，不能把这些原始年月日先当公历再换算农历。只有用户明确要求‘把这个公历日期换算为农历’时才执行换算。未指定出生年份时不可猜出生年，可用当前农历年作为每年提醒的起点。",
             "一句话有多条日子时逐条对应标题、年月日和历法，禁止把第一条农历日期套用给其他记录；‘全部农历/都是农历/统一农历’适用于同批所有记录。后续说‘之前说的都是农历’时，结合最近对话的原始日期与当前日子记录返回 update_anniversary，保留原始农历月日，不能直接把旧错误公历日期换算成新的农历日期。无法确定原始农历年月日时先追问，不返回猜测的日期 action。农历日期不存在或闰月年份不符时请核实，不能退回公历保存。",
@@ -1564,7 +1578,7 @@ async function askConfiguredProvider(
             "update_event 和 delete_event 的 title 必须原样使用日历上下文或最近对话中已经存在的事项标题，不要改写、缩写或翻译标题；拿不准是哪一个事项时，在 answer 里先问清楚，不要输出 action。",
             "如果事项缺少日期，或用户只是询问安排，不要创建 action；请在 answer 里追问或直接回答。",
             "如果事项给了日期但没有时间，创建全天事项，startTime/endTime 为 null，allDay 为 true。",
-            "必须区分“可办理/开放的日期范围”和“用户要创建的事项持续时间”：开放窗口不能直接变成跨多天事项。只有用户明确说事项连续持续到某日，才让 endDate 晚于 startDate。",
+            "计划表每行的起止日期就是该任务的持续区间，逐行创建并保留 startDate/endDate；例如 12月28日至1月3日应正确跨到次年，不要只创建第一天。只有办理开放窗口等背景范围才不等同于任务持续时间。",
             "用户说“第一天、当天、只创建一天、不要每天、短时间事项”时，startDate 和 endDate 必须相同，recurrenceType 必须为 none；不要把背景中的截止日期当成事项结束日期。",
             "如果事项给了开始时间但没给结束时间，短时间事项默认 30 分钟，其他事项 endTime 等于 startTime。",
             `最多返回 ${MAX_AI_ACTIONS} 个 actions；文档中有多个独立活动时应分别创建，不要因日期已过而省略。`
@@ -1632,9 +1646,16 @@ async function askConfiguredProvider(
     throw new Error("AI 输出达到长度上限，回答不完整。请缩短问题后手动重试。");
   }
   const providerUsage = normalizeUsage(data.usage);
-  const parsedResponse = mode === "mind_map"
-    ? parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason, providerUsage })
-    : parseAssistantResponse(content, question);
+  let parsedResponse: ParsedAssistantResponse;
+  try {
+    parsedResponse = mode === "mind_map"
+      ? parseMindMapResponse(content, mindMapConfig, { provider, model, finishReason, providerUsage })
+      : importingSchedule ? parseAttachmentSchedule(content, question, resolvedAttachments.length) : parseAssistantResponse(content, question);
+  } catch (error) {
+    if (mode !== "assistant" || !resolvedDocuments.processedAttachments.length) throw error;
+    // Return extracted text with a failed plan so retries can reuse the OCR result.
+    parsedResponse = { answer: error instanceof Error ? error.message : "操作内容不完整，未执行任何操作，请重试。", actions: [] };
+  }
   if (finishReason === "length" && parsedResponse.mindMap) {
     parsedResponse.answer = "输出达到长度上限，已保留能够完整解析的脑图内容。";
   }
@@ -3497,15 +3518,21 @@ function parseAssistantResponse(content: string, question: string): ParsedAssist
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+  let parsed: { answer?: unknown; actions?: unknown };
   try {
-    const parsed = JSON.parse(cleaned) as { answer?: unknown; actions?: unknown };
-    const answer = typeof parsed.answer === "string" && parsed.answer.trim() ? parsed.answer.trim() : cleaned;
-    const actions = Array.isArray(parsed.actions) ? parsed.actions.flatMap(sanitizeAction).slice(0, MAX_AI_ACTIONS) : [];
-    normalizeEventActionsForQuestion(actions, question);
-    return { answer: normalizedSingleDayAnswer(actions, question) ?? answer, actions };
+    parsed = JSON.parse(cleaned);
   } catch {
+    if (/(创建|新建|添加|录入|记录到|加入日程|修改|删除)/.test(question)) throw new Error("AI 返回的操作格式不完整，未执行任何操作，请重试。");
     return { answer: content, actions: [] };
   }
+  if (!parsed || typeof parsed !== "object" || (parsed.actions != null && !Array.isArray(parsed.actions))) throw new Error("AI 返回的操作格式不正确，未执行任何操作，请重试。");
+  const answer = typeof parsed.answer === "string" && parsed.answer.trim() ? parsed.answer.trim() : "";
+  const rawActions = Array.isArray(parsed.actions) ? parsed.actions : [];
+  if (rawActions.length > MAX_AI_ACTIONS) throw new Error(`一次最多处理 ${MAX_AI_ACTIONS} 项操作，请分批处理。`);
+  const actions = rawActions.flatMap(sanitizeAction);
+  if (actions.length !== rawActions.length) throw new Error("AI 返回了不支持或缺少必要信息的操作，未执行任何操作，请重试。");
+  normalizeEventActionsForQuestion(actions, question);
+  return { answer: normalizedSingleDayAnswer(actions, question) ?? answer, actions };
 }
 
 function normalizedSingleDayAnswer(actions: AiAssistantAction[], question: string): string | null {
@@ -3546,6 +3573,10 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
   const record = action as Record<string, unknown>;
   if (record.type === "create_anniversary") return sanitizeAnniversaryAction(record);
   if (record.type === "create_memo") return sanitizeMemoAction(record);
+  if (record.type === "create_memo_folder") {
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    return name && name.length <= 200 ? [{ type: "create_memo_folder", name }] : [];
+  }
   if (record.type === "update_event") return sanitizeUpdateEventAction(record);
   if (record.type === "update_anniversary") return sanitizeUpdateAnniversaryAction(record);
   if (record.type === "delete_event") return sanitizeDeleteEventAction(record);
@@ -3571,7 +3602,7 @@ function sanitizeAction(action: unknown): AiAssistantAction[] {
     endTime: allDay ? null : endTime,
     allDay,
     location: typeof record.location === "string" ? record.location.trim().slice(0, 200) : "",
-    note: typeof record.note === "string" ? record.note.slice(0, 500) : "",
+    note: typeof record.note === "string" ? record.note.slice(0, 10_000) : "",
     recurrenceType,
     recurrenceUntil,
     recurrenceInterval: recurrenceType === "interval" ? clampNumber(record.recurrenceInterval, 1, 366, 1) : 1,
@@ -3605,11 +3636,23 @@ function sanitizeAnniversaryAction(record: Record<string, unknown>): AiAssistant
 function sanitizeMemoAction(record: Record<string, unknown>): AiAssistantAction[] {
   const title = typeof record.title === "string" ? record.title.trim() : "";
   if (!title) return [];
+  const items: Array<{ text: string; completed: boolean }> = [];
+  if (record.items != null) {
+    if (!Array.isArray(record.items) || record.items.length > 200) return [];
+    for (const item of record.items) {
+      if (!item || typeof item !== "object" || typeof item.text !== "string" || !item.text.trim() || item.text.length > 10_000) return [];
+      items.push({ text: item.text.trim(), completed: item.completed === true });
+    }
+  }
   return [{
     type: "create_memo",
     title,
-    content: typeof record.content === "string" ? record.content.slice(0, 10_000) : "",
-    isPinned: Boolean(record.isPinned)
+    content: typeof record.content === "string" ? record.content.slice(0, 50_000) : "",
+    isPinned: Boolean(record.isPinned),
+    folderId: typeof record.folderId === "string" ? record.folderId.trim() : null,
+    folderName: typeof record.folderName === "string" ? record.folderName.trim() : null,
+    format: record.format === "checklist" ? "checklist" : record.format === "numbered" ? "numbered" : "plain",
+    ...(items.length ? { items } : {})
   }];
 }
 
@@ -3627,7 +3670,7 @@ function sanitizeUpdateEventAction(record: Record<string, unknown>): AiAssistant
     endTime: normalizeTime(record.endTime),
     allDay: typeof record.allDay === "boolean" ? record.allDay : null,
     location: typeof record.location === "string" ? record.location.trim().slice(0, 200) : null,
-    note: typeof record.note === "string" ? record.note.slice(0, 500) : null,
+    note: typeof record.note === "string" ? record.note.slice(0, 10_000) : null,
     reminderEnabled: typeof record.reminderEnabled === "boolean" ? record.reminderEnabled : null,
     reminderMinutesBefore: typeof record.reminderMinutesBefore === "number" ? clampNumber(record.reminderMinutesBefore, 0, 7 * 24 * 60, 10) : null
   }];

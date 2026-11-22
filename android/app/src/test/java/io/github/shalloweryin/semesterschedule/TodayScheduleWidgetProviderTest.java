@@ -3,6 +3,7 @@ package io.github.shalloweryin.semesterschedule;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotEquals;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,11 +21,12 @@ import org.w3c.dom.NodeList;
 
 public class TodayScheduleWidgetProviderTest {
     @Test
-    public void standardHeightUsesTwoRowsAndExpandedHeightUsesThree() {
-        assertEquals(2, TodayScheduleWidgetProvider.rowsForHeight(180));
-        assertEquals(2, TodayScheduleWidgetProvider.rowsForHeight(229));
-        assertEquals(3, TodayScheduleWidgetProvider.rowsForHeight(230));
-        assertEquals(3, TodayScheduleWidgetProvider.rowsForHeight(320));
+    public void widgetIsFixedAtFourByThreeWithoutResizeHandles() throws Exception {
+        Element info = parseResource("xml/today_schedule_widget_info.xml").getDocumentElement();
+        assertEquals("4", info.getAttributeNS(androidNamespace(), "targetCellWidth"));
+        assertEquals("3", info.getAttributeNS(androidNamespace(), "targetCellHeight"));
+        assertEquals("none", info.getAttributeNS(androidNamespace(), "resizeMode"));
+        assertEquals("180dp", info.getAttributeNS(androidNamespace(), "minHeight"));
     }
 
     @Test
@@ -32,6 +34,19 @@ public class TodayScheduleWidgetProviderTest {
         String truncated = TodayScheduleWidgetProvider.truncate("📚📚📚📚", 3, "待办");
         assertEquals("📚📚…", truncated);
         assertEquals(3, truncated.codePointCount(0, truncated.length()));
+    }
+
+    @Test
+    public void rowsDoNotStretchAndListViewportsAreCappedAtFiveCompactLines() throws Exception {
+        Element row = parseResource("layout/widget_list_item.xml").getDocumentElement();
+        assertEquals("22sp", row.getAttributeNS(androidNamespace(), "layout_height"));
+        Document layout = parseResource("layout/widget_today_schedule.xml");
+        for (String id : new String[] {"@+id/widget_schedule_list", "@+id/widget_todo_list"}) {
+            Element list = findElementByAndroidId(layout, id);
+            assertEquals("110sp", list.getAttributeNS(androidNamespace(), "layout_height"));
+            assertEquals("0dp", list.getAttributeNS(androidNamespace(), "dividerHeight"));
+            assertEquals("RelativeLayout", ((Element) list.getParentNode()).getTagName());
+        }
     }
 
     @Test
@@ -68,23 +83,27 @@ public class TodayScheduleWidgetProviderTest {
     @Test
     public void eventAndTodoRowsExposeDedicatedCompletionTargets() throws Exception {
         Document layout = parseResource("layout/widget_today_schedule.xml");
-        String[] completionIds = {
-            "@+id/widget_item_complete_1", "@+id/widget_item_complete_2", "@+id/widget_item_complete_3",
-            "@+id/widget_todo_item_complete_1", "@+id/widget_todo_item_complete_2", "@+id/widget_todo_item_complete_3"
-        };
-        for (String id : completionIds) {
-            Element completion = findElementByAndroidId(layout, id);
-            assertNotNull(completion);
-            assertEquals(32, dp(completion.getAttributeNS(androidNamespace(), "layout_width")));
-            assertEquals("○", completion.getAttributeNS(androidNamespace(), "text"));
+        for (String prefix : new String[] {"widget_schedule", "widget_todo"}) {
+            Element list = findElementByAndroidId(layout, "@+id/" + prefix + "_list");
+            assertNotNull(list);
+            assertEquals("ListView", list.getTagName());
+            Element empty = findElementByAndroidId(layout, "@+id/" + (prefix.equals("widget_schedule") ? "widget_empty" : "widget_todo_empty"));
+            assertEquals(list.getParentNode(), empty.getParentNode());
         }
-
-        String[] textIds = {
-            "@+id/widget_item_text_1", "@+id/widget_item_text_2", "@+id/widget_item_text_3",
-            "@+id/widget_todo_item_text_1", "@+id/widget_todo_item_text_2", "@+id/widget_todo_item_text_3"
-        };
-        for (String id : textIds) assertNotNull(findElementByAndroidId(layout, id));
+        Document item = parseResource("layout/widget_list_item.xml");
+        Element completion = findElementByAndroidId(item, "@+id/widget_list_complete");
+        assertNotNull(completion);
+        assertEquals(32, dp(completion.getAttributeNS(androidNamespace(), "layout_width")));
+        assertEquals("○", completion.getAttributeNS(androidNamespace(), "text"));
+        assertNotNull(findElementByAndroidId(item, "@+id/widget_list_text"));
         assertTrue(TodayScheduleWidgetProvider.ACTION_COMPLETE_ITEM.endsWith("COMPLETE_WIDGET_ITEM"));
+    }
+
+    @Test
+    public void scrollingIdsAreStableAndDistinctAcrossOwnersAndItems() {
+        assertEquals(ScheduleWidgetListService.stableId("owner-a:todo:6"), ScheduleWidgetListService.stableId("owner-a:todo:6"));
+        assertNotEquals(ScheduleWidgetListService.stableId("owner-a:todo:6"), ScheduleWidgetListService.stableId("owner-b:todo:6"));
+        assertNotEquals(ScheduleWidgetListService.stableId("owner-a:todo:6"), ScheduleWidgetListService.stableId("owner-a:todo:7"));
     }
 
     private static Document parseResource(String relativePath) throws Exception {

@@ -71,6 +71,26 @@ jobs:
       - name: Apply pending database migrations once
         run: node scripts/apply-supabase-migrations.mjs
 
+      - name: Verify encrypted OTP schema and account permissions without user writes
+        run: |
+          set -euo pipefail
+          query="select
+            exists (select 1 from public.app_schema_migrations where name = '20261122_otp_vaults.sql') as migration_applied,
+            to_regprocedure('public.save_otp_vault(uuid,bigint,jsonb)') is not null as save_rpc_present,
+            (select relrowsecurity from pg_class where oid = 'public.otp_vaults'::regclass) as rls_enabled,
+            has_table_privilege('authenticated','public.otp_vaults','SELECT') and not has_table_privilege('anon','public.otp_vaults','SELECT') as owner_read_permissions,
+            not has_table_privilege('authenticated','public.otp_vaults','INSERT,UPDATE,DELETE') as direct_writes_disabled,
+            has_function_privilege('authenticated','public.save_otp_vault(uuid,bigint,jsonb)','EXECUTE') and not has_function_privilege('anon','public.save_otp_vault(uuid,bigint,jsonb)','EXECUTE') as rpc_permissions;"
+          jq -n --arg query "$query" '{query: $query}' > /tmp/otp-vault-schema.json
+          response="$(curl --fail-with-body --retry 4 --retry-all-errors --retry-delay 3 \
+            --request POST \
+            --url "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @/tmp/otp-vault-schema.json)"
+          printf '%s\n' "$response" | jq .
+          printf '%s\n' "$response" | jq -e 'length == 1 and (.[0] | all(. == true))' > /dev/null
+
       - name: Verify course reminder schema without claiming deliveries
         run: |
           set -euo pipefail

@@ -1,11 +1,13 @@
 import { syncFields } from "./identity";
 import type { AnniversaryUpdateScope, DeepSeekAssistantAction } from "./deepSeekAssistant";
-import type { Anniversary, AnniversaryCalendarType, AnniversaryKind, EventItem, EventRecurrenceType, Memo } from "../types";
+import type { Anniversary, AnniversaryCalendarType, AnniversaryKind, EventItem, EventRecurrenceType, Memo, MemoFolder } from "../types";
+import { stripMemoListPrefix } from "./memoFormatting";
 import { gregorianDateForLunarDate, lunarDateParts, lunarOccurrenceDates, lunarYearEndDate, lunarYearEndOccurrenceDates, qingmingDateForYear, LUNAR_MONTHS } from "./lunarCalendar";
 
 export type AiCreatedRecord =
   | { table: "events"; record: EventItem }
   | { table: "anniversaries"; record: Anniversary }
+  | { table: "memoFolders"; record: MemoFolder }
   | { table: "memos"; record: Memo };
 
 export type AiUpdatedRecord = { original: EventItem; updated: EventItem };
@@ -21,6 +23,8 @@ export interface AiActionResults {
   updated: Array<AiUpdatedRecord | AiUpdatedAnniversaryRecord>;
   deleted: EventItem[];
   unmatched: AiUnmatchedAction[];
+  folders?: MemoFolder[];
+  failures?: string[];
 }
 
 export function inferAnniversaryUpdateAction(sourceText: string): Extract<DeepSeekAssistantAction, { type: "update_anniversary" }> | null {
@@ -182,7 +186,7 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
   if (hasExplicitLunarDate(source) && !sourceLunar) throw new Error(`“${title}”的农历日期不存在，请核对年份、月份、日期和闰月。`);
   const startDate = sourceLunar?.date ?? action.startDate;
   if (!title || !isISODate(startDate)) return null;
-  const allDay = Boolean(action.allDay || !action.startTime);
+  const allDay = Boolean((/全天/.test(sourceText) && !/(不要|不用|别|不是).{0,3}全天/.test(sourceText)) || action.allDay || !action.startTime);
   const startTime = allDay ? null : normalizeTime(action.startTime) ?? "09:00";
   let endTime = allDay ? null : normalizeTime(action.endTime) ?? startTime;
   let rangeEndDate = action.endDate && isISODate(action.endDate) && (!sourceLunar || action.endDate !== action.startDate) ? action.endDate : startDate;
@@ -213,7 +217,7 @@ export function eventItemFromAiAction(action: DeepSeekAssistantAction, sourceTex
     recurrence_type: recurrenceType,
     recurrence_until: recurrenceType === "none" ? null : (recurrenceUntil && recurrenceUntil >= startDate ? recurrenceUntil : startDate),
     recurrence_interval: recurrenceType === "interval" ? clampNumber(action.recurrenceInterval, 1, 366, 1) : 1,
-    reminder_enabled: Boolean(action.reminderEnabled) && !(now && eventStartHasPassed(startDate, startTime, now)),
+    reminder_enabled: Boolean(action.reminderEnabled) && !/(不用|不要|无需|不需要|不必|关闭|取消).{0,4}提醒/.test(sourceText) && !(now && eventStartHasPassed(startDate, startTime, now)),
     reminder_minutes_before: clampReminder(action.reminderMinutesBefore),
     timezone: "Asia/Shanghai"
   };
@@ -300,7 +304,24 @@ export function memoFromAiAction(action: DeepSeekAssistantAction, sourceText: st
   if (action.type !== "create_memo") return null;
   const title = action.title.trim();
   if (!title) return null;
-  const content = typeof action.content === "string" ? action.content.trim() : "";
+  const rawContent = typeof action.content === "string" ? action.content.trim() : "";
+  const checklistRequested = /(勾选|可选中|待办|打勾|复选)/.test(sourceText) && !/(不用|不要|无需).{0,5}(待办|勾选|打勾|复选)/.test(sourceText);
+  const format = checklistRequested ? "checklist" : action.format ?? "plain";
+  let content = rawContent;
+  if (action.items?.length) {
+    content = action.items.map((item, index) => {
+      const value = stripMemoListPrefix(item.text.trim());
+      const prefix = format === "checklist" ? `${item.completed ? "●" : "○"} ` : format === "numbered" ? `${index + 1}. ` : "";
+      return prefix + (format === "plain" ? value : value.replace(/\r?\n/g, "\n  "));
+    }).join("\n");
+  } else if (format === "checklist") {
+    const hasNumberedLines = /^\s*\d+[.)、]\s*/m.test(rawContent);
+    content = rawContent.split(/\r?\n/).map((line) => {
+      if (!line.trim() || /^\s*(?:[○◯●]|[-*]\s+\[[ xX]\])/.test(line)) return line;
+      if (hasNumberedLines && !/^\s*\d+[.)、]/.test(line)) return `  ${line.trim()}`;
+      return `○ ${stripMemoListPrefix(line)}`;
+    }).join("\n");
+  }
   return {
     ...syncFields(undefined, ownerId),
     folder_id: null,
@@ -310,9 +331,9 @@ export function memoFromAiAction(action: DeepSeekAssistantAction, sourceText: st
   };
 }
 
-export function recordsFromAiActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string, now = new Date()): AiCreatedRecord[] {
+export function recordsFromAiActions(actions: DeepSeekAssistantAction[], sourceText: string, ownerId: string, now = new Date()): Array<Exclude<AiCreatedRecord, { table: "memoFolders" }>> {
   const expandedActions = expandHolidayActions(actions, sourceText, now);
-  return expandedActions.flatMap<AiCreatedRecord>((action) => {
+  return expandedActions.flatMap<Exclude<AiCreatedRecord, { table: "memoFolders" }>>((action) => {
     const event = eventItemFromAiAction(action, sourceText, ownerId, now);
     if (event) return [{ table: "events" as const, record: event }];
     const anniversary = anniversaryFromAiAction(action, sourceText, ownerId, now);
@@ -366,9 +387,7 @@ function conciseAiNote(value: unknown): string {
   if (typeof value !== "string") return "";
   return value
     .replace(/^由\s*AI\s*助手创建[：:]?\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 200);
+    .trim();
 }
 
 function looksLikeCreateDate(text: string): boolean {

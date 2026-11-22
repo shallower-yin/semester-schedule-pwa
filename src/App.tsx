@@ -19,6 +19,7 @@ import {
   GraduationCap,
   HeartPulse,
   LogIn,
+  KeyRound,
   Languages,
   ListTodo,
   Menu,
@@ -46,6 +47,7 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { AccountDialog } from "./components/AccountDialog";
 import { AssistantDialogs } from "./components/AssistantDialogs";
 const AdminDialog = lazy(() => import("./components/AdminDialog").then((module) => ({ default: module.AdminDialog })));
+const OtpDialog = lazy(() => import("./components/OtpDialog").then((module) => ({ default: module.OtpDialog })));
 import { AddScheduleDialog } from "./components/AddScheduleDialog";
 import { AnniversaryPage } from "./components/AnniversaryPage";
 import { AuthDialog } from "./components/AuthDialog";
@@ -198,6 +200,7 @@ export default function App() {
   const [overviewNow, setOverviewNow] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => weekdayOf(new Date()) - 1);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showOtp, setShowOtp] = useState(false);
   const [semesterToEdit, setSemesterToEdit] = useState<Semester | null | undefined>(undefined);
   const [showPeriodSettings, setShowPeriodSettings] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
@@ -1059,6 +1062,11 @@ export default function App() {
       id: "search",
       label: "全局搜索",
       node: <button className="icon-button header-search-button" onClick={() => setShowGlobalSearch(true)} aria-label="全局搜索"><Search size={18} /></button>
+    },
+    {
+      id: "otp",
+      label: "身份验证器",
+      node: <button className="icon-button header-search-button" onClick={() => setShowOtp(true)} aria-label="身份验证器"><KeyRound size={18} /></button>
     }
   ];
   const selectedHeaderTools = headerTools
@@ -1118,6 +1126,7 @@ export default function App() {
           <aside className="mobile-sidebar" onClick={(event) => event.stopPropagation()}>
             <div className="mobile-sidebar-header"><strong>菜单</strong><button className="icon-button" onClick={requestSidebarClose}><X /></button></div>
             <nav>{renderNavigation(navItems)}</nav>
+            <button className="mobile-ai-toolbox-entry" onClick={() => { setShowOtp(true); setSidebarOpen(false); }}><KeyRound size={18} />身份验证器<ChevronRight size={17} /></button>
             <button className="mobile-ai-toolbox-entry" onClick={() => { setShowAiToolbox(true); setSidebarOpen(false); }}><Sparkles size={18} />AI 工具箱<ChevronRight size={17} /></button>
           </aside>
         </div>
@@ -1558,6 +1567,7 @@ export default function App() {
         />
       )}
       {authDialogMode && <AuthDialog initialMode={authDialogMode} onClose={() => setAuthDialogMode(null)} />}
+      {showOtp && <Suspense fallback={null}><OtpDialog key={ownerId} ownerId={ownerId} onClose={() => setShowOtp(false)} onSignIn={() => { setShowOtp(false); window.setTimeout(() => setAuthDialogMode("login"), 80); }} /></Suspense>}
       {showAccount && user && (
         <AccountDialog
           user={user}

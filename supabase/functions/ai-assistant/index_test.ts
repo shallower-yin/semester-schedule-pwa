@@ -190,7 +190,7 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
         const { body, headers } = providerCalls[0];
         assertEquals(body.model, scenario.expected);
         if (isMimo) {
-          assertEquals(body.max_completion_tokens, 1400);
+          assertEquals(body.max_completion_tokens, 16000);
           assertEquals(body.max_tokens, undefined);
           assertEquals(body.thinking, { type: "disabled" });
           assertEquals(body.response_format, { type: "json_object" });
@@ -206,7 +206,7 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
             image_url: { url: imageUrl },
           });
         } else {
-          assertEquals(body.max_tokens, 1400);
+          assertEquals(body.max_tokens, 4096);
           assertEquals(body.max_completion_tokens, undefined);
         }
         // Exercise feature call sites as well as the shared request builder.
@@ -234,6 +234,62 @@ Deno.test("installed clients use MiMo V2.6 through the Edge handler", async (t) 
         assertEquals(unexpectedCalls, []);
       });
     }
+    await t.step("attachment imports preserve every source row and expose real memo folder actions", async () => {
+      let payload: Record<string, unknown> = {
+        sourceRowCounts: [{ sourceIndex: 1, count: 1 }, { sourceIndex: 2, count: 1 }, { sourceIndex: 3, count: 1 }],
+        rows: [
+          { sourceIndex: 1, rowIndex: 1, startDate: "2026-11-22", endDate: "2026-11-28", title: "2022年论文学习", details: "公式(1)～(7)与图4", outcome: "解释机构位姿", startTime: null, endTime: null },
+          { sourceIndex: 2, rowIndex: 1, startDate: "12-28", endDate: "01-03", title: "毕设开题方案设计", details: "研究目标与技术路线", outcome: "开题报告提纲", startTime: null, endTime: null },
+          { sourceIndex: 3, rowIndex: 1, startDate: "01-04", endDate: "01-08", title: "开题报告撰写", details: "同步制作PPT", outcome: "开题报告及PPT初稿", startTime: null, endTime: null }
+        ],
+        selectedRows: null, folderNames: ["毕设"], memoRequest: { title: "开题前准备", folderName: "毕设", format: "checklist" }, uncertainties: []
+      };
+      const providerCalls: Array<Record<string, unknown>> = [];
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (url.pathname === "/rest/v1/rpc/get_ai_runtime_settings") return Response.json({ provider: "mimo", model: "mimo-v2.6-flash", mimo_channel: "payg" });
+        if (url.pathname === "/auth/v1/user") return Response.json({ id: "test-user-id" });
+        if (url.pathname === "/rest/v1/ai_assistant_access") return Response.json([{ enabled: true, role: "admin", expires_at: null }]);
+        if (url.pathname === "/rest/v1/rpc/check_ai_global_budget") return Response.json({ allowed: true });
+        if (url.pathname === "/rest/v1/rpc/reserve_ai_usage") return Response.json({ allowed: true, todayRequests: 1, weekRequests: 1 });
+        if (url.pathname === "/rest/v1/ai_assistant_usage") return new Response(null, { status: 204 });
+        if (request.url === "https://mimo-provider.invalid/v1/chat/completions") {
+          providerCalls.push(await request.json());
+          return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(payload) } }], usage: { total_tokens: 30 } });
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`);
+      };
+      const result = await invoke({
+        question: "按图片记录到全天事项，不用提醒，创建毕设文件夹和开题前准备备忘录，用可勾选待办",
+        attachments: ["aW1hZ2Ux", "aW1hZ2Uy", "aW1hZ2Uz"].map((value) => ({ name: "image.png", kind: "image", dataUrl: `data:image/png;base64,${value}` }))
+      });
+      assertEquals(result.actions.length, 5);
+      assertEquals(result.actions[1].startDate, "2026-12-28");
+      assertEquals(result.actions[1].endDate, "2027-01-03");
+      assertEquals(result.actions[2].startDate, "2027-01-04");
+      assertEquals(result.actions[3], { type: "create_memo_folder", name: "毕设" });
+      assertEquals(result.actions[4].items.length, 3);
+      assertEquals(result.actions[4].folderName, "毕设");
+      const messages = providerCalls[0].messages as Array<{ content: string | Array<{ type: string }> }>;
+      assertEquals((messages[1].content as Array<{ type: string }>).filter((part) => part.type === "image_url").length, 3);
+      assertEquals(providerCalls[0].max_completion_tokens, 16000);
+      payload = { answer: "将创建文件夹与清单", actions: [
+        { type: "create_memo_folder", name: "毕设" },
+        { type: "create_memo", title: "开题前准备", folderName: "毕设", format: "checklist", items: [{ text: "查文献", completed: false }] }
+      ] };
+      const memoResult = await invoke({ question: "创建毕设文件夹和开题前准备备忘录，使用可勾选清单" });
+      assertEquals(memoResult.actions[0], { type: "create_memo_folder", name: "毕设" });
+      assertEquals(memoResult.actions[1].folderName, "毕设");
+      assertEquals(memoResult.actions[1].format, "checklist");
+      assertEquals(memoResult.actions[1].items, [{ text: "查文献", completed: false }]);
+      payload = { answer: "已全部完成", actions: [{ type: "unsupported_action", title: "不应执行" }] };
+      const invalid = await handler!(new Request("https://edge.invalid/ai-assistant", {
+        method: "POST", headers: { authorization: "Bearer test-user-token", "content-type": "application/json" },
+        body: JSON.stringify({ question: "创建事项" })
+      }));
+      assert(!invalid.ok, "Unsupported actions must fail instead of being silently dropped");
+    });
     await t.step("client document usage cannot poison the global AI budget", async () => {
       const loggedUsage: Array<Record<string, unknown>> = [];
       const unexpectedCalls: string[] = [];

@@ -9,6 +9,7 @@ import type {
   EventOccurrenceState,
   FocusSession,
   Memo,
+  MemoFolder,
   Semester
 } from "../types";
 import { addDays, courseScheduleOccursOn, eventOccursOn, formatMonthDay, parseLocalDate, startOfWeek, toISODate, weekdayOf } from "./date";
@@ -26,6 +27,7 @@ export interface ScheduleAssistantInput {
   occurrenceStates: EventOccurrenceState[];
   anniversaries?: Anniversary[];
   memos?: Memo[];
+  memoFolders?: MemoFolder[];
   periods: ClassPeriod[];
   focusSessions: FocusSession[];
   now?: Date;

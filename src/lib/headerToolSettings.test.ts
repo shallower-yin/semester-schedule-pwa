@@ -44,4 +44,9 @@ describe("顶部按钮设置", () => {
   it("网页端固定显示翻译助手入口，不受手机顶部设置影响", () => {
     expect(DESKTOP_HEADER_TOOLS).toContain("translation");
   });
+  it("身份验证器可固定到手机顶部，并保留在电脑工具入口", () => {
+    expect(saveHeaderToolSettings(["account", "otp", "search"])).toEqual(["account", "otp", "search"]);
+    expect(loadHeaderToolSettings()).toEqual(["account", "otp", "search"]);
+    expect(DESKTOP_HEADER_TOOLS).toContain("otp");
+  });
 });

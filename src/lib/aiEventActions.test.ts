@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { anniversaryFromAiAction, applyAnniversaryUpdate, applyEventUpdate, eventItemFromAiAction, matchEventsByTitle, memoFromAiAction, recordsFromAiActions, resolveHoliday, resolveHolidays } from "./aiEventActions";
 import type { Anniversary, EventItem } from "../types";
 import type { DeepSeekAssistantAction } from "./deepSeekAssistant";
+import { getMemoChecklistStats } from "./memoFormatting";
 
 describe("AI 助手创建动作", () => {
   it("把 AI 返回的定时事项转换为本地事项", () => {
@@ -167,6 +168,22 @@ describe("AI 助手创建动作", () => {
     });
     expect(memo?.content).toBe("牛奶\n面包");
     expect(memo?.content).not.toContain("创建购物清单");
+  });
+
+  it("可勾选要求优先于模型错误的数字编号，并保留多行任务内容", () => {
+    const memo = memoFromAiAction({ type: "create_memo", title: "开题前准备", format: "numbered",
+      items: [{ text: "1. 阅读论文\n具体内容：推导公式(1)～(7)" }, { text: "写开题报告", completed: true }] }, "列表编号用待办，可勾选完成", "user-1");
+    expect(memo?.content).toBe("○ 阅读论文\n  具体内容：推导公式(1)～(7)\n● 写开题报告");
+    expect(getMemoChecklistStats(memo!.content)).toEqual({ total: 2, completed: 1, incomplete: 1 });
+    const fallback = memoFromAiAction({ type: "create_memo", title: "清单", content: "1. 阅读论文\n2. 写报告" }, "可勾选的待办清单", "user-1");
+    expect(getMemoChecklistStats(fallback!.content).total).toBe(2);
+  });
+
+  it("表格备注超过200字时保留全文与换行", () => {
+    const note = "具体内容：" + "机构设计、运动学、动力学与刚度分析。".repeat(30) + "\n预期成果：完整末尾内容";
+    const item = eventItemFromAiAction({ type: "create_event", title: "阶段任务", startDate: "2026-12-21", endDate: "2026-12-24", note }, "第三四列放到备注", "user-1");
+    expect(item?.note).toBe(note);
+    expect(item?.end_date).toBe("2026-12-24");
   });
 
   it("自动解析常见农历节日并创建节日", () => {

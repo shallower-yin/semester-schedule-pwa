@@ -1,9 +1,10 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleAssistantInput } from "../lib/scheduleAssistant";
 import { db } from "../db";
 import { cancelAiTask, clearAllAiTasks } from "../lib/aiBackgroundTasks";
 import type { DeepSeekAssistantResult } from "../lib/deepSeekAssistant";
+import { syncFields } from "../lib/identity";
 
 const { askDeepSeekAssistantMock, getAiAssistantConfigurationMock, prepareAiAssistantAttachmentMock } = vi.hoisted(() => ({
   askDeepSeekAssistantMock: vi.fn(),
@@ -68,6 +69,7 @@ describe("AI 助手消息编辑", () => {
     await db.aiAttachmentContexts.clear();
     clearAllAiTasks();
     await db.memos.clear();
+    await db.memoFolders.clear();
     await db.syncQueue.clear();
     askDeepSeekAssistantMock.mockReset();
     getAiAssistantConfigurationMock.mockReset();
@@ -259,5 +261,132 @@ describe("AI 助手消息编辑", () => {
       expect.objectContaining({ name: "安排.txt", kind: "document", text: "课程安排：周五提交报告" })
     ]);
     expect(await db.aiAttachmentContexts.get("ai-attachment-context:user-1")).toBeTruthy();
+  });
+
+  it("点击待发送文档查看正文，关闭保留草稿，移除按钮不会打开预览", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="preview-document" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "导入图片或文档" });
+    const composer = screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业");
+    fireEvent.change(composer, { target: { value: "未发送的草稿" } });
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: { files: [new File(["课程安排"], "安排.txt", { type: "text/plain" })] }
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "查看附件 安排.txt" }));
+    const preview = await screen.findByRole("dialog", { name: "查看附件：安排.txt" });
+    expect(within(preview).getByText("课程安排：周五提交报告")).toBeInTheDocument();
+    fireEvent.click(within(preview).getByRole("button", { name: "关闭" }));
+    expect(composer).toHaveValue("未发送的草稿");
+    expect(screen.getByRole("dialog", { name: "AI 助手" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "移除 安排.txt" }));
+    expect(screen.queryByRole("button", { name: "查看附件 安排.txt" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(askDeepSeekAssistantMock).not.toHaveBeenCalled();
+  });
+
+  it("同名图片分别预览和发送，重开助手后消息附件仍对应原图", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
+    const dataUrls = ["aW1hZ2Ux", "aW1hZ2Uy", "aW1hZ2Uz"].map((value) => `data:image/png;base64,${value}`);
+    dataUrls.forEach((dataUrl) => prepareAiAssistantAttachmentMock.mockResolvedValueOnce({
+      name: "image.png", mimeType: "image/png", kind: "image", dataUrl
+    }));
+    const { unmount } = render(<DeepSeekAssistantDialog input={emptyInput} ownerId="preview-images" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "导入图片或文档" });
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: { files: dataUrls.map(() => new File(["image"], "image.png", { type: "image/png" })) }
+    });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "查看附件 image.png" })).toHaveLength(3));
+    fireEvent.click(screen.getAllByRole("button", { name: "查看附件 image.png" })[1]);
+    const image = await screen.findByRole("img", { name: "image.png" });
+    expect(image).toHaveAttribute("src", dataUrls[1]);
+    fireEvent.load(image);
+    fireEvent.click(screen.getByRole("button", { name: "放大图片" }));
+    expect(screen.getByRole("button", { name: "重置图片缩放" })).toHaveTextContent("125%");
+    fireEvent.click(within(screen.getByRole("dialog", { name: "查看图片：image.png" })).getByRole("button", { name: "关闭" }));
+
+    fireEvent.change(screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业"), { target: { value: "读取三张图" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await screen.findByText("修改后的新回答");
+    const sent = askDeepSeekAssistantMock.mock.calls[0]?.[4];
+    expect(sent.map((item: { dataUrl: string }) => item.dataUrl)).toEqual(dataUrls);
+    expect(new Set(sent.map((item: { id: string }) => item.id)).size).toBe(3);
+    expect(localStorage.getItem("semester-schedule-ai-assistant-history:preview-images")).not.toContain("data:image");
+    await waitFor(async () => expect((await db.aiAttachmentContexts.get("ai-attachment-context:preview-images"))?.attachments).toHaveLength(3));
+
+    unmount();
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="preview-images" onClose={vi.fn()} />);
+    await screen.findByLabelText("附件上下文");
+    const messageAttachments = screen.getByLabelText("消息附件");
+    fireEvent.click(within(messageAttachments).getAllByRole("button", { name: "查看附件 image.png" })[0]);
+    expect(await screen.findByRole("img", { name: "image.png" })).toHaveAttribute("src", dataUrls[0]);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "查看图片：image.png" })).getByRole("button", { name: "关闭" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "移除上下文 image.png" })[0]);
+    fireEvent.click(within(messageAttachments).getAllByRole("button", { name: "查看附件 image.png" })[0]);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(askDeepSeekAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("旧消息可预览保留的文档，移除后不再打开", async () => {
+    const ownerId = "preview-legacy";
+    localStorage.setItem(`semester-schedule-ai-assistant-history:${ownerId}`, JSON.stringify([
+      { id: "old", role: "user", content: "请读附件\n附件：安排.txt" }
+    ]));
+    await db.aiAttachmentContexts.put({
+      id: `ai-attachment-context:${ownerId}`, ownerId, updatedAt: new Date().toISOString(),
+      attachments: [{ name: "安排.txt", mimeType: "text/plain", kind: "document", text: "已保留的文档内容" }]
+    });
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId={ownerId} onClose={vi.fn()} />);
+    await screen.findByLabelText("附件上下文");
+    const messageAttachments = screen.getByLabelText("消息附件");
+    fireEvent.click(within(messageAttachments).getByRole("button", { name: "查看附件 安排.txt" }));
+    const preview = await screen.findByRole("dialog", { name: "查看附件：安排.txt" });
+    expect(within(preview).getByText("已保留的文档内容")).toBeInTheDocument();
+    fireEvent.click(within(preview).getByRole("button", { name: "关闭" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除上下文 安排.txt" }));
+    fireEvent.click(within(messageAttachments).getByRole("button", { name: "查看附件 安排.txt" }));
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(askDeepSeekAssistantMock).not.toHaveBeenCalled();
+  });
+
+  it("长文档预览包含所有待整理批次的原文", async () => {
+    getAiAssistantConfigurationMock.mockResolvedValue({ provider: "mimo", model: "mimo-v2.6-flash", supportsAttachments: true });
+    prepareAiAssistantAttachmentMock.mockResolvedValueOnce({
+      name: "论文.pdf", mimeType: "application/pdf", kind: "document", text: "将分批整理",
+      pendingTextBatches: [{ startPage: 1, endPage: 5, text: "第一批原文" }, { startPage: 6, endPage: 9, text: "第二批原文" }]
+    });
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="preview-batches" onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "导入图片或文档" });
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(["pdf"], "论文.pdf")] } });
+    fireEvent.click(await screen.findByRole("button", { name: "查看附件 论文.pdf" }));
+    const preview = await screen.findByRole("dialog", { name: "查看附件：论文.pdf" });
+    expect(preview).toHaveTextContent("第一批原文");
+    expect(preview).toHaveTextContent("第二批原文");
+    expect(askDeepSeekAssistantMock).not.toHaveBeenCalled();
+  });
+
+  it("提供当前账号文件夹上下文，并依据实际保存结果回复而非模型的完成声明", async () => {
+    await db.memoFolders.bulkPut([
+      { ...syncFields(undefined, "user-1"), id: "existing-folder", name: "已有资料", sort_order: 1 },
+      { ...syncFields(undefined, "another-user"), id: "private-folder", name: "其他账号资料", sort_order: 1 }
+    ]);
+    askDeepSeekAssistantMock.mockResolvedValueOnce({
+      answer: "已处理，但 AI 暂不能直接指定文件夹归属，请手动设置。",
+      actions: [
+        { type: "create_memo_folder", name: "毕设" },
+        { type: "create_memo", title: "开题前准备", folderName: "毕设", format: "numbered", items: [{ text: "阅读论文" }, { text: "写开题报告" }] }
+      ]
+    });
+    render(<DeepSeekAssistantDialog input={emptyInput} ownerId="user-1" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("例如：创建端午节，或明天 9:00 添加交作业"), {
+      target: { value: "创建毕设文件夹和开题前准备备忘录，列表用可勾选待办" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    const receipt = await screen.findByText(/2 条可勾选待办/);
+    expect(receipt).toHaveTextContent("已创建文件夹：毕设");
+    expect(receipt).toHaveTextContent("文件夹：毕设");
+    expect(screen.queryByText(/请手动设置/)).not.toBeInTheDocument();
+    expect(askDeepSeekAssistantMock.mock.calls[0]?.[1].memoFolders).toEqual([{ id: "existing-folder", name: "已有资料" }]);
+    const folder = await db.memoFolders.filter((item) => item.name === "毕设").first();
+    expect((await db.memos.toArray())[0]).toMatchObject({ folder_id: folder?.id, content: "○ 阅读论文\n○ 写开题报告" });
   });
 });

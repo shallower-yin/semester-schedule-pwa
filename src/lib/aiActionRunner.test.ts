@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import Dexie from "dexie";
 import { db } from "../db";
 import { setCurrentUserId } from "./identity";
-import { actionResultsSummary, applyActionsToLocalRecords } from "./aiActionRunner";
+import { actionResultsSummary, applyActionsToLocalRecords, assistantReplyAfterActions } from "./aiActionRunner";
 import type { Anniversary, AnniversaryKind, EventItem, SyncFields } from "../types";
+import type { DeepSeekAssistantAction } from "./deepSeekAssistant";
+import { getMemoChecklistStats } from "./memoFormatting";
 
 const userId = "33333333-3333-4333-8333-333333333333";
 const createdAt = "2026-09-20T00:00:00.000Z";
@@ -70,6 +72,7 @@ describe("AI 动作执行器", () => {
     await db.focusSessions.clear();
     await db.syncQueue.clear();
     await db.memos.clear();
+    await db.memoFolders.clear();
   });
 
   it("查询已有事项期间取消后不会执行删除", async () => {
@@ -325,6 +328,109 @@ describe("AI 动作执行器", () => {
     expect(await db.events.get(original.id)).toMatchObject({ start_date: "2026-12-17", end_date: "2026-12-17" });
     expect(await db.syncQueue.where("record_id").equals(original.id).count()).toBe(1);
   });
+
+  it("14个日期区间分别保存，文件夹归属、备注、勾选清单及同步队列都真实写入", async () => {
+    const ranges = [
+      ["2026-11-22", "2026-11-28"], ["2026-11-29", "2026-12-02"], ["2026-12-03", "2026-12-06"],
+      ["2026-12-07", "2026-12-09"], ["2026-12-10", "2026-12-13"], ["2026-12-14", "2026-12-15"],
+      ["2026-12-16", "2026-12-17"], ["2026-12-18", "2026-12-19"], ["2026-12-20", "2026-12-20"],
+      ["2026-12-21", "2026-12-24"], ["2026-12-25", "2026-12-27"], ["2026-12-28", "2027-01-03"],
+      ["2027-01-04", "2027-01-08"], ["2027-01-09", "2027-01-12"]
+    ];
+    const note = "具体内容：" + "完整保留公式、章节与结构参数。".repeat(25) + "\n预期成果：开题报告与PPT";
+    const events: DeepSeekAssistantAction[] = ranges.map(([startDate, endDate], index) => ({
+      type: "create_event", title: `阶段${index + 1}`, startDate, endDate, allDay: true, note, reminderEnabled: true
+    }));
+    const results = await applyActionsToLocalRecords([
+      ...events,
+      { type: "create_memo_folder", name: "毕设" },
+      { type: "create_memo", title: "开题前准备", folderName: "毕设", format: "numbered", items: ranges.map(([start, end], index) => ({ text: `${start} 至 ${end} 阶段${index + 1}\n${note}` })) }
+    ], "按表格记录到全天事项，不用提醒，新建毕设文件夹和开题前准备备忘录，用可勾选待办", userId);
+    expect(await db.events.count()).toBe(14);
+    const saved = await db.events.orderBy("start_date").toArray();
+    expect(saved.map((item) => [item.start_date, item.end_date])).toEqual(ranges);
+    expect(saved.every((item) => item.all_day && !item.reminder_enabled && item.note === note && item.recurrence_type === "none")).toBe(true);
+    const folder = (await db.memoFolders.toArray())[0];
+    expect(folder).toMatchObject({ name: "毕设", user_id: userId });
+    const memo = (await db.memos.toArray())[0];
+    expect(memo).toMatchObject({ title: "开题前准备", folder_id: folder.id });
+    expect(getMemoChecklistStats(memo.content)).toEqual({ total: 14, completed: 0, incomplete: 14 });
+    expect(results.created).toHaveLength(16);
+    expect(await db.syncQueue.count()).toBe(16);
+    const reply = assistantReplyAfterActions("已创建一个12月21日事项，文件夹需手动选择。", results, 16, "创建");
+    expect(reply).toContain("2026-12-28 至 2027-01-03");
+    expect(reply).toContain("14 条可勾选待办");
+    expect(reply).toContain("文件夹：毕设");
+    expect(reply).not.toContain("手动选择");
+  });
+
+  it("复用当前账号的同名文件夹，不使用其他账号或已删除的文件夹", async () => {
+    await db.memoFolders.bulkPut([
+      { ...fields("other-folder", "other-user"), name: "毕设", sort_order: 1 },
+      { ...fields("deleted-folder"), name: "毕设", sort_order: 1, deleted_at: createdAt },
+      { ...fields("own-folder"), name: "毕设", sort_order: 2 }
+    ]);
+    const results = await applyActionsToLocalRecords([
+      { type: "create_memo_folder", name: "毕设" },
+      { type: "create_memo", title: "研究清单", folderName: "毕设", format: "checklist", items: [{ text: "查文献" }] }
+    ], "创建", userId);
+    expect(await db.memoFolders.count()).toBe(3);
+    expect((await db.memos.toArray())[0].folder_id).toBe("own-folder");
+    expect(results.created.filter((item) => item.table === "memoFolders")).toHaveLength(0);
+  });
+
+  it("不允许把备忘录放进其他账号的文件夹，并在写入任何事项前拒绝", async () => {
+    await db.memoFolders.put({ ...fields("other-folder", "other-user"), name: "毕设", sort_order: 1 });
+    await expect(applyActionsToLocalRecords([
+      { type: "create_event", title: "不应创建", startDate: "2026-12-21" },
+      { type: "create_memo", title: "不应保存", folderId: "other-folder" }
+    ], "创建", userId)).rejects.toThrow("不属于当前账号");
+    expect(await db.events.count()).toBe(0);
+    expect(await db.memos.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
+  });
+
+  it("按文件夹ID归档，多个同名文件夹需要明确选择", async () => {
+    await db.memoFolders.bulkPut([
+      { ...fields("folder-1"), name: "毕设", sort_order: 1 },
+      { ...fields("folder-2"), name: "毕设", sort_order: 2 }
+    ]);
+    await expect(applyActionsToLocalRecords([{ type: "create_memo", title: "清单", folderName: "毕设" }], "创建", userId)).rejects.toThrow("多个");
+    await applyActionsToLocalRecords([{ type: "create_memo", title: "清单", folderId: "folder-2" }], "创建", userId);
+    expect((await db.memos.toArray())[0].folder_id).toBe("folder-2");
+  });
+
+  it("自动创建文件夹后备忘录保存失败时一起回滚，不留下文件夹和同步记录", async () => {
+    const failMemo = () => { throw new Error("模拟保存失败"); };
+    db.memos.hook("creating", failMemo);
+    try {
+      await expect(applyActionsToLocalRecords([{ type: "create_memo", title: "清单", folderName: "毕设" }], "创建", userId)).rejects.toThrow("模拟保存失败");
+    } finally {
+      db.memos.hook("creating").unsubscribe(failMemo);
+    }
+    expect(await db.memoFolders.count()).toBe(0);
+    expect(await db.memos.count()).toBe(0);
+    expect(await db.syncQueue.count()).toBe(0);
+  });
+
+  it("部分写入失败时如实保留已提交结果并说明未完成操作", async () => {
+    const failSecond = (_key: unknown, memo: { title: string }) => { if (memo.title === "第二条") throw new Error("第二条保存失败"); };
+    db.memos.hook("creating", failSecond);
+    try {
+      const results = await applyActionsToLocalRecords([
+        { type: "create_memo", title: "第一条" }, { type: "create_memo", title: "第二条" }, { type: "create_memo", title: "第三条" }
+      ], "创建备忘录", userId);
+      expect(results.created).toHaveLength(1);
+      expect(await db.memos.count()).toBe(1);
+      const reply = assistantReplyAfterActions("已全部创建成功", results, 3, "创建备忘录");
+      expect(reply).toContain("已创建备忘录：第一条");
+      expect(reply).toContain("部分操作未完成");
+      expect(reply).not.toContain("已全部创建成功");
+      expect(reply).not.toContain("已创建备忘录：第二条");
+    } finally {
+      db.memos.hook("creating").unsubscribe(failSecond);
+    }
+  });
 });
 
 describe("AI 动作结果汇总", () => {
@@ -343,7 +449,7 @@ describe("AI 动作结果汇总", () => {
     }));
 
     expect(actionResultsSummary({ created: records, updated: [], deleted: [], unmatched: [] })).toBe(
-      "已创建事项：设计与制造基础3课程设计（9 个）"
+      "已创建事项：设计与制造基础3课程设计（2026-09-21，08:00-10:00，已启用提醒）（9 个）"
     );
   });
 
@@ -360,7 +466,7 @@ describe("AI 动作结果汇总", () => {
     });
 
     expect(summary).toBe([
-      "已创建事项：设计与制造基础3课程设计",
+      "已创建事项：设计与制造基础3课程设计（2026-09-21，08:00-10:00，已启用提醒）",
       "已创建备忘录：购物清单",
       "已修改事项：设计与制造基础3课程设计",
       "已删除事项：设计与制造基础3课程设计"
@@ -369,5 +475,12 @@ describe("AI 动作结果汇总", () => {
 
   it("没有任何动作时返回空字符串", () => {
     expect(actionResultsSummary({ created: [], updated: [], deleted: [], unmatched: [] })).toBe("");
+  });
+
+  it("没有动作时不能显示模型编造的创建成功，但保留正常回答和澄清问题", () => {
+    const empty = { created: [], updated: [], deleted: [], unmatched: [] };
+    expect(assistantReplyAfterActions("已创建毕设文件夹和可勾选清单", empty, 0, "创建文件夹和备忘录")).toContain("未执行任何操作");
+    expect(assistantReplyAfterActions("请问要创建在哪一天？", empty, 0, "创建事项")).toBe("请问要创建在哪一天？");
+    expect(assistantReplyAfterActions("这是论文的主要方法。", empty, 0, "解释论文")).toBe("这是论文的主要方法。");
   });
 });

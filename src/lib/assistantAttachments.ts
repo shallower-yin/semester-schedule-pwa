@@ -21,6 +21,7 @@ export interface AiAttachmentProcessingUsage {
 }
 
 export interface AiAssistantAttachment {
+  id?: string;
   name: string;
   mimeType: string;
   kind: "image" | "document";

@@ -27,8 +27,9 @@ final class ScheduleWidgetStore {
     private static final String OUTBOX_PREFIX = "completion_outbox.";
     private static final String HIDDEN_PREFIX = "completion_hidden.";
     private static final String SOURCE_ABSENT_OBSERVED = "sourceAbsentObserved";
-    private static final int MAX_BYTES = 64 * 1024;
-    private static final int MAX_TODOS = 3;
+    private static final int MAX_BYTES = 1024 * 1024;
+    private static final int MAX_TODOS = 1000;
+    private static final int MAX_ITEMS_PER_DAY = 100;
     private static final int MAX_COMPLETION_ACTIONS = 100;
     private static final Pattern DATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
     private static final Pattern OWNER_DIGEST = Pattern.compile("[0-9a-fA-F]{64}");
@@ -365,7 +366,7 @@ final class ScheduleWidgetStore {
             String date = day != null ? day.optString("date", "") : "";
             if (day == null || !validDate(date) || !seenDates.add(date)) return false;
             JSONArray items = day.optJSONArray("items");
-            if (items == null || items.length() > 8) return false;
+            if (items == null || items.length() > MAX_ITEMS_PER_DAY) return false;
             for (int j = 0; j < items.length(); j++) {
                 JSONObject item = items.optJSONObject(j);
                 if (item == null) return false;

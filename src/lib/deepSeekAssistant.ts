@@ -34,7 +34,7 @@ export interface DeepSeekAssistantQuotaStatus {
   weekly: { used: number | null; limit: number | null; remaining: number | null };
 }
 
-export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction | DeepSeekUpdateEventAction | DeepSeekDeleteEventAction | DeepSeekUpdateAnniversaryAction;
+export type DeepSeekAssistantAction = DeepSeekCreateEventAction | DeepSeekCreateAnniversaryAction | DeepSeekCreateMemoAction | DeepSeekCreateMemoFolderAction | DeepSeekUpdateEventAction | DeepSeekDeleteEventAction | DeepSeekUpdateAnniversaryAction;
 
 export interface DeepSeekCreateEventAction {
   type: "create_event";
@@ -75,6 +75,15 @@ export interface DeepSeekCreateMemoAction {
   title: string;
   content?: string | null;
   isPinned?: boolean;
+  folderId?: string | null;
+  folderName?: string | null;
+  format?: "plain" | "numbered" | "checklist";
+  items?: Array<{ text: string; completed?: boolean }>;
+}
+
+export interface DeepSeekCreateMemoFolderAction {
+  type: "create_memo_folder";
+  name: string;
 }
 
 export interface DeepSeekUpdateEventAction {
@@ -195,9 +204,9 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, ques
     ],
     appGuide: [
       "AI 助手可以查询日程、检查冲突、查未完成、汇总专注，也可以回答本工具怎么使用。",
-      "可以创建普通事项、习惯、纪念日、生日、节日和备忘录。",
+      "可以创建普通事项、习惯、纪念日、生日、节日、备忘录和备忘录文件夹，并指定备忘录的文件夹归属。",
       "AI 思维导图使用当前管理员选择的 AI 模型，把主题、图片或文档整理成可缩放和导出的树形脑图，每次成功生成会计入一次 AI 额度。",
-      "AI 助手可以新增、修改和删除普通事项、习惯、纪念日、生日、节日和备忘录；不能更改账号、权限、额度或系统设置。",
+      "AI 助手可以新增、修改和删除普通事项、习惯、纪念日、生日和节日，也可以创建备忘录、待办清单和文件夹；不能更改账号、权限、额度或系统设置。",
       "日程助手只在本机按规则查询，不需要 AI 权限且不消耗 AI 额度；AI 助手是云端智能问答，每次成功请求会计入额度。",
       "普通用户和会员分别使用管理员配置的日、周额度，管理员不限额；访问口令只是临时体验。",
       "编辑已发送的用户消息会从该轮重新生成并截断后续旧对话，重新发送会计入一次额度。",
@@ -257,8 +266,11 @@ export function buildDeepSeekScheduleContext(input: ScheduleAssistantInput, ques
       reminder: item.reminder_enabled ? `${item.reminder_days_before} 天前 ${item.reminder_time}` : "未提醒",
       note: item.note
     })),
+    memoFolders: (input.memoFolders ?? []).filter((item) => !item.deleted_at).map((item) => ({ id: item.id, name: item.name })),
     memos: (input.memos ?? []).filter((item) => !item.deleted_at).slice(0, 60).map((item) => ({
       title: item.title,
+      folderId: item.folder_id,
+      folderName: input.memoFolders?.find((folder) => folder.id === item.folder_id && !folder.deleted_at)?.name ?? null,
       pinned: item.is_pinned,
       preview: item.content.slice(0, 240)
     })),

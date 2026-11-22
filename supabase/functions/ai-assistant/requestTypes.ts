@@ -107,7 +107,7 @@ export interface AiAccessRow {
 
 export type AnniversaryKind = "anniversary" | "birthday" | "holiday";
 export type EventRecurrenceType = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "interval";
-export type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction | AiUpdateEventAction | AiDeleteEventAction | AiUpdateAnniversaryAction;
+export type AiAssistantAction = AiCreateEventAction | AiCreateAnniversaryAction | AiCreateMemoAction | AiCreateMemoFolderAction | AiUpdateEventAction | AiDeleteEventAction | AiUpdateAnniversaryAction;
 
 export interface AiCreateEventAction {
   type: "create_event";
@@ -148,6 +148,15 @@ export interface AiCreateMemoAction {
   title: string;
   content?: string | null;
   isPinned?: boolean;
+  folderId?: string | null;
+  folderName?: string | null;
+  format?: "plain" | "numbered" | "checklist";
+  items?: Array<{ text: string; completed?: boolean }>;
+}
+
+export interface AiCreateMemoFolderAction {
+  type: "create_memo_folder";
+  name: string;
 }
 
 export interface AiUpdateEventAction {

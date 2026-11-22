@@ -153,7 +153,7 @@ describe("Android 小组件日程快照", () => {
     expect(Object.hasOwn(snapshot, "todos")).toBe(false);
   });
 
-  it("待办按账号隔离，仅投影未完成项，并按置顶、顺序和创建时间取前三条", () => {
+  it("待办按账号隔离，仅投影未完成项，并按置顶、顺序和创建时间排序", () => {
     const snapshot = buildWidgetSnapshot({
       ...emptyInput,
       ownerId: "alice",
@@ -172,7 +172,8 @@ describe("Android 小组件日程快照", () => {
     expect(snapshot.todos).toEqual([
       { title: "置顶第一", targetId: "pinned-first" },
       { title: "置顶稍后", targetId: "pinned-later" },
-      { title: "普通第一", targetId: "normal-first" }
+      { title: "普通第一", targetId: "normal-first" },
+      { title: "普通稍后", targetId: "normal-later" }
     ]);
     expect(Object.keys(snapshot.todos![0])).toEqual(["title", "targetId"]);
     expect(JSON.stringify(snapshot)).not.toContain("bob");
@@ -190,6 +191,28 @@ describe("Android 小组件日程快照", () => {
 
     expect(Object.hasOwn(snapshot, "todos")).toBe(true);
     expect(snapshot.todos).toEqual([]);
+  });
+  it("滚动列表的数据包含第五条之后的日程和待办", () => {
+    const snapshot = buildWidgetSnapshot({
+      ...emptyInput, ownerId: "alice",
+      events: Array.from({ length: 20 }, (_, index) => event({ id: `event-${index}`, title: `日程 ${index}` })),
+      todos: Array.from({ length: 20 }, (_, index) => todo({ id: `todo-${index}`, title: `待办 ${index}`, sort_order: index }))
+    }, dateAtProductTime("2026-08-30", "08:00"), { days: 1 });
+    expect(snapshot.days[0].items).toHaveLength(20);
+    expect(snapshot.days[0].items.some(item => item.targetId === "event-19")).toBe(true);
+    expect(snapshot.todos).toHaveLength(20);
+    expect(snapshot.todos?.at(-1)).toEqual({ title: "待办 19", targetId: "todo-19" });
+  });
+  it("先过滤已完成日程再截取，避免前面已完成的事项挤掉未完成事项", () => {
+    const snapshot = buildWidgetSnapshot({
+      ...emptyInput, ownerId: "alice",
+      events: [
+        ...Array.from({ length: 12 }, (_, index) => event({ id: `done-${index}`, start_time: "07:00", completed_at: "2026-08-30T00:00:00.000Z" })),
+        ...Array.from({ length: 8 }, (_, index) => event({ id: `open-${index}`, start_time: "09:00" }))
+      ], todos: []
+    }, dateAtProductTime("2026-08-30", "08:00"), { days: 1, maxItemsPerDay: 5 });
+    expect(snapshot.days[0].items).toHaveLength(5);
+    expect(snapshot.days[0].items.every(item => item.targetId.startsWith("open-") && !item.completed)).toBe(true);
   });
 
   it("已完成日程不再投影到组件，未完成日程仍带有可完成目标", () => {
