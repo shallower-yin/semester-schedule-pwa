@@ -40,9 +40,16 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ -z "${BEFORE_SHA:-}" ] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "functions_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed_files="$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")"
+          if grep -Eq '^(supabase/functions/|supabase/migrations/[^/]*reminder|supabase/config\.toml$|scripts/configure-r2\.mjs$|scripts/r2-cors\.json$)' <<<"$changed_files"; then
+            echo "functions_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "functions_changed=false" >> "$GITHUB_OUTPUT"
+            echo "Schema-only changes; skip function deployment and external configuration changes."
+          fi
           if grep -Eq '^(supabase/functions/send-reminders/|supabase/migrations/[^/]*reminder|supabase/migrations/20260706_schedule_reminder_edge_function\.sql)' <<<"$changed_files"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
@@ -51,6 +58,7 @@ jobs:
           fi
 
       - name: Setup Supabase CLI
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
         with:
           version: 2.110.0
@@ -71,11 +79,12 @@ jobs:
       - name: Apply pending database migrations once
         run: node scripts/apply-supabase-migrations.mjs
 
-      - name: Verify encrypted OTP schema and account permissions without user writes
+      - name: Verify saved key schema and account permissions without user writes
         run: |
           set -euo pipefail
           query="select
             exists (select 1 from public.app_schema_migrations where name = '20261122_otp_vaults.sql') as migration_applied,
+            exists (select 1 from public.app_schema_migrations where name = '20261127_otp_saved_secrets.sql') as saved_keys_migration_applied,
             to_regprocedure('public.save_otp_vault(uuid,bigint,jsonb)') is not null as save_rpc_present,
             (select relrowsecurity from pg_class where oid = 'public.otp_vaults'::regclass) as rls_enabled,
             has_table_privilege('authenticated','public.otp_vaults','SELECT') and not has_table_privilege('anon','public.otp_vaults','SELECT') as owner_read_permissions,
@@ -133,6 +142,7 @@ jobs:
           printf '%s\n' "$response" | jq -e 'length == 1 and (.[0] | all(. == true))' > /dev/null
 
       - name: Configure production auth URLs
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         env:
           APP_URL: https://schedule.nfsg.eu.cc/
           APP_REDIRECT_URL: https://schedule.nfsg.eu.cc/**
@@ -182,6 +192,7 @@ jobs:
           echo "Supabase Auth Site URL and redirect allow-list now use $APP_URL"
 
       - name: Prepare private reminder credential
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         env:
           CONFIGURED_REMINDER_DISPATCHER_TOKEN: ${{ secrets.REMINDER_DISPATCHER_TOKEN }}
         run: |
@@ -195,6 +206,7 @@ jobs:
           echo "REMINDER_DISPATCHER_TOKEN=$reminder_token" >> "$GITHUB_ENV"
 
       - name: Configure function secrets
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
@@ -324,9 +336,11 @@ jobs:
             --data @/tmp/reminder-vault-secret.json
 
       - name: Deploy reminder function
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         run: supabase functions deploy send-reminders --project-ref "$PROJECT_REF" --no-verify-jwt
 
       - name: Deploy AI assistant function
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         run: supabase functions deploy ai-assistant --project-ref "$PROJECT_REF"
 
       - name: Verify audio submission migration without provider calls
@@ -353,6 +367,7 @@ jobs:
           printf '%s\n' "$response" | jq -e 'length == 1 and (.[0] | all(. == true))' > /dev/null
 
       - name: Configure R2 CORS and lifecycle
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         continue-on-error: true
         env:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -376,6 +391,7 @@ jobs:
           fi
 
       - name: Deploy admin function
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         run: supabase functions deploy admin --project-ref "$PROJECT_REF"
 
       - name: Verify MiMo model migration without provider calls
@@ -413,6 +429,7 @@ jobs:
           ' > /dev/null
 
       - name: Deploy static app hosting function
+        if: steps.reminder_changes.outputs.functions_changed == 'true'
         run: supabase functions deploy app-hosting --project-ref "$PROJECT_REF" --no-verify-jwt
 
       - name: Configure database cron
